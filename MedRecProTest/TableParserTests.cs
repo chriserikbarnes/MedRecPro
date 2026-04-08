@@ -696,6 +696,239 @@ namespace MedRecPro.Service.Test
             Assert.IsNull(PkTableParser.extractArmNFromLabel(null));
         }
 
+        #region PkTableParser Transposed Layout & Caption ArmN Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the Estradiol-style transposed PK table used by the transposed-layout
+        /// sanity check: col 0 header is "Parameter", column headers are doses, and
+        /// row labels are PK metrics like "AUC84(pg·hr/mL)".
+        /// </summary>
+        private static ReconstructedTable createTransposedPkTable(string? caption = null)
+        {
+            #region implementation
+
+            return createTestTable(
+                new[] { "Parameter", "0.1 mg/day", "0.05 mg/day", "0.025 mg/day" },
+                new List<string?[]>
+                {
+                    new[] { "AUC84(pg·hr/mL)",  "5875 (1857)", "3057 (980)",  "1763 (600)" },
+                    new[] { "AUC120(pg·hr/mL)", "6252 (1938)", "3320 (1038)", "1979 (648)" },
+                    new[] { "Cmax(pg/mL)",      "117 (39.3)",  "56.6 (17.6)", "30.3 (11.1)" },
+                    new[] { "Tmax(hr)",         "24.0 (8-60)", "24.0 (8-60)", "36.0 (8-84)" }
+                },
+                caption: caption,
+                parentSectionCode: "34090-1",
+                sectionTitle: "12.3 Pharmacokinetics");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// detectTransposedPkLayout returns true for an Estradiol-style table where col 0
+        /// header is generic, all other headers are doses, and row labels are PK metrics.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TransposedLayout_Detected()
+        {
+            var table = createTransposedPkTable();
+            Assert.IsTrue(PkTableParser.detectTransposedPkLayout(table));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// detectTransposedPkLayout returns false for a standard PK table — guards against
+        /// accidental activation on well-formed canonical-layout PK tables.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TransposedLayout_NotDetected_StandardLayout()
+        {
+            var table = createTestTable(
+                new[] { "Dose", "Cmax (mcg/mL)", "AUC (mcg·h/mL)", "t½ (hours)" },
+                new List<string?[]>
+                {
+                    new[] { "50 mg oral", "0.29 (35%)", "1.2 (28%)", "30" },
+                    new[] { "100 mg oral", "0.58 (32%)", "2.4 (25%)", "31" }
+                },
+                parentSectionCode: "34090-1");
+
+            Assert.IsFalse(PkTableParser.detectTransposedPkLayout(table));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// detectTransposedPkLayout returns false when col 0 header is a population
+        /// descriptor rather than a generic "Parameter" label.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TransposedLayout_NotDetected_PopulationCol0()
+        {
+            var table = createTestTable(
+                new[] { "Age Group", "0.1 mg/day", "0.05 mg/day" },
+                new List<string?[]>
+                {
+                    new[] { "18-40",  "5875 (1857)", "3057 (980)" },
+                    new[] { "41-65",  "5210 (1500)", "2800 (900)" }
+                },
+                parentSectionCode: "34090-1");
+
+            Assert.IsFalse(PkTableParser.detectTransposedPkLayout(table));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// detectTransposedPkLayout returns false when col 0 header is "Parameter" but
+        /// the non-col-0 headers are not dose-shaped (e.g., still PK metric names).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TransposedLayout_NotDetected_NonDoseHeaders()
+        {
+            var table = createTestTable(
+                new[] { "Parameter", "Cmax (mcg/mL)", "AUC (mcg·h/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "50 mg", "0.29 (35%)", "1.2 (28%)" }
+                },
+                parentSectionCode: "34090-1");
+
+            Assert.IsFalse(PkTableParser.detectTransposedPkLayout(table));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// End-to-end parse of the transposed Estradiol table produces observations with
+        /// ParameterName = PK metric, DoseRegimen = dose header, Unit extracted from the
+        /// parenthesized metric, and the PK_TRANSPOSED_LAYOUT_SWAP flag.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TransposedLayout_SwapProducesCorrectObservations()
+        {
+            var table = createTransposedPkTable(
+                caption: "Table 2: Mean (SD) Serum Pharmacokinetic Parameters of Baseline-Uncorrected Estradiol following a Single Dose of ESTRADIOL TRANSDERMAL SYSTEM (N=36)");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // 4 metrics × 3 doses = 12 observations
+            Assert.AreEqual(12, results.Count);
+
+            // ParameterName is the PK metric name (unit stripped)
+            var paramNames = results.Select(r => r.ParameterName).Distinct().OrderBy(n => n).ToList();
+            CollectionAssert.AreEqual(
+                new[] { "AUC120", "AUC84", "Cmax", "Tmax" },
+                paramNames);
+
+            // DoseRegimen carries the dose header, and Dose/DoseUnit are extracted
+            var auc84Low = results.First(r => r.ParameterName == "AUC84" && r.DoseRegimen == "0.025 mg/day");
+            Assert.AreEqual("pg·hr/mL", auc84Low.Unit);
+            Assert.AreEqual(0.025m, auc84Low.Dose);
+            Assert.AreEqual("mg/d", auc84Low.DoseUnit);
+            Assert.IsTrue(auc84Low.ValidationFlags?.Contains("PK_TRANSPOSED_LAYOUT_SWAP") == true,
+                $"Expected PK_TRANSPOSED_LAYOUT_SWAP flag, got '{auc84Low.ValidationFlags}'");
+
+            // Cmax has a different unit
+            var cmaxMid = results.First(r => r.ParameterName == "Cmax" && r.DoseRegimen == "0.05 mg/day");
+            Assert.AreEqual("pg/mL", cmaxMid.Unit);
+            Assert.AreEqual(0.05m, cmaxMid.Dose);
+
+            // Caption ArmN fallback also applied (same test — N=36 in caption)
+            Assert.IsTrue(results.All(r => r.ArmN == 36),
+                "All observations should have ArmN=36 from caption fallback");
+            Assert.IsTrue(results.All(r => r.ValidationFlags?.Contains("PK_CAPTION_ARMN_FALLBACK:36") == true));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// applyCaptionArmNFallback populates ArmN on all observations when parser
+        /// leaves ArmN null and the caption contains "(N=X)".
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CaptionArmN_Fallback_PopulatesNullArmN()
+        {
+            var table = createTestTable(
+                new[] { "Dose", "Cmax (mcg/mL)", "AUC (mcg·h/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "50 mg oral", "0.29 (35%)", "1.2 (28%)" },
+                    new[] { "100 mg oral", "0.58 (32%)", "2.4 (25%)" }
+                },
+                caption: "Table 1: Mean PK Parameters in Healthy Subjects (N=24)",
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.IsTrue(results.All(r => r.ArmN == 24),
+                "All observations should pick up ArmN=24 from caption");
+            Assert.IsTrue(results.All(r => r.ValidationFlags?.Contains("PK_CAPTION_ARMN_FALLBACK:24") == true));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// applyCaptionArmNFallback does NOT override an ArmN value the parser already
+        /// derived from the row label. Compound-header rows carry "(n=X)" per arm, and
+        /// those values must be preserved.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_CaptionArmN_Fallback_DoesNotOverrideExisting()
+        {
+            var table = createCompoundPkTable();
+            // Inject a conflicting caption N
+            table.Caption = "Table X: Mean PK Parameters (N=99)";
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // Rows with row-label-derived ArmN must keep their original values
+            var healthyRenal = results.FirstOrDefault(r =>
+                r.TreatmentArm != null && r.TreatmentArm.Contains("Healthy Volunteers")
+                && r.ParameterCategory == "Renal Impairment");
+            Assert.IsNotNull(healthyRenal);
+            Assert.AreEqual(6, healthyRenal.ArmN, "Row-label ArmN must not be overridden");
+            Assert.IsFalse(healthyRenal.ValidationFlags?.Contains("PK_CAPTION_ARMN_FALLBACK") == true,
+                "No fallback flag should be appended when ArmN was already set");
+
+            var cirrhosis = results.FirstOrDefault(r =>
+                r.TreatmentArm != null && r.TreatmentArm.Contains("Cirrhosis"));
+            Assert.IsNotNull(cirrhosis);
+            Assert.AreEqual(18, cirrhosis.ArmN, "Row-label ArmN must not be overridden");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// extractArmNFromCaption extracts the parenthesized N= value from caption text.
+        /// Case-insensitive and comma-friendly.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ExtractArmNFromCaption_ParenthesizedN()
+        {
+            Assert.AreEqual(36, PkTableParser.extractArmNFromCaption(
+                "Table 2: Mean (SD) Serum PK Parameters following a Single Dose (N=36)"));
+            Assert.AreEqual(1234, PkTableParser.extractArmNFromCaption(
+                "Summary (n=1,234)"));
+            Assert.AreEqual(24, PkTableParser.extractArmNFromCaption(
+                "Healthy Subjects (N = 24)"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// extractArmNFromCaption returns null for captions that do not contain a
+        /// parenthesized N= expression.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ExtractArmNFromCaption_NoMatch()
+        {
+            Assert.IsNull(PkTableParser.extractArmNFromCaption("Table 2: Mean PK Parameters"));
+            Assert.IsNull(PkTableParser.extractArmNFromCaption(""));
+            Assert.IsNull(PkTableParser.extractArmNFromCaption(null));
+            // Unparenthesized "N = 36" is intentionally not matched — avoids false positives
+            Assert.IsNull(PkTableParser.extractArmNFromCaption("Population was N = 36 subjects"));
+        }
+
+        #endregion PkTableParser Transposed Layout & Caption ArmN Tests
+
         /**************************************************************/
         /// <summary>
         /// Existing basic PK test still passes — backward compatibility.

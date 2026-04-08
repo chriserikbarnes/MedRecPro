@@ -1685,3 +1685,39 @@ Added two new structured columns (`Dose DECIMAL(18,6)`, `DoseUnit NVARCHAR(50)`)
 **Files modified (17):** SQL DDL, 6 model files (ArmDefinition, ParsedObservation, LabelView x2, FlattenedStandardizedTableDto, MlTrainingRecord), MlNetDataModels, DoseExtractor (new), BaseTableParser, 4 parsers (SimpleArm, AeWithSoc, MultilevelAe, PkTableParser), TableParsingOrchestrator, ColumnStandardizationService, MlNetCorrectionService, ClaudeApiCorrectionService, BatchValidationService, column-contracts.md. Both projects build with 0 errors.
 
 ---
+
+### 2026-04-08 10:07 AM EST — PK Parser: Transposed Layout & Caption ArmN Fallback
+Added two additive sanity checks to `PkTableParser` driven by an Estradiol TDS table (TextTableID=85) that exposed edge cases the parser was not handling. The table is transposed from the canonical PK layout — col 0 is a generic "Parameter" header with PK metric row labels ("AUC84(pg·hr/mL)", "Cmax(pg/mL)", "Tmax(hr)"), and columns 1–3 are dose levels ("0.1 mg/day", "0.05 mg/day", "0.025 mg/day"). The standard parser treated the dose headers as `ParameterName` and the PK metric row labels as `DoseRegimen`, which `ColumnStandardizationService.normalizeDoseRegimen` then rerouted to `ParameterSubtype` — producing `ParameterName="0.1 mg/day"` / `ParameterSubtype="AUC84"` (both wrong). The caption also carried `(N=36)` which was never consulted for `ArmN`.
+
+**Refinement 1 — Caption ArmN fallback.** New `extractArmNFromCaption(string?)` reuses the existing `_armNFromLabelPattern` (case-insensitive parenthesized `(N=X)`). New `applyCaptionArmNFallback(table, observations)` populates null `ArmN` on each observation and appends `PK_CAPTION_ARMN_FALLBACK:{n}` to `ValidationFlags`. Wired into both `Parse()` and `parseCompoundLayout()`. Crucially it **never overrides** an `ArmN` the parser already derived from a row label (verified by the compound-header test injecting a conflicting caption `(N=99)` — row-label-derived `ArmN=6` and `ArmN=18` remain intact).
+
+**Refinement 2 — Transposed layout detection & swap.** New `detectTransposedPkLayout(table)` requires **all three** signals simultaneously: (a) col 0 header matches the new `_transposedLayoutCol0Headers` set (`Parameter`, `Parameters`, `PK Parameter`, `Pharmacokinetic Parameters`, …), (b) every non-col-0 header matches the new `_doseHeaderPattern`, (c) ≥ 2 data-body rows start with a canonical PK metric via new `_pkMetricRowLabelPattern` (AUC/Cmax/Tmax/CL/Vd/Half-life/…) AND those form the majority. New `applyTransposedPkLayoutSwap(observations)` swaps `ParameterName` ↔ `DoseRegimen`, splits the parenthesized PK metric into name + `Unit` via `_paramUnitPattern`, re-extracts `Dose`/`DoseUnit` through `DoseExtractor.Extract`, surfaces `Time`/`TimeUnit` for time-measure metrics, and appends `PK_TRANSPOSED_LAYOUT_SWAP` to `ValidationFlags`. Activates **only** on the standard single-column path when `!hasDoseColumn && !col0IsPopulation`, so the two-column layout, compound-header layout, and population-col0 layout are left untouched.
+
+**Non-regression posture.** All existing PK parsing paths untouched — the two new post-process hooks run after the data-row loop and only mutate observations when their strict detection guards all succeed. `TableParsingOrchestrator`, `ColumnStandardizationService`, `ValueParser`, and `BaseTableParser` unchanged.
+
+**Tests (10 new in `TableParserTests.cs`).** New `#region PkTableParser Transposed Layout & Caption ArmN Tests` block with fixture `createTransposedPkTable` that mirrors TextTableID=85 exactly. Coverage: detection on the Estradiol table, non-detection on canonical PK layout, non-detection on `"Age Group"` col 0, non-detection on non-dose headers, full end-to-end swap (asserts `ParameterName` = `AUC84`/`AUC120`/`Cmax`/`Tmax`, `DoseRegimen` = dose headers, `Unit` = `pg·hr/mL`/`pg/mL`, `Dose` = 0.025m with `DoseUnit` = `mg/d`, both validation flags present, `ArmN=36` from caption), caption fallback on standard table `(N=24)`, caption fallback preservation of row-label ArmN in compound layout (injected `(N=99)` must not override `(n=6)`/`(n=18)`), and unit tests on `extractArmNFromCaption` including a deliberate null case for unparenthesized `"N = 36"` to guard against false positives in free-text captions.
+
+**Verification.** `dotnet build` clean (0 errors). `dotnet test --filter "FullyQualifiedName~TableParserTests.PkParser"` — 33/33 pass. Full suite `dotnet test` — **1071/1071 pass**, zero regressions across ColumnStandardizationServiceTests, TableParsingOrchestratorTests, ValueParserTests, and all other suites.
+
+---
+
+### 2026-04-08 10:51 AM EST — parse-single Spectre.Console Footnote Markup Crash
+Diagnosed a reported regression that "TextTableID=85 was entirely omitted from the database" after the PK transposed-layout/caption ArmN refinements landed. Investigation showed the parser was actually fine — DB query confirmed 12 rows for TextTableID=85 in `tmp_FlattenedStandardizedTable` with all the expected post-swap fields (`ParameterName` ∈ {AUC84, AUC120, Cmax, Tmax}, `ParameterSubtype=NULL`, `ArmN=36`, `Dose`/`DoseUnit` parsed from headers, `ValidationFlags` containing both `PK_TRANSPOSED_LAYOUT_SWAP` and `PK_CAPTION_ARMN_FALLBACK:36`). The user's premise was a `SELECT` without `ORDER BY` that hid the row range — once filtered by ID, TextTableID=85 was clearly present.
+
+The investigation did surface a real (unrelated) bug in `MedRecProConsole/Services/TableStandardizationService.cs:1209`. The footnote display loop was interpolating the dictionary key directly inside `[...]`:
+
+```csharp
+AnsiConsole.MarkupLine($"  [{fn.Key}] {Markup.Escape(fn.Value)}");
+```
+
+Spectre.Console treats `[…]` as a markup style tag, so a footnote keyed `"Median"` made it parse `[Median]` as a style name and throw `InvalidOperationException: Could not find color or style 'Median'`. This crashed the verbose `parse-single` display path mid-table whenever a real table had non-symbolic footnote keys, which is what initially made the table look "missing" when visually scanning the CLI output.
+
+**Fix.** Escape both the literal brackets (using Spectre's `[[`/`]]` doubling) and the key text via `Markup.Escape`:
+
+```csharp
+AnsiConsole.MarkupLine($"  [[{Markup.Escape(fn.Key)}]] {Markup.Escape(fn.Value)}");
+```
+
+No parser, orchestrator, or DB-write paths were touched — purely a CLI display fix. The defensive try/catch wrapper around `applyTransposedPkLayoutSwap` / `applyCaptionArmNFallback` that the diagnostic plan suggested as a safety net was deemed unnecessary, since neither helper actually throws on real Stage-2 reconstructed data and the verification rows confirm clean end-to-end behavior.
+
+---

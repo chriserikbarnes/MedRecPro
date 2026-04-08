@@ -139,6 +139,38 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"\(\s*n\s*=\s*(\d[\d,]*)\s*\)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /**************************************************************/
+        /// <summary>
+        /// Column 0 header keywords that signal a transposed PK layout where rows carry
+        /// PK metric names and columns carry dose levels. These headers are generic
+        /// "parameter"-style labels with no unit or dose qualifier.
+        /// </summary>
+        /// <seealso cref="detectTransposedPkLayout"/>
+        private static readonly HashSet<string> _transposedLayoutCol0Headers = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Parameter", "Parameters", "PK Parameter", "PK Parameters",
+            "Pharmacokinetic Parameter", "Pharmacokinetic Parameters"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Pattern for canonical PK metric name prefixes in column 0 data cells of a
+        /// transposed PK layout. Used by <see cref="detectTransposedPkLayout"/> to verify
+        /// that row labels are PK metrics (e.g., "AUC84(pg·hr/mL)", "Cmax(pg/mL)").
+        /// </summary>
+        private static readonly Regex _pkMetricRowLabelPattern = new(
+            @"^\s*(AUC\w*|C\s*max|C\s*min|C\s*avg|C\s*ss|T\s*max|T\s*min|T\s*1/2|t½|Half-?life|CL(?:/F)?|Vd(?:/F)?|V\s*ss|Vz|MRT|Lambda_?z|Ke|Ka)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Dose-like header pattern for detecting transposed PK layouts where column headers
+        /// carry dose levels ("0.1 mg/day", "500 mcg", "1 g/kg").
+        /// </summary>
+        private static readonly Regex _doseHeaderPattern = new(
+            @"^\s*\d+(?:\.\d+)?\s*(mg|mcg|µg|μg|g|ng|kg|mL|units?|U|IU)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         #region ITableParser Implementation
 
         /**************************************************************/
@@ -294,6 +326,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
             }
 
+            // Sanity check: transposed layout where rows are PK metrics and columns
+            // are doses. Only activates on the standard single-column path when no
+            // dose column and no population column 0 are present.
+            if (!hasDoseColumn && !col0IsPopulation && detectTransposedPkLayout(table))
+            {
+                applyTransposedPkLayoutSwap(observations);
+            }
+
             // Post-parse: refine generic "CI" bound type from table context
             // (footer rows, spanning data rows that contain "N% CI" text)
             if (observations.Any(o => o.BoundType == "CI"))
@@ -305,6 +345,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.BoundType = ciLevel;
                 }
             }
+
+            // Sanity check: populate ArmN from caption "(N=X)" when parser did not set it
+            applyCaptionArmNFallback(table, observations);
 
             return observations;
 
@@ -956,6 +999,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
             }
 
+            // Sanity check: populate ArmN from caption "(N=X)" when parser did not set it
+            // (compound layout already derives ArmN from "(n=X)" in row labels when present)
+            applyCaptionArmNFallback(table, observations);
+
             return observations;
 
             #endregion
@@ -1039,6 +1086,236 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var stripped = _pkCategoryPrefixPattern.Replace(spanningText.Trim(), "");
             return string.IsNullOrWhiteSpace(stripped) ? spanningText.Trim() : stripped.Trim();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts the sample size from a table caption containing a parenthesized
+        /// "(N=X)" or "(n=X)" expression. Uses the same pattern as
+        /// <see cref="extractArmNFromLabel"/> — case-insensitive, comma-friendly.
+        /// </summary>
+        /// <remarks>
+        /// PK table captions frequently embed the study population size in a trailing
+        /// parenthetical (e.g., "... ESTRADIOL TRANSDERMAL SYSTEM (N=36)"). When the
+        /// parser cannot recover ArmN from row labels or cell expressions, the caption
+        /// provides a reasonable fallback that is applied via
+        /// <see cref="applyCaptionArmNFallback"/>.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// extractArmNFromCaption("Table 2: ... (N=36)")  → 36
+        /// extractArmNFromCaption("PK Summary (n=1,234)") → 1234
+        /// extractArmNFromCaption("No sample size here")  → null
+        /// extractArmNFromCaption(null)                   → null
+        /// </code>
+        /// </example>
+        /// <param name="caption">The table caption text to scan.</param>
+        /// <returns>The sample size as int, or null if not found.</returns>
+        /// <seealso cref="applyCaptionArmNFallback"/>
+        internal static int? extractArmNFromCaption(string? caption)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(caption))
+                return null;
+
+            // Reuse _armNFromLabelPattern — same parenthesized N= form, case-insensitive
+            var match = _armNFromLabelPattern.Match(caption);
+            if (!match.Success)
+                return null;
+
+            var rawN = match.Groups[1].Value.Replace(",", "");
+            return int.TryParse(rawN, out var n) ? n : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Sanity-check post-process: when observations have null ArmN and the table
+        /// caption contains a parenthesized "(N=X)" expression, populates ArmN on those
+        /// observations from the caption value.
+        /// </summary>
+        /// <remarks>
+        /// ## Safeguards
+        /// - Never overrides an existing ArmN (guards against parser-derived values).
+        /// - Appends "PK_CAPTION_ARMN_FALLBACK:{n}" to ValidationFlags for audit trail.
+        /// - No-op when caption is null/whitespace or does not contain "(N=X)".
+        /// </remarks>
+        /// <param name="table">Source table carrying the caption.</param>
+        /// <param name="observations">Observations to update in place.</param>
+        /// <seealso cref="extractArmNFromCaption"/>
+        private static void applyCaptionArmNFallback(
+            ReconstructedTable table,
+            List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(table.Caption) || observations.Count == 0)
+                return;
+
+            var captionN = extractArmNFromCaption(table.Caption);
+            if (!captionN.HasValue)
+                return;
+
+            foreach (var o in observations)
+            {
+                // Only populate when ArmN is currently null — never override
+                if (o.ArmN.HasValue)
+                    continue;
+
+                o.ArmN = captionN;
+                o.ValidationFlags = appendFlag(o.ValidationFlags, $"PK_CAPTION_ARMN_FALLBACK:{captionN}");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects transposed PK table layouts where rows carry PK metric names and
+        /// columns carry dose levels — the inverse of the canonical layout where rows
+        /// are dose regimens and columns are PK parameters.
+        /// </summary>
+        /// <remarks>
+        /// ## Detection signals (all three must hold)
+        /// 1. Column 0 header matches a generic "Parameter"-style label
+        ///    (see <see cref="_transposedLayoutCol0Headers"/>).
+        /// 2. Every non-col-0 header is dose-shaped (matches <see cref="_doseHeaderPattern"/>).
+        /// 3. At least 2 data-body rows have col 0 text starting with a canonical PK
+        ///    metric name (see <see cref="_pkMetricRowLabelPattern"/>) AND they form
+        ///    the majority of data-body rows.
+        ///
+        /// Requiring all three signals simultaneously avoids false positives on
+        /// ambiguous tables.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// Header: Parameter | 0.1 mg/day | 0.05 mg/day | 0.025 mg/day
+        /// Rows:   AUC84(pg·hr/mL) | ...
+        ///         Cmax(pg/mL)     | ...
+        /// → true (transposed)
+        /// </code>
+        /// </example>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns>True when the table is a transposed PK layout.</returns>
+        /// <seealso cref="applyTransposedPkLayoutSwap"/>
+        internal static bool detectTransposedPkLayout(ReconstructedTable table)
+        {
+            #region implementation
+
+            if (table.Header?.Columns == null || table.Header.Columns.Count < 2)
+                return false;
+
+            // Signal 1: col 0 header is a generic "Parameter"-style label
+            var col0Text = table.Header.Columns[0].LeafHeaderText?.Trim();
+            if (string.IsNullOrWhiteSpace(col0Text) ||
+                !_transposedLayoutCol0Headers.Contains(col0Text))
+                return false;
+
+            // Signal 2: every non-col-0 header is dose-shaped
+            int doseHeaders = 0;
+            int totalHeaders = 0;
+            for (int i = 1; i < table.Header.Columns.Count; i++)
+            {
+                var h = table.Header.Columns[i].LeafHeaderText?.Trim();
+                if (string.IsNullOrWhiteSpace(h))
+                    continue;
+                totalHeaders++;
+                if (_doseHeaderPattern.IsMatch(h))
+                    doseHeaders++;
+            }
+            if (totalHeaders == 0 || doseHeaders != totalHeaders)
+                return false;
+
+            // Signal 3: majority of data rows carry canonical PK metric row labels
+            int metricRows = 0;
+            int totalRows = 0;
+            foreach (var row in getDataBodyRows(table))
+            {
+                var t = getCellAtColumn(row, 0)?.CleanedText?.Trim();
+                if (string.IsNullOrWhiteSpace(t))
+                    continue;
+                totalRows++;
+                if (_pkMetricRowLabelPattern.IsMatch(t))
+                    metricRows++;
+            }
+
+            // Require ≥ 2 PK-metric rows AND they form the majority
+            return metricRows >= 2 && metricRows * 2 >= totalRows;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Post-process swap applied after standard PK parsing detects a transposed
+        /// layout via <see cref="detectTransposedPkLayout"/>. Exchanges ParameterName
+        /// (originally a dose header like "0.1 mg/day") with DoseRegimen (originally
+        /// the PK metric row label like "AUC84(pg·hr/mL)"), extracting unit from the
+        /// parenthesized metric and re-running <see cref="DoseExtractor.Extract"/>
+        /// on the new DoseRegimen.
+        /// </summary>
+        /// <remarks>
+        /// ## Swap mechanics per observation
+        /// 1. originalParamName ← o.ParameterName (dose header)
+        /// 2. originalDoseRegimen ← o.DoseRegimen (PK metric)
+        /// 3. Split originalDoseRegimen via <see cref="_paramUnitPattern"/> → (name, unit)
+        /// 4. o.ParameterName = name; o.Unit = unit (if not already set)
+        /// 5. o.DoseRegimen = originalParamName
+        /// 6. Re-extract (Dose, DoseUnit) from the new DoseRegimen
+        /// 7. If the unit is a time-measure, surface PrimaryValue on Time/TimeUnit
+        /// 8. Append "PK_TRANSPOSED_LAYOUT_SWAP" to ValidationFlags
+        /// </remarks>
+        /// <param name="observations">Observations to swap in place.</param>
+        /// <seealso cref="detectTransposedPkLayout"/>
+        internal static void applyTransposedPkLayoutSwap(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            foreach (var o in observations)
+            {
+                // Capture originals before mutation
+                var originalParamName = o.ParameterName;       // was dose header
+                var originalDoseRegimen = o.DoseRegimen;       // was PK metric row label
+
+                // Rebuild ParameterName from the row-label metric, extracting unit if parenthesized
+                if (!string.IsNullOrWhiteSpace(originalDoseRegimen))
+                {
+                    var m = _paramUnitPattern.Match(originalDoseRegimen);
+                    if (m.Success)
+                    {
+                        o.ParameterName = m.Groups[1].Value.Trim();
+                        if (string.IsNullOrWhiteSpace(o.Unit))
+                            o.Unit = m.Groups[2].Value.Trim();
+                    }
+                    else
+                    {
+                        o.ParameterName = originalDoseRegimen.Trim();
+                    }
+                }
+
+                // Rebuild DoseRegimen from the original column header and re-extract Dose/DoseUnit
+                o.DoseRegimen = originalParamName;
+                var (dose, doseUnit) = DoseExtractor.Extract(originalParamName);
+                if (dose.HasValue)
+                {
+                    o.Dose = dose;
+                    o.DoseUnit = doseUnit;
+                }
+
+                // If the metric is a time measurement (Tmax, Half-life), surface PrimaryValue
+                if (o.PrimaryValue.HasValue && !string.IsNullOrWhiteSpace(o.Unit)
+                    && _timeUnitStrings.Contains(o.Unit))
+                {
+                    o.Time = o.PrimaryValue;
+                    o.TimeUnit = normalizeTimeUnit(o.Unit);
+                }
+
+                o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_TRANSPOSED_LAYOUT_SWAP");
+            }
 
             #endregion
         }

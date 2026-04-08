@@ -1206,7 +1206,7 @@ namespace MedRecProConsole.Services
                 AnsiConsole.MarkupLine("[bold]Footnotes:[/]");
                 foreach (var fn in table.Footnotes)
                 {
-                    AnsiConsole.MarkupLine($"  [{fn.Key}] {Markup.Escape(fn.Value)}");
+                    AnsiConsole.MarkupLine($"  [[{Markup.Escape(fn.Key)}]] {Markup.Escape(fn.Value)}");
                 }
                 AnsiConsole.WriteLine();
             }
