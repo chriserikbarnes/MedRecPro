@@ -26,6 +26,10 @@ namespace MedRecProConsole.Models
     ///   MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip"
     ///   MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip" --nuke
     ///   MedRecProConsole.exe --orange-book "C:\OrangeBook\EOBZIP_2026_01.zip" --connection "Local Database Dev" --nuke
+    ///
+    /// Table Standardization with Stage 3.25 quality gate:
+    ///   MedRecProConsole.exe --standardize-tables parse --drop-incomplete-rows
+    ///   MedRecProConsole.exe --standardize-tables validate --drop-incomplete-rows --batch-size 500
     /// </example>
     /// <seealso cref="Helpers.HelpDocumentation"/>
     /// <seealso cref="ConsoleAppSettings"/>
@@ -138,6 +142,25 @@ namespace MedRecProConsole.Models
         /// </summary>
         /// <seealso cref="StandardizeTablesOperation"/>
         public bool NoClaude { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets whether rows missing ArmN or PrimaryValue are dropped
+        /// at the conclusion of Stage 3.25 (--drop-incomplete-rows).
+        /// Only valid with --standardize-tables parse or validate operations.
+        /// </summary>
+        /// <remarks>
+        /// Enables the Stage 3.25 quality gate: observations where EITHER ArmN or
+        /// PrimaryValue is null are removed before ML.NET / Claude / post-processing.
+        /// Cross-product meta-analysis requires both fields populated, so any row
+        /// missing either one is considered unrecoverable for downstream processing.
+        ///
+        /// When this flag is absent, the effective value falls back to
+        /// <c>ConsoleAppSettings.Standardization.DropRowsMissingArmNOrPrimaryValue</c>
+        /// (default false).
+        /// </remarks>
+        /// <seealso cref="StandardizeTablesOperation"/>
+        public bool DropRowsMissingArmNOrPrimaryValue { get; set; }
 
         /**************************************************************/
         /// <summary>
@@ -352,6 +375,13 @@ namespace MedRecProConsole.Models
                     continue;
                 }
 
+                // Handle drop-incomplete-rows flag (Stage 3.25 quality gate)
+                if (lowerArg is "--drop-incomplete-rows")
+                {
+                    result.DropRowsMissingArmNOrPrimaryValue = true;
+                    continue;
+                }
+
                 // Unknown argument
                 if (arg.StartsWith("-") || arg.StartsWith("/"))
                 {
@@ -431,6 +461,17 @@ namespace MedRecProConsole.Models
             if (result.NoClaude && !result.IsStandardizeTablesMode)
             {
                 result.Errors.Add("--no-claude can only be used with --standardize-tables.");
+            }
+
+            // Validate --drop-incomplete-rows requires --standardize-tables (parse or validate only)
+            if (result.DropRowsMissingArmNOrPrimaryValue && !result.IsStandardizeTablesMode)
+            {
+                result.Errors.Add("--drop-incomplete-rows can only be used with --standardize-tables.");
+            }
+            else if (result.DropRowsMissingArmNOrPrimaryValue
+                && result.StandardizeTablesOperation is not ("parse" or "validate"))
+            {
+                result.Errors.Add("--drop-incomplete-rows can only be used with --standardize-tables parse or validate.");
             }
 
             // Validate --batch-size only valid with parse or validate

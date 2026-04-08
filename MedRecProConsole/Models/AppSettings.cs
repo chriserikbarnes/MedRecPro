@@ -71,6 +71,45 @@ namespace MedRecProConsole.Models
         /// <seealso cref="AutomationSettings"/>
         public AutomationSettings Automation { get; set; } = new();
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets the Stage 3 table standardization pipeline settings.
+        /// </summary>
+        /// <seealso cref="StandardizationSettings"/>
+        public StandardizationSettings Standardization { get; set; } = new();
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Settings for the Stage 3 Table Standardization pipeline. Controls quality gates
+    /// and post-processing behavior that apply across all batch runs (parse, validate,
+    /// parse-stages).
+    /// </summary>
+    /// <remarks>
+    /// CLI flags and interactive prompts can override these settings on a per-run basis.
+    /// Missing sections in appsettings.json bind to the defaults (backward compatible).
+    /// </remarks>
+    /// <seealso cref="ConsoleAppSettings"/>
+    public class StandardizationSettings
+    {
+        #region implementation
+
+        /**************************************************************/
+        /// <summary>
+        /// When true, observations where EITHER ArmN or PrimaryValue is null are dropped
+        /// at the conclusion of Stage 3.25 (column standardization). Cross-product
+        /// meta-analysis requires both fields populated, so any row missing either one
+        /// is considered unrecoverable for downstream processing.
+        /// </summary>
+        /// <remarks>
+        /// The CLI flag <c>--drop-incomplete-rows</c> and the interactive prompt seed
+        /// their behavior from this setting but always win when explicitly set. Default
+        /// false preserves legacy behavior — the Stage 3.25 quality gate is opt-in.
+        /// </remarks>
+        public bool DropRowsMissingArmNOrPrimaryValue { get; set; }
+
         #endregion
     }
 

@@ -1,13 +1,14 @@
 USE MedRecLocal
 
 SELECT  [TextTableID]
-	,[DocumentGUID]
 	,[ParameterName]
 	,[ParameterCategory]
 	,[ParameterSubtype]
 	,[TreatmentArm]
 	,[ArmN]
 	,[StudyContext]
+	,[Dose]
+	,[DoseUnit]
 	,[DoseRegimen]
 	,[RawValue]
 	,[PrimaryValue]
@@ -17,18 +18,18 @@ SELECT  [TextTableID]
 	,[LowerBound]
 	,[UpperBound]
 	,[BoundType]
-	,[PValue]
+	--,[PValue]
 	,[Unit]
 	,[ParseConfidence]
 	,[ParseRule]
-	,[FootnoteMarkers]
-	,[FootnoteText]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where ArmN is not null
+--Where PValue is not null
+--where ArmN is not null and PrimaryValue is not null
 --where [ParameterCategory] = 'Gastrointestinal Disorders' and ArmN is not null
 --order by ParameterName
 --where ParameterSubtype is not null
+--where [TextTableID] = 203
 
 SELECT  [ParameterName]
 	,[ParameterCategory]

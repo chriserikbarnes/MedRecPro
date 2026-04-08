@@ -352,6 +352,13 @@ namespace MedRecProConsole
                 return 1;
             }
 
+            // Effective value for the Stage 3.25 quality gate: CLI flag OR'd with the
+            // persistent default from appsettings.json. The CLI flag is an opt-in override;
+            // if someone has the config default turned on they must edit appsettings.json
+            // to turn it back off for a run.
+            var dropIncomplete = cmdArgs.DropRowsMissingArmNOrPrimaryValue
+                || settings.Standardization.DropRowsMissingArmNOrPrimaryValue;
+
             // Display mode info (unless quiet)
             if (!cmdArgs.QuietMode)
             {
@@ -360,7 +367,8 @@ namespace MedRecProConsole
                     connectionName,
                     cmdArgs.BatchSize ?? 1000,
                     cmdArgs.StandardizeTableId,
-                    cmdArgs.NoClaude);
+                    cmdArgs.NoClaude,
+                    dropIncompleteRows: dropIncomplete);
             }
 
             // Execute the requested operation
@@ -371,10 +379,12 @@ namespace MedRecProConsole
             {
                 "parse" => await service.ExecuteParseAsync(
                     connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
-                    disableClaude: cmdArgs.NoClaude),
+                    disableClaude: cmdArgs.NoClaude,
+                    dropRowsMissingArmNOrPrimaryValue: dropIncomplete),
                 "validate" => await service.ExecuteValidateAsync(
                     connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
-                    disableClaude: cmdArgs.NoClaude),
+                    disableClaude: cmdArgs.NoClaude,
+                    dropRowsMissingArmNOrPrimaryValue: dropIncomplete),
                 "truncate" => await service.ExecuteTruncateAsync(
                     connectionString, cmdArgs.QuietMode),
                 "parse-single" => await service.ExecuteParseSingleAsync(

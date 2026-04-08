@@ -94,6 +94,16 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private readonly IClaudeApiCorrectionService? _correctionService;
 
+        /**************************************************************/
+        /// <summary>
+        /// When true, observations where BOTH <see cref="ParsedObservation.ArmN"/> and
+        /// <see cref="ParsedObservation.PrimaryValue"/> are null are dropped at the conclusion
+        /// of Stage 3.25 (column standardization). Such rows cannot participate in cross-product
+        /// meta-analysis and are considered unrecoverable for downstream processing.
+        /// Default false — change is opt-in and backward compatible.
+        /// </summary>
+        private readonly bool _dropRowsMissingArmNOrPrimaryValue;
+
         #endregion Fields
 
         #region Constructor
@@ -111,6 +121,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="columnStandardizer">Optional Stage 3.25 column standardization service. Pass null to skip standardization.</param>
         /// <param name="mlNetCorrectionService">Optional Stage 3.4 ML.NET correction and anomaly scoring service. Pass null to skip ML correction.</param>
         /// <param name="correctionService">Optional Stage 3.5 Claude API correction service. Pass null to skip AI correction.</param>
+        /// <param name="dropRowsMissingArmNOrPrimaryValue">
+        /// Optional Stage 3.25 quality gate. When true, observations with BOTH
+        /// <see cref="ParsedObservation.ArmN"/> and <see cref="ParsedObservation.PrimaryValue"/>
+        /// null are dropped at the end of Stage 3.25. Default false preserves legacy behavior.
+        /// </param>
         public TableParsingOrchestrator(
             ITableReconstructionService reconstructionService,
             ITableCellContextService cellContextService,
@@ -120,7 +135,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             IBatchValidationService? batchValidator = null,
             IColumnStandardizationService? columnStandardizer = null,
             IMlNetCorrectionService? mlNetCorrectionService = null,
-            IClaudeApiCorrectionService? correctionService = null)
+            IClaudeApiCorrectionService? correctionService = null,
+            bool dropRowsMissingArmNOrPrimaryValue = false)
         {
             #region implementation
 
@@ -133,6 +149,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _columnStandardizer = columnStandardizer;
             _mlNetCorrectionService = mlNetCorrectionService;
             _correctionService = correctionService;
+            _dropRowsMissingArmNOrPrimaryValue = dropRowsMissingArmNOrPrimaryValue;
 
             #endregion
         }
@@ -498,6 +515,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             reportProgress("Column standardization...", 21, tablesProcessed, tableCount);
             allObservations = runColumnStandardization(allObservations);
 
+            // Stage 3.25 quality gate (opt-in): drop rows missing both ArmN and PrimaryValue
+            allObservations = dropIncompleteRows(allObservations);
+
             // Stage 3.4: ML.NET correction and anomaly scoring
             reportProgress("ML.NET scoring...", 23, tablesProcessed, tableCount);
             allObservations = runMlCorrection(allObservations);
@@ -689,6 +709,60 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return observations;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.25 quality gate (opt-in): drops observations where either
+        /// <see cref="ParsedObservation.ArmN"/> or <see cref="ParsedObservation.PrimaryValue"/>
+        /// is null. Cross-product meta-analysis downstream requires BOTH fields populated,
+        /// so any row missing either one is unrecoverable and is removed before
+        /// ML.NET / Claude / post-processing to avoid spending work on it.
+        /// </summary>
+        /// <remarks>
+        /// No-op when <c>_dropRowsMissingArmNOrPrimaryValue</c> is false (the default),
+        /// preserving legacy behavior. Enabled via the console CLI flag
+        /// <c>--drop-incomplete-rows</c>, the interactive prompt, or the
+        /// <c>Standardization.DropRowsMissingArmNOrPrimaryValue</c> config setting.
+        /// </remarks>
+        /// <param name="observations">Observations to filter.</param>
+        /// <returns>
+        /// The filtered list. Returns the original list unchanged when the gate is disabled
+        /// or no rows match; otherwise returns a new list containing only the surviving rows.
+        /// </returns>
+        /// <seealso cref="ProcessBatchWithStagesAsync"/>
+        /// <seealso cref="runColumnStandardization"/>
+        private List<ParsedObservation> dropIncompleteRows(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            // Opt-in gate: default false preserves legacy behavior for all existing callers.
+            if (!_dropRowsMissingArmNOrPrimaryValue || observations.Count == 0)
+            {
+                return observations;
+            }
+
+            var originalCount = observations.Count;
+
+            // Keep only rows where BOTH ArmN AND PrimaryValue are populated.
+            // Cross-product meta-analysis requires both fields — a row missing either
+            // cannot participate downstream and is unrecoverable.
+            var surviving = observations
+                .Where(o => o.ArmN != null && o.PrimaryValue != null)
+                .ToList();
+
+            var droppedCount = originalCount - surviving.Count;
+
+            if (droppedCount > 0)
+            {
+                _logger.LogInformation(
+                    "Stage 3.25 quality gate: dropped {Dropped}/{Total} rows missing ArmN or PrimaryValue",
+                    droppedCount, originalCount);
+            }
+
+            return surviving;
 
             #endregion
         }

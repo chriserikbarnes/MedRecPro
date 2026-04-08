@@ -1,5 +1,7 @@
+using MedRecProImportClass.Data;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
@@ -553,6 +555,194 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(0, result.CorrectionCount);
             Assert.AreEqual(0, result.PreCorrectionObservations.Count);
             mockCorrection.Verify(c => c.CorrectBatchAsync(It.IsAny<List<ParsedObservation>>(), It.IsAny<IReadOnlyDictionary<int, ReconstructedTable>?>(), It.IsAny<IProgress<TransformBatchProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// With the Stage 3.25 quality gate disabled (default), observations missing
+        /// ArmN, missing PrimaryValue, or missing both MUST all survive into
+        /// PostCorrectionObservations. Verifies legacy / backward-compatible behavior.
+        /// </summary>
+        /// <seealso cref="TableParsingOrchestrator"/>
+        [TestMethod]
+        public async Task ProcessBatchWithStagesAsync_DropIncompleteRowsDisabled_KeepsRowsMissingArmNOrPrimaryValue()
+        {
+            #region implementation
+
+            var (orchestrator, _) = createDropIncompleteTestOrchestrator(
+                dropRowsMissingArmNOrPrimaryValue: false);
+
+            var filter = new TableCellContextFilter { TextTableIdRangeStart = 1000, TextTableIdRangeEnd = 1000 };
+            var result = await orchestrator.ProcessBatchWithStagesAsync(filter);
+
+            // All four rows survive: null/null, null/value, value/null, and value/value.
+            Assert.AreEqual(4, result.PostCorrectionObservations.Count,
+                "Legacy behavior: all rows must survive when the drop gate is disabled.");
+            Assert.IsTrue(
+                result.PostCorrectionObservations.Any(o => o.ArmN == null && o.PrimaryValue == null),
+                "The null/null row must still be present.");
+            Assert.IsTrue(
+                result.PostCorrectionObservations.Any(o => o.ArmN == null && o.PrimaryValue != null),
+                "The null-ArmN / populated-PrimaryValue row must still be present.");
+            Assert.IsTrue(
+                result.PostCorrectionObservations.Any(o => o.ArmN != null && o.PrimaryValue == null),
+                "The populated-ArmN / null-PrimaryValue row must still be present.");
+            Assert.IsTrue(
+                result.PostCorrectionObservations.Any(o => o.ArmN != null && o.PrimaryValue != null),
+                "The fully-populated row must still be present.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// With the Stage 3.25 quality gate enabled, observations where EITHER
+        /// ArmN or PrimaryValue is null MUST be dropped before Stage 3.4 / 3.5 / 3.6 run,
+        /// and thus MUST NOT appear in PostCorrectionObservations. Only rows with
+        /// BOTH fields populated may survive.
+        /// </summary>
+        /// <seealso cref="TableParsingOrchestrator"/>
+        [TestMethod]
+        public async Task ProcessBatchWithStagesAsync_DropIncompleteRowsEnabled_DropsRowsMissingArmNOrPrimaryValue()
+        {
+            #region implementation
+
+            var (orchestrator, _) = createDropIncompleteTestOrchestrator(
+                dropRowsMissingArmNOrPrimaryValue: true);
+
+            var filter = new TableCellContextFilter { TextTableIdRangeStart = 1000, TextTableIdRangeEnd = 1000 };
+            var result = await orchestrator.ProcessBatchWithStagesAsync(filter);
+
+            // Only the fully populated row survives.
+            Assert.AreEqual(1, result.PostCorrectionObservations.Count,
+                "Any row missing ArmN or PrimaryValue must be dropped by the Stage 3.25 quality gate.");
+            Assert.IsFalse(
+                result.PostCorrectionObservations.Any(o => o.ArmN == null || o.PrimaryValue == null),
+                "No rows with a null ArmN or PrimaryValue must survive when the drop gate is enabled.");
+            Assert.AreEqual(7, result.PostCorrectionObservations[0].ArmN,
+                "The fully-populated row must be preserved.");
+            Assert.AreEqual(42.0, result.PostCorrectionObservations[0].PrimaryValue,
+                "The fully-populated row must be preserved.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds an orchestrator wired with a mocked reconstruction service, a mocked
+        /// router + parser that yields a controlled set of four observations covering
+        /// every combination of (ArmN null/populated) x (PrimaryValue null/populated),
+        /// and a real in-memory <see cref="ApplicationDbContext"/> so the DB write stage
+        /// can complete and PostCorrectionObservations can be inspected on the returned result.
+        /// </summary>
+        /// <param name="dropRowsMissingArmNOrPrimaryValue">Value to pass to the orchestrator's quality-gate flag.</param>
+        /// <returns>The orchestrator and the in-memory DbContext (caller can inspect written rows if needed).</returns>
+        /// <seealso cref="TableParsingOrchestrator"/>
+        private static (TableParsingOrchestrator orchestrator, ApplicationDbContext dbContext)
+            createDropIncompleteTestOrchestrator(bool dropRowsMissingArmNOrPrimaryValue)
+        {
+            #region implementation
+
+            var mockRecon = new Mock<ITableReconstructionService>();
+            var mockCellContext = new Mock<ITableCellContextService>();
+            var mockLogger = new Mock<ILogger<TableParsingOrchestrator>>();
+
+            // A minimal reconstructed table — we do not care about its contents because
+            // the router mock is configured to ignore it and return our mock parser directly.
+            var dummyTable = new ReconstructedTable
+            {
+                TextTableID = 1000,
+                ParentSectionCode = "34090-1",
+                TotalColumnCount = 2,
+                TotalRowCount = 2,
+                Header = new ResolvedHeader { HeaderRowCount = 1, ColumnCount = 2 },
+                Rows = new List<ReconstructedRow>()
+            };
+
+            mockRecon
+                .Setup(r => r.ReconstructTablesAsync(It.IsAny<TableCellContextFilter>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<ReconstructedTable> { dummyTable });
+
+            // Controlled parser output covering every (ArmN, PrimaryValue) null/value
+            // combination. Under the new Stage 3.25 semantics (drop if EITHER is null),
+            // only the fully-populated row should survive when the gate is enabled.
+            var controlledObservations = new List<ParsedObservation>
+            {
+                // 1. Both null — always dropped when gate is on.
+                new()
+                {
+                    SourceRowSeq = 1,
+                    SourceCellSeq = 1,
+                    TableCategory = "PK",
+                    ParameterName = "Cmax",
+                    ArmN = null,
+                    PrimaryValue = null
+                },
+                // 2. ArmN null, PrimaryValue populated — dropped when gate is on.
+                new()
+                {
+                    SourceRowSeq = 2,
+                    SourceCellSeq = 1,
+                    TableCategory = "PK",
+                    ParameterName = "AUC",
+                    ArmN = null,
+                    PrimaryValue = 42.0
+                },
+                // 3. ArmN populated, PrimaryValue null — dropped when gate is on.
+                new()
+                {
+                    SourceRowSeq = 3,
+                    SourceCellSeq = 1,
+                    TableCategory = "PK",
+                    ParameterName = "Tmax",
+                    ArmN = 12,
+                    PrimaryValue = null
+                },
+                // 4. Both populated — survives regardless of gate.
+                new()
+                {
+                    SourceRowSeq = 4,
+                    SourceCellSeq = 1,
+                    TableCategory = "PK",
+                    ParameterName = "HalfLife",
+                    ArmN = 7,
+                    PrimaryValue = 42.0
+                }
+            };
+
+            var mockParser = new Mock<ITableParser>();
+            mockParser.SetupGet(p => p.SupportedCategory).Returns(TableCategory.PK);
+            mockParser.SetupGet(p => p.Priority).Returns(0);
+            mockParser.Setup(p => p.CanParse(It.IsAny<ReconstructedTable>())).Returns(true);
+            mockParser.Setup(p => p.Parse(It.IsAny<ReconstructedTable>())).Returns(controlledObservations);
+
+            var mockRouter = new Mock<ITableParserRouter>();
+            mockRouter
+                .Setup(r => r.Route(It.IsAny<ReconstructedTable>()))
+                .Returns((TableCategory.PK, (ITableParser?)mockParser.Object));
+
+            // Real in-memory DbContext so writeObservationsAsync can succeed and
+            // PostCorrectionObservations is populated on the returned result.
+            var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseInMemoryDatabase($"DropIncompleteRows_{Guid.NewGuid()}")
+                .Options;
+            var dbContext = new ApplicationDbContext(dbOptions);
+
+            var orchestrator = new TableParsingOrchestrator(
+                mockRecon.Object,
+                mockCellContext.Object,
+                mockRouter.Object,
+                dbContext,
+                mockLogger.Object,
+                batchValidator: null,
+                columnStandardizer: null,
+                mlNetCorrectionService: null,
+                correctionService: null,
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue);
+
+            return (orchestrator, dbContext);
 
             #endregion
         }

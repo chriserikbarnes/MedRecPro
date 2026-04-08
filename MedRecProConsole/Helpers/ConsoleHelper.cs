@@ -575,7 +575,8 @@ namespace MedRecProConsole.Helpers
 
                         await runStandardizeTablesFromMenuAsync(
                             currentConnectionString,
-                            verboseMode);
+                            verboseMode,
+                            settings);
                         break;
 
                     case "summary":
@@ -1657,6 +1658,7 @@ namespace MedRecProConsole.Helpers
         /// </summary>
         /// <param name="connectionString">Database connection string.</param>
         /// <param name="verboseMode">Whether verbose mode is enabled.</param>
+        /// <param name="settings">Console app settings — source of the persistent default for the Stage 3.25 quality gate.</param>
         /// <remarks>
         /// Flow:
         /// 1. Check for existing progress file → offer resume
@@ -1668,7 +1670,8 @@ namespace MedRecProConsole.Helpers
         /// <seealso cref="Services.TableStandardizationService"/>
         private static async Task runStandardizeTablesFromMenuAsync(
             string connectionString,
-            bool verboseMode)
+            bool verboseMode,
+            ConsoleAppSettings settings)
         {
             #region implementation
 
@@ -1731,11 +1734,16 @@ namespace MedRecProConsole.Helpers
                         var resumeUseClaude = AnsiConsole.Confirm(
                             "[dodgerblue1]Enable Claude AI correction (Stage 3.5)?[/]", defaultValue: true);
 
+                        var resumeDropIncomplete = AnsiConsole.Confirm(
+                            "[dodgerblue1]Drop rows missing ArmN and PrimaryValue after Stage 3.25?[/] [grey](keeps only rows where both fields are populated)[/]",
+                            defaultValue: settings.Standardization.DropRowsMissingArmNOrPrimaryValue);
+
                         var resumeDetailLevel = promptForStageDetailLevel();
 
                         await service.ExecuteParseWithStagesAsync(
                             connectionString, resumeBatchSize, verboseMode, quiet: false,
-                            disableClaude: !resumeUseClaude, detailLevel: resumeDetailLevel);
+                            disableClaude: !resumeUseClaude, detailLevel: resumeDetailLevel,
+                            dropRowsMissingArmNOrPrimaryValue: resumeDropIncomplete);
                         return;
                     }
 
@@ -1838,6 +1846,11 @@ namespace MedRecProConsole.Helpers
             var useClaude = AnsiConsole.Confirm(
                 "[dodgerblue1]Enable Claude AI correction (Stage 3.5)?[/]", defaultValue: true);
 
+            // Step 4.55: Stage 3.25 quality gate prompt — default seeded from appsettings.json
+            var dropIncompleteRows = AnsiConsole.Confirm(
+                "[dodgerblue1]Drop rows missing ArmN and PrimaryValue after Stage 3.25?[/] [grey](keeps only rows where both fields are populated)[/]",
+                defaultValue: settings.Standardization.DropRowsMissingArmNOrPrimaryValue);
+
             // Step 4.6: Stage detail level
             var detailLevel = promptForStageDetailLevel();
 
@@ -1854,6 +1867,8 @@ namespace MedRecProConsole.Helpers
                     : "All tables");
             confirmTable.AddRow("Batch Size", batchSize.ToString("N0"));
             confirmTable.AddRow("Claude AI", useClaude ? "[green]Enabled[/]" : "[red]Disabled[/]");
+            confirmTable.AddRow("Drop Incomplete Rows",
+                dropIncompleteRows ? "[yellow]Yes (ArmN or PrimaryValue null)[/]" : "[grey]No[/]");
             confirmTable.AddRow("Stage Detail", detailLevel.ToString());
             confirmTable.AddRow("Validation", "[green]Enabled[/] (Stage 4)");
 
@@ -1869,7 +1884,8 @@ namespace MedRecProConsole.Helpers
             // Execute with stage visibility
             await service.ExecuteParseWithStagesAsync(
                 connectionString, batchSize, verboseMode, quiet: false,
-                disableClaude: !useClaude, maxBatches: maxBatches, detailLevel: detailLevel);
+                disableClaude: !useClaude, maxBatches: maxBatches, detailLevel: detailLevel,
+                dropRowsMissingArmNOrPrimaryValue: dropIncompleteRows);
 
             #endregion
         }

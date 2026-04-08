@@ -242,14 +242,20 @@ namespace MedRecProConsole.Services
         /// <param name="verbose">Enable verbose logging output.</param>
         /// <param name="quiet">Suppress non-essential output.</param>
         /// <param name="disableClaude">Whether to disable Claude AI enhancement (Stage 3.5).</param>
+        /// <param name="dropRowsMissingArmNOrPrimaryValue">
+        /// When true, enables the Stage 3.25 quality gate that drops rows where either
+        /// ArmN or PrimaryValue is null. Default false (backward compatible).
+        /// </param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllAsync"/>
-        public async Task<int> ExecuteParseAsync(string connectionString, int batchSize, bool verbose, bool quiet, bool disableClaude = false)
+        public async Task<int> ExecuteParseAsync(string connectionString, int batchSize, bool verbose, bool quiet,
+            bool disableClaude = false, bool dropRowsMissingArmNOrPrimaryValue = false)
         {
             #region implementation
 
             using var ctx = await initializeRunAsync(connectionString, "parse", batchSize, verbose, quiet,
-                includeValidation: false, disableClaude: disableClaude);
+                includeValidation: false, disableClaude: disableClaude,
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue);
 
             try
             {
@@ -341,18 +347,24 @@ namespace MedRecProConsole.Services
         /// <param name="disableClaude">Whether to disable Claude AI enhancement (Stage 3.5).</param>
         /// <param name="maxBatches">Optional maximum number of batches. Null = all.</param>
         /// <param name="detailLevel">How much per-batch stage detail to display.</param>
+        /// <param name="dropRowsMissingArmNOrPrimaryValue">
+        /// When true, enables the Stage 3.25 quality gate that drops rows where either
+        /// ArmN or PrimaryValue is null. Default false (backward compatible).
+        /// </param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessBatchWithStagesAsync"/>
         /// <seealso cref="StageDetailLevel"/>
         public async Task<int> ExecuteParseWithStagesAsync(
             string connectionString, int batchSize, bool verbose, bool quiet,
             bool disableClaude = false, int? maxBatches = null,
-            StageDetailLevel detailLevel = StageDetailLevel.None)
+            StageDetailLevel detailLevel = StageDetailLevel.None,
+            bool dropRowsMissingArmNOrPrimaryValue = false)
         {
             #region implementation
 
             using var ctx = await initializeRunAsync(connectionString, "parse-stages", batchSize, verbose, quiet,
-                includeValidation: false, disableClaude: disableClaude);
+                includeValidation: false, disableClaude: disableClaude,
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue);
 
             try
             {
@@ -486,16 +498,22 @@ namespace MedRecProConsole.Services
         /// <param name="quiet">Suppress non-essential output.</param>
         /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="disableClaude">Whether to disable Claude AI enhancement (Stage 3.5).</param>
+        /// <param name="dropRowsMissingArmNOrPrimaryValue">
+        /// When true, enables the Stage 3.25 quality gate that drops rows where either
+        /// ArmN or PrimaryValue is null. Default false (backward compatible).
+        /// </param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllWithValidationAsync"/>
         /// <seealso cref="BatchValidationReport"/>
         public async Task<int> ExecuteValidateAsync(string connectionString, int batchSize, bool verbose, bool quiet,
-            int? maxBatches = null, bool disableClaude = false)
+            int? maxBatches = null, bool disableClaude = false,
+            bool dropRowsMissingArmNOrPrimaryValue = false)
         {
             #region implementation
 
             using var ctx = await initializeRunAsync(connectionString, "validate", batchSize, verbose, quiet,
-                includeValidation: true, disableClaude: disableClaude);
+                includeValidation: true, disableClaude: disableClaude,
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue);
 
             try
             {
@@ -595,16 +613,21 @@ namespace MedRecProConsole.Services
         /// <param name="quiet">Suppress non-essential output.</param>
         /// <param name="includeValidation">Whether to register Stage 4 validation services.</param>
         /// <param name="disableClaude">Whether to disable Claude AI enhancement (Stage 3.5).</param>
+        /// <param name="dropRowsMissingArmNOrPrimaryValue">
+        /// Whether to enable the Stage 3.25 quality gate (drops rows missing ArmN or PrimaryValue).
+        /// </param>
         /// <returns>An initialized <see cref="RunContext"/> ready for batch processing.</returns>
         private async Task<RunContext> initializeRunAsync(
             string connectionString, string mode, int batchSize,
-            bool verbose, bool quiet, bool includeValidation, bool disableClaude = false)
+            bool verbose, bool quiet, bool includeValidation, bool disableClaude = false,
+            bool dropRowsMissingArmNOrPrimaryValue = false)
         {
             #region implementation
 
             var configuration = ConfigurationHelper.BuildMedRecProConfiguration(connectionString);
             var serviceProvider = buildServiceProvider(connectionString, configuration, verbose,
-                includeValidation: includeValidation, disableClaude: disableClaude);
+                includeValidation: includeValidation, disableClaude: disableClaude,
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue);
             var scope = serviceProvider.CreateScope();
 
             var orchestrator = scope.ServiceProvider.GetRequiredService<ITableParsingOrchestrator>();
@@ -718,6 +741,10 @@ namespace MedRecProConsole.Services
         /// <param name="verbose">Whether verbose logging is enabled.</param>
         /// <param name="includeValidation">Whether to register Stage 4 (Validate) services.</param>
         /// <param name="disableClaude">Whether to disable Stage 3.5 (Claude Enhance).</param>
+        /// <param name="dropRowsMissingArmNOrPrimaryValue">
+        /// When true, enables the Stage 3.25 quality gate (drops rows missing ArmN or PrimaryValue).
+        /// Forwarded to <see cref="TableParsingOrchestrator"/> via an explicit factory registration.
+        /// </param>
         /// <returns>ServiceProvider with configured services.</returns>
         /// <seealso cref="ITableParsingOrchestrator"/>
         private static ServiceProvider buildServiceProvider(
@@ -725,7 +752,8 @@ namespace MedRecProConsole.Services
             IConfiguration configuration,
             bool verbose,
             bool includeValidation,
-            bool disableClaude = false)
+            bool disableClaude = false,
+            bool dropRowsMissingArmNOrPrimaryValue = false)
         {
             #region implementation
 
@@ -833,8 +861,22 @@ namespace MedRecProConsole.Services
                     trainingStore: sp.GetRequiredService<IMlTrainingStore>(),
                     claudeSettings: sp.GetRequiredService<IOptions<ClaudeApiCorrectionSettings>>().Value));
 
-            // Orchestrator — IBatchValidationService and IClaudeApiCorrectionService are optional (nullable constructor params)
-            services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();
+            // Orchestrator — IBatchValidationService and IClaudeApiCorrectionService are optional (nullable constructor params).
+            // Use an explicit factory so we can forward the Stage 3.25 quality gate flag
+            // to the orchestrator's constructor. sp.GetService<T>() returns null for services
+            // that were not registered (e.g. IBatchValidationService when includeValidation = false),
+            // matching the orchestrator's nullable ctor-arg contract.
+            services.AddScoped<ITableParsingOrchestrator>(sp => new TableParsingOrchestrator(
+                sp.GetRequiredService<ITableReconstructionService>(),
+                sp.GetRequiredService<ITableCellContextService>(),
+                sp.GetRequiredService<ITableParserRouter>(),
+                sp.GetRequiredService<ApplicationDbContext>(),
+                sp.GetRequiredService<ILogger<TableParsingOrchestrator>>(),
+                batchValidator: sp.GetService<IBatchValidationService>(),
+                columnStandardizer: sp.GetService<IColumnStandardizationService>(),
+                mlNetCorrectionService: sp.GetService<IMlNetCorrectionService>(),
+                correctionService: sp.GetService<IClaudeApiCorrectionService>(),
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue));
 
             return services.BuildServiceProvider();
 

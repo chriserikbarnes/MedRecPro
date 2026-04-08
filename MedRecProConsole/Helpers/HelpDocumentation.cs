@@ -202,13 +202,17 @@ namespace MedRecProConsole.Helpers
         /// <param name="batchSize">Batch size for the operation.</param>
         /// <param name="tableId">Optional TextTableID for parse-single mode.</param>
         /// <param name="noClaude">Whether Claude AI correction is disabled.</param>
+        /// <param name="dropIncompleteRows">
+        /// Whether the Stage 3.25 quality gate is enabled (drops rows missing both ArmN and PrimaryValue).
+        /// </param>
         /// <seealso cref="Models.CommandLineArgs"/>
         public static void DisplayStandardizeTablesModeInfo(
             string operation,
             string connectionName,
             int batchSize,
             int? tableId,
-            bool noClaude = false)
+            bool noClaude = false,
+            bool dropIncompleteRows = false)
         {
             #region implementation
 
@@ -236,6 +240,13 @@ namespace MedRecProConsole.Helpers
             table.AddRow("Claude AI", noClaude
                 ? "[red]Disabled (--no-claude)[/]"
                 : "[green]Enabled[/]");
+
+            if (operation is "parse" or "validate")
+            {
+                table.AddRow("Drop Incomplete Rows", dropIncompleteRows
+                    ? "[yellow]Yes (ArmN or PrimaryValue null)[/]"
+                    : "[grey]No[/]");
+            }
 
             AnsiConsole.Write(table);
             AnsiConsole.WriteLine();
@@ -287,8 +298,10 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/] [red]--no-claude[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [green]--connection[/] [cyan]<name>[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [yellow]--drop-incomplete-rows[/]");
             AnsiConsole.MarkupLine("    [grey]Parse and validate SPL table data (Ctrl+C saves progress for resume)[/]");
             AnsiConsole.MarkupLine("    [grey]Use --no-claude to disable Claude AI correction (Stage 3.5)[/]");
+            AnsiConsole.MarkupLine("    [grey]Use --drop-incomplete-rows to drop rows missing both the ArmN and PrimaryValue (Stage 3.25 quality gate)[/]");
             AnsiConsole.WriteLine();
 
             #endregion
