@@ -3626,5 +3626,127 @@ namespace MedRecProTest
         }
 
         #endregion Issue 4: Confidence Provenance
+
+        #region Phase 2: AE Dictionary SOC Resolution
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a <see cref="ColumnStandardizationService"/> with an injected
+        /// <see cref="AeParameterCategoryDictionaryService"/> for testing dictionary
+        /// integration through the full Standardize pipeline.
+        /// </summary>
+        private static async Task<(ColumnStandardizationService service, ImportDbContext context, SqliteConnection sentinel)>
+            createInitializedServiceWithDictionaryAsync()
+        {
+            #region implementation
+
+            var (sentinel, connection) = createSharedMemoryDb();
+            var context = createImportContext(connection);
+
+            seedDrugNames(connection);
+
+            var mockLogger = new Mock<ILogger<ColumnStandardizationService>>();
+            var dictionary = new AeParameterCategoryDictionaryService();
+            var service = new ColumnStandardizationService(context, mockLogger.Object, dictionary);
+            await service.InitializeAsync();
+
+            return (service, context, sentinel);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary resolves NULL ParameterCategory through the full Standardize pipeline
+        /// when ParameterName is a known AE term.
+        /// </summary>
+        [TestMethod]
+        public async Task Standardize_AeDictionary_ResolvesNullCategory()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceWithDictionaryAsync();
+
+            var observations = new List<ParsedObservation>
+            {
+                new()
+                {
+                    TextTableID = 1,
+                    TableCategory = "ADVERSE_EVENT",
+                    ParameterName = "Dyspepsia",
+                    ParameterCategory = null,
+                    TreatmentArm = "Drug A",
+                    ArmN = 100,
+                    PrimaryValue = 12.0,
+                    PrimaryValueType = "Percentage",
+                    ParseConfidence = 1.0,
+                    ParseRule = "n_pct",
+                    SourceRowSeq = 3,
+                    SourceCellSeq = 2
+                }
+            };
+
+            var result = service.Standardize(observations);
+
+            Assert.AreEqual(1, result.Count);
+            Assert.AreEqual("Gastrointestinal Disorders", result[0].ParameterCategory,
+                "Dictionary should resolve NULL ParameterCategory for known AE term");
+            Assert.IsNotNull(result[0].ValidationFlags);
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("DICT:SOC_RESOLVED"),
+                $"Expected DICT:SOC_RESOLVED flag but got: '{result[0].ValidationFlags}'");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary does not overwrite an existing non-NULL ParameterCategory.
+        /// </summary>
+        [TestMethod]
+        public async Task Standardize_AeDictionary_DoesNotOverwriteExistingCategory()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceWithDictionaryAsync();
+
+            var observations = new List<ParsedObservation>
+            {
+                new()
+                {
+                    TextTableID = 1,
+                    TableCategory = "ADVERSE_EVENT",
+                    ParameterName = "Anemia",
+                    ParameterCategory = "Nervous System Disorders",
+                    TreatmentArm = "Drug A",
+                    ArmN = 100,
+                    PrimaryValue = 5.0,
+                    PrimaryValueType = "Percentage",
+                    ParseConfidence = 1.0,
+                    ParseRule = "n_pct",
+                    SourceRowSeq = 3,
+                    SourceCellSeq = 2
+                }
+            };
+
+            var result = service.Standardize(observations);
+
+            Assert.AreEqual(1, result.Count);
+            Assert.AreEqual("Nervous System Disorders", result[0].ParameterCategory,
+                "Dictionary should not overwrite existing ParameterCategory");
+            Assert.IsTrue(
+                result[0].ValidationFlags == null ||
+                !result[0].ValidationFlags.Contains("DICT:SOC_RESOLVED"),
+                "DICT:SOC_RESOLVED flag should not be present when category was not changed");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2: AE Dictionary SOC Resolution
     }
 }

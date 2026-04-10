@@ -844,6 +844,9 @@ namespace MedRecProConsole.Services
                     client.BaseAddress = new Uri("https://api.anthropic.com/");
                 });
 
+            // Stage 3.25 sub-service: AE ParameterName → SOC dictionary resolver (stateless singleton)
+            services.AddSingleton<IAeParameterCategoryDictionaryService, AeParameterCategoryDictionaryService>();
+
             // Stage 3.25: Column standardization (deterministic, pre-AI)
             services.AddScoped<IColumnStandardizationService, ColumnStandardizationService>();
 

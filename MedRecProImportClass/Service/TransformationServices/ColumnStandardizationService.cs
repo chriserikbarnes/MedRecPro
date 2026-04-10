@@ -81,6 +81,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         };
 
         /**************************************************************/
+        /// <summary>
+        /// Optional AE ParameterName → SOC dictionary resolver. Null when not configured.
+        /// Used in Phase 2 to fill NULL ParameterCategory from a static lookup dictionary.
+        /// </summary>
+        /// <seealso cref="IAeParameterCategoryDictionaryService"/>
+        private readonly IAeParameterCategoryDictionaryService? _aeDictionary;
+
+        /**************************************************************/
         /// <summary>Whether the dictionary has been loaded.</summary>
         private bool _initialized;
 
@@ -781,12 +789,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="logger">Logger for diagnostics.</param>
         public ColumnStandardizationService(
             DbContext dbContext,
-            ILogger<ColumnStandardizationService> logger)
+            ILogger<ColumnStandardizationService> logger,
+            IAeParameterCategoryDictionaryService? aeDictionary = null)
         {
             #region implementation
 
             _dbContext = dbContext;
             _logger = logger;
+            _aeDictionary = aeDictionary;
 
             #endregion
         }
@@ -1755,6 +1765,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (extractUnitFromParameterSubtype(obs)) corrections++;
             if (normalizeUnit(obs)) corrections++;
             if (normalizeParameterCategory(obs)) corrections++;
+
+            // Dictionary-based SOC resolution for NULL ParameterCategory (AE only).
+            // Runs after normalizeParameterCategory so existing non-NULL categories
+            // are normalized first; only fills in genuinely missing categories.
+            if (_aeDictionary != null && _aeDictionary.TryResolveObservation(obs)) corrections++;
 
             // Final sub-pass: scan all columns for misplaced dose patterns.
             // Runs last so all column movements/cleanups have settled first.
