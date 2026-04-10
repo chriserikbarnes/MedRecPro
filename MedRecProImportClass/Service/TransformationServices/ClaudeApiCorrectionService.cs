@@ -677,6 +677,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (float.TryParse(scoreStr, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var score))
             {
+                // NaN >= threshold is always false in IEEE 754 — treat NaN/Infinity as anomalous
+                if (float.IsNaN(score) || float.IsInfinity(score))
+                    return true;
                 return score >= _settings.MlAnomalyScoreThreshold;
             }
 

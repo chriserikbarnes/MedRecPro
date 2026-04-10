@@ -105,6 +105,18 @@ namespace MedRecProImportClass.Service.TransformationServices
         private readonly Dictionary<string, PredictionEngine<AnomalyInput, AnomalyPrediction>>
             _anomalyEngines = new(StringComparer.OrdinalIgnoreCase);
 
+        // /**************************************************************/
+        // /// <summary>
+        // /// Per-category sorted training-time anomaly scores for percentile calibration.
+        // /// Built during <see cref="trainAnomalyModels"/> by scoring all training rows through
+        // /// the freshly-trained PCA model and sorting the results. At scoring time,
+        // /// <see cref="calibrateScore"/> uses binary search to convert a raw PCA score
+        // /// to a percentile (0.0 = typical, 1.0 = extreme outlier).
+        // /// </summary>
+        // /// <seealso cref="calibrateScore"/>
+        // /// <seealso cref="trainAnomalyModels"/>
+        // private readonly Dictionary<string, float[]> _anomalyCalibration = new(StringComparer.OrdinalIgnoreCase);
+
         /**************************************************************/
         /// <summary>Categories that get per-category anomaly detection models.</summary>
         private static readonly string[] _anomalyCategories =
@@ -117,7 +129,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>Recommended PCA ranks per category (from architecture spec).</summary>
         private static readonly Dictionary<string, int> _pcaRanks = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["ADVERSE_EVENT"] = 6,
+            ["ADVERSE_EVENT"] = 5,
             ["PK"] = 4,
             ["DRUG_INTERACTION"] = 4,
             ["EFFICACY"] = 4,
@@ -530,7 +542,21 @@ namespace MedRecProImportClass.Service.TransformationServices
                 try
                 {
                     var prediction = engine.Predict(input);
-                    appendFlag(obs, $"MLNET_ANOMALY_SCORE:{prediction.Score:F4}");
+                    var score = prediction.Score;
+
+                    if (float.IsNaN(score) || float.IsInfinity(score))
+                    {
+                        //_logger.LogWarning(
+                        //    "Stage 4 anomaly prediction returned {ScoreType} for SourceRowSeq={Row}, Category={Cat} — emitting ERROR",
+                        //    float.IsNaN(score) ? "NaN" : "Infinity", obs.SourceRowSeq, obs.TableCategory);
+                        appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
+                    }
+                    else
+                    {
+                        // var percentile = calibrateScore(obs.TableCategory ?? string.Empty, score);
+                        // appendFlag(obs, $"MLNET_ANOMALY_SCORE:{percentile:F4}");
+                        appendFlag(obs, $"MLNET_ANOMALY_SCORE:{score:F4}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -820,6 +846,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             _anomalyEngines.Clear();
+            // _anomalyCalibration.Clear();
 
             foreach (var cat in _anomalyCategories)
             {
@@ -827,7 +854,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     var catRows = rows
                         .Where(r => string.Equals(r.TableCategory, cat, StringComparison.OrdinalIgnoreCase) &&
-                                    r.PrimaryValue != 0f &&
                                     !float.IsNaN(r.PrimaryValue) &&
                                     !float.IsNaN(r.SecondaryValue) &&
                                     !float.IsNaN(r.LowerBound) &&
@@ -900,8 +926,33 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var model = pipeline.Fit(dataView);
                     _anomalyEngines[cat] = _mlContext.Model.CreatePredictionEngine<AnomalyInput, AnomalyPrediction>(model);
 
+                    // // Build percentile calibration: score all training rows through the
+                    // // freshly-trained model, sort results for binary-search lookup at scoring time.
+                    // var calibrationScores = new List<float>(catRows.Count);
+                    // var calibrationEngine = _mlContext.Model
+                    //     .CreatePredictionEngine<AnomalyInput, AnomalyPrediction>(model);
+                    //
+                    // foreach (var row in catRows)
+                    // {
+                    //     var pred = calibrationEngine.Predict(row);
+                    //     var s = pred.Score;
+                    //     if (!float.IsNaN(s) && !float.IsInfinity(s))
+                    //         calibrationScores.Add(s);
+                    // }
+                    //
+                    // if (calibrationScores.Count > 0)
+                    // {
+                    //     var sorted = calibrationScores.ToArray();
+                    //     Array.Sort(sorted);
+                    //     _anomalyCalibration[cat] = sorted;
+                    // }
+                    //
+                    // var calRange = _anomalyCalibration.TryGetValue(cat, out var cal) && cal.Length > 0
+                    //     ? $", calibration=[{cal[0]:F4}..{cal[cal.Length - 1]:F4}] n={cal.Length}"
+                    //     : ", calibration=NONE";
+
                     _logger.LogDebug(
-                        "Stage 4 anomaly model trained for {Category}: {Count} rows, rank={Rank}, activeFeatures={Active}/6",
+                        "Stage 4 anomaly model trained for {Category}: {Count} rows, rank={Rank}, activeFeatures={Active}/7",
                         cat, catRows.Count, rank, activeIndices.Length);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
@@ -962,6 +1013,64 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             #endregion
         }
+
+        // /**************************************************************/
+        // /// <summary>
+        // /// Converts a raw PCA reconstruction error to a percentile (0.0–1.0) using the
+        // /// per-category calibration array built during training. Uses binary search for
+        // /// O(log n) lookup.
+        // /// </summary>
+        // /// <remarks>
+        // /// ## Percentile Semantics
+        // /// - 0.0 = score at or below the minimum seen during training (least anomalous)
+        // /// - 1.0 = score above the maximum seen during training (most anomalous)
+        // /// - 0.75 = 75th percentile — 75% of training rows scored lower
+        // ///
+        // /// ## Edge Cases
+        // /// - Empty or missing calibration array → returns raw score unchanged (cold-start fallback)
+        // /// - Score below calibration minimum → returns 0.0 (less anomalous than anything in training)
+        // /// - Score above calibration maximum → returns 1.0 (more anomalous than anything in training)
+        // /// - Exact match with duplicates → walks forward to last duplicate, uses inclusive ranking
+        // /// - Between two values → insertion point / count
+        // /// </remarks>
+        // /// <param name="category">TableCategory for calibration lookup.</param>
+        // /// <param name="rawScore">Raw PCA reconstruction error score.</param>
+        // /// <returns>Percentile in [0.0, 1.0], or raw score if no calibration is available.</returns>
+        // /// <seealso cref="trainAnomalyModels"/>
+        // /// <seealso cref="applyAnomalyScore"/>
+        // private float calibrateScore(string category, float rawScore)
+        // {
+        //     #region implementation
+        //
+        //     if (!_anomalyCalibration.TryGetValue(category, out var sorted) || sorted.Length == 0)
+        //         return rawScore; // Cold-start fallback: no calibration data
+        //
+        //     int index = Array.BinarySearch(sorted, rawScore);
+        //
+        //     if (index >= 0)
+        //     {
+        //         // Exact match found. Walk forward past any duplicates to get the
+        //         // inclusive count (all values <= rawScore).
+        //         while (index < sorted.Length - 1 && sorted[index + 1] == rawScore)
+        //             index++;
+        //         return (index + 1) / (float)sorted.Length;
+        //     }
+        //     else
+        //     {
+        //         // Not found: ~index = insertion point (count of elements < rawScore)
+        //         int insertionPoint = ~index;
+        //
+        //         if (insertionPoint == 0)
+        //             return 0f; // Below all training scores
+        //
+        //         if (insertionPoint >= sorted.Length)
+        //             return 1f; // Above all training scores
+        //
+        //         return insertionPoint / (float)sorted.Length;
+        //     }
+        //
+        //     #endregion
+        // }
 
         #endregion Model Training Helpers
 
