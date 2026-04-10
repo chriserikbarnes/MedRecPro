@@ -1781,3 +1781,23 @@ Some Claude corrections were setting `newValue=null` on valid, schema-conformant
 Files touched: `MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs` (field + ctor capture + two `Math.Max` sites + log updates), `MedRecProImportClass/Service/TransformationServices/ClaudeApiCorrectionService.cs` (`stripMarkdownFences` rewrite), `MedRecProImportClass/Skills/correction-system-prompt.md` (NULL Preservation Rule section), `MedRecProImportClass/TableStandards/normalization-rules.md` (Section 0 governing rule).
 
 ---
+
+### 2026-04-10 11:16 AM EST — AeParameterCategoryDictionaryService: Documentation & Artifact Sync
+
+Synchronized all supporting documentation and test artifacts with the current 698-entry AeParameterCategoryDictionaryService dictionary.
+
+**Changes:**
+
+1. **Interface & Implementation doc updates** — Corrected stale entry counts in XML doc remarks: `IAeParameterCategoryDictionaryService.cs` (747 → 698), `AeParameterCategoryDictionaryService.cs` (673 → 698 in two places).
+
+2. **Unit tests** (`AeParameterCategoryDictionaryServiceTests.cs`) — Updated `Count` assertion from `> 600` to `>= 698` to match exact dictionary size. Updated class-level summary to reference 698 entries.
+
+3. **README.md** — Added `TransformationServices/` directory listing with `AeParameterCategoryDictionaryService.cs`, `IAeParameterCategoryDictionaryService.cs`, and `ColumnStandardizationService.cs`. Added `TableStandards/` directory with its three reference docs. Added `AeParameterCategoryDictionaryServiceTests.cs` and `ColumnStandardizationServiceTests.cs` to test project listing.
+
+4. **TableStandards/normalization-rules.md** — Added "Dictionary Lookup for NULL ParameterCategory" subsection under Section 4 (ParameterCategory Canonical SOC Mapping) explaining the 698-entry static dictionary lookup, its pipeline position (Stage 3.25 Phase 2), guard conditions, and the `DICT:SOC_RESOLVED` flag. Added `DICT:SOC_RESOLVED` to the Validation Flags catalog.
+
+5. **Skills** — No changes needed; the dictionary service is an internal pipeline component, not a user-facing capability contract.
+
+**Build:** 0 errors, 331 warnings. **Tests:** 17/17 dictionary tests pass, 121/121 ColumnStandardization tests pass.
+
+---

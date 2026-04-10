@@ -8,7 +8,7 @@ namespace MedRecProTest
     /// <summary>
     /// Tests for <see cref="AeParameterCategoryDictionaryService"/> — the static dictionary-based
     /// lookup service that resolves NULL ParameterCategory values for ADVERSE_EVENT observations
-    /// using unambiguous ParameterName → canonical SOC mappings.
+    /// using 698 unambiguous ParameterName → canonical SOC mappings.
     /// </summary>
     /// <remarks>
     /// ## Test Strategy
@@ -370,7 +370,7 @@ namespace MedRecProTest
 
             var service = createService();
 
-            Assert.IsTrue(service.Count > 600, $"Expected > 600 entries, got {service.Count}");
+            Assert.IsTrue(service.Count >= 698, $"Expected >= 698 entries, got {service.Count}");
 
             #endregion
         }

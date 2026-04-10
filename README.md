@@ -307,6 +307,14 @@ MedRecPro/                          # Root repository
       ParsingServices/
         OrangeBookProductParsingService.cs  # Orange Book products.txt parsing, batch upserts, entity matching
         ... (20+ SPL parsers)
+      TransformationServices/
+        ColumnStandardizationService.cs     # Stage 3.25 column standardization (SOC normalization, Phase 2 content)
+        AeParameterCategoryDictionaryService.cs  # Static dictionary (698 entries) resolving NULL ParameterCategory → canonical SOC
+        IAeParameterCategoryDictionaryService.cs # Interface for AE ParameterCategory dictionary lookup
+    TableStandards/                 # Normalization rules, column contracts, and table-type definitions
+      normalization-rules.md        # Deterministic Tier 1 rules + ML.NET Tier 2 guidance
+      column-contracts.md           # Per-TableCategory column contracts (38 columns)
+      table-types.md                # TableCategory classification decision tree
     Context/
       ApplicationDbContext.cs       # EF Core context (auto-registers OrangeBook entities via reflection)
 
@@ -314,6 +322,8 @@ MedRecPro/                          # Root repository
     SplImportServiceTests.cs
     ProductRenderingServiceTests.cs
     ComparisonServiceTests.cs
+    ColumnStandardizationServiceTests.cs  # Column standardization + AE dictionary integration tests
+    AeParameterCategoryDictionaryServiceTests.cs  # AE dictionary service unit tests (17 tests)
     UserDataAccessTests.cs
     LogActivityAsyncTests.cs
     StringCipherTests.cs

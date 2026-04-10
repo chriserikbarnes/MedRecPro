@@ -253,6 +253,21 @@ Skin and Subcutaneous Tissue Disorders     skin and subcutaneous tissue disorder
 Vascular Disorders                         vascular disorders · cardiovascular
 ```
 
+### Dictionary Lookup for NULL ParameterCategory
+
+When ParameterCategory is NULL after the canonical SOC map lookup (i.e., the
+source table lacked SOC divider rows), `AeParameterCategoryDictionaryService`
+attempts a deterministic resolution:
+
+1. Case-insensitive lookup of ParameterName against a static dictionary of
+   698 unambiguous ParameterName → canonical SOC mappings.
+2. If found, ParameterCategory is set and `DICT:SOC_RESOLVED` flag appended.
+3. Only fires for TableCategory = AdverseEvent and NULL/whitespace ParameterCategory.
+4. Never overwrites an existing (non-NULL) ParameterCategory.
+
+This runs in Stage 3.25 Phase 2 (Content Normalization), after
+`normalizeParameterCategory` normalizes existing non-NULL values.
+
 **Tier 2 (ML.NET):** For unmatched variants, token Jaccard + Levenshtein ratio
 against canonical SOC names. Accept if both > 0.6.
 
@@ -344,4 +359,5 @@ PVALUE_OUT_OF_RANGE         PValue > 1.0 (likely misparse)
 VALUETYPE_UNRESOLVED        PrimaryValueType couldn't resolve from Numeric
 HTML_ENTITY_DECODED         HTML entities decoded from RawValue/ParameterName
 FOOTNOTE_STRIPPED           Footnote marker removed during parse
+DICT:SOC_RESOLVED           NULL ParameterCategory resolved from AE dictionary lookup
 ```

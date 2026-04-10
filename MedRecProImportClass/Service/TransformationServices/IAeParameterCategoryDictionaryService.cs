@@ -16,7 +16,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// Only fills in NULL categories — never overwrites existing values.
     ///
     /// ## Dictionary Source
-    /// Static dictionary of 747 unambiguous ParameterName → canonical SOC mappings
+    /// Static dictionary of 698 unambiguous ParameterName → canonical SOC mappings
     /// derived from ~45K rows of production ADVERSE_EVENT data where the same
     /// ParameterName always maps to exactly one SOC after canonical normalization.
     ///
