@@ -75,7 +75,8 @@ namespace MedRecProTest
             string? parameterName = "Cmax",
             string? validationFlags = null,
             int sourceRowSeq = 1,
-            int sourceCellSeq = 1)
+            int sourceCellSeq = 1,
+            string? secondaryValueType = null)
         {
             #region implementation
 
@@ -87,6 +88,7 @@ namespace MedRecProTest
                 PrimaryValueType = primaryValueType,
                 PrimaryValue = primaryValue,
                 SecondaryValue = secondaryValue,
+                SecondaryValueType = secondaryValueType,
                 LowerBound = lowerBound,
                 UpperBound = upperBound,
                 PValue = pValue,
@@ -108,7 +110,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// Generates a batch of diverse high-confidence observations suitable for training.
-        /// Produces rows across multiple categories with varied PrimaryValueTypes.
+        /// Produces rows across multiple categories with varied PrimaryValueTypes and SecondaryValueTypes.
         /// </summary>
         /// <param name="countPerCategory">Number of rows to generate per category.</param>
         /// <returns>List of diverse training observations.</returns>
@@ -126,11 +128,11 @@ namespace MedRecProTest
 
             var pvTypes = new[]
             {
-                ("GeometricMean", "mcg/mL"),
-                ("ArithmeticMean", "mg/L"),
-                ("Proportion", "%"),
-                ("Count", null as string),
-                ("Median", "h")
+                ("GeometricMean", "mcg/mL", (string?)null),
+                ("ArithmeticMean", "mg/L", "SD"),
+                ("Proportion", "%", "Count"),
+                ("Count", null as string, (string?)null),
+                ("Median", "h", "CV")
             };
 
             var observations = new List<ParsedObservation>();
@@ -154,7 +156,8 @@ namespace MedRecProTest
                         parseRule: "plain_number",
                         parameterName: $"Param_{i}",
                         sourceRowSeq: i + 1,
-                        sourceCellSeq: 1
+                        sourceCellSeq: 1,
+                        secondaryValueType: pvt.Item3
                     ));
                 }
             }
@@ -228,21 +231,21 @@ namespace MedRecProTest
 
             var settings = new MlNetCorrectionSettings
             {
-                MinTrainingRowsPerCategory = 10,
+                MinTrainingRowsPerCategory = 5,
                 RetrainingBatchSize = 50
             };
             var service = await createInitializedServiceAsync(settings);
 
             // Feed a batch of high-confidence rows (above BootstrapMinParseConfidence=0.85)
-            var batch1 = generateTrainingBatch(15); // 4 categories × 15 = 60 rows
+            var batch1 = generateTrainingBatch(25); // 4 categories × 25 = 100 rows, 5 per composite key
             service.ScoreAndCorrect(batch1);
 
             // Batch 1 all get NOMODEL (no models trained yet before batch 1 accumulates)
             // But after batch 1, accumulator should have rows.
-            // Feed batch 2 — tryRetrain fires because 60 new rows > RetrainingBatchSize=50
+            // Feed batch 2 — tryRetrain fires because 100 new rows > RetrainingBatchSize=50
             var batch2 = new List<ParsedObservation>
             {
-                createTestObservation(category: "PK", primaryValue: 100.0)
+                createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 100.0)
             };
             var result = service.ScoreAndCorrect(batch2);
 
@@ -310,12 +313,12 @@ namespace MedRecProTest
 
             var settings = new MlNetCorrectionSettings
             {
-                MinTrainingRowsPerCategory = 10,
+                MinTrainingRowsPerCategory = 5,
                 RetrainingBatchSize = 40
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Batch 1: 100 high-confidence rows across 4 categories
+            // Batch 1: 100 high-confidence rows across 4 categories, 5 per composite key
             var batch1 = generateTrainingBatch(25);
             var result1 = service.ScoreAndCorrect(batch1);
 
@@ -326,8 +329,8 @@ namespace MedRecProTest
             // Batch 2: retrain should fire (100 rows accumulated > 40 threshold)
             var batch2 = new List<ParsedObservation>
             {
-                createTestObservation(category: "PK", primaryValue: 55.0),
-                createTestObservation(category: "ADVERSE_EVENT", primaryValue: 12.0, sourceRowSeq: 2)
+                createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 55.0),
+                createTestObservation(category: "ADVERSE_EVENT", primaryValueType: "GeometricMean", primaryValue: 12.0, sourceRowSeq: 2)
             };
             var result2 = service.ScoreAndCorrect(batch2);
 
@@ -573,7 +576,7 @@ namespace MedRecProTest
 
             var settings = new MlNetCorrectionSettings
             {
-                MinTrainingRowsPerCategory = 10,
+                MinTrainingRowsPerCategory = 5,
                 RetrainingBatchSize = 40
             };
             var service = await createInitializedServiceAsync(settings);
@@ -582,14 +585,234 @@ namespace MedRecProTest
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Score
-            var testObs = createTestObservation(category: "PK", primaryValue: 999.99);
+            // Score — PVT must match a trained composite key (GeometricMean is in the training data)
+            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 999.99);
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             Assert.IsTrue(
                 result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
                 !result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
                 $"Expected numeric score but got: {result[0].ValidationFlags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies buildAnomalyModelKey produces three-segment key when SVT is defined.
+        /// </summary>
+        [TestMethod]
+        public void BuildAnomalyModelKey_WithSvt_ThreeSegments()
+        {
+            #region implementation
+
+            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", "ArithmeticMean", "SD");
+            Assert.AreEqual("PK|ArithmeticMean|SD", key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies buildAnomalyModelKey produces two-segment key when SVT is null.
+        /// </summary>
+        [TestMethod]
+        public void BuildAnomalyModelKey_NoSvt_TwoSegments()
+        {
+            #region implementation
+
+            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", "ArithmeticMean", null);
+            Assert.AreEqual("PK|ArithmeticMean", key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies buildAnomalyModelKey treats empty SVT same as null (two-segment key).
+        /// </summary>
+        [TestMethod]
+        public void BuildAnomalyModelKey_EmptySvt_TwoSegments()
+        {
+            #region implementation
+
+            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", "ArithmeticMean", "");
+            Assert.AreEqual("PK|ArithmeticMean", key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies buildAnomalyModelKey normalizes null category to empty string.
+        /// </summary>
+        [TestMethod]
+        public void BuildAnomalyModelKey_NullCategory_UsesEmpty()
+        {
+            #region implementation
+
+            var key = MlNetCorrectionService.buildAnomalyModelKey(null, "ArithmeticMean", null);
+            Assert.AreEqual("|ArithmeticMean", key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies buildAnomalyModelKey normalizes null PVT to empty string.
+        /// </summary>
+        [TestMethod]
+        public void BuildAnomalyModelKey_NullPvt_UsesEmpty()
+        {
+            #region implementation
+
+            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", null, null);
+            Assert.AreEqual("PK|", key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies buildAnomalyModelKey handles all-null inputs gracefully.
+        /// </summary>
+        [TestMethod]
+        public void BuildAnomalyModelKey_AllNull_ReturnsDelimitedEmpty()
+        {
+            #region implementation
+
+            var key = MlNetCorrectionService.buildAnomalyModelKey(null, null, null);
+            Assert.AreEqual("|", key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that a scoring observation with a composite key matching a trained model
+        /// receives a numeric anomaly score (not NOMODEL).
+        /// </summary>
+        [TestMethod]
+        public async Task ScoreAndCorrect_Stage4_CompositeKey_MatchesModel()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                MinTrainingRowsPerCategory = 5,
+                RetrainingBatchSize = 40
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            // Train — generates composite keys like "PK|ArithmeticMean|SD", "PK|GeometricMean", etc.
+            var trainBatch = generateTrainingBatch(25);
+            service.ScoreAndCorrect(trainBatch);
+
+            // Score with matching composite key: PK|ArithmeticMean|SD
+            var testObs = createTestObservation(
+                category: "PK",
+                primaryValueType: "ArithmeticMean",
+                primaryValue: 75.0,
+                secondaryValue: 5.0,
+                secondaryValueType: "SD");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            Assert.IsTrue(
+                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
+                !result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
+                $"Expected numeric score for matching composite key but got: {result[0].ValidationFlags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that a scoring observation whose composite key was not trained
+        /// receives NOMODEL (composite key mismatch).
+        /// </summary>
+        [TestMethod]
+        public async Task ScoreAndCorrect_Stage4_CompositeKey_Mismatch_EmitsNoModel()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                MinTrainingRowsPerCategory = 5,
+                RetrainingBatchSize = 40
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            // Train — generates composite keys for GeometricMean, ArithmeticMean|SD, Proportion|Count, Count, Median|CV
+            var trainBatch = generateTrainingBatch(25);
+            service.ScoreAndCorrect(trainBatch);
+
+            // Score with a composite key NOT in the training data: PK|Percentage
+            var testObs = createTestObservation(
+                category: "PK",
+                primaryValueType: "Percentage",
+                primaryValue: 42.0);
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            Assert.IsTrue(
+                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
+                $"Expected NOMODEL for untrained composite key but got: {result[0].ValidationFlags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that sparse composite keys (below MinTrainingRowsPerCategory) are skipped
+        /// gracefully, emitting NOMODEL, while well-populated keys emit numeric scores.
+        /// </summary>
+        [TestMethod]
+        public async Task ScoreAndCorrect_Stage4_SparseComposite_SkippedGracefully()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                MinTrainingRowsPerCategory = 8,
+                RetrainingBatchSize = 40
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            // Train: 25 per category, 5 per composite key — below threshold of 8
+            var trainBatch = generateTrainingBatch(25);
+            service.ScoreAndCorrect(trainBatch);
+
+            // All composite keys have 5 rows, below MinTrainingRowsPerCategory=8 → NOMODEL
+            var testObs = createTestObservation(
+                category: "PK",
+                primaryValueType: "GeometricMean",
+                primaryValue: 50.0);
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            Assert.IsTrue(
+                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
+                $"Expected NOMODEL for sparse composite key but got: {result[0].ValidationFlags}");
+
+            // Now use enough rows per composite key (40 per category = 8 per key)
+            var settings2 = new MlNetCorrectionSettings
+            {
+                MinTrainingRowsPerCategory = 8,
+                RetrainingBatchSize = 40
+            };
+            var service2 = await createInitializedServiceAsync(settings2);
+
+            var trainBatch2 = generateTrainingBatch(40);
+            service2.ScoreAndCorrect(trainBatch2);
+
+            var testObs2 = createTestObservation(
+                category: "PK",
+                primaryValueType: "GeometricMean",
+                primaryValue: 50.0);
+            var result2 = service2.ScoreAndCorrect(new List<ParsedObservation> { testObs2 });
+
+            Assert.IsTrue(
+                result2[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
+                !result2[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
+                $"Expected numeric score for well-populated composite key but got: {result2[0].ValidationFlags}");
 
             #endregion
         }
@@ -761,7 +984,7 @@ namespace MedRecProTest
 
             var settings = new MlNetCorrectionSettings
             {
-                MinTrainingRowsPerCategory = 10,
+                MinTrainingRowsPerCategory = 5,
                 RetrainingBatchSize = 40
             };
             var service = await createInitializedServiceAsync(settings);
@@ -770,8 +993,8 @@ namespace MedRecProTest
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Score a new observation
-            var testObs = createTestObservation(category: "PK", primaryValue: 50.0);
+            // Score a new observation — PVT must match a trained composite key
+            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 50.0);
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             var flags = result[0].ValidationFlags!;

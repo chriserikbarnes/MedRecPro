@@ -91,6 +91,10 @@ namespace MedRecProImportClass.Models
         /// <summary>PrimaryValueType — Stage 3 training label.</summary>
         public string? PrimaryValueType { get; set; }
 
+        /**************************************************************/
+        /// <summary>SecondaryValueType — anomaly model composite key segment (e.g., "SD", "CV", "Count").</summary>
+        public string? SecondaryValueType { get; set; }
+
         #endregion Stage 3 features + label
 
         #region Stage 4 context features
@@ -221,6 +225,7 @@ namespace MedRecProImportClass.Models
                 HasLowerBound = obs.LowerBound.HasValue,
                 HasUpperBound = obs.UpperBound.HasValue,
                 PrimaryValueType = obs.PrimaryValueType,
+                SecondaryValueType = obs.SecondaryValueType,
 
                 // Stage 4 anomaly features (double? → float, NaN/Infinity clamped to 0f)
                 PrimaryValue    = toSafeFloat(obs.PrimaryValue),

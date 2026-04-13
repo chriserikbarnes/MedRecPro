@@ -523,7 +523,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            if (_anomalyEngines.TryGetValue(obs.TableCategory ?? string.Empty, out var engine))
+            var compositeKey = buildAnomalyModelKey(obs.TableCategory, obs.PrimaryValueType, obs.SecondaryValueType);
+            if (_anomalyEngines.TryGetValue(compositeKey, out var engine))
             {
                 var input = new AnomalyInput
                 {
@@ -589,17 +590,18 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (newRows < _settings.RetrainingBatchSize)
                 return;
 
-            var qualifiedCategories = _trainingAccumulator
-                .GroupBy(r => r.TableCategory)
+            var qualifiedGroups = _trainingAccumulator
+                .GroupBy(r => buildAnomalyModelKey(r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
+                         StringComparer.OrdinalIgnoreCase)
                 .Where(g => g.Count() >= _settings.MinTrainingRowsPerCategory)
                 .ToList();
 
-            if (qualifiedCategories.Count == 0)
+            if (qualifiedGroups.Count == 0)
                 return;
 
             _logger.LogInformation(
-                "ML retrain triggered: {NewRows} new rows, {Categories} qualified categories",
-                newRows, qualifiedCategories.Count);
+                "ML retrain triggered: {NewRows} new rows, {Groups} qualified composite groups",
+                newRows, qualifiedGroups.Count);
 
             trainTableCategoryModel(_trainingAccumulator);
             trainDoseRegimenModel(_trainingAccumulator);
@@ -836,31 +838,38 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Stage 4 training: Per-category PCA anomaly detection models.
-        /// Each category gets its own model trained on 6 numeric features:
-        /// PrimaryValue, SecondaryValue, LowerBound, UpperBound, PValue, ParseConfidence.
+        /// Stage 4 training: Per-composite-key PCA anomaly detection models.
+        /// Each unique combination of TableCategory, PrimaryValueType, and (when defined)
+        /// SecondaryValueType gets its own model trained on 7 numeric features:
+        /// PrimaryValue, SecondaryValue, LowerBound, UpperBound, PValue, ParseConfidence, LogArmN.
         /// </summary>
         /// <param name="rows">Training data from accumulator.</param>
+        /// <seealso cref="buildAnomalyModelKey"/>
+        /// <seealso cref="applyAnomalyScore"/>
         private void trainAnomalyModels(List<MlTrainingRecord> rows)
         {
             #region implementation
 
             _anomalyEngines.Clear();
-            // _anomalyCalibration.Clear();
 
-            foreach (var cat in _anomalyCategories)
+            // Group by composite key discovered from the data
+            var groups = rows
+                .Where(r => !float.IsNaN(r.PrimaryValue) &&
+                             !float.IsNaN(r.SecondaryValue) &&
+                             !float.IsNaN(r.LowerBound) &&
+                             !float.IsNaN(r.UpperBound) &&
+                             !float.IsNaN(r.PValue) &&
+                             !float.IsNaN(r.ParseConfidence) &&
+                             !float.IsNaN(r.LogArmN))
+                .GroupBy(r => buildAnomalyModelKey(r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
+                         StringComparer.OrdinalIgnoreCase);
+
+            foreach (var group in groups)
             {
+                var compositeKey = group.Key;
                 try
                 {
-                    var catRows = rows
-                        .Where(r => string.Equals(r.TableCategory, cat, StringComparison.OrdinalIgnoreCase) &&
-                                    !float.IsNaN(r.PrimaryValue) &&
-                                    !float.IsNaN(r.SecondaryValue) &&
-                                    !float.IsNaN(r.LowerBound) &&
-                                    !float.IsNaN(r.UpperBound) &&
-                                    !float.IsNaN(r.PValue) &&
-                                    !float.IsNaN(r.ParseConfidence) &&
-                                    !float.IsNaN(r.LogArmN))
+                    var catRows = group
                         .Select(r => new AnomalyInput
                         {
                             Features = new float[]
@@ -878,8 +887,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     if (catRows.Count < _settings.MinTrainingRowsPerCategory)
                     {
-                        _logger.LogDebug("Stage 4 skipping {Category} — only {Count} rows (need {Min})",
-                            cat, catRows.Count, _settings.MinTrainingRowsPerCategory);
+                        _logger.LogDebug("Stage 4 skipping {CompositeKey} — only {Count} rows (need {Min})",
+                            compositeKey, catRows.Count, _settings.MinTrainingRowsPerCategory);
                         continue;
                     }
 
@@ -887,8 +896,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var activeIndices = computeActiveFeatureIndices(catRows);
                     if (activeIndices.Length == 0)
                     {
-                        _logger.LogDebug("Stage 4 skipping {Category} — no feature variance in {Count} rows",
-                            cat, catRows.Count);
+                        _logger.LogDebug("Stage 4 skipping {CompositeKey} — no feature variance in {Count} rows",
+                            compositeKey, catRows.Count);
                         continue;
                     }
 
@@ -913,7 +922,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     var dataView = _mlContext.Data.LoadFromEnumerable(catRows);
 
-                    var rank = _pcaRanks.TryGetValue(cat, out var r) ? r : 3;
+                    // PCA rank: composite key → category fallback → default 3
+                    var category = compositeKey.IndexOf('|') is var idx && idx >= 0
+                        ? compositeKey[..idx]
+                        : compositeKey;
+                    var rank = _pcaRanks.TryGetValue(compositeKey, out var r1) ? r1
+                             : _pcaRanks.TryGetValue(category, out var r2) ? r2
+                             : 3;
                     // Clamp rank to number of real features — jittered columns have
                     // negligible variance and should not consume eigenvectors
                     rank = Math.Min(rank, activeIndices.Length);
@@ -924,40 +939,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                             rank: rank));
 
                     var model = pipeline.Fit(dataView);
-                    _anomalyEngines[cat] = _mlContext.Model.CreatePredictionEngine<AnomalyInput, AnomalyPrediction>(model);
-
-                    // // Build percentile calibration: score all training rows through the
-                    // // freshly-trained model, sort results for binary-search lookup at scoring time.
-                    // var calibrationScores = new List<float>(catRows.Count);
-                    // var calibrationEngine = _mlContext.Model
-                    //     .CreatePredictionEngine<AnomalyInput, AnomalyPrediction>(model);
-                    //
-                    // foreach (var row in catRows)
-                    // {
-                    //     var pred = calibrationEngine.Predict(row);
-                    //     var s = pred.Score;
-                    //     if (!float.IsNaN(s) && !float.IsInfinity(s))
-                    //         calibrationScores.Add(s);
-                    // }
-                    //
-                    // if (calibrationScores.Count > 0)
-                    // {
-                    //     var sorted = calibrationScores.ToArray();
-                    //     Array.Sort(sorted);
-                    //     _anomalyCalibration[cat] = sorted;
-                    // }
-                    //
-                    // var calRange = _anomalyCalibration.TryGetValue(cat, out var cal) && cal.Length > 0
-                    //     ? $", calibration=[{cal[0]:F4}..{cal[cal.Length - 1]:F4}] n={cal.Length}"
-                    //     : ", calibration=NONE";
+                    _anomalyEngines[compositeKey] = _mlContext.Model
+                        .CreatePredictionEngine<AnomalyInput, AnomalyPrediction>(model);
 
                     _logger.LogDebug(
-                        "Stage 4 anomaly model trained for {Category}: {Count} rows, rank={Rank}, activeFeatures={Active}/7",
-                        cat, catRows.Count, rank, activeIndices.Length);
+                        "Stage 4 anomaly model trained for {CompositeKey}: {Count} rows, rank={Rank}, activeFeatures={Active}/7",
+                        compositeKey, catRows.Count, rank, activeIndices.Length);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
                 {
-                    _logger.LogWarning(ex, "Stage 4 anomaly model training failed for {Category}", cat);
+                    _logger.LogWarning(ex, "Stage 4 anomaly model training failed for {CompositeKey}", compositeKey);
                 }
             }
 
@@ -1209,6 +1200,36 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion Claude Feedback
 
         #region Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the composite key for anomaly model lookup and storage.
+        /// Format: "Category|PrimaryValueType" when SecondaryValueType is null/empty,
+        /// or "Category|PrimaryValueType|SecondaryValueType" when defined.
+        /// </summary>
+        /// <param name="tableCategory">Table category (e.g., "PK").</param>
+        /// <param name="primaryValueType">Primary value type (e.g., "ArithmeticMean").</param>
+        /// <param name="secondaryValueType">Secondary value type (e.g., "SD"), or null.</param>
+        /// <returns>Composite key string for anomaly engine dictionary lookup.</returns>
+        /// <seealso cref="trainAnomalyModels"/>
+        /// <seealso cref="applyAnomalyScore"/>
+        internal static string buildAnomalyModelKey(
+            string? tableCategory,
+            string? primaryValueType,
+            string? secondaryValueType = null)
+        {
+            #region implementation
+
+            var cat = tableCategory ?? string.Empty;
+            var pvt = primaryValueType ?? string.Empty;
+            var svt = secondaryValueType ?? string.Empty;
+
+            return string.IsNullOrEmpty(svt)
+                ? $"{cat}|{pvt}"
+                : $"{cat}|{pvt}|{svt}";
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

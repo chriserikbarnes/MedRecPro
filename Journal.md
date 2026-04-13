@@ -1818,3 +1818,24 @@ Added a hard byte-level size cap to prevent `.medrecpro-ml-training-store.json` 
 **Key decision:** Both the row cap (`MaxAccumulatorRows`) and the new size cap (`MaxTrainingStoreSizeBytes`) coexist as independent constraints — whichever binds first wins. This preserves the existing row-cap guard while adding a more accurate file-size enforcement.
 
 ---
+
+### 2026-04-13 3:37 PM EST — Composite Anomaly Model Keys (Category + PrimaryValueType + SecondaryValueType)
+
+Refactored the Stage 4 anomaly detection system in `MlNetCorrectionService` to partition PCA models by a composite key (`TableCategory|PrimaryValueType|SecondaryValueType`) instead of just `TableCategory` alone. The previous single-dimension keying was too coarse — it compared different numeric types (e.g., percentages vs. arithmetic means) within the same model, causing imprecise anomaly detection.
+
+**Changes across 4 files:**
+
+1. **`MlTrainingRecord.cs`** — Added `SecondaryValueType` (string?) property and updated `FromObservation` to map it from `ParsedObservation`.
+
+2. **`MlNetCorrectionService.cs`** — Three refactors driven by a single new DRY helper:
+   - Added `buildAnomalyModelKey(category, pvt, svt)` → returns `"CAT|PVT"` or `"CAT|PVT|SVT"` (internal static, directly testable).
+   - Refactored `trainAnomalyModels`: replaced static `_anomalyCategories` iteration with dynamic `GroupBy` on the composite key. PCA rank lookup uses a three-step fallback: composite key → category → default 3.
+   - Updated `applyAnomalyScore` and `tryRetrain` to use composite key lookups via the same helper.
+
+3. **`MlTrainingStoreState.cs`** — Bumped schema version 1 → 2 (backward compatible — old stores missing `SecondaryValueType` deserialize as null → two-segment keys).
+
+4. **`MlNetCorrectionServiceTests.cs`** — Updated `createTestObservation` and `generateTrainingBatch` helpers with SVT support. Fixed 4 existing tests for new composite key thresholds. Added 9 new tests: 6 unit tests for `buildAnomalyModelKey` edge cases + 3 integration tests (composite key match, mismatch → NOMODEL, sparse composite → graceful skip). All 40 ML tests pass (31 existing + 9 new).
+
+**Key design decision:** Sparsity handled by the existing `MinTrainingRowsPerCategory` threshold — composite keys with too few rows simply don't get models and fall to NOMODEL, which routes to Claude API for review (safe default).
+
+---

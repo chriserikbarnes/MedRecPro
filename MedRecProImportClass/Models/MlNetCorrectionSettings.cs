@@ -114,7 +114,7 @@ namespace MedRecProImportClass.Models
         /// Default 31,457,280 (30 MB). With <c>WriteIndented = true</c> producing ~800–900 bytes
         /// per record, 30 MB ≈ ~35,000 records.
         /// </summary>
-        public long MaxTrainingStoreSizeBytes { get; set; } = 30L * 1024 * 1024; // 30 MB
+        public long MaxTrainingStoreSizeBytes { get; set; } = 50L * 1024 * 1024; // 50 MB
 
         #endregion
 

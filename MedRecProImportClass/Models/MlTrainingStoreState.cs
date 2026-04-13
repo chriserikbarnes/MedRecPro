@@ -28,9 +28,9 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Schema version for forward compatibility. Increment when the state shape changes.
-        /// Current version: 1.
+        /// Current version: 2 (added SecondaryValueType to MlTrainingRecord for composite anomaly keys).
         /// </summary>
-        public int Version { get; set; } = 1;
+        public int Version { get; set; } = 2;
 
         #endregion Schema version
 
