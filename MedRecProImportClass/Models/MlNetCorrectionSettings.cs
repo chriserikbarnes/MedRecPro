@@ -100,9 +100,21 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// Maximum records in the training accumulator. When exceeded, oldest non-ground-truth
         /// (bootstrap) records are evicted first, then oldest ground-truth records.
-        /// Default 100,000. At ~100 bytes/record ≈ 10 MB on disk.
+        /// Default 100,000. At ~800–900 bytes/record (indented JSON) ≈ 80–90 MB on disk;
+        /// use <see cref="MaxTrainingStoreSizeBytes"/> to cap the actual file size.
         /// </summary>
         public int MaxAccumulatorRows { get; set; } = 100_000;
+
+        /**************************************************************/
+        /// <summary>
+        /// Maximum serialized file size for the training store JSON, in bytes.
+        /// When the file would exceed this limit, oldest bootstrap records are evicted first,
+        /// then oldest ground-truth records, until the serialized output fits within the cap.
+        /// Enforced on every save and also at load time (to trim files written by older builds).
+        /// Default 31,457,280 (30 MB). With <c>WriteIndented = true</c> producing ~800–900 bytes
+        /// per record, 30 MB ≈ ~35,000 records.
+        /// </summary>
+        public long MaxTrainingStoreSizeBytes { get; set; } = 30L * 1024 * 1024; // 30 MB
 
         #endregion
 

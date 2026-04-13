@@ -1801,3 +1801,20 @@ Synchronized all supporting documentation and test artifacts with the current 69
 **Build:** 0 errors, 331 warnings. **Tests:** 17/17 dictionary tests pass, 121/121 ColumnStandardization tests pass.
 
 ---
+
+### 2026-04-13 1:56 PM EST — ML Training Store: 30 MB File Size Cap
+
+Added a hard byte-level size cap to prevent `.medrecpro-ml-training-store.json` from growing without bounds. The file was observed at 84 MB — caused by `WriteIndented = true` producing ~840 bytes/record rather than the ~100 bytes/record estimated in the code comment.
+
+**Changes:**
+
+1. **`MlNetCorrectionSettings.cs`** — Added `MaxTrainingStoreSizeBytes` property (default 30 MB = `30L * 1024 * 1024`). Updated `MaxAccumulatorRows` comment to reflect the actual ~800–900 bytes/record indented JSON size.
+
+2. **`MlTrainingStore.cs`** — Three changes:
+   - Extracted `evictOldest(int count)` helper with the two-phase bootstrap-first eviction logic (Phase 1: oldest bootstrap records; Phase 2: oldest overall). `evictIfOverCapacity` now delegates to it.
+   - Updated `saveInternalAsync` to serialize to `byte[]` first, check size against the cap, call `evictOldest` and re-serialize if over, then write via `WriteAllBytesAsync`. The over-limit file never touches disk.
+   - Added load-time size check in `LoadAsync`: if the file exceeds the cap on startup (e.g. written by an older build), a `LogWarning` is emitted and `saveInternalAsync` is called immediately to trim and re-save.
+
+**Key decision:** Both the row cap (`MaxAccumulatorRows`) and the new size cap (`MaxTrainingStoreSizeBytes`) coexist as independent constraints — whichever binds first wins. This preserves the existing row-cap guard while adding a more accurate file-size enforcement.
+
+---

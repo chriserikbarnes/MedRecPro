@@ -19,7 +19,11 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// - <c>System.Text.Json</c> with <c>WriteIndented = true</c> and <c>WhenWritingNull</c>
     ///
     /// ## Eviction Strategy
-    /// When records exceed <see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/>:
+    /// Two independent caps are enforced — whichever binds first wins:
+    /// - **Row cap** (<see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/>): fires in <c>AddRecordsAsync</c>
+    /// - **Size cap** (<see cref="MlNetCorrectionSettings.MaxTrainingStoreSizeBytes"/>): fires in every <c>saveInternalAsync</c> call and on load
+    ///
+    /// Both caps use the same bootstrap-first priority:
     /// 1. Evict oldest bootstrap records first (<c>IsClaudeGroundTruth == false</c>)
     /// 2. If still over capacity, evict oldest ground-truth records
     ///
@@ -112,6 +116,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var json = await File.ReadAllTextAsync(_filePath, ct);
                     _state = JsonSerializer.Deserialize<MlTrainingStoreState>(json, _jsonOptions)
                              ?? new MlTrainingStoreState();
+
+                    // Trim oversized files written by older builds before the size cap existed
+                    var fileLen = new FileInfo(_filePath).Length;
+                    if (fileLen > _settings.MaxTrainingStoreSizeBytes && _state.Records.Count > 0)
+                    {
+                        _logger.LogWarning(
+                            "Training store ({Size:F1} MB) exceeds {Max:F1} MB limit; evicting oldest records on load.",
+                            fileLen / 1_048_576.0, _settings.MaxTrainingStoreSizeBytes / 1_048_576.0);
+                        await saveInternalAsync(ct);
+                    }
+
                     _logger.LogInformation(
                         "ML training store loaded: {Count} records, adaptive threshold={Threshold:F4}, " +
                         "lifetime sent={Sent}, corrected={Corrected}",
@@ -279,7 +294,9 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Writes state to disk using atomic tmp+rename pattern.
+        /// Writes state to disk using atomic tmp+rename pattern. Serializes to bytes first,
+        /// enforces <see cref="MlNetCorrectionSettings.MaxTrainingStoreSizeBytes"/>, then writes
+        /// the trimmed result — the on-disk file never exceeds the configured limit.
         /// Must be called within <see cref="_lock"/>.
         /// </summary>
         /// <param name="ct">Cancellation token.</param>
@@ -290,14 +307,35 @@ namespace MedRecProImportClass.Service.TransformationServices
             _state.LastSavedAt = DateTime.UtcNow;
 
             var json = JsonSerializer.Serialize(_state, _jsonOptions);
-            var tempPath = _filePath + ".tmp";
+            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+
+            // Size-based eviction: enforce MaxTrainingStoreSizeBytes before writing to disk
+            long maxBytes = _settings.MaxTrainingStoreSizeBytes;
+            if (bytes.Length > maxBytes && _state.Records.Count > 0)
+            {
+                double bytesPerRecord = (double)bytes.Length / _state.Records.Count;
+                int toEvict = (int)Math.Ceiling((bytes.Length - maxBytes) / bytesPerRecord * 1.1);
+                toEvict = Math.Min(toEvict, _state.Records.Count);
+
+                int before = _state.Records.Count;
+                evictOldest(toEvict);
+
+                _logger.LogInformation(
+                    "Size-based eviction: removed {Evicted} records to stay under {Max:F1} MB; {Remaining} remaining.",
+                    before - _state.Records.Count, maxBytes / 1_048_576.0, _state.Records.Count);
+
+                // Re-serialize with evicted records removed
+                json = JsonSerializer.Serialize(_state, _jsonOptions);
+                bytes = System.Text.Encoding.UTF8.GetBytes(json);
+            }
 
             // Ensure directory exists
             var directory = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 Directory.CreateDirectory(directory);
 
-            await File.WriteAllTextAsync(tempPath, json, ct);
+            var tempPath = _filePath + ".tmp";
+            await File.WriteAllBytesAsync(tempPath, bytes, ct);
             File.Move(tempPath, _filePath, overwrite: true);
 
             #endregion
@@ -317,10 +355,32 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return;
 
             var overflow = _state.Records.Count - _settings.MaxAccumulatorRows;
+            evictOldest(overflow);
 
-            // Phase 1: Evict oldest bootstrap records (IsClaudeGroundTruth == false)
+            _logger.LogDebug(
+                "Row-cap eviction: removed {Evicted} records, {Remaining} remaining",
+                overflow, _state.Records.Count);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Evicts up to <paramref name="count"/> records using bootstrap-first priority:
+        /// Phase 1 removes the oldest bootstrap records (<c>IsClaudeGroundTruth == false</c>);
+        /// Phase 2 removes the oldest overall records if more eviction is still needed.
+        /// Must be called within <see cref="_lock"/>.
+        /// </summary>
+        /// <param name="count">Maximum number of records to remove.</param>
+        private void evictOldest(int count)
+        {
+            #region implementation
+
+            if (count <= 0 || _state.Records.Count == 0) return;
+
+            // Phase 1: evict oldest bootstrap records first
             var bootstrapIndices = new List<int>();
-            for (int i = 0; i < _state.Records.Count && bootstrapIndices.Count < overflow; i++)
+            for (int i = 0; i < _state.Records.Count && bootstrapIndices.Count < count; i++)
             {
                 if (!_state.Records[i].IsClaudeGroundTruth)
                     bootstrapIndices.Add(i);
@@ -328,20 +388,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Remove in reverse order to preserve indices
             for (int i = bootstrapIndices.Count - 1; i >= 0; i--)
-            {
                 _state.Records.RemoveAt(bootstrapIndices[i]);
-            }
 
-            // Phase 2: If still over (rare — means mostly ground-truth), evict oldest overall
-            if (_state.Records.Count > _settings.MaxAccumulatorRows)
-            {
-                var remaining = _state.Records.Count - _settings.MaxAccumulatorRows;
-                _state.Records.RemoveRange(0, remaining);
-            }
-
-            _logger.LogDebug(
-                "Eviction complete: removed {Evicted} records, {Remaining} remaining",
-                overflow, _state.Records.Count);
+            // Phase 2: if still need to evict, remove oldest overall (rare — mostly ground-truth)
+            int remaining = count - bootstrapIndices.Count;
+            if (remaining > 0 && _state.Records.Count > 0)
+                _state.Records.RemoveRange(0, Math.Min(remaining, _state.Records.Count));
 
             #endregion
         }
