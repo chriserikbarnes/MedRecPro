@@ -68,9 +68,9 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// Minimum rows per TableCategory required before models can be trained.
         /// Categories with fewer accumulated rows than this threshold are skipped during training.
-        /// Default 50.
+        /// Default 10.
         /// </summary>
-        public int MinTrainingRowsPerCategory { get; set; } = 50;
+        public int MinTrainingRowsPerCategory { get; set; } = 10;
 
         /**************************************************************/
         /// <summary>
