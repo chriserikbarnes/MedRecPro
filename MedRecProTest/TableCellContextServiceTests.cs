@@ -127,6 +127,28 @@ namespace MedRecPro.Service.Test
                 )";
             createViewTable.ExecuteNonQuery();
 
+            // Create backing table for vw_ActiveIngredients (registered as ToView, so excluded from DDL)
+            using var createAiTable = connection.CreateCommand();
+            createAiTable.CommandText = @"
+                CREATE TABLE IF NOT EXISTS ""vw_ActiveIngredients"" (
+                    ""DocumentGUID"" TEXT,
+                    ""SetGUID"" TEXT,
+                    ""SectionGUID"" TEXT,
+                    ""IngredientID"" INTEGER,
+                    ""ProductID"" INTEGER,
+                    ""IngredientSubstanceID"" INTEGER,
+                    ""MarketingCategoryID"" INTEGER,
+                    ""SectionID"" INTEGER,
+                    ""DocumentID"" INTEGER,
+                    ""ClassCode"" TEXT,
+                    ""ProductName"" TEXT,
+                    ""SubstanceName"" TEXT,
+                    ""UNII"" TEXT,
+                    ""ApplicationType"" TEXT,
+                    ""ApplicationNumber"" TEXT
+                )";
+            createAiTable.ExecuteNonQuery();
+
             return context;
             #endregion
         }
@@ -257,6 +279,17 @@ namespace MedRecPro.Service.Test
             insertNav.Parameters.AddWithValue("$documentId", documentId);
             insertNav.Parameters.AddWithValue("$documentGuid", documentGuid.ToString("D").ToUpper());
             insertNav.ExecuteNonQuery();
+
+            // Seed vw_ActiveIngredients backing table
+            using var insertAi = connection.CreateCommand();
+            insertAi.CommandText = @"
+                INSERT INTO ""vw_ActiveIngredients""
+                    (""DocumentID"", ""DocumentGUID"", ""UNII"", ""SubstanceName"", ""ClassCode"")
+                VALUES
+                    ($documentId, $documentGuid, 'ABC12345XY', 'Test Substance', 'ACTIB')";
+            insertAi.Parameters.AddWithValue("$documentId", documentId);
+            insertAi.Parameters.AddWithValue("$documentGuid", documentGuid.ToString("D").ToUpper());
+            insertAi.ExecuteNonQuery();
 
             return ttId;
             #endregion
@@ -476,6 +509,7 @@ namespace MedRecPro.Service.Test
             Assert.IsNull(row.ParentSectionCode, "ParentSectionCode should be null for root section");
             Assert.IsNull(row.ParentSectionTitle, "ParentSectionTitle should be null for root section");
             Assert.AreEqual("Test Pharma Inc", row.LabelerName, "LabelerName");
+            Assert.AreEqual("ABC12345XY", row.UNII, "UNII");
             #endregion
         }
 

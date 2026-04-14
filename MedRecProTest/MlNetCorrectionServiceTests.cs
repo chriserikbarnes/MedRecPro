@@ -76,7 +76,8 @@ namespace MedRecProTest
             string? validationFlags = null,
             int sourceRowSeq = 1,
             int sourceCellSeq = 1,
-            string? secondaryValueType = null)
+            string? secondaryValueType = null,
+            string? unii = null)
         {
             #region implementation
 
@@ -89,6 +90,7 @@ namespace MedRecProTest
                 PrimaryValue = primaryValue,
                 SecondaryValue = secondaryValue,
                 SecondaryValueType = secondaryValueType,
+                UNII = unii,
                 LowerBound = lowerBound,
                 UpperBound = upperBound,
                 PValue = pValue,
@@ -120,10 +122,10 @@ namespace MedRecProTest
 
             var categories = new[]
             {
-                ("PK", "Pharmacokinetic Parameters", "Pharmacokinetics", "34090-1"),
-                ("ADVERSE_EVENT", "Adverse Events", "Adverse Reactions", "34084-4"),
-                ("EFFICACY", "Clinical Efficacy", "Clinical Studies", "34092-7"),
-                ("DRUG_INTERACTION", "Drug Interactions", "Drug Interactions", "34073-7")
+                ("PK", "Pharmacokinetic Parameters", "Pharmacokinetics", "34090-1", "ABC123"),
+                ("ADVERSE_EVENT", "Adverse Events", "Adverse Reactions", "34084-4", "DEF456"),
+                ("EFFICACY", "Clinical Efficacy", "Clinical Studies", "34092-7", "GHI789"),
+                ("DRUG_INTERACTION", "Drug Interactions", "Drug Interactions", "34073-7", "JKL012")
             };
 
             var pvTypes = new[]
@@ -138,7 +140,7 @@ namespace MedRecProTest
             var observations = new List<ParsedObservation>();
             var rng = new Random(42);
 
-            foreach (var (cat, caption, section, loinc) in categories)
+            foreach (var (cat, caption, section, loinc, unii) in categories)
             {
                 for (int i = 0; i < countPerCategory; i++)
                 {
@@ -157,7 +159,8 @@ namespace MedRecProTest
                         parameterName: $"Param_{i}",
                         sourceRowSeq: i + 1,
                         sourceCellSeq: 1,
-                        secondaryValueType: pvt.Item3
+                        secondaryValueType: pvt.Item3,
+                        unii: unii
                     ));
                 }
             }
@@ -245,7 +248,7 @@ namespace MedRecProTest
             // Feed batch 2 — tryRetrain fires because 100 new rows > RetrainingBatchSize=50
             var batch2 = new List<ParsedObservation>
             {
-                createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 100.0)
+                createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 100.0, unii: "ABC123")
             };
             var result = service.ScoreAndCorrect(batch2);
 
@@ -329,8 +332,8 @@ namespace MedRecProTest
             // Batch 2: retrain should fire (100 rows accumulated > 40 threshold)
             var batch2 = new List<ParsedObservation>
             {
-                createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 55.0),
-                createTestObservation(category: "ADVERSE_EVENT", primaryValueType: "GeometricMean", primaryValue: 12.0, sourceRowSeq: 2)
+                createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 55.0, unii: "ABC123"),
+                createTestObservation(category: "ADVERSE_EVENT", primaryValueType: "GeometricMean", primaryValue: 12.0, sourceRowSeq: 2, unii: "DEF456")
             };
             var result2 = service.ScoreAndCorrect(batch2);
 
@@ -585,8 +588,8 @@ namespace MedRecProTest
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Score — PVT must match a trained composite key (GeometricMean is in the training data)
-            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 999.99);
+            // Score — composite key must match a trained model (UNII + PVT)
+            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 999.99, unii: "ABC123");
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             Assert.IsTrue(
@@ -606,8 +609,8 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", "ArithmeticMean", "SD");
-            Assert.AreEqual("PK|ArithmeticMean|SD", key);
+            var key = MlNetCorrectionService.buildAnomalyModelKey("ABC123", "PK", "ArithmeticMean", "SD");
+            Assert.AreEqual("ABC123|PK|ArithmeticMean|SD", key);
 
             #endregion
         }
@@ -621,8 +624,8 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", "ArithmeticMean", null);
-            Assert.AreEqual("PK|ArithmeticMean", key);
+            var key = MlNetCorrectionService.buildAnomalyModelKey("ABC123", "PK", "ArithmeticMean", null);
+            Assert.AreEqual("ABC123|PK|ArithmeticMean", key);
 
             #endregion
         }
@@ -636,8 +639,8 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", "ArithmeticMean", "");
-            Assert.AreEqual("PK|ArithmeticMean", key);
+            var key = MlNetCorrectionService.buildAnomalyModelKey("ABC123", "PK", "ArithmeticMean", "");
+            Assert.AreEqual("ABC123|PK|ArithmeticMean", key);
 
             #endregion
         }
@@ -651,8 +654,8 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var key = MlNetCorrectionService.buildAnomalyModelKey(null, "ArithmeticMean", null);
-            Assert.AreEqual("|ArithmeticMean", key);
+            var key = MlNetCorrectionService.buildAnomalyModelKey(null, null, "ArithmeticMean", null);
+            Assert.AreEqual("||ArithmeticMean", key);
 
             #endregion
         }
@@ -666,8 +669,8 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var key = MlNetCorrectionService.buildAnomalyModelKey("PK", null, null);
-            Assert.AreEqual("PK|", key);
+            var key = MlNetCorrectionService.buildAnomalyModelKey(null, "PK", null, null);
+            Assert.AreEqual("|PK|", key);
 
             #endregion
         }
@@ -681,8 +684,8 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var key = MlNetCorrectionService.buildAnomalyModelKey(null, null, null);
-            Assert.AreEqual("|", key);
+            var key = MlNetCorrectionService.buildAnomalyModelKey(null, null, null, null);
+            Assert.AreEqual("||", key);
 
             #endregion
         }
@@ -704,17 +707,18 @@ namespace MedRecProTest
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Train — generates composite keys like "PK|ArithmeticMean|SD", "PK|GeometricMean", etc.
+            // Train — generates composite keys like "ABC123|PK|ArithmeticMean|SD", "ABC123|PK|GeometricMean", etc.
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Score with matching composite key: PK|ArithmeticMean|SD
+            // Score with matching composite key: ABC123|PK|ArithmeticMean|SD
             var testObs = createTestObservation(
                 category: "PK",
                 primaryValueType: "ArithmeticMean",
                 primaryValue: 75.0,
                 secondaryValue: 5.0,
-                secondaryValueType: "SD");
+                secondaryValueType: "SD",
+                unii: "ABC123");
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             Assert.IsTrue(
@@ -746,11 +750,12 @@ namespace MedRecProTest
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Score with a composite key NOT in the training data: PK|Percentage
+            // Score with a composite key NOT in the training data: ABC123|PK|Percentage
             var testObs = createTestObservation(
                 category: "PK",
                 primaryValueType: "Percentage",
-                primaryValue: 42.0);
+                primaryValue: 42.0,
+                unii: "ABC123");
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             Assert.IsTrue(
@@ -785,7 +790,8 @@ namespace MedRecProTest
             var testObs = createTestObservation(
                 category: "PK",
                 primaryValueType: "GeometricMean",
-                primaryValue: 50.0);
+                primaryValue: 50.0,
+                unii: "ABC123");
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             Assert.IsTrue(
@@ -806,13 +812,65 @@ namespace MedRecProTest
             var testObs2 = createTestObservation(
                 category: "PK",
                 primaryValueType: "GeometricMean",
-                primaryValue: 50.0);
+                primaryValue: 50.0,
+                unii: "ABC123");
             var result2 = service2.ScoreAndCorrect(new List<ParsedObservation> { testObs2 });
 
             Assert.IsTrue(
                 result2[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
                 !result2[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
                 $"Expected numeric score for well-populated composite key but got: {result2[0].ValidationFlags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies buildAnomalyModelKey normalizes null UNII to empty string.
+        /// </summary>
+        [TestMethod]
+        public void BuildAnomalyModelKey_NullUnii_UsesEmpty()
+        {
+            #region implementation
+
+            var key = MlNetCorrectionService.buildAnomalyModelKey(null, "PK", "ArithmeticMean", "SD");
+            Assert.AreEqual("|PK|ArithmeticMean|SD", key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that a UNII mismatch produces NOMODEL even when category/PVT/SVT match.
+        /// </summary>
+        [TestMethod]
+        public async Task ScoreAndCorrect_Stage4_UniiMismatch_EmitsNoModel()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                MinTrainingRowsPerCategory = 5,
+                RetrainingBatchSize = 40
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            var trainBatch = generateTrainingBatch(25);
+            service.ScoreAndCorrect(trainBatch);
+
+            // Score with UNII not in training data — category/PVT/SVT all match but UNII differs
+            var testObs = createTestObservation(
+                category: "PK",
+                primaryValueType: "ArithmeticMean",
+                primaryValue: 75.0,
+                secondaryValue: 5.0,
+                secondaryValueType: "SD",
+                unii: "ZZZZZZZ");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            Assert.IsTrue(
+                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
+                $"Expected NOMODEL for UNII mismatch but got: {result[0].ValidationFlags}");
 
             #endregion
         }
@@ -993,8 +1051,8 @@ namespace MedRecProTest
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Score a new observation — PVT must match a trained composite key
-            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 50.0);
+            // Score a new observation — composite key must match a trained model
+            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 50.0, unii: "ABC123");
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             var flags = result[0].ValidationFlags!;

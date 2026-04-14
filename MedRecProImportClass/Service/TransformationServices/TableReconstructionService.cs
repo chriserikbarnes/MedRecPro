@@ -233,6 +233,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 DocumentGUID = first.DocumentGUID,
                 Title = first.Title,
                 VersionNumber = first.VersionNumber,
+                UNII = first.UNII,
                 SectionGUID = first.SectionGUID,
                 SectionCode = first.SectionCode,
                 SectionType = first.SectionType,

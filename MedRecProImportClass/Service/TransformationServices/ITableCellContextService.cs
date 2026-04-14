@@ -52,5 +52,18 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <seealso cref="Label.TextTable"/>
         Task<(int MinId, int MaxId)> GetTextTableIdRangeAsync(
             CancellationToken cancellationToken = default);
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns DocumentGUIDs ordered by their plus-delimited UNII key from vw_ActiveIngredients.
+        /// Used for UNII-ordered batch processing — callers walk the returned GUIDs in order
+        /// so consecutive batches contain the same product's data, enabling product-specific
+        /// anomaly model training.
+        /// </summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Ordered list of DocumentGUIDs grouped by UNII.</returns>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        Task<List<Guid>> GetDocumentGuidsOrderedByUniiAsync(
+            CancellationToken cancellationToken = default);
     }
 }

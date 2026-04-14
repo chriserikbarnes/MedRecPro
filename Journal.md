@@ -1839,3 +1839,35 @@ Refactored the Stage 4 anomaly detection system in `MlNetCorrectionService` to p
 **Key design decision:** Sparsity handled by the existing `MinTrainingRowsPerCategory` threshold — composite keys with too few rows simply don't get models and fall to NOMODEL, which routes to Claude API for review (safe default).
 
 ---
+
+### 2026-04-14 10:44 AM EST — Stage 4 Anomaly: Add UNII to Composite Key for Product-Level Grouping
+
+Extended the anomaly model composite key from `Category|PrimaryValueType[|SecondaryValueType]` to `UNII|Category|PrimaryValueType[|SecondaryValueType]` so that drug products are only compared against like products. Previously, PCA models grouped all products within a category together — aspirin and ibuprofen PK data trained the same model — creating false anomalies when distributions differ by substance.
+
+**10 files modified (8 production, 2 test):**
+
+1. **Models (4 files)** — Added `string? UNII` property to `TableCellContext`, `ReconstructedTable`, `ParsedObservation`, and `MlTrainingRecord` with corresponding `FromObservation` mapping.
+
+2. **`TableCellContextService.cs`** — Added `enrichUniiAsync()` private method that batch-fetches active ingredient UNIIs from `vw_ActiveIngredients` via a simple SELECT query, then groups by document and concatenates with `+` separator in memory. Post-query enrichment was chosen because EF Core's SQLite provider cannot translate `string.Join` (STRING_AGG) in correlated subqueries. Results sorted by UNII then TextTableID so processing clusters by product.
+
+3. **`TableReconstructionService.cs` / `BaseTableParser.cs`** — One-line UNII mappings through the pipeline chain.
+
+4. **`MlNetCorrectionService.cs`** — `buildAnomalyModelKey` now takes `unii` as first parameter. All 3 callers updated (`applyAnomalyScore`, `trainAnomalyModels`, `tryRetrain`). PCA rank fallback extracts category from `segments[1]` (was `segments[0]` before UNII prefix).
+
+5. **`MlTrainingStoreState.cs`** — Schema version 2 → 3.
+
+6. **`MlNetCorrectionServiceTests.cs`** — Updated helpers and 10 existing tests with UNII values. Added 2 new tests: `BuildAnomalyModelKey_NullUnii_UsesEmpty` and `ScoreAndCorrect_Stage4_UniiMismatch_EmitsNoModel`.
+
+7. **`TableCellContextServiceTests.cs`** — Added `vw_ActiveIngredients` backing table DDL, seed data, and UNII assertion.
+
+**Key design decisions:** Multi-UNII separator is `+` (not `|`) to avoid ambiguity with the composite key delimiter. Documents without active ingredients get `UNII = null` → empty string in key → separate catch-all grouping. All 57 ML + TableCellContext tests pass.
+
+---
+
+### 2026-04-14 11:44 AM EST — Fix Freezing Timer in Batch Progress Display
+
+Replaced `RemainingTimeColumn()` with `ElapsedTimeColumn()` in all three progress blocks in `TableStandardizationService.cs` (`ExecuteParseAsync`, `ExecuteParseWithStagesAsync`, `ExecuteValidateAsync`).
+
+`RemainingTimeColumn` estimates time remaining from progress velocity — during long ML.NET scoring operations where `task.Value` does not change, the velocity drops to zero and the display freezes. When ML.NET finishes and progress jumps, the remaining time estimate recalculates to a wildly different value, appearing to erase the previous reading. `ElapsedTimeColumn` (a Spectre.Console built-in already used in `ImportService.cs` and `OrangeBookImportService.cs`) shows time elapsed since the task started — it ticks forward continuously regardless of progress activity, producing a stable, continuous display.
+
+---

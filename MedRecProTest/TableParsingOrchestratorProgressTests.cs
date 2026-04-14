@@ -34,20 +34,21 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Creates a TableParsingOrchestrator with mocked dependencies.
         /// </summary>
-        /// <param name="minId">Minimum TextTableID returned by the cell context service.</param>
-        /// <param name="maxId">Maximum TextTableID returned by the cell context service.</param>
+        /// <param name="documentCount">Number of documents returned by GetDocumentGuidsOrderedByUniiAsync.</param>
         /// <returns>Tuple of orchestrator, mock cell context service, and mock reconstruction service.</returns>
         private static (TableParsingOrchestrator orchestrator,
             Mock<ITableCellContextService> cellContextMock,
             Mock<ITableReconstructionService> reconstructionMock)
-            createOrchestrator(int minId = 1, int maxId = 100)
+            createOrchestrator(int documentCount = 100)
         {
             #region implementation
 
+            var guids = Enumerable.Range(0, documentCount).Select(_ => Guid.NewGuid()).ToList();
+
             var cellContextMock = new Mock<ITableCellContextService>();
             cellContextMock
-                .Setup(x => x.GetTextTableIdRangeAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync((minId, maxId));
+                .Setup(x => x.GetDocumentGuidsOrderedByUniiAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(guids);
 
             var reconstructionMock = new Mock<ITableReconstructionService>();
             reconstructionMock
@@ -104,28 +105,22 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public async Task ProcessAllAsync_ReportsProgress_ForEachBatch()
         {
-            var (orchestrator, _, _) = createOrchestrator(minId: 1, maxId: 250);
+            var (orchestrator, _, _) = createOrchestrator(documentCount: 250);
             var reports = new List<TransformBatchProgress>();
             var progress = new SynchronousProgress<TransformBatchProgress>(r => reports.Add(r));
 
             // Use resumeFromId=1 to skip truncate (InMemory DB doesn't support ExecuteSqlRawAsync)
             await orchestrator.ProcessAllAsync(batchSize: 100, progress: progress, resumeFromId: 1);
 
-            // IDs 1-250 with batch size 100 = 3 batches (1-100, 101-200, 201-250)
+            // 250 documents with batch size 100 = 3 batches (100, 100, 50)
             Assert.AreEqual(3, reports.Count);
 
             Assert.AreEqual(1, reports[0].BatchNumber);
             Assert.AreEqual(3, reports[0].TotalBatches);
-            Assert.AreEqual(1, reports[0].RangeStart);
-            Assert.AreEqual(100, reports[0].RangeEnd);
 
             Assert.AreEqual(2, reports[1].BatchNumber);
-            Assert.AreEqual(101, reports[1].RangeStart);
-            Assert.AreEqual(200, reports[1].RangeEnd);
 
             Assert.AreEqual(3, reports[2].BatchNumber);
-            Assert.AreEqual(201, reports[2].RangeStart);
-            Assert.AreEqual(250, reports[2].RangeEnd);
         }
 
         /**************************************************************/
@@ -136,7 +131,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public async Task ProcessAllAsync_NullProgress_DoesNotThrow()
         {
-            var (orchestrator, _, _) = createOrchestrator(minId: 1, maxId: 50);
+            var (orchestrator, _, _) = createOrchestrator(documentCount: 50);
 
             // Use resumeFromId=1 to skip truncate (InMemory DB doesn't support ExecuteSqlRawAsync)
             var result = await orchestrator.ProcessAllAsync(batchSize: 100, progress: null, resumeFromId: 1);
@@ -150,28 +145,30 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// ProcessAllAsync with resumeFromId starts processing from the specified ID.
+        /// ProcessAllAsync with resumeFromId skips truncate but still processes all documents.
         /// </summary>
         [TestMethod]
-        public async Task ProcessAllAsync_WithResumeFromId_StartsFromCorrectId()
+        public async Task ProcessAllAsync_WithResumeFromId_SkipsButProcessesAll()
         {
-            var (orchestrator, _, reconstructionMock) = createOrchestrator(minId: 1, maxId: 500);
+            var (orchestrator, _, reconstructionMock) = createOrchestrator(documentCount: 250);
             var reports = new List<TransformBatchProgress>();
             var progress = new SynchronousProgress<TransformBatchProgress>(r => reports.Add(r));
 
-            // Resume from ID 301 with max 500 = 2 batches (301-400, 401-500)
-            await orchestrator.ProcessAllAsync(batchSize: 100, progress: progress, resumeFromId: 301);
+            // resumeFromId only skips truncate — all documents are still batched
+            await orchestrator.ProcessAllAsync(batchSize: 100, progress: progress, resumeFromId: 1);
 
-            Assert.AreEqual(2, reports.Count);
-            Assert.AreEqual(301, reports[0].RangeStart);
-            Assert.AreEqual(400, reports[0].RangeEnd);
-            Assert.AreEqual(401, reports[1].RangeStart);
-            Assert.AreEqual(500, reports[1].RangeEnd);
+            // 250 documents / 100 per batch = 3 batches
+            Assert.AreEqual(3, reports.Count);
 
-            // Verify reconstruction was called with the correct filter ranges
+            // Verify reconstruction was called with DocumentGUIDs filter
             reconstructionMock.Verify(
                 x => x.ReconstructTablesAsync(
-                    It.Is<TableCellContextFilter>(f => f.TextTableIdRangeStart == 301),
+                    It.Is<TableCellContextFilter>(f => f.DocumentGUIDs != null && f.DocumentGUIDs.Count == 100),
+                    It.IsAny<CancellationToken>()),
+                Times.Exactly(2));
+            reconstructionMock.Verify(
+                x => x.ReconstructTablesAsync(
+                    It.Is<TableCellContextFilter>(f => f.DocumentGUIDs != null && f.DocumentGUIDs.Count == 50),
                     It.IsAny<CancellationToken>()),
                 Times.Once);
         }
@@ -184,7 +181,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public async Task ProcessAllAsync_WithResumeFromId_SkipsTruncate()
         {
-            var (orchestrator, _, _) = createOrchestrator(minId: 1, maxId: 100);
+            var (orchestrator, _, _) = createOrchestrator(documentCount: 100);
 
             // Resume mode — should not truncate (would throw on in-memory DB)
             // If this doesn't throw, truncate was correctly skipped
@@ -206,12 +203,11 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public async Task ProcessBatchAsync_DelegatesToProcessBatchWithStagesAsync_ReturnsObservationsWritten()
         {
-            var (orchestrator, _, _) = createOrchestrator(minId: 1, maxId: 10);
+            var (orchestrator, _, _) = createOrchestrator(documentCount: 10);
 
             var filter = new TableCellContextFilter
             {
-                TextTableIdRangeStart = 1,
-                TextTableIdRangeEnd = 10
+                DocumentGUIDs = Enumerable.Range(0, 10).Select(_ => Guid.NewGuid()).ToList()
             };
 
             // Reconstruction mock returns empty list → 0 observations
@@ -231,7 +227,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public async Task ProcessAllAsync_ProgressReports_ContainElapsedTime()
         {
-            var (orchestrator, _, _) = createOrchestrator(minId: 1, maxId: 100);
+            var (orchestrator, _, _) = createOrchestrator(documentCount: 100);
             var reports = new List<TransformBatchProgress>();
             var progress = new SynchronousProgress<TransformBatchProgress>(r => reports.Add(r));
 

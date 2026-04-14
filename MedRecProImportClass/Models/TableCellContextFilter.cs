@@ -39,6 +39,14 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
+        /// Filter to multiple documents by their GUIDs. Used for UNII-ordered batch processing
+        /// where consecutive batches contain documents with the same active ingredient.
+        /// </summary>
+        /// <seealso cref="Label.Document"/>
+        public List<Guid>? DocumentGUIDs { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Filter to a single table by its ID. Mutually exclusive with range parameters.
         /// </summary>
         /// <seealso cref="Label.TextTable"/>

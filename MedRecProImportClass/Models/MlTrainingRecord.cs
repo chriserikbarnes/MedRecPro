@@ -100,6 +100,10 @@ namespace MedRecProImportClass.Models
         #region Stage 4 context features
 
         /**************************************************************/
+        /// <summary>Plus-delimited active ingredient UNIIs — outermost anomaly model composite key segment.</summary>
+        public string? UNII { get; set; }
+
+        /**************************************************************/
         /// <summary>
         /// MedDRA System Organ Class grouping (e.g., "Gastrointestinal Disorders").
         /// Used for anomaly sub-partitioning within TableCategory — tighter PCA clusters
@@ -219,6 +223,7 @@ namespace MedRecProImportClass.Models
                 ParameterCategory = obs.ParameterCategory,
                 TreatmentArm = obs.TreatmentArm,
                 LogArmN = obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f,
+                UNII = obs.UNII,
 
                 // Stage 3 features
                 Unit = obs.Unit,

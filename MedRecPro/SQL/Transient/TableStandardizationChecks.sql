@@ -164,3 +164,8 @@ WHERE ValidationFlags LIKE '%MLNET_ANOMALY_SCORE:%'
         CHAR(13), ''), CHAR(10), '')))
       AS FLOAT) IS NULL
 
+
+SELECT dbo.vw_ActiveIngredients.UNII
+	,dbo.tmp_FlattenedStandardizedTable.*
+FROM dbo.tmp_FlattenedStandardizedTable
+INNER JOIN dbo.vw_ActiveIngredients ON dbo.tmp_FlattenedStandardizedTable.DocumentGUID = dbo.vw_ActiveIngredients.DocumentGUID

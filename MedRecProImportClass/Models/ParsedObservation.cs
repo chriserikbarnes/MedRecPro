@@ -55,6 +55,13 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
+        /// Plus-delimited active ingredient UNIIs. Outermost anomaly model composite key segment.
+        /// </summary>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        public string? UNII { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// FK to source TextTable.
         /// </summary>
         public int? TextTableID { get; set; }

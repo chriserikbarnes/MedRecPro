@@ -270,7 +270,7 @@ namespace MedRecProConsole.Services
                         new TaskDescriptionColumn(),
                         new ProgressBarColumn(),
                         new PercentageColumn(),
-                        new RemainingTimeColumn(),
+                        new ElapsedTimeColumn(),
                         new SpinnerColumn()
                     })
                     .StartAsync(async pctx =>
@@ -379,7 +379,7 @@ namespace MedRecProConsole.Services
                         new TaskDescriptionColumn(),
                         new ProgressBarColumn(),
                         new PercentageColumn(),
-                        new RemainingTimeColumn(),
+                        new ElapsedTimeColumn(),
                         new SpinnerColumn()
                     })
                     .StartAsync(async pctx =>
@@ -388,16 +388,17 @@ namespace MedRecProConsole.Services
                         var statusTask = pctx.AddTask("Initializing...");
                         statusTask.IsIndeterminate = true;
 
-                        var (minId, maxId) = await ctx.CellContextService.GetTextTableIdRangeAsync(ctx.Cts.Token);
-                        var effectiveMinId = ctx.ResumeFromId ?? minId;
-                        var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
+                        // UNII-ordered document batching: process documents grouped by active ingredient
+                        // so the ML training accumulator gets concentrated product data per batch
+                        var orderedGuids = await ctx.CellContextService.GetDocumentGuidsOrderedByUniiAsync(ctx.Cts.Token);
+                        var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
                         if (maxBatches.HasValue)
                             totalBatches = Math.Min(totalBatches, maxBatches.Value);
 
                         var totalObservations = 0;
                         var batchNumber = 0;
 
-                        for (int start = effectiveMinId; start <= maxId; start += batchSize)
+                        for (int i = 0; i < orderedGuids.Count; i += batchSize)
                         {
                             ctx.Cts.Token.ThrowIfCancellationRequested();
                             batchNumber++;
@@ -405,17 +406,14 @@ namespace MedRecProConsole.Services
                             if (maxBatches.HasValue && batchNumber > maxBatches.Value)
                                 break;
 
-                            var end = Math.Min(start + batchSize - 1, maxId);
+                            var guids = orderedGuids.Skip(i).Take(batchSize).ToList();
                             var filter = new TableCellContextFilter
                             {
-                                TextTableIdRangeStart = start,
-                                TextTableIdRangeEnd = end
+                                DocumentGUIDs = guids
                             };
 
                             // Capture batch-local vars for the closure
                             var currentBatch = batchNumber;
-                            var currentStart = start;
-                            var currentEnd = end;
 
                             // Intra-batch progress callback
                             var rowProgress = new SynchronousProgress<TransformBatchProgress>(p =>
@@ -426,8 +424,7 @@ namespace MedRecProConsole.Services
                                     : p.IntraBatchPercent;
                                 task.Value = Math.Min(overallPct, 100.0);
                                 task.Description =
-                                    $"Batch {currentBatch}/{totalBatches} " +
-                                    $"[[{currentStart}-{currentEnd}]]";
+                                    $"Batch {currentBatch}/{totalBatches}";
                                 statusTask.Description = p.CurrentOperation ?? "Processing...";
                             });
 
@@ -441,7 +438,6 @@ namespace MedRecProConsole.Services
                             task.Value = batchCompletePct;
                             task.Description =
                                 $"Batch {batchNumber}/{totalBatches} " +
-                                $"[[{start}-{end}]] " +
                                 $"{stageResult.ObservationsWritten} obs — " +
                                 $"{totalObservations:N0} cumulative";
                             statusTask.Description = "Waiting for next batch...";
@@ -450,8 +446,6 @@ namespace MedRecProConsole.Services
                             {
                                 BatchNumber = batchNumber,
                                 TotalBatches = totalBatches,
-                                RangeStart = start,
-                                RangeEnd = end,
                                 BatchObservationCount = stageResult.ObservationsWritten,
                                 CumulativeObservationCount = totalObservations,
                                 TablesSkippedThisBatch = stageResult.SkipReasons.Count,
@@ -528,7 +522,7 @@ namespace MedRecProConsole.Services
                         new TaskDescriptionColumn(),
                         new ProgressBarColumn(),
                         new PercentageColumn(),
-                        new RemainingTimeColumn(),
+                        new ElapsedTimeColumn(),
                         new SpinnerColumn()
                     })
                     .StartAsync(async pctx =>

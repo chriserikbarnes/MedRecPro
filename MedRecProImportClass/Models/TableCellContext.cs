@@ -175,6 +175,15 @@ namespace MedRecProImportClass.Models
         /// <seealso cref="Label.Document"/>
         public int? VersionNumber { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Plus-delimited, alphabetically sorted, deduplicated active ingredient UNIIs
+        /// for the source document. Aggregated from vw_ActiveIngredients via correlated
+        /// subquery (STRING_AGG on SQL Server). Null when no active ingredients exist.
+        /// </summary>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        public string? UNII { get; set; }
+
         #endregion Document Properties
 
         #region Section Navigation Properties

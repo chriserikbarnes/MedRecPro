@@ -71,6 +71,14 @@ namespace MedRecProImportClass.Models
         /// <seealso cref="Label.Document"/>
         public int? VersionNumber { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// Plus-delimited active ingredient UNIIs for the source document.
+        /// Outermost grouping key for anomaly model partitioning.
+        /// </summary>
+        /// <seealso cref="LabelView.ActiveIngredientView"/>
+        public string? UNII { get; set; }
+
         #endregion Document Properties
 
         #region Section Properties

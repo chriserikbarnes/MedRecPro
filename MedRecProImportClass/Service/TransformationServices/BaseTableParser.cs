@@ -487,6 +487,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 LabelerName = table.LabelerName,
                 ProductTitle = table.Title != null ? TextUtil.RemoveTags(table.Title) : null,
                 VersionNumber = table.VersionNumber,
+                UNII = table.UNII,
                 TextTableID = table.TextTableID,
                 Caption = table.Caption,
                 SourceRowSeq = row.SequenceNumberTextTableRow,

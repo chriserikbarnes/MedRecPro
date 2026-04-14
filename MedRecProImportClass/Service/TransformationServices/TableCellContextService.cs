@@ -90,6 +90,15 @@ namespace MedRecProImportClass.Service.TransformationServices
             var query = buildQuery(filter);
             var results = await query.ToListAsync(cancellationToken);
 
+            // Enrich UNII from vw_ActiveIngredients (separate query — STRING_AGG not portable to SQLite)
+            await enrichUniiAsync(results, cancellationToken);
+
+            // Order by UNII so we process one product at a time
+            results = results
+                .OrderBy(r => r.UNII ?? string.Empty)
+                .ThenBy(r => r.TextTableID)
+                .ToList();
+
             _logger.LogDebug("GetTableCellContextsAsync returned {Count} rows", results.Count);
             return results;
             #endregion
@@ -144,6 +153,45 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             _logger.LogDebug("TextTableID range: {MinId} to {MaxId}", minId, maxId);
             return (minId, maxId);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns DocumentGUIDs ordered by their plus-delimited UNII key from vw_ActiveIngredients.
+        /// Documents sharing the same UNII combination are adjacent, enabling product-clustered
+        /// batch processing for anomaly model training.
+        /// </summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Ordered list of DocumentGUIDs grouped by UNII.</returns>
+        /// <seealso cref="LabelViewContainer.ActiveIngredientView"/>
+        public async Task<List<Guid>> GetDocumentGuidsOrderedByUniiAsync(
+            CancellationToken cancellationToken = default)
+        {
+            #region implementation
+
+            var aiRows = await _context.Set<LabelViewContainer.ActiveIngredientView>()
+                .AsNoTracking()
+                .Where(ai => ai.DocumentGUID != null && ai.UNII != null)
+                .Select(ai => new { ai.DocumentGUID, ai.UNII })
+                .ToListAsync(cancellationToken);
+
+            // Group by document, build plus-delimited UNII key, order by it
+            var orderedGuids = aiRows
+                .GroupBy(ai => ai.DocumentGUID!.Value)
+                .Select(g => new
+                {
+                    DocumentGUID = g.Key,
+                    UniiKey = string.Join("+", g.Select(x => x.UNII!).Distinct().OrderBy(u => u))
+                })
+                .OrderBy(x => x.UniiKey)
+                .ThenBy(x => x.DocumentGUID)
+                .Select(x => x.DocumentGUID)
+                .ToList();
+
+            _logger.LogDebug("GetDocumentGuidsOrderedByUniiAsync returned {Count} documents", orderedGuids.Count);
+            return orderedGuids;
+
             #endregion
         }
 
@@ -205,6 +253,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     DocumentGUID = d.DocumentGUID,
                     Title = d.Title,
                     VersionNumber = d.VersionNumber,
+                    // UNII enriched post-query via enrichUniiAsync (STRING_AGG not portable to SQLite)
                     // Section Navigation
                     SectionGUID = sn.SectionGUID,
                     SectionCode = sn.SectionCode,
@@ -219,6 +268,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Apply filters
             if (filter?.DocumentGUID != null)
                 query = query.Where(x => x.DocumentGUID == filter.DocumentGUID);
+
+            if (filter?.DocumentGUIDs != null && filter.DocumentGUIDs.Count > 0)
+                query = query.Where(x => x.DocumentGUID.HasValue && filter.DocumentGUIDs.Contains(x.DocumentGUID.Value));
 
             if (filter?.TextTableID != null)
                 query = query.Where(x => x.TextTableID == filter.TextTableID);
@@ -238,6 +290,53 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion
 
         #region Private Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Enriches <see cref="TableCellContext"/> rows with plus-delimited UNII values from
+        /// vw_ActiveIngredients. Fetches active ingredient rows in a single batch query, then
+        /// groups and concatenates UNIIs in memory (avoids STRING_AGG which is not portable to SQLite).
+        /// </summary>
+        /// <param name="results">Rows to enrich.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <seealso cref="LabelViewContainer.ActiveIngredientView"/>
+        private async Task enrichUniiAsync(List<TableCellContext> results, CancellationToken cancellationToken)
+        {
+            #region implementation
+
+            var documentGuids = results
+                .Select(r => r.DocumentGUID)
+                .Where(g => g.HasValue)
+                .Select(g => g!.Value)
+                .Distinct()
+                .ToList();
+
+            if (documentGuids.Count == 0)
+                return;
+
+            var aiRows = await _context.Set<LabelViewContainer.ActiveIngredientView>()
+                .AsNoTracking()
+                .Where(ai => ai.DocumentGUID != null
+                          && documentGuids.Contains(ai.DocumentGUID.Value)
+                          && ai.UNII != null)
+                .Select(ai => new { ai.DocumentGUID, ai.UNII })
+                .ToListAsync(cancellationToken);
+
+            var uniiLookup = aiRows
+                .GroupBy(ai => ai.DocumentGUID!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => string.Join("+", g.Select(x => x.UNII!).Distinct().OrderBy(u => u)));
+
+            foreach (var row in results)
+            {
+                if (row.DocumentGUID.HasValue
+                    && uniiLookup.TryGetValue(row.DocumentGUID.Value, out var unii))
+                    row.UNII = unii;
+            }
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

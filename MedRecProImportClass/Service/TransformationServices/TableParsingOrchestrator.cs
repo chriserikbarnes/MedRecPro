@@ -208,11 +208,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 await TruncateAsync(ct);
             }
 
-            var (minId, maxId) = await _cellContextService.GetTextTableIdRangeAsync(ct);
-            _logger.LogInformation("TextTableID range: {Min} to {Max}", minId, maxId);
+            // UNII-ordered document batching: process documents grouped by active ingredient
+            // so the ML training accumulator gets concentrated product data per batch
+            var orderedGuids = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
+            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuids.Count);
 
-            var effectiveMinId = resumeFromId ?? minId;
-            var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
+            var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
             if (maxBatches.HasValue)
             {
                 totalBatches = Math.Min(totalBatches, maxBatches.Value);
@@ -220,7 +221,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             var totalObservations = 0;
             var batchNumber = 0;
 
-            for (int start = effectiveMinId; start <= maxId; start += batchSize)
+            for (int i = 0; i < orderedGuids.Count; i += batchSize)
             {
                 ct.ThrowIfCancellationRequested();
                 batchNumber++;
@@ -231,11 +232,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                     break;
                 }
 
-                var end = Math.Min(start + batchSize - 1, maxId);
+                var guids = orderedGuids.Skip(i).Take(batchSize).ToList();
                 var filter = new TableCellContextFilter
                 {
-                    TextTableIdRangeStart = start,
-                    TextTableIdRangeEnd = end
+                    DocumentGUIDs = guids
                 };
 
                 // Wrap rowProgress to inject batch-level context into each per-table report.
@@ -249,8 +249,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                     {
                         p.BatchNumber = capturedBatchNumber;
                         p.TotalBatches = totalBatches;
-                        p.RangeStart = start;
-                        p.RangeEnd = end;
                         p.CumulativeObservationCount = capturedTotalObs + p.BatchObservationCount;
                         p.Elapsed = stopwatch.Elapsed;
                         rowProgress.Report(p);
@@ -261,15 +259,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                 totalObservations += batchCount;
 
                 _logger.LogInformation(
-                    "Batch {Batch}/{TotalBatches}: IDs [{Start}-{End}], {BatchCount} observations, {Total} cumulative",
-                    batchNumber, totalBatches, start, end, batchCount, totalObservations);
+                    "Batch {Batch}/{TotalBatches}: {DocCount} documents, {BatchCount} observations, {Total} cumulative",
+                    batchNumber, totalBatches, guids.Count, batchCount, totalObservations);
 
                 progress?.Report(new TransformBatchProgress
                 {
                     BatchNumber = batchNumber,
                     TotalBatches = totalBatches,
-                    RangeStart = start,
-                    RangeEnd = end,
                     BatchObservationCount = batchCount,
                     CumulativeObservationCount = totalObservations,
                     Elapsed = stopwatch.Elapsed
@@ -372,11 +368,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 await TruncateAsync(ct);
             }
 
-            var (minId, maxId) = await _cellContextService.GetTextTableIdRangeAsync(ct);
-            _logger.LogInformation("TextTableID range: {Min} to {Max}", minId, maxId);
+            // UNII-ordered document batching: process documents grouped by active ingredient
+            // so the ML training accumulator gets concentrated product data per batch
+            var orderedGuids = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
+            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuids.Count);
 
-            var effectiveMinId = resumeFromId ?? minId;
-            var totalBatches = (int)Math.Ceiling((double)(maxId - effectiveMinId + 1) / batchSize);
+            var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
             if (maxBatches.HasValue)
             {
                 totalBatches = Math.Min(totalBatches, maxBatches.Value);
@@ -385,7 +382,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             var batchNumber = 0;
             var skipReasons = new Dictionary<int, string>();
 
-            for (int start = effectiveMinId; start <= maxId; start += batchSize)
+            for (int i = 0; i < orderedGuids.Count; i += batchSize)
             {
                 ct.ThrowIfCancellationRequested();
                 batchNumber++;
@@ -396,11 +393,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                     break;
                 }
 
-                var end = Math.Min(start + batchSize - 1, maxId);
+                var guids = orderedGuids.Skip(i).Take(batchSize).ToList();
                 var filter = new TableCellContextFilter
                 {
-                    TextTableIdRangeStart = start,
-                    TextTableIdRangeEnd = end
+                    DocumentGUIDs = guids
                 };
 
                 // Wrap rowProgress to inject batch-level context into each per-table report.
@@ -412,8 +408,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                     {
                         p.BatchNumber = capturedBatchNumber;
                         p.TotalBatches = totalBatches;
-                        p.RangeStart = start;
-                        p.RangeEnd = end;
                         p.CumulativeObservationCount = capturedTotalObs + p.BatchObservationCount;
                         p.Elapsed = stopwatch.Elapsed;
                         rowProgress.Report(p);
@@ -431,15 +425,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
 
                 _logger.LogInformation(
-                    "Batch {Batch}/{TotalBatches}: IDs [{Start}-{End}], {BatchCount} observations, {Skipped} skipped, {Total} cumulative",
-                    batchNumber, totalBatches, start, end, batchCount, batchSkips.Count, totalObservations);
+                    "Batch {Batch}/{TotalBatches}: {DocCount} documents, {BatchCount} observations, {Skipped} skipped, {Total} cumulative",
+                    batchNumber, totalBatches, guids.Count, batchCount, batchSkips.Count, totalObservations);
 
                 progress?.Report(new TransformBatchProgress
                 {
                     BatchNumber = batchNumber,
                     TotalBatches = totalBatches,
-                    RangeStart = start,
-                    RangeEnd = end,
                     BatchObservationCount = batchCount,
                     CumulativeObservationCount = totalObservations,
                     TablesSkippedThisBatch = batchSkips.Count,

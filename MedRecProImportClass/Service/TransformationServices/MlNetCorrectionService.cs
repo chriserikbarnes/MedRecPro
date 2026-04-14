@@ -523,7 +523,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            var compositeKey = buildAnomalyModelKey(obs.TableCategory, obs.PrimaryValueType, obs.SecondaryValueType);
+            var compositeKey = buildAnomalyModelKey(obs.UNII, obs.TableCategory, obs.PrimaryValueType, obs.SecondaryValueType);
             if (_anomalyEngines.TryGetValue(compositeKey, out var engine))
             {
                 var input = new AnomalyInput
@@ -591,7 +591,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return;
 
             var qualifiedGroups = _trainingAccumulator
-                .GroupBy(r => buildAnomalyModelKey(r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
+                .GroupBy(r => buildAnomalyModelKey(r.UNII, r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
                          StringComparer.OrdinalIgnoreCase)
                 .Where(g => g.Count() >= _settings.MinTrainingRowsPerCategory)
                 .ToList();
@@ -861,7 +861,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                              !float.IsNaN(r.PValue) &&
                              !float.IsNaN(r.ParseConfidence) &&
                              !float.IsNaN(r.LogArmN))
-                .GroupBy(r => buildAnomalyModelKey(r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
+                .GroupBy(r => buildAnomalyModelKey(r.UNII, r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
                          StringComparer.OrdinalIgnoreCase);
 
             foreach (var group in groups)
@@ -923,9 +923,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var dataView = _mlContext.Data.LoadFromEnumerable(catRows);
 
                     // PCA rank: composite key → category fallback → default 3
-                    var category = compositeKey.IndexOf('|') is var idx && idx >= 0
-                        ? compositeKey[..idx]
-                        : compositeKey;
+                    // Key format: "UNII|Category|PVT[|SVT]" — category is second segment
+                    var segments = compositeKey.Split('|');
+                    var category = segments.Length >= 2 ? segments[1] : compositeKey;
                     var rank = _pcaRanks.TryGetValue(compositeKey, out var r1) ? r1
                              : _pcaRanks.TryGetValue(category, out var r2) ? r2
                              : 3;
@@ -1207,6 +1207,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Format: "Category|PrimaryValueType" when SecondaryValueType is null/empty,
         /// or "Category|PrimaryValueType|SecondaryValueType" when defined.
         /// </summary>
+        /// <param name="unii">Plus-delimited active ingredient UNIIs, or null.</param>
         /// <param name="tableCategory">Table category (e.g., "PK").</param>
         /// <param name="primaryValueType">Primary value type (e.g., "ArithmeticMean").</param>
         /// <param name="secondaryValueType">Secondary value type (e.g., "SD"), or null.</param>
@@ -1214,19 +1215,21 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <seealso cref="trainAnomalyModels"/>
         /// <seealso cref="applyAnomalyScore"/>
         internal static string buildAnomalyModelKey(
+            string? unii,
             string? tableCategory,
             string? primaryValueType,
             string? secondaryValueType = null)
         {
             #region implementation
 
+            var u   = unii ?? string.Empty;
             var cat = tableCategory ?? string.Empty;
             var pvt = primaryValueType ?? string.Empty;
             var svt = secondaryValueType ?? string.Empty;
 
             return string.IsNullOrEmpty(svt)
-                ? $"{cat}|{pvt}"
-                : $"{cat}|{pvt}|{svt}";
+                ? $"{u}|{cat}|{pvt}"
+                : $"{u}|{cat}|{pvt}|{svt}";
 
             #endregion
         }
