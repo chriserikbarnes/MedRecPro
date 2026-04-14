@@ -497,6 +497,17 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Stage 2: Reconstruct tables
             reportProgress("Reconstructing tables...", 0, 0, 0);
             var tables = await _reconstructionService.ReconstructTablesAsync(filter, ct);
+
+            // Sort by UNII so all observations for the same product flow into ML scoring together.
+            // ReconstructTablesAsync iterates a Dictionary<TextTableID, ...> whose iteration order
+            // follows hash buckets, not the UNII-ordered cell retrieval. Sorting here restores the
+            // UNII walk order established by GetDocumentGuidsOrderedByUniiAsync, ensuring the flat
+            // table writes and training accumulation reflect product-clustered data.
+            tables = tables
+                .OrderBy(t => t.UNII ?? string.Empty)
+                .ThenBy(t => t.TextTableID)
+                .ToList();
+
             result.ReconstructedTables = tables;
 
             // Stage 3: Route + Parse (0% → 20%)
@@ -1049,7 +1060,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ParseRule = obs.ParseRule.Truncate(XSM_TEXT_LENGTH),
                 FootnoteMarkers = obs.FootnoteMarkers.Truncate(SML_TEXT_LENGTH),
                 FootnoteText = obs.FootnoteText,
-                ValidationFlags = obs.ValidationFlags.Truncate(MED_TEXT_LENGTH)
+                ValidationFlags = obs.ValidationFlags.Truncate(MED_TEXT_LENGTH),
+                UNII = obs.UNII.Truncate(MED_TEXT_LENGTH)
             };
 
             #endregion

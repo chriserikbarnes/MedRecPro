@@ -2923,6 +2923,20 @@ namespace MedRecProImportClass.Models
             /// <summary>Automated validation check results.</summary>
             public string? ValidationFlags { get; set; }
 
+            /**************************************************************/
+            /// <summary>
+            /// Plus-delimited active ingredient UNIIs for the source document, sourced from
+            /// vw_ActiveIngredients during table cell enrichment. Stored directly so diagnostic
+            /// queries can ORDER BY UNII without JOINing vw_ActiveIngredients (which multiplies
+            /// rows by product count).
+            /// </summary>
+            /// <remarks>
+            /// Format: individual UNIIs sorted alphabetically and joined with "+".
+            /// Example: "8DUH1N11BX+9DLQ4CIU6V" for a two-ingredient product.
+            /// </remarks>
+            /// <seealso cref="ParsedObservation"/>
+            public string? UNII { get; set; }
+
             #endregion properties
         }
 

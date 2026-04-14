@@ -307,6 +307,35 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Accumulate high-confidence rows for future training
             accumulateBatch(observations);
 
+            // Post-accumulation rescore: the current batch's data is now in the accumulator,
+            // which may push UNII-specific keys past the MinTrainingRowsPerCategory threshold.
+            // Retrain once more and rescore any NOMODEL observations. With UNII-ordered
+            // batching, adjacent documents share active ingredients, so most keys qualify
+            // for training by the end of the first batch.
+            var noModelObs = observations
+                .Where(o => o.ValidationFlags != null
+                          && o.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
+                .ToList();
+
+            if (noModelObs.Count > 0)
+            {
+                tryRetrain();
+
+                var rescored = 0;
+                foreach (var obs in noModelObs)
+                {
+                    stripAnomalyScoreFlag(obs);
+                    applyAnomalyScore(obs);
+                    if (obs.ValidationFlags != null
+                        && !obs.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
+                        rescored++;
+                }
+
+                _logger.LogInformation(
+                    "Post-accumulation rescore: {Rescored}/{Total} NOMODEL observations now have scores",
+                    rescored, noModelObs.Count);
+            }
+
             return observations;
 
             #endregion
@@ -523,51 +552,50 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Look up UNII-specific model. If no model exists for this key, emit NOMODEL
+            // (which forwards the observation to Claude as the safe default). Generic
+            // cross-UNII models were intentionally removed — they mix different drugs'
+            // distributions, producing scores whose meaning differs from UNII-specific
+            // scores yet are consumed identically by the Claude threshold gate.
             var compositeKey = buildAnomalyModelKey(obs.UNII, obs.TableCategory, obs.PrimaryValueType, obs.SecondaryValueType);
-            if (_anomalyEngines.TryGetValue(compositeKey, out var engine))
-            {
-                var input = new AnomalyInput
-                {
-                    Features = new float[]
-                    {
-                        MlTrainingRecord.toSafeFloat(obs.PrimaryValue),
-                        MlTrainingRecord.toSafeFloat(obs.SecondaryValue),
-                        MlTrainingRecord.toSafeFloat(obs.LowerBound),
-                        MlTrainingRecord.toSafeFloat(obs.UpperBound),
-                        MlTrainingRecord.toSafeFloat(obs.PValue),
-                        MlTrainingRecord.toSafeFloat(obs.ParseConfidence),
-                        obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f
-                    }
-                };
-
-                try
-                {
-                    var prediction = engine.Predict(input);
-                    var score = prediction.Score;
-
-                    if (float.IsNaN(score) || float.IsInfinity(score))
-                    {
-                        //_logger.LogWarning(
-                        //    "Stage 4 anomaly prediction returned {ScoreType} for SourceRowSeq={Row}, Category={Cat} — emitting ERROR",
-                        //    float.IsNaN(score) ? "NaN" : "Infinity", obs.SourceRowSeq, obs.TableCategory);
-                        appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
-                    }
-                    else
-                    {
-                        // var percentile = calibrateScore(obs.TableCategory ?? string.Empty, score);
-                        // appendFlag(obs, $"MLNET_ANOMALY_SCORE:{percentile:F4}");
-                        appendFlag(obs, $"MLNET_ANOMALY_SCORE:{score:F4}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Stage 4 anomaly prediction failed for SourceRowSeq={Row}", obs.SourceRowSeq);
-                    appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
-                }
-            }
-            else
+            if (!_anomalyEngines.TryGetValue(compositeKey, out var engine))
             {
                 appendFlag(obs, "MLNET_ANOMALY_SCORE:NOMODEL");
+                return;
+            }
+
+            var input = new AnomalyInput
+            {
+                Features = new float[]
+                {
+                    MlTrainingRecord.toSafeFloat(obs.PrimaryValue),
+                    MlTrainingRecord.toSafeFloat(obs.SecondaryValue),
+                    MlTrainingRecord.toSafeFloat(obs.LowerBound),
+                    MlTrainingRecord.toSafeFloat(obs.UpperBound),
+                    MlTrainingRecord.toSafeFloat(obs.PValue),
+                    MlTrainingRecord.toSafeFloat(obs.ParseConfidence),
+                    obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f
+                }
+            };
+
+            try
+            {
+                var prediction = engine.Predict(input);
+                var score = prediction.Score;
+
+                if (float.IsNaN(score) || float.IsInfinity(score))
+                {
+                    appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
+                }
+                else
+                {
+                    appendFlag(obs, $"MLNET_ANOMALY_SCORE:{score:F4}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Stage 4 anomaly prediction failed for SourceRowSeq={Row}", obs.SourceRowSeq);
+                appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
             }
 
             #endregion
@@ -590,18 +618,20 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (newRows < _settings.RetrainingBatchSize)
                 return;
 
-            var qualifiedGroups = _trainingAccumulator
+            // Check if any UNII-specific key qualifies for training.
+            // With UNII-ordered batching, adjacent documents share active ingredients,
+            // so keys reach MinTrainingRowsPerCategory within the first batch.
+            var hasQualified = _trainingAccumulator
                 .GroupBy(r => buildAnomalyModelKey(r.UNII, r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
                          StringComparer.OrdinalIgnoreCase)
-                .Where(g => g.Count() >= _settings.MinTrainingRowsPerCategory)
-                .ToList();
+                .Any(g => g.Count() >= _settings.MinTrainingRowsPerCategory);
 
-            if (qualifiedGroups.Count == 0)
+            if (!hasQualified)
                 return;
 
             _logger.LogInformation(
-                "ML retrain triggered: {NewRows} new rows, {Groups} qualified composite groups",
-                newRows, qualifiedGroups.Count);
+                "ML retrain triggered: {NewRows} new rows since last train",
+                newRows);
 
             trainTableCategoryModel(_trainingAccumulator);
             trainDoseRegimenModel(_trainingAccumulator);
@@ -616,7 +646,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 _ = _trainingStore.RecordRetrainAsync();
             }
 
-            _logger.LogInformation("ML retrain complete. Accumulator size: {Size}", _trainingAccumulator.Count);
+            _logger.LogInformation(
+                "ML retrain complete. Accumulator size: {Size}. Anomaly models: {ModelCount}",
+                _trainingAccumulator.Count, _anomalyEngines.Count);
 
             #endregion
         }
@@ -1248,6 +1280,30 @@ namespace MedRecProImportClass.Service.TransformationServices
             obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
                 ? flag
                 : $"{obs.ValidationFlags}; {flag}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Strips all <c>MLNET_ANOMALY_SCORE:*</c> flags from the observation's ValidationFlags.
+        /// Used by the post-accumulation rescore pass to clear NOMODEL before retrying.
+        /// </summary>
+        /// <param name="obs">Observation whose anomaly score flag should be removed.</param>
+        /// <seealso cref="applyAnomalyScore"/>
+        private static void stripAnomalyScoreFlag(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(obs.ValidationFlags))
+                return;
+
+            var flags = obs.ValidationFlags
+                .Split(new[] { "; " }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(f => !f.StartsWith("MLNET_ANOMALY_SCORE:"))
+                .ToArray();
+
+            obs.ValidationFlags = flags.Length > 0 ? string.Join("; ", flags) : string.Empty;
 
             #endregion
         }

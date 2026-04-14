@@ -18,6 +18,7 @@ BEGIN
 
         -- Provenance (8): traces every value back to the exact source cell
         DocumentGUID            UNIQUEIDENTIFIER NULL,
+        UNII                    NVARCHAR(1000)    NULL, -- may be concatonated with '+'
         LabelerName             NVARCHAR(500)    NULL,
         ProductTitle            NVARCHAR(500)    NULL,
         VersionNumber           INT              NULL,

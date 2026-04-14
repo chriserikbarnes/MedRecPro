@@ -1871,3 +1871,50 @@ Replaced `RemainingTimeColumn()` with `ElapsedTimeColumn()` in all three progres
 `RemainingTimeColumn` estimates time remaining from progress velocity — during long ML.NET scoring operations where `task.Value` does not change, the velocity drops to zero and the display freezes. When ML.NET finishes and progress jumps, the remaining time estimate recalculates to a wildly different value, appearing to erase the previous reading. `ElapsedTimeColumn` (a Spectre.Console built-in already used in `ImportService.cs` and `OrangeBookImportService.cs`) shows time elapsed since the task started — it ticks forward continuously regardless of progress activity, producing a stable, continuous display.
 
 ---
+
+### 2026-04-14 2:50 PM EST — UNII-Ordered Batch Selection, Hierarchical Anomaly Model Fallback, and Post-Accumulation Rescore
+
+**Problem**: After extending the ML anomaly model key with UNII (commit d7e77aa), the composite key space exploded to ~1.1M possible keys. The training store (50MB / ~59K rows) could only support ~2,940 keys at 20 rows each — 0.26% coverage. Result: near-universal NOMODEL, unstable scores for the few keys that did train, and disjointed UNII ordering in the batch pipeline.
+
+**Changes across 5 files:**
+
+1. **UNII-ordered document walk** (`TableCellContextService.cs`): Replaced composite-key grouping in `GetDocumentGuidsOrderedByUniiAsync` with a raw `ORDER BY UNII` walk using `HashSet.Add` first-seen deduplication. Documents sharing the same active ingredient are now in adjacent batches, concentrating per-UNII training data.
+
+2. **UNII-ordered table processing** (`TableParsingOrchestrator.cs`): Added `.OrderBy(UNII).ThenBy(TextTableID)` sort after `ReconstructTablesAsync` to restore UNII ordering lost by Dictionary hash-bucket iteration. Also added `UNII` column to `FlattenedStandardizedTable` entity + `mapToEntity` mapping (MED_TEXT_LENGTH/NVARCHAR(1000)) — eliminates the need for diagnostic JOINs with `vw_ActiveIngredients` that were multiplying rows by product count.
+
+3. **UNII column on flat table** (`LabelView.cs`): Added `UNII` property to `FlattenedStandardizedTable` entity with documentation. Requires `ALTER TABLE tmp_FlattenedStandardizedTable ADD [UNII] NVARCHAR(1000) NULL` on the database.
+
+4. **Hierarchical model fallback** (`MlNetCorrectionService.cs`):
+   - New `buildGenericAnomalyModelKey` helper producing `*|{Cat}|{PVT}[|{SVT}]` keys (collision-safe `*` sentinel prefix).
+   - Tier 2 generic training loop in `trainAnomalyModels`: aggregates ALL UNIIs per Cat|PVT|SVT combo (~60 generic keys with hundreds to thousands of rows each → stable PCA).
+   - Hierarchical lookup in `applyAnomalyScore`: Tier 1 (UNII-specific) → Tier 2 (generic `*|` fallback) → Tier 3 (NOMODEL).
+   - Updated `tryRetrain` qualification to check both specific AND generic groups — fires sooner during cold start.
+   - Post-accumulation rescore pass in `ScoreAndCorrect`: after accumulating the current batch, retrains and rescores NOMODEL observations. Eliminates cold-start NOMODEL within Batch 1 itself.
+   - New `stripAnomalyScoreFlag` helper for clean rescore.
+
+5. **Settings tuning** (`MlNetCorrectionSettings.cs`):
+   - `MinTrainingRowsPerCategory`: 20 → 10 (2× more UNII-specific models)
+   - `RetrainingBatchSize`: 200 → 100 (faster cold-start convergence)
+   - `MaxAccumulatorRows`: 100K → 500K (5× capacity)
+   - `MaxTrainingStoreSizeBytes`: 50MB → 200MB (4× file capacity, ~235K rows)
+
+**Expected impact**: NOMODEL drops from ~99.7% to near zero after Batch 1. Score distribution stabilizes via generic models trained on thousands of rows. UNII-specific models still preferred when sufficient data exists.
+
+---
+
+### 2026-04-14 3:14 PM EST — Remove Generic (UNII-Agnostic) Anomaly Model Fallback
+
+**Problem**: The hierarchical anomaly scoring introduced in the previous session had a semantic inconsistency. Tier 1 (UNII-specific) scores meant "anomalous relative to this drug's data," while Tier 2 (generic `*|` prefix) scores meant "anomalous relative to all drugs combined." The downstream Claude threshold gate consumed both identically, meaning a generic model could suppress Claude review for observations that were genuinely anomalous for their specific drug but looked normal against the cross-drug aggregate.
+
+With UNII-ordered batching + post-accumulation rescore already handling the cold-start problem that generic models were designed to solve, the generic tier was unnecessary complexity producing misleading scores.
+
+**Removed from `MlNetCorrectionService.cs`:**
+- `buildGenericAnomalyModelKey()` method (the `*|{Cat}|{PVT}[|{SVT}]` key builder)
+- Tier 2 generic training loop in `trainAnomalyModels` (~90 lines)
+- Tier 2 fallback lookup in `applyAnomalyScore` — now: UNII-specific model → NOMODEL (no intermediate tier)
+- `hasQualifiedGeneric` check in `tryRetrain` — only UNII-specific qualification matters
+- Generic/specific count split in log messages — single model count
+
+**Guidance given**: Score distribution showing ~80% of observations at 0.75–1.00 is caused by `MinTrainingRowsPerCategory = 10` being too low for stable PCA eigenvectors. Recommended increase to 30 — eliminates noisiest models, improves discrimination in surviving models, and lets NOMODEL (→ Claude) handle genuinely sparse keys.
+
+---

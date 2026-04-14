@@ -158,12 +158,23 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Returns DocumentGUIDs ordered by their plus-delimited UNII key from vw_ActiveIngredients.
-        /// Documents sharing the same UNII combination are adjacent, enabling product-clustered
-        /// batch processing for anomaly model training.
+        /// Returns DocumentGUIDs in the order they first appear when vw_ActiveIngredients is walked
+        /// sorted by individual UNII. This ensures all documents sharing a given active ingredient
+        /// are processed in adjacent batches, concentrating per-UNII training data for the anomaly model.
         /// </summary>
+        /// <remarks>
+        /// The ML anomaly model key is keyed on UNII as its first segment
+        /// (e.g., <c>"{UNII}|{TableCategory}|{PrimaryValueType}"</c>). To accumulate the minimum
+        /// training rows per key before the training store evicts older data, all documents for the
+        /// same UNII must appear close together in the batch sequence.
+        ///
+        /// Walking <c>vw_ActiveIngredients ORDER BY UNII</c> and collecting the first occurrence of
+        /// each DocumentGUID places multi-ingredient documents at the position of their alphabetically
+        /// earliest UNII, keeping them adjacent to other documents sharing that ingredient rather
+        /// than isolated at a composite-key position between the two ingredient groups.
+        /// </remarks>
         /// <param name="cancellationToken">Cancellation token.</param>
-        /// <returns>Ordered list of DocumentGUIDs grouped by UNII.</returns>
+        /// <returns>Ordered list of DocumentGUIDs in individual-UNII walk order.</returns>
         /// <seealso cref="LabelViewContainer.ActiveIngredientView"/>
         public async Task<List<Guid>> GetDocumentGuidsOrderedByUniiAsync(
             CancellationToken cancellationToken = default)
@@ -176,17 +187,15 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .Select(ai => new { ai.DocumentGUID, ai.UNII })
                 .ToListAsync(cancellationToken);
 
-            // Group by document, build plus-delimited UNII key, order by it
+            // Walk vw_ActiveIngredients sorted by individual UNII, collecting each DocumentGUID
+            // on its first appearance. HashSet.Add returns false for duplicates, so Where filters
+            // to first-seen order, which mirrors: SELECT DISTINCT DocumentGUID ... ORDER BY UNII.
+            var seen = new HashSet<Guid>();
             var orderedGuids = aiRows
-                .GroupBy(ai => ai.DocumentGUID!.Value)
-                .Select(g => new
-                {
-                    DocumentGUID = g.Key,
-                    UniiKey = string.Join("+", g.Select(x => x.UNII!).Distinct().OrderBy(u => u))
-                })
-                .OrderBy(x => x.UniiKey)
-                .ThenBy(x => x.DocumentGUID)
-                .Select(x => x.DocumentGUID)
+                .OrderBy(ai => ai.UNII)
+                .ThenBy(ai => ai.DocumentGUID)
+                .Select(ai => ai.DocumentGUID!.Value)
+                .Where(guid => seen.Add(guid))
                 .ToList();
 
             _logger.LogDebug("GetDocumentGuidsOrderedByUniiAsync returned {Count} documents", orderedGuids.Count);

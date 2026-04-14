@@ -68,17 +68,17 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// Minimum rows per TableCategory required before models can be trained.
         /// Categories with fewer accumulated rows than this threshold are skipped during training.
-        /// Default 20.
+        /// Default 300.
         /// </summary>
-        public int MinTrainingRowsPerCategory { get; set; } = 20;
+        public int MinTrainingRowsPerCategory { get; set; } = 300;
 
         /**************************************************************/
         /// <summary>
         /// Number of new rows that must accumulate since last training before a retrain is triggered.
         /// Prevents retraining on every batch while ensuring models improve as more data arrives.
-        /// Default 200.
+        /// Default 100.
         /// </summary>
-        public int RetrainingBatchSize { get; set; } = 200;
+        public int RetrainingBatchSize { get; set; } = 100;
 
         #endregion
 
@@ -100,10 +100,10 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// Maximum records in the training accumulator. When exceeded, oldest non-ground-truth
         /// (bootstrap) records are evicted first, then oldest ground-truth records.
-        /// Default 100,000. At ~800–900 bytes/record (indented JSON) ≈ 80–90 MB on disk;
+        /// Default 500,000. At ~800–900 bytes/record (indented JSON) ≈ 400–450 MB on disk;
         /// use <see cref="MaxTrainingStoreSizeBytes"/> to cap the actual file size.
         /// </summary>
-        public int MaxAccumulatorRows { get; set; } = 100_000;
+        public int MaxAccumulatorRows { get; set; } = 500_000;
 
         /**************************************************************/
         /// <summary>
@@ -111,10 +111,10 @@ namespace MedRecProImportClass.Models
         /// When the file would exceed this limit, oldest bootstrap records are evicted first,
         /// then oldest ground-truth records, until the serialized output fits within the cap.
         /// Enforced on every save and also at load time (to trim files written by older builds).
-        /// Default 31,457,280 (30 MB). With <c>WriteIndented = true</c> producing ~800–900 bytes
-        /// per record, 30 MB ≈ ~35,000 records.
+        /// Default 209,715,200 (200 MB). With <c>WriteIndented = true</c> producing ~800–900 bytes
+        /// per record, 200 MB ≈ ~235,000 records.
         /// </summary>
-        public long MaxTrainingStoreSizeBytes { get; set; } = 50L * 1024 * 1024; // 50 MB
+        public long MaxTrainingStoreSizeBytes { get; set; } = 200L * 1024 * 1024; // 200 MB
 
         #endregion
 

@@ -31,7 +31,7 @@ FROM [dbo].[tmp_FlattenedStandardizedTable]
 --where ParameterSubtype is not null
 --where [TextTableID] = 203
 
-SELECT  
+SELECT 
     LTRIM(RTRIM(REPLACE(REPLACE(
                 SUBSTRING(
                     ValidationFlags,
@@ -41,27 +41,19 @@ SELECT
                     - (CHARINDEX('MLNET_ANOMALY_SCORE:', ValidationFlags) + 20)
                 ),
             CHAR(13), ''), CHAR(10), ''))) AS RawScore
-    ,[TableCategory]           
+    ,[TableCategory]
+    ,[TreatmentArm]
 	,[ParameterName]
-	,[ParameterCategory]
-	,[ParameterSubtype]
-	,[TreatmentArm]
-	,[ArmN]
-	,[StudyContext]
-	,[DoseRegimen]
-	,[RawValue]
-	,[PrimaryValue]
-	,[PrimaryValueType]
-	,[SecondaryValue]
-	,[SecondaryValueType]
-	,[LowerBound]
-	,[UpperBound]
-	,[BoundType]
-	,[PValue]
-	,[Unit]
-	,[ParseConfidence]
+    ,[UNII]
+    ,[TextTableID]
 	,[DocumentGUID]
-FROM [dbo].[tmp_FlattenedStandardizedTable]
+FROM [dbo].[tmp_FlattenedStandardizedTable] A
+order by UNII, TreatmentArm
+
+Select Count(*) As DCount from (Select Distinct * from [dbo].[tmp_FlattenedStandardizedTable]) A
+Select Count(*) As DCount from [dbo].[tmp_FlattenedStandardizedTable] A
+
+--order by UNII
 --where TextTableID = 185
 
 
@@ -84,13 +76,7 @@ and ParameterCategory is null
 --or ParameterName = 'Transient elevation in ALT')
 order by ParameterName
 
-
-
 Select distinct [TableCategory] from [dbo].[tmp_FlattenedStandardizedTable]
-
-
--- Histogram of MLNET_ANOMALY_SCORE from [ValidationFlags]
--- Bin width: 0.05 | Visual bar scaled to max bucket
 
 -- Histogram of MLNET_ANOMALY_SCORE from [ValidationFlags]
 -- Bin width: 0.05 | Visual bar scaled to max bucket
