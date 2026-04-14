@@ -102,7 +102,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>Stage 4: Per-category PCA anomaly detection engines.</summary>
-        private readonly Dictionary<string, PredictionEngine<AnomalyInput, AnomalyPrediction>>
+        /// <remarks>
+        /// Each engine's baked-in pipeline includes a <c>Concatenate("Features", ...)</c> step
+        /// that reads only the columns with real variance at training time. Constant-zero columns
+        /// are excluded from the model entirely — no jitter needed.
+        /// </remarks>
+        private readonly Dictionary<string, PredictionEngine<AnomalyFeatureRow, AnomalyPrediction>>
             _anomalyEngines = new(StringComparer.OrdinalIgnoreCase);
 
         // /**************************************************************/
@@ -123,6 +128,24 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             "ADVERSE_EVENT", "PK", "EFFICACY", "DRUG_INTERACTION",
             "BMD", "DOSING", "TISSUE_DISTRIBUTION", "DEMOGRAPHIC", "LABORATORY"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Column names corresponding to the 7 feature slots in <see cref="AnomalyFeatureRow"/>.
+        /// Used by <see cref="trainAnomalyModels"/> to build the dynamic <c>Concatenate("Features", ...)</c>
+        /// step that includes only columns with real variance.
+        /// </summary>
+        /// <seealso cref="computeActiveFeatureIndices"/>
+        private static readonly string[] _featureColumnNames =
+        {
+            nameof(AnomalyFeatureRow.PrimaryValue),
+            nameof(AnomalyFeatureRow.SecondaryValue),
+            nameof(AnomalyFeatureRow.LowerBound),
+            nameof(AnomalyFeatureRow.UpperBound),
+            nameof(AnomalyFeatureRow.PValue),
+            nameof(AnomalyFeatureRow.ParseConfidence),
+            nameof(AnomalyFeatureRow.LogArmN)
         };
 
         /**************************************************************/
@@ -564,18 +587,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return;
             }
 
-            var input = new AnomalyInput
+            // All 7 columns are populated; the prediction engine's baked-in Concatenate
+            // step reads only the columns that had real variance at training time.
+            var input = new AnomalyFeatureRow
             {
-                Features = new float[]
-                {
-                    MlTrainingRecord.toSafeFloat(obs.PrimaryValue),
-                    MlTrainingRecord.toSafeFloat(obs.SecondaryValue),
-                    MlTrainingRecord.toSafeFloat(obs.LowerBound),
-                    MlTrainingRecord.toSafeFloat(obs.UpperBound),
-                    MlTrainingRecord.toSafeFloat(obs.PValue),
-                    MlTrainingRecord.toSafeFloat(obs.ParseConfidence),
-                    obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f
-                }
+                PrimaryValue = MlTrainingRecord.toSafeFloat(obs.PrimaryValue),
+                SecondaryValue = MlTrainingRecord.toSafeFloat(obs.SecondaryValue),
+                LowerBound = MlTrainingRecord.toSafeFloat(obs.LowerBound),
+                UpperBound = MlTrainingRecord.toSafeFloat(obs.UpperBound),
+                PValue = MlTrainingRecord.toSafeFloat(obs.PValue),
+                ParseConfidence = MlTrainingRecord.toSafeFloat(obs.ParseConfidence),
+                LogArmN = obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f
             };
 
             try
@@ -871,13 +893,17 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Stage 4 training: Per-composite-key PCA anomaly detection models.
-        /// Each unique combination of TableCategory, PrimaryValueType, and (when defined)
-        /// SecondaryValueType gets its own model trained on 7 numeric features:
-        /// PrimaryValue, SecondaryValue, LowerBound, UpperBound, PValue, ParseConfidence, LogArmN.
+        /// Each unique combination of UNII, TableCategory, PrimaryValueType, and (when defined)
+        /// SecondaryValueType gets its own model trained on only the features that have real
+        /// variance for that key. Constant-zero features are excluded via a dynamic
+        /// <c>Concatenate("Features", activeColumnNames)</c> pipeline step, eliminating the
+        /// need for jitter and preventing noise dimensions from dominating scores.
         /// </summary>
         /// <param name="rows">Training data from accumulator.</param>
         /// <seealso cref="buildAnomalyModelKey"/>
         /// <seealso cref="applyAnomalyScore"/>
+        /// <seealso cref="computeActiveFeatureIndices"/>
+        /// <seealso cref="_featureColumnNames"/>
         private void trainAnomalyModels(List<MlTrainingRecord> rows)
         {
             #region implementation
@@ -901,58 +927,60 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var compositeKey = group.Key;
                 try
                 {
-                    var catRows = group
-                        .Select(r => new AnomalyInput
+                    // Build raw feature vectors for active-feature detection
+                    var groupList = group.ToList();
+                    var rawVectors = groupList
+                        .Select(r => new float[]
                         {
-                            Features = new float[]
-                            {
-                                r.PrimaryValue,
-                                r.SecondaryValue,
-                                r.LowerBound,
-                                r.UpperBound,
-                                r.PValue,
-                                r.ParseConfidence,
-                                r.LogArmN
-                            }
+                            r.PrimaryValue,
+                            r.SecondaryValue,
+                            r.LowerBound,
+                            r.UpperBound,
+                            r.PValue,
+                            r.ParseConfidence,
+                            r.LogArmN
                         })
                         .ToList();
 
-                    if (catRows.Count < _settings.MinTrainingRowsPerCategory)
+                    if (rawVectors.Count < _settings.MinTrainingRowsPerCategory)
                     {
                         _logger.LogDebug("Stage 4 skipping {CompositeKey} — only {Count} rows (need {Min})",
-                            compositeKey, catRows.Count, _settings.MinTrainingRowsPerCategory);
+                            compositeKey, rawVectors.Count, _settings.MinTrainingRowsPerCategory);
                         continue;
                     }
 
                     // Identify which feature slots have real variance vs constant columns.
-                    var activeIndices = computeActiveFeatureIndices(catRows);
+                    // Constant columns are excluded from the Concatenate step entirely —
+                    // no jitter needed because NormalizeMeanVariance never sees them.
+                    var activeIndices = computeActiveFeatureIndices(rawVectors);
                     if (activeIndices.Length == 0)
                     {
                         _logger.LogDebug("Stage 4 skipping {CompositeKey} — no feature variance in {Count} rows",
-                            compositeKey, catRows.Count);
+                            compositeKey, rawVectors.Count);
                         continue;
                     }
 
-                    // Inject tiny jitter into constant-variance feature slots.
-                    // NormalizeMeanVariance divides by stddev — zero variance → 0/0 → NaN,
-                    // which corrupts PCA eigenvectors. Jitter breaks the zero-variance
-                    // without meaningfully affecting the model (magnitude ~1e-6).
-                    // AnomalyInput.Features is [VectorType(7)] so all 7 slots must be kept.
-                    var constantIndices = Enumerable.Range(0, 7)
-                        .Where(i => !activeIndices.Contains(i))
+                    // Map active indices to column names for dynamic Concatenate
+                    var activeColumnNames = activeIndices
+                        .Select(i => _featureColumnNames[i])
                         .ToArray();
 
-                    if (constantIndices.Length > 0)
-                    {
-                        var rng = new Random(42);
-                        foreach (var row in catRows)
+                    // Build AnomalyFeatureRow list for ML.NET — all 7 columns populated,
+                    // but the pipeline will only read the active ones
+                    var featureRows = groupList
+                        .Select(r => new AnomalyFeatureRow
                         {
-                            foreach (var ci in constantIndices)
-                                row.Features[ci] += (float)(rng.NextDouble() * 1e-6);
-                        }
-                    }
+                            PrimaryValue = r.PrimaryValue,
+                            SecondaryValue = r.SecondaryValue,
+                            LowerBound = r.LowerBound,
+                            UpperBound = r.UpperBound,
+                            PValue = r.PValue,
+                            ParseConfidence = r.ParseConfidence,
+                            LogArmN = r.LogArmN
+                        })
+                        .ToList();
 
-                    var dataView = _mlContext.Data.LoadFromEnumerable(catRows);
+                    var dataView = _mlContext.Data.LoadFromEnumerable(featureRows);
 
                     // PCA rank: composite key → category fallback → default 3
                     // Key format: "UNII|Category|PVT[|SVT]" — category is second segment
@@ -961,22 +989,24 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var rank = _pcaRanks.TryGetValue(compositeKey, out var r1) ? r1
                              : _pcaRanks.TryGetValue(category, out var r2) ? r2
                              : 3;
-                    // Clamp rank to number of real features — jittered columns have
-                    // negligible variance and should not consume eigenvectors
+                    // Clamp rank to number of active features — only dimensions with
+                    // real variance participate in PCA
                     rank = Math.Min(rank, activeIndices.Length);
 
-                    var pipeline = _mlContext.Transforms.NormalizeMeanVariance("Features")
+                    // Pipeline: Concatenate only active columns → normalize → PCA
+                    var pipeline = _mlContext.Transforms.Concatenate("Features", activeColumnNames)
+                        .Append(_mlContext.Transforms.NormalizeMeanVariance("Features"))
                         .Append(_mlContext.AnomalyDetection.Trainers.RandomizedPca(
                             featureColumnName: "Features",
                             rank: rank));
 
                     var model = pipeline.Fit(dataView);
                     _anomalyEngines[compositeKey] = _mlContext.Model
-                        .CreatePredictionEngine<AnomalyInput, AnomalyPrediction>(model);
+                        .CreatePredictionEngine<AnomalyFeatureRow, AnomalyPrediction>(model);
 
                     _logger.LogDebug(
-                        "Stage 4 anomaly model trained for {CompositeKey}: {Count} rows, rank={Rank}, activeFeatures={Active}/7",
-                        compositeKey, catRows.Count, rank, activeIndices.Length);
+                        "Stage 4 anomaly model trained for {CompositeKey}: {Count} rows, rank={Rank}, activeFeatures=[{ActiveNames}]",
+                        compositeKey, rawVectors.Count, rank, string.Join(", ", activeColumnNames));
                 }
                 catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
                 {
@@ -992,23 +1022,24 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Returns the indices of feature dimensions that have non-negligible variance.
         /// </summary>
         /// <remarks>
-        /// Constant columns (variance ≈ 0) cause <see cref="Microsoft.ML.Transforms.NormalizingTransformer">
-        /// NormalizeMeanVariance</see> to emit NaN (0/0), which propagates into PCA eigenvectors
-        /// and triggers <see cref="ArgumentOutOfRangeException"/>. This method identifies only
-        /// the dimensions with real variance so callers can strip constant features before training.
+        /// Constant columns (variance ≈ 0) are excluded from the dynamic
+        /// <c>Concatenate("Features", ...)</c> step so that <c>NormalizeMeanVariance</c>
+        /// never sees zero-variance dimensions. This replaces the earlier jitter-based
+        /// approach, which amplified noise to unit scale and corrupted PCA eigenvectors.
         /// </remarks>
-        /// <param name="rows">Training inputs whose <c>Features</c> arrays are inspected.</param>
+        /// <param name="rows">Raw feature vectors (one <c>float[]</c> per training row).</param>
         /// <param name="epsilon">Minimum variance threshold for a dimension to be considered active. Default: 1e-6.</param>
         /// <returns>Array of feature indices with variance greater than <paramref name="epsilon"/>.</returns>
         /// <seealso cref="trainAnomalyModels"/>
-        private static int[] computeActiveFeatureIndices(List<AnomalyInput> rows, float epsilon = 1e-6f)
+        /// <seealso cref="_featureColumnNames"/>
+        private static int[] computeActiveFeatureIndices(List<float[]> rows, float epsilon = 1e-6f)
         {
             #region implementation
 
             if (rows.Count == 0)
                 return Array.Empty<int>();
 
-            int featureCount = rows[0].Features.Length;
+            int featureCount = rows[0].Length;
             var active = new List<int>();
 
             for (int f = 0; f < featureCount; f++)
@@ -1016,14 +1047,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                 // Compute mean
                 float mean = 0f;
                 foreach (var row in rows)
-                    mean += row.Features[f];
+                    mean += row[f];
                 mean /= rows.Count;
 
                 // Compute variance
                 float variance = 0f;
                 foreach (var row in rows)
                 {
-                    float delta = row.Features[f] - mean;
+                    float delta = row[f] - mean;
                     variance += delta * delta;
                 }
                 variance /= rows.Count;

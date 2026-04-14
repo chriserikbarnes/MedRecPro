@@ -306,8 +306,10 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that a retrain is triggered when the accumulator grows past RetrainingBatchSize
-        /// and subsequent batches use trained models.
+        /// Verifies that a retrain is triggered when the accumulator grows past RetrainingBatchSize.
+        /// With post-accumulation rescore, Batch 1 itself can produce real scores — the initial
+        /// pass emits NOMODEL, then the batch is accumulated, retrain fires, and NOMODEL
+        /// observations are rescored with the freshly-trained models.
         /// </summary>
         [TestMethod]
         public async Task ScoreAndCorrect_TriggersRetrain_WhenThresholdMet()
@@ -321,15 +323,18 @@ namespace MedRecProTest
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Batch 1: 100 high-confidence rows across 4 categories, 5 per composite key
+            // Batch 1: 100 high-confidence rows across 4 categories, 5 per composite key.
+            // Post-accumulation rescore should convert some NOMODEL → real scores.
             var batch1 = generateTrainingBatch(25);
             var result1 = service.ScoreAndCorrect(batch1);
 
-            // Batch 1 should all have NOMODEL
-            Assert.IsTrue(result1.All(o => o.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL")),
-                "Batch 1 should have NOMODEL for all observations");
+            // After accumulation + rescore, at least some observations should have real scores
+            Assert.IsTrue(result1.Any(o =>
+                o.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
+                !o.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL")),
+                "Batch 1 post-rescore should have at least one trained anomaly score");
 
-            // Batch 2: retrain should fire (100 rows accumulated > 40 threshold)
+            // Batch 2: models are already trained from Batch 1 accumulation
             var batch2 = new List<ParsedObservation>
             {
                 createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 55.0, unii: "ABC123"),
