@@ -1918,3 +1918,65 @@ With UNII-ordered batching + post-accumulation rescore already handling the cold
 **Guidance given**: Score distribution showing ~80% of observations at 0.75–1.00 is caused by `MinTrainingRowsPerCategory = 10` being too low for stable PCA eigenvectors. Recommended increase to 30 — eliminates noisiest models, improves discrimination in surviving models, and lets NOMODEL (→ Claude) handle genuinely sparse keys.
 
 ---
+
+### 2026-04-15 3:49 PM EST — Stage 3 Memory Leak & Throughput Degradation Fixes
+
+**Problem**: The console run (`MedRecProConsole` → `TableStandardizationService.ExecuteParseAsync`) was bleeding memory and throughput over a ~200-batch × 100-document loop. VS diagnostic tools showed a linear working-set climb and quadratic-ish slowdown as batches progressed. Investigation identified three compounding root causes, all rooted in the fact that a single DI scope wraps the entire run, so every scoped service effectively behaves like a singleton.
+
+**Root causes confirmed**:
+
+1. **`ApplicationDbContext.ChangeTracker` never cleared on success** ([TableParsingOrchestrator.cs:877](MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs:877) `writeObservationsAsync`). `Clear()` only ran on `OperationCanceledException` / generic `Exception`, so each successful `SaveChangesAsync` left tracked entities pinned. With `AutoDetectChangesEnabled` at the EF Core default (`true`), every subsequent `AddRange` re-walked the entire tracker — classic EF Core "death spiral" explaining both the memory growth and the per-batch slowdown.
+
+2. **`MlNetCorrectionService._trainingAccumulator` diverged from its own configured cap** ([MlNetCorrectionService.cs:57](MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs:57)). The persistent `MlTrainingStore` correctly evicted at `MaxAccumulatorRows = 60,000` via `evictIfOverCapacity()`, but the in-memory list was a separate copy that never trimmed. Over a long run the two diverged — file bounded, memory unbounded. Note: the per-composite-key anomaly model population (`_anomalyEngines` dictionary keyed by `UNII|Category|PVT|SVT`) is **by design** — many models growing with coverage is expected and required for categorical per-product scoring. Retraining on a growing store is also intentional. The bug was narrow: just the missing in-memory cap. Secondary hygiene issue: `PredictionEngine<,>` instances at assignment/`Clear()` sites were overwritten without disposing, leaving native ML.NET buffers orphaned until GC finalization.
+
+3. **`MlTrainingStore` re-serializing full state on every batch with `WriteIndented = true`** ([MlTrainingStore.cs:63-67](MedRecProImportClass/Service/TransformationServices/MlTrainingStore.cs:63)). At cap (~48 MB indented) this was ~48 MB of JSON serialization per batch, growing linearly with accumulator size. Indentation roughly doubles both payload and cost with zero runtime value.
+
+**Fixes applied** (priority order — Fix 1 alone restores most throughput):
+
+- **Fix 1**: [TableParsingOrchestrator.cs:155](MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs:155) — `_dbContext.ChangeTracker.AutoDetectChangesEnabled = false` in constructor (this service is bulk-insert only, no read-modify-write). [TableParsingOrchestrator.cs:887](MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs:887) — `_dbContext.ChangeTracker.Clear()` added on the success path of `writeObservationsAsync`.
+
+- **Fix 2**: [MlTrainingStore.cs:67](MedRecProImportClass/Service/TransformationServices/MlTrainingStore.cs:67) — `WriteIndented = false`.
+
+- **Fix 3**: [MlNetCorrectionService.cs:710](MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs:710) (`accumulateBatch`) and [MlNetCorrectionService.cs:1267](MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs:1267) (`FeedClaudeCorrectedBatchAsync` ephemeral branch) — added oldest-first `RemoveRange(0, overflow)` trim to enforce `_settings.MaxAccumulatorRows` on the in-memory list, matching the persistent store's cap.
+
+- **Fix 4**: [MlNetCorrectionService.cs](MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs) — `(x as IDisposable)?.Dispose()` prepended to the four `PredictionEngine` replacement sites (`_tableCategoryEngine`, `_doseRegimenEngine`, `_primaryValueTypeEngine`) and a dispose-loop over `_anomalyEngines.Values` added before `_anomalyEngines.Clear()` in `trainAnomalyModels`. Resource hygiene only — not about reducing live engine count.
+
+**Explicitly rejected alternatives** (documented in plan): scope-per-batch refactor (would break `_trainingAccumulator`/model continuity and force `IServiceScopeFactory` through the orchestrator), awaiting fire-and-forget `AddRecordsAsync` (adds disk latency to hot path, defer — Fix 2 already halves per-call cost), retrain-frequency tuning or `GC.Collect` nudges (speculative), and sampling the accumulator (changes model semantics).
+
+**Verification**: `dotnet build MedRecProConsole/MedRecProConsole.csproj` — 0 errors, 143 warnings (all pre-existing; none reference edited files or lines). Memory soak and per-batch timing validation require running the console against a dev database with VS diagnostic tools attached — left for manual run.
+
+**Planning correction mid-session**: The initial plan framed Root Cause 2 as "many models are a bug" which was wrong. User corrected: "The trained models are categorical and need to be available for scoring. It is expected that many models will be created." The inline comment at [MlNetCorrectionService.cs:580](MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs:580) confirms generic cross-UNII fallback was intentionally removed in favor of per-product models, and line 584's `_anomalyEngines.TryGetValue(compositeKey, ...)` is the active scoring path. Revised Root Cause 2 and Fix 3/4 framing to narrow the bug to "in-memory copy diverges from its own configured cap" and "dispose outgoing engines on replacement" — NOT "fewer models". Plan file at `C:\Users\chris\.claude\plans\kind-roaming-pike.md`.
+
+---
+
+### 2026-04-15 5:45 PM EST — Fix 3 Regression: Retrain Gate Starved After First Trim (NOMODEL Explosion)
+
+**Problem reported**: After applying the Stage 3 memory/throughput fixes earlier today, a diagnostic query counting NOMODEL-scored rows in `tmp_FlattenedStandardizedTable` jumped from **5,675 rows pre-change to 195,587 rows post-change** — a ~34× regression in observations not getting anomaly-scored. User asked me to isolate which fix was responsible.
+
+**Culprit**: **Fix 3 alone** — the in-memory accumulator trim in `accumulateBatch` and `FeedClaudeCorrectedBatchAsync` (ephemeral). Fixes 1 (ChangeTracker), 2 (`WriteIndented=false`), and 4 (PredictionEngine disposal) are not in the scoring code path and can be ruled out by inspection.
+
+**Root mechanism**: `tryRetrain` uses a cursor-style gate at [MlNetCorrectionService.cs:639](MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs:639):
+```csharp
+var newRows = _trainingAccumulator.Count - _accumulatorSizeAtLastTrain;
+if (newRows < _settings.RetrainingBatchSize) return;
+```
+`_accumulatorSizeAtLastTrain` is set at [line 663](MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs:663) to `_trainingAccumulator.Count` after each retrain. It is an **absolute index into the list**, not a running delta counter.
+
+Fix 3's `RemoveRange(0, overflow)` shrinks the list's `Count` without moving that cursor. Once the accumulator hits `MaxAccumulatorRows` for the first time:
+- The next retrain fires normally (cursor still valid), then sets `_accumulatorSizeAtLastTrain = Count = 60,000`.
+- Every subsequent batch: `AddRange(N)` pushes `Count = 60,000 + N`, trim removes `N`, `Count = 60,000` again.
+- `newRows = 60,000 − 60,000 = 0 < 100` → `tryRetrain` **returns early permanently**.
+- `_anomalyEngines` is frozen at the state of that last retrain. With UNII-ordered batching, every UNII first seen after the freeze point receives NOMODEL and never recovers — which is exactly the 34× explosion.
+
+**Fix applied**: When trimming N records from the front, shift the cursor back by N (clamped at 0) so the `newRows` delta stays meaningful:
+```csharp
+_trainingAccumulator.RemoveRange(0, overflow);
+_accumulatorSizeAtLastTrain = Math.Max(0, _accumulatorSizeAtLastTrain - overflow);
+```
+Applied at both mutation sites: `accumulateBatch` and `FeedClaudeCorrectedBatchAsync` ephemeral branch. Added an explanatory comment at both sites documenting the invariant so the next person touching this code doesn't reintroduce the bug.
+
+**Build verification**: `dotnet build MedRecProConsole/MedRecProConsole.csproj` → 0 errors, 140 warnings (all pre-existing).
+
+**Lesson**: When the verification checklist asks for a memory soak with ≥20 batches, it's guarding against exactly this class of bug. Build-clean is necessary but not sufficient for state-machine changes — a behavioral check at the retrain-gate level would have caught the cursor drift before the run. For future accumulator changes, consider adding a debug log of `(_trainingAccumulator.Count, _accumulatorSizeAtLastTrain)` at the gate so drift is visible in the normal log stream.
+
+---

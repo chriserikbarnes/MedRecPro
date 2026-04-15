@@ -700,6 +700,26 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 _trainingAccumulator.AddRange(newRecords);
 
+                // Enforce MaxAccumulatorRows on the in-memory copy so it stays bounded in
+                // parallel with the persistent store (which already caps via evictIfOverCapacity).
+                // Oldest-first trim is sufficient here — retrains happen frequently and recent
+                // rows dominate, so per-key categorical coverage is preserved.
+                var overflow = _trainingAccumulator.Count - _settings.MaxAccumulatorRows;
+                if (overflow > 0)
+                {
+                    _trainingAccumulator.RemoveRange(0, overflow);
+
+                    // The retrain gate in tryRetrain() uses
+                    //     newRows = _trainingAccumulator.Count - _accumulatorSizeAtLastTrain
+                    // as an absolute cursor into the list. Removing N records from the front
+                    // shrinks Count by N, so we must shift the cursor back by N to preserve
+                    // the "new rows since last retrain" delta. Without this, the gate
+                    // becomes permanently false once the accumulator hits its cap and no
+                    // further retrains ever fire — every UNII first seen after that point
+                    // would receive NOMODEL.
+                    _accumulatorSizeAtLastTrain = Math.Max(0, _accumulatorSizeAtLastTrain - overflow);
+                }
+
                 if (_trainingStore != null)
                 {
                     // Fire-and-forget save — the store handles thread safety
@@ -757,6 +777,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                     .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
 
                 var model = pipeline.Fit(dataView);
+
+                // Release native ML.NET buffers on the outgoing engine before replacing it —
+                // PredictionEngine<T,U> is IDisposable and would otherwise live until GC finalization.
+                (_tableCategoryEngine as IDisposable)?.Dispose();
                 _tableCategoryEngine = _mlContext.Model.CreatePredictionEngine<TableCategoryInput, TableCategoryPrediction>(model);
 
                 _logger.LogDebug("Stage 1 TableCategory model trained on {Count} rows", trainingData.Count);
@@ -816,6 +840,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
 
                 var model = pipeline.Fit(dataView);
+
+                // Release native ML.NET buffers on the outgoing engine before replacing it.
+                (_doseRegimenEngine as IDisposable)?.Dispose();
                 _doseRegimenEngine = _mlContext.Model.CreatePredictionEngine<DoseRegimenRoutingInput, DoseRegimenRoutingPrediction>(model);
 
                 _logger.LogDebug("Stage 2 DoseRegimen model trained on {Count} rows", trainingData.Count);
@@ -877,6 +904,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
 
                 var model = pipeline.Fit(dataView);
+
+                // Release native ML.NET buffers on the outgoing engine before replacing it.
+                (_primaryValueTypeEngine as IDisposable)?.Dispose();
                 _primaryValueTypeEngine = _mlContext.Model.CreatePredictionEngine<PrimaryValueTypeInput, PrimaryValueTypePrediction>(model);
 
                 _logger.LogDebug("Stage 3 PrimaryValueType model trained on {Count} rows", trainingData.Count);
@@ -908,6 +938,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Release native ML.NET buffers on outgoing engines before wiping the dictionary —
+            // each entry holds a PredictionEngine<AnomalyFeatureRow, AnomalyPrediction> which is
+            // IDisposable and would otherwise live until GC finalization.
+            foreach (var engine in _anomalyEngines.Values)
+            {
+                (engine as IDisposable)?.Dispose();
+            }
             _anomalyEngines.Clear();
 
             // Group by composite key discovered from the data
@@ -1010,7 +1047,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
                 catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
                 {
-                    _logger.LogWarning(ex, "Stage 4 anomaly model training failed for {CompositeKey}", compositeKey);
+                    // Swallowed — intermittent PCA edge case. RandomizedPca can produce NaN eigenvectors
+                    // on rank-deficient / collinear training subsets (varies with batch size, not reliably
+                    // reproducible). Graceful degradation: the key stays out of _anomalyEngines and its
+                    // rows receive NOMODEL. Downgraded from Warning to Debug so it does not pollute the
+                    // default output window; still captured under verbose logging.
+                    _logger.LogDebug(ex, "Stage 4 anomaly model training failed for {CompositeKey} (swallowed)", compositeKey);
                 }
             }
 
@@ -1248,6 +1290,20 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 // Ephemeral mode — just add to in-memory accumulator
                 _trainingAccumulator.AddRange(records);
+
+                // Enforce MaxAccumulatorRows so the in-memory copy stays bounded even when
+                // there is no persistent store to fall back on. Oldest-first trim matches
+                // the semantics used in accumulateBatch.
+                var overflow = _trainingAccumulator.Count - _settings.MaxAccumulatorRows;
+                if (overflow > 0)
+                {
+                    _trainingAccumulator.RemoveRange(0, overflow);
+
+                    // Shift the retrain cursor back by the same amount — see accumulateBatch
+                    // for the full explanation. Without this, tryRetrain would gate off
+                    // permanently once the accumulator hits its cap.
+                    _accumulatorSizeAtLastTrain = Math.Max(0, _accumulatorSizeAtLastTrain - overflow);
+                }
             }
 
             if (correctedCount > 0)

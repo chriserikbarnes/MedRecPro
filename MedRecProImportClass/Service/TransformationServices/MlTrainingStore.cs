@@ -59,10 +59,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         private MlTrainingStoreState _state = new();
 
         /**************************************************************/
-        /// <summary>JSON serializer options: indented, skip nulls.</summary>
+        /// <summary>JSON serializer options: compact, skip nulls.</summary>
+        /// <remarks>
+        /// <c>WriteIndented</c> is <c>false</c> to halve per-save bytes and serialization cost —
+        /// the store is not a human-readable artifact during runtime, so indentation is pure overhead.
+        /// </remarks>
         private static readonly JsonSerializerOptions _jsonOptions = new()
         {
-            WriteIndented = true,
+            WriteIndented = false,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
 

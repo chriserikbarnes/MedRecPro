@@ -31,7 +31,7 @@ FROM [dbo].[tmp_FlattenedStandardizedTable]
 --where ParameterSubtype is not null
 --where [TextTableID] = 203
 
-SELECT 
+Select * from (SELECT 
     LTRIM(RTRIM(REPLACE(REPLACE(
                 SUBSTRING(
                     ValidationFlags,
@@ -48,13 +48,18 @@ SELECT
     ,[TextTableID]
 	,[DocumentGUID]
 FROM [dbo].[tmp_FlattenedStandardizedTable] A
-order by UNII, TreatmentArm
-
-Select Count(*) As DCount from (Select Distinct * from [dbo].[tmp_FlattenedStandardizedTable]) A
-Select Count(*) As DCount from [dbo].[tmp_FlattenedStandardizedTable] A
-
+) B
+Where B.RawScore = 'NOMODEL'
+order by UNII, TreatmentArm, [ParameterName] -- ct 5675
 --order by UNII
 --where TextTableID = 185
+
+Select Count(*) As DCount from (Select Distinct * from [dbo].[tmp_FlattenedStandardizedTable]) A -- 255111
+Select Count(*) As DCount from [dbo].[tmp_FlattenedStandardizedTable] A
+
+select max(TextTableID) as Biggest from TextTable --46453
+select max(TextTableID) as Biggest from [dbo].[tmp_FlattenedStandardizedTable] --46451
+
 
 
 SELECT  *

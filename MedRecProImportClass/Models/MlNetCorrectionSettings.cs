@@ -103,7 +103,7 @@ namespace MedRecProImportClass.Models
         /// Default 500,000. At ~800–900 bytes/record (indented JSON) ≈ 400–450 MB on disk;
         /// use <see cref="MaxTrainingStoreSizeBytes"/> to cap the actual file size.
         /// </summary>
-        public int MaxAccumulatorRows { get; set; } = 500_000;
+        public int MaxAccumulatorRows { get; set; } = 60_000;
 
         /**************************************************************/
         /// <summary>
@@ -114,7 +114,7 @@ namespace MedRecProImportClass.Models
         /// Default 209,715,200 (200 MB). With <c>WriteIndented = true</c> producing ~800–900 bytes
         /// per record, 200 MB ≈ ~235,000 records.
         /// </summary>
-        public long MaxTrainingStoreSizeBytes { get; set; } = 200L * 1024 * 1024; // 200 MB
+        public long MaxTrainingStoreSizeBytes { get; set; } = 40L * 1024 * 1024; // 40 MB
 
         #endregion
 

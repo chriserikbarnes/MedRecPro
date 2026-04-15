@@ -151,6 +151,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             _correctionService = correctionService;
             _dropRowsMissingArmNOrPrimaryValue = dropRowsMissingArmNOrPrimaryValue;
 
+            // Bulk-insert only — no read-modify-write — so change detection is pure overhead.
+            // Paired with explicit Clear() after SaveChanges so the tracker never grows.
+            _dbContext.ChangeTracker.AutoDetectChangesEnabled = false;
+
             #endregion
         }
 
@@ -880,6 +884,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                 _dbContext.AddRange(entities);
                 await _dbContext.SaveChangesAsync(ct);
                 result.ObservationsWritten = entities.Count;
+
+                // Prevent ChangeTracker accumulation across batches — the same DbContext instance
+                // is reused for the entire run, so tracked entities from prior batches would
+                // otherwise pin memory and force DetectChanges to walk an ever-growing list.
+                _dbContext.ChangeTracker.Clear();
             }
             catch (OperationCanceledException)
             {
