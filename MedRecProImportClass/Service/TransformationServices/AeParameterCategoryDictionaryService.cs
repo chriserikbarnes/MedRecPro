@@ -27,6 +27,15 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// ## Canonical SOC Names
     /// All dictionary values use the same canonical SOC names as
     /// <see cref="ColumnStandardizationService"/>'s <c>_socCanonicalMap</c>.
+    ///
+    /// ## ParameterName Normalization (second-pass)
+    /// A secondary dictionary (<c>_parameterNameCanonicalMap</c>) collapses textual variants
+    /// of the same clinical concept (e.g., "Rash NOS" / "Rash (nonserious)" → "Rash",
+    /// "Weight Loss" / "Weight Decreased" → "Weight decrease") into a single canonical
+    /// grammar. Exposed via <see cref="NormalizeParameterName"/> and
+    /// <see cref="TryNormalizeObservationName"/>. Callers should invoke
+    /// <see cref="TryNormalizeObservationName"/> before <see cref="TryResolveObservation"/>
+    /// so the canonical name is recorded and the SOC lookup operates on the standardized form.
     /// </remarks>
     /// <seealso cref="IAeParameterCategoryDictionaryService"/>
     /// <seealso cref="ColumnStandardizationService"/>
@@ -1235,6 +1244,114 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["Yawning"] = "Nervous System Disorders",
             };
 
+        /**************************************************************/
+        /// <summary>
+        /// Variant ParameterName → canonical ParameterName mappings. Case-insensitive keys.
+        /// Collapses textual variants (NOS suffix, (nonserious) suffix, plural/singular,
+        /// whitespace/punctuation drift, known synonyms such as "Weight Loss" → "Weight decrease")
+        /// into a single canonical grammar per clinical concept.
+        /// </summary>
+        /// <remarks>
+        /// ## Invariants
+        /// - Every value is a key in <see cref="_parameterNameToSoc"/> (so downstream
+        ///   <see cref="Resolve"/> still succeeds after normalization).
+        /// - For every (variant, canonical) pair, both map to the same SOC — variants that
+        ///   disagreed on SOC were intentionally left un-collapsed.
+        /// - No identity mappings; no value also appears as a key (no lookup chains).
+        /// </remarks>
+        private static readonly Dictionary<string, string> _parameterNameCanonicalMap =
+            new(StringComparer.OrdinalIgnoreCase)
+        {
+                // NOS-suffix variants
+                ["Abdominal Pain NOS"] = "Abdominal pain",
+                ["Abrasion NOS"] = "Abrasion",
+                ["Acne NOS"] = "Acne",
+                ["Anemia NOS"] = "Anemia",
+                ["Appetite decreased NOS"] = "Appetite Decreased",
+                ["Application Site Reaction NOS"] = "Application site reaction",
+                ["Asthma NOS"] = "Asthma",
+                ["Bronchitis NOS"] = "Bronchitis",
+                ["Diarrhea NOS"] = "Diarrhea",
+                ["Dyspnea NOS"] = "Dyspnea",
+                ["Edema NOS"] = "Edema",
+                ["Gastroenteritis NOS"] = "Gastroenteritis",
+                ["Headache NOS"] = "Headache",
+                ["Hematoma NOS"] = "Hematoma",
+                ["Hematuria NOS"] = "Hematuria",
+                ["Hot flushes NOS"] = "Hot flushes",
+                ["Hyperglycemia NOS"] = "Hyperglycemia",
+                ["Hypersensitivity NOS"] = "Hypersensitivity",
+                ["Hypertension NOS"] = "Hypertension",
+                ["Hypotension NOS"] = "Hypotension",
+                ["Leukopenia NOS"] = "Leukopenia",
+                ["Pain NOS"] = "Pain",
+                ["Pharyngitis NOS"] = "Pharyngitis",
+                ["Pneumonia NOS"] = "Pneumonia",
+                ["Rash NOS"] = "Rash",
+                ["Sinusitis NOS"] = "Sinusitis",
+                ["Skin Infection NOS"] = "Skin infection",
+                ["Skin lesion NOS"] = "Skin lesion",
+                ["Tinnitus NOS"] = "Tinnitus",
+                ["Upper Respiratory Tract Infection NOS"] = "Upper respiratory tract infection",
+                ["Urinary Tract Infection NOS"] = "Urinary tract infection",
+                ["Urticaria NOS"] = "Urticaria",
+                ["Vomiting NOS"] = "Vomiting",
+
+                // (nonserious)-suffix variants
+                ["Rash (nonserious)"] = "Rash",
+                ["Skin Rash (nonserious)"] = "Skin rash",
+
+                // Plural → singular variants (same clinical concept, same SOC)
+                ["Bacterial infections"] = "Bacterial Infection",
+                ["Cardiac arrhythmias"] = "Cardiac arrhythmia",
+                ["Decreased leukocytes"] = "Decreased leukocyte",
+                ["Decreased lymphocytes"] = "Decreased lymphocyte",
+                ["Decreased neutrophils"] = "Decreased neutrophil",
+                ["Injection site reactions"] = "Injection Site Reaction",
+                ["Muscle cramps"] = "Muscle cramp",
+                ["Muscle spasms"] = "Muscle spasm",
+                ["Nail disorders"] = "Nail disorder",
+                ["Peripheral neuropathies"] = "Peripheral Neuropathy",
+                ["Upper respiratory tract infections"] = "Upper respiratory tract infection",
+                ["Urinary tract infections"] = "Urinary tract infection",
+                ["Viral Gastrointestinal Infections"] = "Viral gastrointestinal infection",
+                ["Viral respiratory infections"] = "Viral respiratory infection",
+
+                // Whitespace / punctuation / phrasing variants
+                ["Mucositis /stomatitis"] = "Mucositis/stomatitis",
+                ["Anxiety aggression or other behavioral disturbance"] = "Anxiety, aggression or other behavioral disturbance",
+                ["Difficulty with concentration/ attention"] = "Difficulty with concentration/attention",
+                ["Difficulty with concentration or attention"] = "Difficulty with concentration/attention",
+
+                // "X abnormality" / "Abnormal X" → canonical "X Abnormal" form
+                ["Coordination abnormality"] = "Coordination Abnormal",
+                ["Gait abnormality"] = "Gait Abnormal",
+                ["Thinking abnormality"] = "Thinking Abnormal",
+                ["Vision abnormality"] = "Vision Abnormal",
+                ["Abnormal Vision"] = "Vision Abnormal",
+                ["Visual abnormality"] = "Vision Abnormal",
+
+                // Weight cluster (per user example: collapse decrease/loss and gain/increase)
+                ["Weight Decreased"] = "Weight decrease",
+                ["Weight Loss"] = "Weight decrease",
+                ["Weight gain"] = "Weight increase",
+                ["Weight gain/increased"] = "Weight increase",
+                ["Weight increased"] = "Weight increase",
+
+                // Hot flush cluster (flash/flashes/flush/flushes → single canonical)
+                ["Hot flashes"] = "Hot Flash",
+
+                // Enzyme name variants (drop transferase/transaminase + parenthetical aliases)
+                ["Alanine transferase increased"] = "Alanine aminotransferase increased",
+                ["Aspartate transaminase increased"] = "Aspartate aminotransferase increased",
+                ["ALT (SGPT) increased"] = "ALT increased",
+                ["AST (SGOT) increased"] = "AST increased",
+
+                // Other singular/plural canonicalizations
+                ["Hepatic enzymes increased"] = "Hepatic enzyme increased",
+                ["Liver Function Tests Abnormal"] = "Liver function test abnormal",
+            };
+
         #endregion Static Dictionary
 
         #region IAeParameterCategoryDictionaryService Implementation
@@ -1285,7 +1402,63 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <inheritdoc />
+        public string? NormalizeParameterName(string? parameterName)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(parameterName))
+                return null;
+
+            return _parameterNameCanonicalMap.TryGetValue(parameterName.Trim(), out var canonical)
+                ? canonical
+                : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc />
+        public bool TryNormalizeObservationName(ParsedObservation obs)
+        {
+            #region implementation
+
+            // Guard: only ADVERSE_EVENT
+            if (!string.Equals(obs.TableCategory, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Guard: require a non-empty ParameterName to normalize
+            if (string.IsNullOrWhiteSpace(obs.ParameterName))
+                return false;
+
+            var original = obs.ParameterName;
+            var canonical = NormalizeParameterName(original);
+            if (canonical == null)
+                return false;
+
+            // Skip when already canonical (case-insensitive equality — no rewrite, no flag)
+            if (string.Equals(canonical, original, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            obs.ParameterName = canonical;
+
+            // Append audit flag: DICT:NAME_NORM:<old>-><new>
+            var flag = $"DICT:NAME_NORM:{original}->{canonical}";
+            obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
+                ? flag
+                : $"{obs.ValidationFlags}; {flag}";
+
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <inheritdoc />
         public int Count => _parameterNameToSoc.Count;
+
+        /**************************************************************/
+        /// <inheritdoc />
+        public int NormalizationCount => _parameterNameCanonicalMap.Count;
 
         #endregion IAeParameterCategoryDictionaryService Implementation
     }

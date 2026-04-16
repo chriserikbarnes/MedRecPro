@@ -50,8 +50,46 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Returns the number of entries in the dictionary.
+        /// Pure lookup: returns the canonical ParameterName for the given variant,
+        /// or null if the input is not a known variant. Used to collapse textual
+        /// variants (NOS suffix, (nonserious) suffix, plural/singular drift, known
+        /// synonyms) into a single canonical grammar before SOC resolution.
+        /// </summary>
+        /// <param name="parameterName">The AE ParameterName to normalize (case-insensitive).</param>
+        /// <returns>Canonical ParameterName string, or null if the input is not a known variant.</returns>
+        /// <seealso cref="TryNormalizeObservationName"/>
+        string? NormalizeParameterName(string? parameterName);
+
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to standardize <see cref="ParsedObservation.ParameterName"/> on the
+        /// given observation by replacing a known variant with its canonical form. Only acts
+        /// when: TableCategory is ADVERSE_EVENT, ParameterName is non-empty, and the current
+        /// name is a variant distinct from its canonical form. Appends
+        /// <c>DICT:NAME_NORM:&lt;old&gt;-&gt;&lt;new&gt;</c> flag on success.
+        /// </summary>
+        /// <remarks>
+        /// Callers should invoke this BEFORE <see cref="TryResolveObservation"/> so the
+        /// canonical name is persisted and downstream SOC resolution operates on the
+        /// standardized form.
+        /// </remarks>
+        /// <param name="obs">The observation to normalize. Modified in-place if a variant is found.</param>
+        /// <returns>True if the ParameterName was rewritten; false otherwise.</returns>
+        /// <seealso cref="NormalizeParameterName"/>
+        /// <seealso cref="TryResolveObservation"/>
+        bool TryNormalizeObservationName(ParsedObservation obs);
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns the number of entries in the SOC resolution dictionary.
         /// </summary>
         int Count { get; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns the number of entries in the ParameterName variant → canonical
+        /// normalization dictionary.
+        /// </summary>
+        int NormalizationCount { get; }
     }
 }

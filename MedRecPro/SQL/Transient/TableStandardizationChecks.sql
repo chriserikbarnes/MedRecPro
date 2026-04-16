@@ -24,12 +24,21 @@ SELECT  [TextTableID]
 	,[ParseRule]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
+where TableCategory <> 'ADVERSE_EVENT'
+order by TableCategory
 --Where PValue is not null
 --where ArmN is not null and PrimaryValue is not null
 --where [ParameterCategory] = 'Gastrointestinal Disorders' and ArmN is not null
 --order by ParameterName
 --where ParameterSubtype is not null
 --where [TextTableID] = 203
+
+SELECT [TableCategory]
+    ,[ParameterName]
+	,[ParameterCategory]
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+where TableCategory <> 'ADVERSE_EVENT'
+order by TableCategory
 
 -- This will output each row as pipe-delimited text in the Messages tab. You can then copy the entire output and paste it into a file.
 DECLARE @ParameterName NVARCHAR(MAX)

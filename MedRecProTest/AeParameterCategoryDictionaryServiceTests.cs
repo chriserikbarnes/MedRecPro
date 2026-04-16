@@ -435,5 +435,475 @@ namespace MedRecProTest
         }
 
         #endregion Dictionary Integrity Tests
+
+        #region NormalizeParameterName Tests
+
+        /**************************************************************/
+        /// <summary>Known variant returns the canonical ParameterName.</summary>
+        [TestMethod]
+        public void NormalizeParameterName_KnownVariant_ReturnsCanonical()
+        {
+            #region implementation
+
+            var service = createService();
+
+            var result = service.NormalizeParameterName("Vision abnormality");
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual("Vision Abnormal", result);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Canonical form itself is not a variant; returns null.</summary>
+        [TestMethod]
+        public void NormalizeParameterName_CanonicalForm_ReturnsNull()
+        {
+            #region implementation
+
+            var service = createService();
+
+            var result = service.NormalizeParameterName("Vision Abnormal");
+
+            Assert.IsNull(result);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Unknown term returns null.</summary>
+        [TestMethod]
+        public void NormalizeParameterName_Unknown_ReturnsNull()
+        {
+            #region implementation
+
+            var service = createService();
+
+            var result = service.NormalizeParameterName("NotARealParameterName_xyz");
+
+            Assert.IsNull(result);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Lookup is case-insensitive.</summary>
+        [TestMethod]
+        public void NormalizeParameterName_CaseInsensitive_Matches()
+        {
+            #region implementation
+
+            var service = createService();
+
+            var upper = service.NormalizeParameterName("VISION ABNORMALITY");
+            var mixed = service.NormalizeParameterName("ViSiOn AbNoRmAlItY");
+
+            Assert.AreEqual("Vision Abnormal", upper);
+            Assert.AreEqual("Vision Abnormal", mixed);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Null, empty, and whitespace inputs return null.</summary>
+        [TestMethod]
+        public void NormalizeParameterName_NullOrWhitespace_ReturnsNull()
+        {
+            #region implementation
+
+            var service = createService();
+
+            Assert.IsNull(service.NormalizeParameterName(null));
+            Assert.IsNull(service.NormalizeParameterName(""));
+            Assert.IsNull(service.NormalizeParameterName("   "));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Leading/trailing whitespace is trimmed before lookup.</summary>
+        [TestMethod]
+        public void NormalizeParameterName_WhitespacePadding_TrimmedBeforeLookup()
+        {
+            #region implementation
+
+            var service = createService();
+
+            var result = service.NormalizeParameterName("  Vision abnormality  ");
+
+            Assert.AreEqual("Vision Abnormal", result);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Weight-cluster variants collapse to canonical "Weight decrease".</summary>
+        [TestMethod]
+        public void NormalizeParameterName_WeightDecreaseCluster_CollapsesToCanonical()
+        {
+            #region implementation
+
+            var service = createService();
+
+            Assert.AreEqual("Weight decrease", service.NormalizeParameterName("Weight Decreased"));
+            Assert.AreEqual("Weight decrease", service.NormalizeParameterName("Weight Loss"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Weight-cluster gain variants collapse to canonical "Weight increase".</summary>
+        [TestMethod]
+        public void NormalizeParameterName_WeightIncreaseCluster_CollapsesToCanonical()
+        {
+            #region implementation
+
+            var service = createService();
+
+            Assert.AreEqual("Weight increase", service.NormalizeParameterName("Weight gain"));
+            Assert.AreEqual("Weight increase", service.NormalizeParameterName("Weight gain/increased"));
+            Assert.AreEqual("Weight increase", service.NormalizeParameterName("Weight increased"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>"X NOS" variant collapses to plain "X".</summary>
+        [TestMethod]
+        public void NormalizeParameterName_NosSuffix_CollapsesToBase()
+        {
+            #region implementation
+
+            var service = createService();
+
+            Assert.AreEqual("Headache", service.NormalizeParameterName("Headache NOS"));
+            Assert.AreEqual("Anemia", service.NormalizeParameterName("Anemia NOS"));
+            Assert.AreEqual("Pneumonia", service.NormalizeParameterName("Pneumonia NOS"));
+
+            #endregion
+        }
+
+        #endregion NormalizeParameterName Tests
+
+        #region TryNormalizeObservationName Tests
+
+        /**************************************************************/
+        /// <summary>Known variant: ParameterName is rewritten and flag appended.</summary>
+        [TestMethod]
+        public void TryNormalizeObservationName_KnownVariant_RenamesAndFlags()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createAeObservation("Vision abnormality");
+
+            var result = service.TryNormalizeObservationName(obs);
+
+            Assert.IsTrue(result);
+            Assert.AreEqual("Vision Abnormal", obs.ParameterName);
+            Assert.AreEqual("DICT:NAME_NORM:Vision abnormality->Vision Abnormal", obs.ValidationFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Already-canonical name: no change, no flag, returns false.</summary>
+        [TestMethod]
+        public void TryNormalizeObservationName_CanonicalName_NoChangeNoFlag()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createAeObservation("Vision Abnormal");
+
+            var result = service.TryNormalizeObservationName(obs);
+
+            Assert.IsFalse(result);
+            Assert.AreEqual("Vision Abnormal", obs.ParameterName);
+            Assert.IsNull(obs.ValidationFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Unknown ParameterName: no change, no flag, returns false.</summary>
+        [TestMethod]
+        public void TryNormalizeObservationName_UnknownName_ReturnsFalse()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createAeObservation("NotARealParameterName_xyz");
+
+            var result = service.TryNormalizeObservationName(obs);
+
+            Assert.IsFalse(result);
+            Assert.AreEqual("NotARealParameterName_xyz", obs.ParameterName);
+            Assert.IsNull(obs.ValidationFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Non-ADVERSE_EVENT table: guard skips normalization.</summary>
+        [TestMethod]
+        public void TryNormalizeObservationName_NonAdverseEvent_ReturnsFalse()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createAeObservation("Vision abnormality", tableCategory: "VITAL_SIGN");
+
+            var result = service.TryNormalizeObservationName(obs);
+
+            Assert.IsFalse(result);
+            Assert.AreEqual("Vision abnormality", obs.ParameterName);
+            Assert.IsNull(obs.ValidationFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Existing flags are preserved and the new flag is appended with "; " separator.</summary>
+        [TestMethod]
+        public void TryNormalizeObservationName_ExistingFlags_FlagAppended()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createAeObservation("Vision abnormality", validationFlags: "PCT_CHECK:PASS");
+
+            service.TryNormalizeObservationName(obs);
+
+            Assert.AreEqual(
+                "PCT_CHECK:PASS; DICT:NAME_NORM:Vision abnormality->Vision Abnormal",
+                obs.ValidationFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Null/empty ParameterName: guard returns false.</summary>
+        [TestMethod]
+        public void TryNormalizeObservationName_EmptyParameterName_ReturnsFalse()
+        {
+            #region implementation
+
+            var service = createService();
+            var obsNull = createAeObservation(null);
+            var obsEmpty = createAeObservation("");
+            var obsWhitespace = createAeObservation("   ");
+
+            Assert.IsFalse(service.TryNormalizeObservationName(obsNull));
+            Assert.IsFalse(service.TryNormalizeObservationName(obsEmpty));
+            Assert.IsFalse(service.TryNormalizeObservationName(obsWhitespace));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>TableCategory check is case-insensitive (matches lowercase "adverse_event").</summary>
+        [TestMethod]
+        public void TryNormalizeObservationName_LowercaseTableCategory_StillMatches()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createAeObservation("Vision abnormality", tableCategory: "adverse_event");
+
+            var result = service.TryNormalizeObservationName(obs);
+
+            Assert.IsTrue(result);
+            Assert.AreEqual("Vision Abnormal", obs.ParameterName);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>End-to-end: normalize then resolve — both mutations and flags accumulate.</summary>
+        [TestMethod]
+        public void Pipeline_NormalizeThenResolve_BothMutationsApplied()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createAeObservation("Vision abnormality", parameterCategory: null);
+
+            var normalized = service.TryNormalizeObservationName(obs);
+            var resolved = service.TryResolveObservation(obs);
+
+            Assert.IsTrue(normalized);
+            Assert.IsTrue(resolved);
+            Assert.AreEqual("Vision Abnormal", obs.ParameterName);
+            Assert.AreEqual("Eye Disorders", obs.ParameterCategory);
+            Assert.AreEqual(
+                "DICT:NAME_NORM:Vision abnormality->Vision Abnormal; DICT:SOC_RESOLVED",
+                obs.ValidationFlags);
+
+            #endregion
+        }
+
+        #endregion TryNormalizeObservationName Tests
+
+        #region NormalizationCount Tests
+
+        /**************************************************************/
+        /// <summary>Normalization dictionary has a positive, non-trivial number of entries.</summary>
+        [TestMethod]
+        public void NormalizationCount_ReturnsPositiveNumber()
+        {
+            #region implementation
+
+            var service = createService();
+
+            Assert.IsTrue(service.NormalizationCount > 0,
+                $"Expected normalization dictionary to have entries, got {service.NormalizationCount}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>SOC dictionary Count is unchanged by the second-pass addition.</summary>
+        [TestMethod]
+        public void Count_StillMatchesSocDictionarySize()
+        {
+            #region implementation
+
+            var service = createService();
+
+            Assert.AreEqual(1189, service.Count,
+                $"Expected SOC dictionary to remain 1189 entries, got {service.Count}");
+
+            #endregion
+        }
+
+        #endregion NormalizationCount Tests
+
+        #region Normalization Map Integrity Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Reflection helper: expose the private static <c>_parameterNameCanonicalMap</c>
+        /// so integrity tests can iterate every (variant, canonical) pair.
+        /// </summary>
+        private static IReadOnlyDictionary<string, string> getNormalizationMap()
+        {
+            var field = typeof(AeParameterCategoryDictionaryService)
+                .GetField("_parameterNameCanonicalMap",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(field, "_parameterNameCanonicalMap field not found via reflection");
+            var value = field!.GetValue(null) as IReadOnlyDictionary<string, string>;
+            Assert.IsNotNull(value, "_parameterNameCanonicalMap field is not a dictionary");
+            return value!;
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Every canonical (right-hand) value must itself resolve in the SOC dictionary,
+        /// so downstream <see cref="IAeParameterCategoryDictionaryService.Resolve"/> still
+        /// succeeds after normalization.
+        /// </summary>
+        [TestMethod]
+        public void NormalizationMap_AllCanonicalValuesExistInSocDictionary()
+        {
+            #region implementation
+
+            var service = createService();
+            var map = getNormalizationMap();
+
+            foreach (var (variant, canonical) in map)
+            {
+                var soc = service.Resolve(canonical);
+                Assert.IsNotNull(soc,
+                    $"Canonical '{canonical}' (from variant '{variant}') is not in the SOC dictionary");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>No entry maps a key to itself (no identity mappings).</summary>
+        [TestMethod]
+        public void NormalizationMap_NoIdentityMappings()
+        {
+            #region implementation
+
+            var map = getNormalizationMap();
+
+            foreach (var (variant, canonical) in map)
+            {
+                Assert.IsFalse(
+                    string.Equals(variant, canonical, StringComparison.OrdinalIgnoreCase),
+                    $"Identity mapping detected: '{variant}' == '{canonical}'");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// No canonical value appears as a key in the same dictionary — prevents
+        /// normalization chains (variant → A → B).
+        /// </summary>
+        [TestMethod]
+        public void NormalizationMap_NoCanonicalIsAlsoAVariant()
+        {
+            #region implementation
+
+            var map = getNormalizationMap();
+            var variants = new HashSet<string>(map.Keys, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var canonical in map.Values)
+            {
+                Assert.IsFalse(variants.Contains(canonical),
+                    $"Canonical '{canonical}' also appears as a variant key (chain detected)");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// For every (variant, canonical) pair, both must resolve to the SAME SOC —
+        /// mismatched SOCs would indicate a medically-wrong collapse.
+        /// </summary>
+        [TestMethod]
+        public void NormalizationMap_VariantAndCanonicalShareSameSoc()
+        {
+            #region implementation
+
+            var service = createService();
+            var map = getNormalizationMap();
+
+            foreach (var (variant, canonical) in map)
+            {
+                var variantSoc = service.Resolve(variant);
+                var canonicalSoc = service.Resolve(canonical);
+                Assert.IsNotNull(variantSoc, $"Variant '{variant}' failed to resolve");
+                Assert.IsNotNull(canonicalSoc, $"Canonical '{canonical}' failed to resolve");
+                Assert.AreEqual(canonicalSoc, variantSoc,
+                    $"SOC mismatch: variant '{variant}' → '{variantSoc}' vs canonical '{canonical}' → '{canonicalSoc}'");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary><see cref="IAeParameterCategoryDictionaryService.NormalizationCount"/> matches reflected map size.</summary>
+        [TestMethod]
+        public void NormalizationCount_MatchesDictionarySize()
+        {
+            #region implementation
+
+            var service = createService();
+            var map = getNormalizationMap();
+
+            Assert.AreEqual(map.Count, service.NormalizationCount);
+
+            #endregion
+        }
+
+        #endregion Normalization Map Integrity Tests
     }
 }

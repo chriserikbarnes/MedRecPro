@@ -2018,3 +2018,27 @@ Analyzed a 7,721-row pipe-delimited export of production `ParameterName|Paramete
 **Lesson**: "Deterministic from data" ≠ "medically correct". When manufacturer-reported category labels are as noisy as this corpus (465 distinct category values including "Local:", "Grade 3 and 4 adverse events", "-Other Fluid Retention", "Men only"), a single-SOC convergence often just means only one of several dirty labels happened to normalize, not that the result is the right SOC. Domain validation on top of data-driven analysis caught ~30 mappings that would have actively degraded downstream aggregation.
 
 ---
+
+### 2026-04-16 3:20 PM EST — ParameterName Key Standardization (Second Pass)
+
+Added a second-pass `ParameterName` normalization layer on top of the existing 1,189-entry SOC dictionary in `AeParameterCategoryDictionaryService`. The first pass resolved NULL SOCs; this pass collapses textual variants of the same clinical concept (e.g., "Rash NOS"/"Rash (nonserious)" → "Rash", "Weight Loss"/"Weight Decreased" → "Weight decrease", "Vision abnormality"/"Visual abnormality"/"Abnormal Vision" → "Vision Abnormal") into a single canonical grammar — directly addressing the example the user flagged in the request.
+
+**What shipped**:
+- New `_parameterNameCanonicalMap` — 73 variant → canonical pairs across 7 categories: NOS-suffix (33), `(nonserious)`-suffix (2), plural→singular (15), whitespace/punctuation drift (4), `"X abnormality"` / `"Abnormal X"` → `"X Abnormal"` (6), Weight cluster (5), Hot flush cluster (3), enzyme-name variants (4), singular/plural leftovers (2).
+- New `public string? NormalizeParameterName(string? name)` — pure lookup; returns canonical or null.
+- New `public bool TryNormalizeObservationName(ParsedObservation obs)` — mutator mirroring `TryResolveObservation`. Guards on `TableCategory == ADVERSE_EVENT` and non-empty ParameterName, skips when already canonical, writes audit flag `DICT:NAME_NORM:<old>-><new>` to `ValidationFlags` using the existing `"; "` separator.
+- New `NormalizationCount` property. `IAeParameterCategoryDictionaryService` updated with all three additions.
+- Deliberately kept `TryResolveObservation` untouched — callers invoke `TryNormalizeObservationName(obs); TryResolveObservation(obs);` in sequence, so the flag stream tracks both corrections independently.
+
+**Invariants enforced via integrity tests**:
+1. Every canonical value is a live key in `_parameterNameToSoc` (so downstream SOC lookup still succeeds).
+2. For every (variant, canonical) pair, `Resolve(variant) == Resolve(canonical)` — no cross-SOC collapses.
+3. No identity mappings (`"Foo" => "Foo"`).
+4. No canonical also appears as a variant (no lookup chains).
+5. Existing `Count == 1189` assertion remains green.
+
+**Test coverage**: 23 new tests added to `AeParameterCategoryDictionaryServiceTests.cs` covering `NormalizeParameterName` pure-lookup (null/whitespace/case/trim/cluster), `TryNormalizeObservationName` (known variant/canonical/unknown/non-ADVERSE_EVENT/existing flags/empty name/lowercase TableCategory/end-to-end with `TryResolveObservation`), `NormalizationCount`, and dictionary integrity via reflection. Build: 0 errors, all warnings pre-existing. Test run: **41/41 pass** (18 original + 23 new).
+
+**Design note**: user's request hinted at collapsing keys into a "new dictionary" — chose the name-normalization layer over rewriting `_parameterNameToSoc` to canonical keys only, because that preserves resolution of raw incoming data even when normalization misses. The 1,189-entry dictionary is a recognition layer; the 73-entry canonical map is an aggregation-grammar layer on top.
+
+---
