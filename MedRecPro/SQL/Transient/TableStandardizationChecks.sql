@@ -31,6 +31,30 @@ FROM [dbo].[tmp_FlattenedStandardizedTable]
 --where ParameterSubtype is not null
 --where [TextTableID] = 203
 
+-- This will output each row as pipe-delimited text in the Messages tab. You can then copy the entire output and paste it into a file.
+DECLARE @ParameterName NVARCHAR(MAX)
+DECLARE @ParameterCategory NVARCHAR(MAX)
+
+DECLARE cur CURSOR FOR
+SELECT DISTINCT [ParameterName]
+	,[ParameterCategory]
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+ORDER BY [ParameterName]
+
+OPEN cur
+FETCH NEXT FROM cur INTO @ParameterName, @ParameterCategory
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    RAISERROR('%s|%s', 0, 1, @ParameterName, @ParameterCategory) WITH NOWAIT
+    FETCH NEXT FROM cur INTO @ParameterName, @ParameterCategory
+END
+
+CLOSE cur
+DEALLOCATE cur
+
+
+-- No Model checks
 Select * from (SELECT 
     LTRIM(RTRIM(REPLACE(REPLACE(
                 SUBSTRING(
@@ -154,6 +178,7 @@ WHERE ValidationFlags LIKE '%MLNET_ANOMALY_SCORE:%'
             ),
         CHAR(13), ''), CHAR(10), '')))
       AS FLOAT) IS NULL
+Order By ExtractedValue
 
 
 SELECT dbo.vw_ActiveIngredients.UNII

@@ -1980,3 +1980,41 @@ Applied at both mutation sites: `accumulateBatch` and `FeedClaudeCorrectedBatchA
 **Lesson**: When the verification checklist asks for a memory soak with ≥20 batches, it's guarding against exactly this class of bug. Build-clean is necessary but not sufficient for state-machine changes — a behavioral check at the retrain-gate level would have caught the cursor drift before the run. For future accumulator changes, consider adding a debug log of `(_trainingAccumulator.Count, _accumulatorSizeAtLastTrain)` at the gate so drift is visible in the normal log stream.
 
 ---
+
+### 2026-04-16 11:23 AM EST — Expand AeParameterCategoryDictionaryService (698 → 1,189 entries)
+
+Analyzed a 7,721-row pipe-delimited export of production `ParameterName|ParameterCategory` pairs (`C:\Users\chris\Documents\AI Prompts\ParameterNameCategoryPairs.txt`), where 48% (3,730) of rows had `(null)` categories. Only 8 of those null names were already covered by the existing 698-entry dictionary.
+
+**Analysis pipeline** (`analyze_soc.js`, `merge_dictionary.js` in `AI Prompts\`):
+1. Normalized all raw category variants through `ColumnStandardizationService._socCanonicalMap` + an extended alias map (Chemistry → Investigations, Digestive → GI, CNS → Nervous, Ocular → Eye, etc.) to canonical MedDRA SOC names.
+2. Bucketed null names into: **178 deterministic** (all normalizable raw categories converged to 1 SOC), **125 ambiguous** (2+ SOCs), and **~3,419 orphans** (no category data anywhere).
+3. Applied medical-domain validation on all three buckets rather than trusting the data at face value — critical because dirty manufacturer-supplied data frequently produced a single-SOC "convergence" pointing to the wrong SOC.
+
+**Corrections applied** (dirty-data patterns in the source file that would have produced wrong mappings):
+- Breast/cervix/endometrial/uterine terms: data said "Renal and Urinary Disorders" → corrected to "Reproductive System and Breast Disorders"
+- Heart Failure / Congestive heart failure: data said "Vascular Disorders" → corrected to "Cardiac Disorders" (matches existing `["Cardiac failure congestive"]`)
+- Depressive / mood disorders: data said "Nervous System" → "Psychiatric Disorders"
+- Lab increases (SGOT, CPK, ALP, Hypermagnesemia): data often said "Metabolism and Nutrition Disorders" → "Investigations" to match existing `["Blood alkaline phosphatase increased"]` pattern
+- Ventricular tachycardia: "Vascular Disorders" → "Cardiac Disorders"
+- Vaginal moniliasis: "Renal and Urinary" → "Infections and Infestations" (fungal)
+- Tic: "Psychiatric" → "Nervous System" (per MedDRA PT classification)
+- Splenomegaly: "GI" → "Blood and Lymphatic System" (per MedDRA)
+- Sexual Function Abnormal: "Renal and Urinary" → "Reproductive System and Breast Disorders" (matches existing `["Sexual Dysfunction"]`)
+
+**Data artifacts excluded** — not real AE names, they were category+name concatenation artifacts from upstream table parsing: `"Psychiatric Disorders Insomnia"`, `"Nervous System Insomnia"`, `"Respiratory Pharyngitis"`, `"General Disorders and Administration Site Conditions Influenza-like Illness"`, `"Gastrointestinal Nausea"`, `"Musculoskeletal Arthralgia"`, `"Special Senses Tinnitus"`, etc.
+
+**Orphan scan**: Filtered the 3,419 null-only names to exclude statistical measures (`% change from baseline`), CTCAE-style lab grading thresholds (`< 10 g/dL`, `< 1000/mm3`), study endpoints, demographic buckets, and PK parameters (AUC*, Cmax*). From the remaining ~2,940 candidates, cherry-picked recognizable AE terms with unambiguous MedDRA SOC mappings (~246 entries): Atrial Fibrillation, Anaphylaxis, Hepatitis, Jaundice, Suicidal ideation, Hearing loss, Macular edema, Rhabdomyolysis, etc.
+
+**Final merge** (via `merge_dictionary.js`):
+- 491 new entries added
+- 11 skipped (already in dict at matching SOC)
+- 1 conflict: my orphan entry `"Angina pectoris"` (Cardiac) vs existing `"Angina Pectoris"` (Vascular) — existing preserved, case-insensitive collision
+- 0 duplicates (case-insensitive uniqueness verified)
+- All 1,189 SOC values pass canonical validation against the 22-member MedDRA SOC whitelist
+- XML doc comment count updated from 698 → 1,189
+
+**Build verification**: `dotnet build` → 0 errors, 140 warnings (all pre-existing, unrelated to this change). All 698 original entries confirmed preserved in the expanded dictionary.
+
+**Lesson**: "Deterministic from data" ≠ "medically correct". When manufacturer-reported category labels are as noisy as this corpus (465 distinct category values including "Local:", "Grade 3 and 4 adverse events", "-Other Fluid Retention", "Men only"), a single-SOC convergence often just means only one of several dirty labels happened to normalize, not that the result is the right SOC. Domain validation on top of data-driven analysis caught ~30 mappings that would have actively degraded downstream aggregation.
+
+---
