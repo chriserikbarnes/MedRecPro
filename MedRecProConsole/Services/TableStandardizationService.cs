@@ -5,6 +5,7 @@ using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices;
 using MedRecProConsole.Helpers;
 using MedRecProConsole.Models;
+using MedRecProConsole.Services.Reporting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -141,11 +142,15 @@ namespace MedRecProConsole.Services
         /// <param name="textTableId">The TextTableID to parse.</param>
         /// <param name="verbose">Enable verbose output.</param>
         /// <param name="useClaude">Whether to apply Claude AI enhancement (Stage 3.5).</param>
+        /// <param name="reportSink">Optional markdown report sink. When non-null, a
+        /// per-table markdown section mirroring the console output is appended.</param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ReconstructSingleTableAsync"/>
         /// <seealso cref="ITableParsingOrchestrator.RouteAndParseSingleTable"/>
         /// <seealso cref="ITableParsingOrchestrator.CorrectObservationsAsync"/>
-        public async Task<int> ExecuteParseSingleAsync(string connectionString, int textTableId, bool verbose, bool useClaude = true)
+        /// <seealso cref="MarkdownReportSink"/>
+        public async Task<int> ExecuteParseSingleAsync(string connectionString, int textTableId, bool verbose,
+            bool useClaude = true, MarkdownReportSink? reportSink = null)
         {
             #region implementation
 
@@ -182,10 +187,19 @@ namespace MedRecProConsole.Services
 
                 displayRoutingResult(category, parserName);
 
+                Dictionary<int, string?>? beforeFlags = null;
+
                 if (observations.Count == 0)
                 {
                     AnsiConsole.MarkupLine(
                         $"[yellow]No observations produced. Table was {(parserName == null ? "skipped" : "parsed but returned empty results")}.[/]");
+
+                    // Still emit a markdown section so the diagnostic log captures empty/skipped tables.
+                    if (reportSink != null)
+                    {
+                        await reportSink.AppendAsync(BuildReportEntry(
+                            table, category, parserName, observations, beforeFlags, claudeSkipped: true));
+                    }
                     return 0;
                 }
 
@@ -198,7 +212,7 @@ namespace MedRecProConsole.Services
                     AnsiConsole.WriteLine();
 
                     // Snapshot ValidationFlags before correction for diff display
-                    var beforeFlags = observations.ToDictionary(
+                    beforeFlags = observations.ToDictionary(
                         o => (o.SourceRowSeq ?? 0) * 10000 + (o.SourceCellSeq ?? 0),
                         o => o.ValidationFlags);
 
@@ -211,6 +225,12 @@ namespace MedRecProConsole.Services
                     AnsiConsole.WriteLine();
                     AnsiConsole.MarkupLine("[grey]Stage 3.5: Claude Enhance skipped (--no-claude)[/]");
                     AnsiConsole.WriteLine();
+                }
+
+                if (reportSink != null)
+                {
+                    await reportSink.AppendAsync(BuildReportEntry(
+                        table, category, parserName, observations, beforeFlags, claudeSkipped: !useClaude));
                 }
 
                 return 0;
@@ -246,12 +266,25 @@ namespace MedRecProConsole.Services
         /// When true, enables the Stage 3.25 quality gate that drops rows where either
         /// ArmN or PrimaryValue is null. Default false (backward compatible).
         /// </param>
+        /// <param name="reportSink">Optional markdown report sink. Accepted for signature
+        /// symmetry; this pipeline does not surface per-table intermediate data, so if
+        /// non-null a one-line warning is shown and no markdown is written. Use
+        /// <see cref="ExecuteParseWithStagesAsync"/> or <see cref="ExecuteParseSingleAsync"/>
+        /// for markdown logging.</param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllAsync"/>
         public async Task<int> ExecuteParseAsync(string connectionString, int batchSize, bool verbose, bool quiet,
-            bool disableClaude = false, bool dropRowsMissingArmNOrPrimaryValue = false)
+            bool disableClaude = false, bool dropRowsMissingArmNOrPrimaryValue = false,
+            MarkdownReportSink? reportSink = null)
         {
             #region implementation
+
+            if (reportSink != null && !quiet)
+            {
+                AnsiConsole.MarkupLine(
+                    "[yellow]Warning:[/] [grey]--markdown-log is not supported in Stage 3 batch mode " +
+                    "(no per-table pivot data). Use parse-single or parse-stages instead.[/]");
+            }
 
             using var ctx = await initializeRunAsync(connectionString, "parse", batchSize, verbose, quiet,
                 includeValidation: false, disableClaude: disableClaude,
@@ -358,7 +391,8 @@ namespace MedRecProConsole.Services
             string connectionString, int batchSize, bool verbose, bool quiet,
             bool disableClaude = false, int? maxBatches = null,
             StageDetailLevel detailLevel = StageDetailLevel.None,
-            bool dropRowsMissingArmNOrPrimaryValue = false)
+            bool dropRowsMissingArmNOrPrimaryValue = false,
+            MarkdownReportSink? reportSink = null)
         {
             #region implementation
 
@@ -431,6 +465,12 @@ namespace MedRecProConsole.Services
                             var stageResult = await ctx.Orchestrator.ProcessBatchWithStagesAsync(filter, rowProgress, ctx.Cts.Token);
                             totalObservations += stageResult.ObservationsWritten;
 
+                            // Emit per-table markdown sections from this batch's intermediate data
+                            if (reportSink != null)
+                            {
+                                await appendBatchToReportAsync(reportSink, stageResult, disableClaude, ctx.Cts.Token);
+                            }
+
                             // Update progress bar after batch completes
                             var batchCompletePct = totalBatches > 0
                                 ? (double)batchNumber / totalBatches * 100
@@ -496,14 +536,25 @@ namespace MedRecProConsole.Services
         /// When true, enables the Stage 3.25 quality gate that drops rows where either
         /// ArmN or PrimaryValue is null. Default false (backward compatible).
         /// </param>
+        /// <param name="reportSink">Optional markdown report sink. Accepted for signature
+        /// symmetry; this pipeline does not surface per-table intermediate data, so if
+        /// non-null a one-line warning is shown and no markdown is written.</param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllWithValidationAsync"/>
         /// <seealso cref="BatchValidationReport"/>
         public async Task<int> ExecuteValidateAsync(string connectionString, int batchSize, bool verbose, bool quiet,
             int? maxBatches = null, bool disableClaude = false,
-            bool dropRowsMissingArmNOrPrimaryValue = false)
+            bool dropRowsMissingArmNOrPrimaryValue = false,
+            MarkdownReportSink? reportSink = null)
         {
             #region implementation
+
+            if (reportSink != null && !quiet)
+            {
+                AnsiConsole.MarkupLine(
+                    "[yellow]Warning:[/] [grey]--markdown-log is not supported in validate mode " +
+                    "(no per-table pivot data). Use parse-single or parse-stages instead.[/]");
+            }
 
             using var ctx = await initializeRunAsync(connectionString, "validate", batchSize, verbose, quiet,
                 includeValidation: true, disableClaude: disableClaude,
@@ -1463,6 +1514,115 @@ namespace MedRecProConsole.Services
 
             AnsiConsole.Write(table);
             AnsiConsole.WriteLine();
+
+            #endregion
+        }
+
+        #endregion
+
+        #region private methods — markdown report
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a <see cref="TableReportEntry"/> from the pieces captured during a
+        /// single-table parse. Extracted for direct unit test coverage.
+        /// </summary>
+        /// <param name="table">Stage 2 reconstructed table (required).</param>
+        /// <param name="category">Routing category from Stage 3.</param>
+        /// <param name="parserName">Selected parser name (null when table was skipped).</param>
+        /// <param name="observations">Stage 3 observations, possibly already Claude-corrected.</param>
+        /// <param name="beforeClaudeFlags">Snapshot of ValidationFlags before Stage 3.5, or null when
+        /// Claude was skipped or observations were empty.</param>
+        /// <param name="claudeSkipped">True when Stage 3.5 did not run (disabled, --no-claude, or empty obs).</param>
+        /// <seealso cref="TableReportEntry"/>
+        public static TableReportEntry BuildReportEntry(
+            ReconstructedTable table,
+            TableCategory category,
+            string? parserName,
+            IReadOnlyList<ParsedObservation> observations,
+            IReadOnlyDictionary<int, string?>? beforeClaudeFlags,
+            bool claudeSkipped)
+        {
+            #region implementation
+
+            return new TableReportEntry
+            {
+                Table = table,
+                Category = category,
+                ParserName = parserName,
+                Observations = observations,
+                BeforeClaudeFlags = claudeSkipped ? null : beforeClaudeFlags,
+                ClaudeSkipped = claudeSkipped
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// For each non-skipped table in a batch stage result, builds a
+        /// <see cref="TableReportEntry"/> (grouping observations by <see cref="ParsedObservation.TextTableID"/>)
+        /// and enqueues it on the sink. Skipped tables are still emitted so the diagnostic log
+        /// captures routing decisions for every input table.
+        /// </summary>
+        /// <param name="sink">Target sink.</param>
+        /// <param name="stageResult">Batch result carrying per-table intermediate data.</param>
+        /// <param name="claudeDisabled">True when Stage 3.5 was suppressed for this run.</param>
+        /// <param name="ct">Cancellation token propagated to the sink's enqueue.</param>
+        /// <seealso cref="BatchStageResult"/>
+        private static async Task appendBatchToReportAsync(
+            MarkdownReportSink sink,
+            BatchStageResult stageResult,
+            bool claudeDisabled,
+            CancellationToken ct)
+        {
+            #region implementation
+
+            // Group observations by TextTableID so we can match them back to their source table.
+            // Use dictionary lookups rather than repeated LINQ filters for O(tables + obs) total work.
+            var preByTable = stageResult.PreCorrectionObservations
+                .Where(o => o.TextTableID.HasValue)
+                .GroupBy(o => o.TextTableID!.Value)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var postByTable = stageResult.PostCorrectionObservations
+                .Where(o => o.TextTableID.HasValue)
+                .GroupBy(o => o.TextTableID!.Value)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var routingByTable = stageResult.RoutingDecisions
+                .Where(d => d.TextTableID > 0)
+                .ToDictionary(d => d.TextTableID, d => d);
+
+            foreach (var table in stageResult.ReconstructedTables)
+            {
+                if (!table.TextTableID.HasValue)
+                    continue;
+
+                var tableId = table.TextTableID.Value;
+
+                routingByTable.TryGetValue(tableId, out var routing);
+                var category = routing?.Category ?? TableCategory.SKIP;
+                var parserName = routing?.ParserName;
+
+                postByTable.TryGetValue(tableId, out var postObs);
+                postObs ??= new List<ParsedObservation>();
+
+                // Reconstruct the before-Stage-3.5 ValidationFlags snapshot from the pre-correction
+                // observations so the markdown diff matches what displayClaudeCorrections would show.
+                IReadOnlyDictionary<int, string?>? beforeFlags = null;
+                if (!claudeDisabled && preByTable.TryGetValue(tableId, out var preObs))
+                {
+                    beforeFlags = preObs.ToDictionary(
+                        o => (o.SourceRowSeq ?? 0) * 10000 + (o.SourceCellSeq ?? 0),
+                        o => o.ValidationFlags);
+                }
+
+                var entry = BuildReportEntry(
+                    table, category, parserName, postObs, beforeFlags, claudeSkipped: claudeDisabled);
+
+                await sink.AppendAsync(entry, ct);
+            }
 
             #endregion
         }

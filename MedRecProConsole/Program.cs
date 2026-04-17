@@ -1,6 +1,7 @@
 using MedRecProConsole.Helpers;
 using MedRecProConsole.Models;
 using MedRecProConsole.Services;
+using MedRecProConsole.Services.Reporting;
 
 namespace MedRecProConsole
 {
@@ -368,28 +369,37 @@ namespace MedRecProConsole
                     cmdArgs.BatchSize ?? 1000,
                     cmdArgs.StandardizeTableId,
                     cmdArgs.NoClaude,
-                    dropIncompleteRows: dropIncomplete);
+                    dropIncompleteRows: dropIncomplete,
+                    markdownLogPath: cmdArgs.MarkdownLogPath);
             }
 
             // Execute the requested operation
             var service = new TableStandardizationService();
             var batchSize = cmdArgs.BatchSize ?? 1000;
 
+            // Open the markdown report sink if --markdown-log was supplied. CLI callers do not
+            // prompt for append/overwrite — the flag implies silent append semantics.
+            await using var reportSink = await MarkdownReportSink.CreateOrNullAsync(
+                cmdArgs.MarkdownLogPath, interactiveAppendPrompt: false);
+
             return cmdArgs.StandardizeTablesOperation switch
             {
                 "parse" => await service.ExecuteParseAsync(
                     connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
                     disableClaude: cmdArgs.NoClaude,
-                    dropRowsMissingArmNOrPrimaryValue: dropIncomplete),
+                    dropRowsMissingArmNOrPrimaryValue: dropIncomplete,
+                    reportSink: reportSink),
                 "validate" => await service.ExecuteValidateAsync(
                     connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
                     disableClaude: cmdArgs.NoClaude,
-                    dropRowsMissingArmNOrPrimaryValue: dropIncomplete),
+                    dropRowsMissingArmNOrPrimaryValue: dropIncomplete,
+                    reportSink: reportSink),
                 "truncate" => await service.ExecuteTruncateAsync(
                     connectionString, cmdArgs.QuietMode),
                 "parse-single" => await service.ExecuteParseSingleAsync(
                     connectionString, cmdArgs.StandardizeTableId!.Value, cmdArgs.VerboseMode,
-                    useClaude: !cmdArgs.NoClaude),
+                    useClaude: !cmdArgs.NoClaude,
+                    reportSink: reportSink),
                 _ => 1
             };
 

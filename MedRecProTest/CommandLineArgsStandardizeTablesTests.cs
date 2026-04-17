@@ -308,5 +308,68 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion
+
+        #region --markdown-log Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// --markdown-log with a value sets MarkdownLogPath and does not produce errors when
+        /// paired with --standardize-tables.
+        /// </summary>
+        [TestMethod]
+        public void Parse_MarkdownLogFlag_SetsPath()
+        {
+            var result = CommandLineArgs.Parse(new[]
+            {
+                "--standardize-tables", "parse-single", "--table-id", "1", "--markdown-log", "C:\\temp\\out.md"
+            });
+
+            Assert.AreEqual("C:\\temp\\out.md", result.MarkdownLogPath);
+            Assert.IsFalse(result.HasErrors, "Errors: " + string.Join("; ", result.Errors));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// --markdown-log=path (equals syntax) also sets MarkdownLogPath.
+        /// </summary>
+        [TestMethod]
+        public void Parse_MarkdownLogEqualsSyntax_SetsPath()
+        {
+            var result = CommandLineArgs.Parse(new[]
+            {
+                "--standardize-tables", "parse-single", "--table-id", "1", "--markdown-log=C:\\report.md"
+            });
+
+            Assert.AreEqual("C:\\report.md", result.MarkdownLogPath);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// --markdown-log without --standardize-tables produces an error.
+        /// </summary>
+        [TestMethod]
+        public void Parse_MarkdownLogWithoutStandardizeTables_AddsError()
+        {
+            var result = CommandLineArgs.Parse(new[] { "--markdown-log", "C:\\out.md" });
+
+            Assert.IsTrue(result.HasErrors);
+            Assert.IsTrue(result.Errors.Any(e => e.Contains("--markdown-log")),
+                "Expected an error mentioning --markdown-log. Actual: " + string.Join("; ", result.Errors));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Default MarkdownLogPath (no flag) is null.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NoMarkdownLog_PathIsNull()
+        {
+            var result = CommandLineArgs.Parse(new[] { "--standardize-tables", "parse" });
+
+            Assert.IsNull(result.MarkdownLogPath);
+            Assert.IsFalse(result.HasErrors);
+        }
+
+        #endregion
     }
 }

@@ -2042,3 +2042,75 @@ Added a second-pass `ParameterName` normalization layer on top of the existing 1
 **Design note**: user's request hinted at collapsing keys into a "new dictionary" — chose the name-normalization layer over rewriting `_parameterNameToSoc` to canonical keys only, because that preserves resolution of raw incoming data even when normalization misses. The 1,189-entry dictionary is a recognition layer; the 73-entry canonical map is an aggregation-grammar layer on top.
 
 ---
+
+### 2026-04-17 4:41 PM EST — Per-Table Markdown Diagnostic Report for Standardization
+
+Added `--markdown-log <path>` support to `MedRecProConsole` so each standardized table emits a GFM markdown section mirroring what `ExecuteParseSingleAsync` writes to the console (Stage 2 metadata + pivot grid + footnotes, Stage 3 routing + observations, Stage 3.5 Claude corrections or skipped note). Goal: diagnose PK/DrugInteraction/Efficacy/Dosing/BMD/TissueDistribution parsers which are producing inconsistent output — the AE parser is stable, the others are not, and console output is ephemeral. A single appended file lets the user survey dozens of parsed tables at once.
+
+**New files** under `MedRecProConsole/Services/Reporting/`:
+- `TableReportEntry.cs` — immutable record: `ReconstructedTable`, `TableCategory`, parser name, observations, before-Claude flag snapshot, `ClaudeSkipped` bit.
+- `GfmEscape.cs` — `|` → `\|`, `\` → `\\`, newlines → `<br>`, trim. Avoids prematurely closing pipe-delimited cells.
+- `TableStandardizationMarkdownWriter.cs` — `BuildSection(entry)` → pure string. One private writer per section, matches the console's visual order. Never emits Spectre `[color]` markup (regression-tested).
+- `MarkdownReportSink.cs` — `IAsyncDisposable` over `Channel<TableReportEntry>` + one consumer task draining to `StreamWriter` in `FileMode.Append`. Producers are lock-free; sequential writes guarantee no inter-table interleaving even under parallel batch producers. `CreateOrNullAsync(path, interactiveAppendPrompt)` returns null for null/whitespace path, prompts append-vs-overwrite on existing file when `interactiveAppendPrompt=true` (menu path), silent append otherwise (CLI path).
+
+**Service edits** (`TableStandardizationService.cs`):
+- `ExecuteParseSingleAsync` — new trailing `MarkdownReportSink? reportSink = null` param. Appends one entry after Stage 3.5 (or at the zero-observations short-circuit so the diagnostic log still captures skipped tables). `beforeFlags` lifted out of the Stage 3.5 `if` so markdown can include it.
+- `ExecuteParseWithStagesAsync` — same param. After each batch's `stageResult`, calls new `appendBatchToReportAsync` which groups `PreCorrectionObservations`/`PostCorrectionObservations` by `ParsedObservation.TextTableID` (already present, no orchestrator refactor needed), reconstructs per-table before-flags dict, then pushes one `TableReportEntry` per `ReconstructedTable`.
+- `ExecuteParseAsync` and `ExecuteValidateAsync` — param accepted for signature symmetry, but those pipelines only expose aggregate observation counts (no per-table pivot), so they emit a one-line yellow warning and skip writing. Matches the plan's out-of-scope decision for `ProcessAllAsync` / `ProcessAllWithValidationAsync`.
+- `BuildReportEntry` — public static factory so tests exercise the before-flags-null-when-skipped invariant directly.
+
+**CLI + menu**:
+- `CommandLineArgs.cs` — `MarkdownLogPath` property, `--markdown-log` parse branch using existing `extractArgumentValue` helper, validation error if used outside `--standardize-tables`.
+- `Program.cs` — `await using var reportSink = await MarkdownReportSink.CreateOrNullAsync(cmdArgs.MarkdownLogPath, interactiveAppendPrompt: false);` before the dispatch switch; passed to the two supporting operations.
+- `ConsoleHelper.cs` — new `promptForMarkdownLogAsync()` helper. Default path uses a timestamp (`standardization-report-yyyyMMdd-HHmmss.md`) under `AppDomain.CurrentDomain.BaseDirectory` so repeat runs don't collide. Single-table branch prompts between Claude and execute; batch branch prompts between detail-level and confirmation, with a "Markdown Log" row added to the summary table.
+- `HelpDocumentation.cs` + `appsettings.json` — usage line, `DisplayStandardizeTablesModeInfo` gets a `markdownLogPath` parameter + row, and a new `Help.CommandLineOptions` entry.
+
+**Tests** (`MedRecProTest/Reporting/` + existing `CommandLineArgsStandardizeTablesTests.cs`):
+- `TableStandardizationMarkdownWriterTests` (12) — section ordering, metadata row shape, pivot grid with span arrows, SOC-divider bolding, footnotes present/absent, zero-observations path, pipe escaping, newline → `<br>`, Claude skipped vs. applied vs. no-changes, low-confidence regression (no `[red]` leaking).
+- `MarkdownReportSinkTests` (9) — null/whitespace path → null sink, new file creation with session banner, sequential order preservation, concurrent-producer integrity (50 parallel `Task.Run` appends, asserts exactly 50 H2 headers and 50 `---` separators — proves the channel's sequential writes eliminate interleaving), append vs. overwrite on existing file, dispose flushes pending entries.
+- `TableStandardizationServiceMarkdownTests` (4) — `BuildReportEntry` factory invariants (post-Claude keeps before-flags, skipped discards them, null parser preserved) and an end-to-end sink round-trip simulating a 3-table batch.
+- `CommandLineArgsStandardizeTablesTests` (+4) — flag parsing, equals-syntax, validation error without `--standardize-tables`, default null.
+
+**Build/test results**: `dotnet build` clean (0 errors, 3 pre-existing warnings). 48/48 new tests pass; all 28 CommandLineArgs tests pass. Noticed 25 pre-existing failures in `TableParsingOrchestratorTests` with `NullReferenceException` at `TableParsingOrchestrator.cs:156` (`_dbContext.ChangeTracker.AutoDetectChangesEnabled = false` — tests pass `null!` for dbContext); confirmed unrelated by stashing all my changes (including untracked dirs moved aside) and re-running — same failure on clean master. Flagged but not fixed.
+
+**Scope decisions** (via AskUserQuestion): (1) cover both single + Stages batch, not Stage 3 batch or validate; (2) prompt append/overwrite on existing file in menu, silent append on CLI; (3) always include Stage 3.5 section (skipped note or corrections diff).
+
+**Design notes**:
+- Dedicated writer class rather than refactoring the Spectre `display*` methods. Console and GFM diverge on escaping (`|` vs `[]`), on color representation (Spectre `[red]` vs bare text), and on cell-span visualization — unified POCO layer would have been a wide blast radius for marginal gain. Console output stays byte-identical.
+- Channel-based concurrency over per-append lock. Lock would serialize producers through a `StringBuilder` allocation + disk I/O critical section; channel decouples enqueue from write and is naturally order-preserving per completion.
+- `BuildReportEntry` surfaces `null` for `BeforeClaudeFlags` whenever `ClaudeSkipped` is true, even if caller supplied a dict. Keeps the writer's rendering logic monotonic — it doesn't have to second-guess the skipped-flag.
+- `appendBatchToReportAsync` trusts `ParsedObservation.TextTableID` as the group key; no orchestrator API change required. Would have needed to add an `IProgress<TableReportEntry>` callback otherwise.
+
+---
+
+### 2026-04-17 5:15 PM EST — Fix 28 Pre-Existing Test Failures (Orchestrator NRE + DtoLabelAccess Static Pollution)
+
+Ran the full `MedRecProTest` suite after the markdown-log feature landed — 28 failures surfaced, all pre-existing (confirmed by stashing all changes, including the markdown feature's untracked dirs, and re-running on clean master: same 28). User asked for them fixed. Root-caused and resolved both.
+
+**Failure 1 — `TableParsingOrchestratorTests` (25 tests)**
+
+- **Symptom**: `NullReferenceException` in the constructor at `TableParsingOrchestrator.cs:156`.
+- **Root cause**: commit `a984e6d` ("Fix memory leaks, retrain gating, and resource hygiene", 2026-04-15) added `_dbContext.ChangeTracker.AutoDetectChangesEnabled = false;` in the constructor body — an unconditional dereference. But `TableParsingOrchestratorTests.createTestOrchestrator()` (line 132) intentionally passes `null!` for `dbContext` with the comment "ParseSingleTableAsync doesn't use it." The perf optimization was applied at the wrong scope: it only matters for the batch writers (`ProcessBatchWithStagesAsync`, `ProcessAllAsync`), not the single-table debug path.
+- **Fix**: wrapped the assignment in `if (_dbContext is not null) { … }`. Production DI always provides a real `ApplicationDbContext`, so the optimization still applies where it matters; single-table tests/debug callers stay DB-free. Added a comment explaining the guard.
+- **Alternative considered**: changing the test helper to provide an `ApplicationDbContext`. Rejected — that rewrites 25 tests and violates the class's own public contract that the single-table path is database-independent.
+
+**Failure 2 — `DtoLabelAccessDocumentTests.BuildDocumentsAsync_*` (3 tests)**
+
+- **Symptom**: `NullReferenceException` inside `batchLoadStructuredBodiesAsync`'s `.Distinct().ToList()` chain. Tests passed in isolation and as a whole class (150/150) — only failed when running the full suite. Classic cross-class static pollution.
+- **Investigation**: ran narrowest reproducing pair (`ProductRenderingServiceTests` + one failing DtoLabelAccess test). The real stack trace emerged — `CryptographicException: Padding is invalid and cannot be removed` → `UniversalCryptoDecryptor` → `StringCipher.decryptInternal` → `EncryptionService.DecryptToInt` → `Util.DecryptAndParseInt` → `SectionDto.get_SectionID()` → the batch-loader's `Where` clause. The NRE-looking outer symptom was `HashSet..ctor` propagating the exception caught during iteration.
+- **Root cause**: `MedRecPro.Helpers.Util._encryptionService` is a private static singleton (legacy from pre-DI code; see comment at line 30-33). `ProductRenderingServiceTests.TestInitialize` calls `Util.Initialize(..., new EncryptionService(userSecretsConfig), ...)` — pinning the secret to whatever's in `dotnet user-secrets` for that project. When `DtoLabelAccessDocumentTests` runs afterward, it encrypts test IDs with `TestPkSecret = "TestEncryptionSecretKey12345!@#"` via `ToEntityWithEncryptedId(pkSecret, logger)`. But `SectionDto.SectionID`'s computed getter routes through `Util.DecryptAndParseInt` → the still-bound wrong-key `EncryptionService` → padding mismatch on decrypt.
+- **Fix**: extended `DtoLabelAccessTestHelper.ClearCache()` (already called from every DtoLabelAccess class's `[TestInitialize]`) to also `Util.Initialize(…, new EncryptionService(inMemoryConfigWithTestPkSecret), …)`. Uses `ConfigurationBuilder().AddInMemoryCollection(…)` to supply `Security:DB:PKSecret = TestPkSecret` without touching user-secrets. All 150 DtoLabelAccess tests now defend against upstream classes' `Util` state.
+- **Alternative considered**: making `SectionDto.SectionID` catch the `CryptographicException` and return null. Rejected — that hides real decrypt failures in production; the test-environment isolation problem belongs in the test helper.
+
+**Results**:
+- Before fixes: **Failed: 28, Passed: 1112** (25 orchestrator + 3 DtoLabelAccess)
+- After orchestrator fix only: **Failed: 3, Passed: 1165**
+- After both fixes: **Failed: 0, Passed: 1168** ✅
+
+**Files changed**:
+- `MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs:156` — null-guard the AutoDetectChanges assignment.
+- `MedRecProTest/DtoLabelAccessTestHelper.cs` — imports for `MedRecPro.Service.Common`, `Microsoft.AspNetCore.Http`, `Microsoft.Extensions.Configuration`; extended `ClearCache()` to rebind `Util` with `TestPkSecret`.
+
+**Design note on the `Util` singleton**: the real long-term fix is to remove `Util`'s static `_encryptionService` / `_httpContextAccessor` / `_dictionaryUtilityService` fields (the file already has a comment at line 30 saying "better to refactor to instance methods"). That's a larger refactor touching every caller of `Util.DecryptAnd*`. For now, the test helper defends the boundary — production code paths always run after DI initialization so they're unaffected.
+
+---

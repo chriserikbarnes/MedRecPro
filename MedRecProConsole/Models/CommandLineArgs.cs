@@ -164,6 +164,20 @@ namespace MedRecProConsole.Models
 
         /**************************************************************/
         /// <summary>
+        /// Gets or sets the path to a markdown report file (--markdown-log).
+        /// When set, per-table standardization output mirroring the console is appended to the file.
+        /// Only valid with --standardize-tables parse-single (batch Stage 3 / validate pipelines
+        /// warn and skip writing because they do not surface per-table pivot data).
+        /// </summary>
+        /// <remarks>
+        /// Parent directories are created if missing. When the file already exists, the sink
+        /// silently appends in CLI mode; the interactive menu prompts for append/overwrite.
+        /// </remarks>
+        /// <seealso cref="StandardizeTablesOperation"/>
+        public string? MarkdownLogPath { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets whether unattended SPL mode is enabled.
         /// True when --folder is specified.
         /// </summary>
@@ -382,6 +396,13 @@ namespace MedRecProConsole.Models
                     continue;
                 }
 
+                // Handle markdown-log argument (per-table diagnostic markdown file)
+                if (lowerArg.StartsWith("--markdown-log"))
+                {
+                    result.MarkdownLogPath = extractArgumentValue(args, ref i, arg, "--markdown-log", result.Errors);
+                    continue;
+                }
+
                 // Unknown argument
                 if (arg.StartsWith("-") || arg.StartsWith("/"))
                 {
@@ -472,6 +493,12 @@ namespace MedRecProConsole.Models
                 && result.StandardizeTablesOperation is not ("parse" or "validate"))
             {
                 result.Errors.Add("--drop-incomplete-rows can only be used with --standardize-tables parse or validate.");
+            }
+
+            // Validate --markdown-log requires --standardize-tables
+            if (!string.IsNullOrEmpty(result.MarkdownLogPath) && !result.IsStandardizeTablesMode)
+            {
+                result.Errors.Add("--markdown-log can only be used with --standardize-tables.");
             }
 
             // Validate --batch-size only valid with parse or validate

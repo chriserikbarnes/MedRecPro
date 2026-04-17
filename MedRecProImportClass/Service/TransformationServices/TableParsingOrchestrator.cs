@@ -153,7 +153,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Bulk-insert only — no read-modify-write — so change detection is pure overhead.
             // Paired with explicit Clear() after SaveChanges so the tracker never grows.
-            _dbContext.ChangeTracker.AutoDetectChangesEnabled = false;
+            // Guarded because single-table debug paths (ParseSingleTableAsync) legitimately
+            // run without a DbContext; only the batch writers need the optimization.
+            if (_dbContext is not null)
+            {
+                _dbContext.ChangeTracker.AutoDetectChangesEnabled = false;
+            }
 
             #endregion
         }

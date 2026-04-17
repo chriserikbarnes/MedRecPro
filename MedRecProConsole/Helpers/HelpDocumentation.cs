@@ -212,7 +212,8 @@ namespace MedRecProConsole.Helpers
             int batchSize,
             int? tableId,
             bool noClaude = false,
-            bool dropIncompleteRows = false)
+            bool dropIncompleteRows = false,
+            string? markdownLogPath = null)
         {
             #region implementation
 
@@ -247,6 +248,10 @@ namespace MedRecProConsole.Helpers
                     ? "[yellow]Yes (ArmN or PrimaryValue null)[/]"
                     : "[grey]No[/]");
             }
+
+            table.AddRow("Markdown Log", string.IsNullOrEmpty(markdownLogPath)
+                ? "[grey](disabled)[/]"
+                : $"[green]{Markup.Escape(markdownLogPath)}[/]");
 
             AnsiConsole.Write(table);
             AnsiConsole.WriteLine();
@@ -299,9 +304,11 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/] [red]--no-claude[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [green]--connection[/] [cyan]<name>[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [yellow]--drop-incomplete-rows[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/] [magenta]--markdown-log[/] [cyan]<path>[/]");
             AnsiConsole.MarkupLine("    [grey]Parse and validate SPL table data (Ctrl+C saves progress for resume)[/]");
             AnsiConsole.MarkupLine("    [grey]Use --no-claude to disable Claude AI correction (Stage 3.5)[/]");
             AnsiConsole.MarkupLine("    [grey]Use --drop-incomplete-rows to drop rows missing both the ArmN and PrimaryValue (Stage 3.25 quality gate)[/]");
+            AnsiConsole.MarkupLine("    [grey]Use --markdown-log <path> to append per-table diagnostic markdown (parse-single only on CLI)[/]");
             AnsiConsole.WriteLine();
 
             #endregion

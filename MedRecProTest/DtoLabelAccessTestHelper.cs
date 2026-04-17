@@ -1,8 +1,11 @@
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.Common;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -242,14 +245,38 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Clears the PerformanceHelper managed cache to prevent cross-test pollution.
-        /// Must be called in [TestInitialize] of every test class.
+        /// Clears the PerformanceHelper managed cache AND rebinds <see cref="Util"/>'s
+        /// static singletons to use <see cref="TestPkSecret"/>. Must be called in
+        /// <c>[TestInitialize]</c> of every DtoLabelAccess test class.
         /// </summary>
+        /// <remarks>
+        /// Other test suites (e.g. <c>ProductRenderingServiceTests</c>) initialize
+        /// <see cref="Util"/> with an encryption service backed by user-secrets, which
+        /// leaks across classes via <see cref="Util"/>'s private static state. Without
+        /// resetting here, <see cref="Models.SectionDto.SectionID"/> and peer properties
+        /// would attempt to decrypt IDs (that were encrypted with <see cref="TestPkSecret"/>)
+        /// using the wrong key, throwing <c>CryptographicException: Padding is invalid</c>.
+        /// </remarks>
         public static void ClearCache()
         {
             #region implementation
 
             PerformanceHelper.ResetManagedCache();
+
+            // Rebind Util to the test's encryption secret to defend against any prior
+            // test class that called Util.Initialize with its own IConfiguration-backed
+            // EncryptionService. Util's static fields survive across test classes.
+            var testConfig = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Security:DB:PKSecret"] = TestPkSecret
+                })
+                .Build();
+
+            Util.Initialize(
+                new Mock<IHttpContextAccessor>().Object,
+                new EncryptionService(testConfig),
+                new DictionaryUtilityService());
 
             #endregion
         }

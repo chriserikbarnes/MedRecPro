@@ -3,6 +3,7 @@ using MedRecProImportClass.Service.ParsingServices;
 using MedRecProConsole.Models;
 using ValidationResult = Spectre.Console.ValidationResult;
 using MedRecProConsole.Services;
+using MedRecProConsole.Services.Reporting;
 using Spectre.Console;
 
 namespace MedRecProConsole.Helpers
@@ -1815,8 +1816,10 @@ namespace MedRecProConsole.Helpers
                 var singleUseClaude = AnsiConsole.Confirm(
                     "[dodgerblue1]Enable Claude AI correction (Stage 3.5)?[/]", defaultValue: true);
 
+                await using var singleSink = await promptForMarkdownLogAsync();
+
                 await service.ExecuteParseSingleAsync(connectionString, tableId, verboseMode,
-                    useClaude: singleUseClaude);
+                    useClaude: singleUseClaude, reportSink: singleSink);
                 return;
             }
 
@@ -1854,6 +1857,9 @@ namespace MedRecProConsole.Helpers
             // Step 4.6: Stage detail level
             var detailLevel = promptForStageDetailLevel();
 
+            // Step 4.7: Markdown log prompt (opened before confirmation so its path can appear in the summary)
+            await using var batchSink = await promptForMarkdownLogAsync();
+
             // Step 5: Confirmation summary
             AnsiConsole.WriteLine();
             var confirmTable = new Table()
@@ -1871,6 +1877,8 @@ namespace MedRecProConsole.Helpers
                 dropIncompleteRows ? "[yellow]Yes (ArmN or PrimaryValue null)[/]" : "[grey]No[/]");
             confirmTable.AddRow("Stage Detail", detailLevel.ToString());
             confirmTable.AddRow("Validation", "[green]Enabled[/] (Stage 4)");
+            confirmTable.AddRow("Markdown Log",
+                batchSink != null ? $"[green]{Markup.Escape(batchSink.Path)}[/]" : "[grey](disabled)[/]");
 
             AnsiConsole.Write(confirmTable);
             AnsiConsole.WriteLine();
@@ -1885,7 +1893,8 @@ namespace MedRecProConsole.Helpers
             await service.ExecuteParseWithStagesAsync(
                 connectionString, batchSize, verboseMode, quiet: false,
                 disableClaude: !useClaude, maxBatches: maxBatches, detailLevel: detailLevel,
-                dropRowsMissingArmNOrPrimaryValue: dropIncompleteRows);
+                dropRowsMissingArmNOrPrimaryValue: dropIncompleteRows,
+                reportSink: batchSink);
 
             #endregion
         }
@@ -1918,6 +1927,47 @@ namespace MedRecProConsole.Helpers
                 "full" => StageDetailLevel.Full,
                 _ => StageDetailLevel.None
             };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prompts the user to optionally enable a per-table markdown diagnostic log for the
+        /// current standardization run. Returns the opened <see cref="MarkdownReportSink"/>
+        /// when the user opts in, otherwise null.
+        /// </summary>
+        /// <remarks>
+        /// When the user accepts and the target file already exists, the sink prompts a
+        /// second time asking whether to append (keeping prior sections) or overwrite.
+        /// Default path uses a timestamp so simultaneous sessions do not collide.
+        /// </remarks>
+        /// <returns>Open sink ready to be passed to a standardization service method, or null.</returns>
+        /// <seealso cref="MarkdownReportSink"/>
+        private static async Task<MarkdownReportSink?> promptForMarkdownLogAsync()
+        {
+            #region implementation
+
+            var enable = AnsiConsole.Confirm(
+                "[dodgerblue1]Write per-table markdown diagnostic log?[/] [grey](appends pivot + observations for each table)[/]",
+                defaultValue: false);
+
+            if (!enable)
+                return null;
+
+            var defaultPath = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                $"standardization-report-{DateTime.Now:yyyyMMdd-HHmmss}.md");
+
+            var path = AnsiConsole.Prompt(
+                new TextPrompt<string>("[dodgerblue1]Markdown file path:[/]")
+                    .PromptStyle("white")
+                    .DefaultValue(defaultPath)
+                    .Validate(p => !string.IsNullOrWhiteSpace(p)
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error("[red]Path cannot be empty[/]")));
+
+            return await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: true);
 
             #endregion
         }
