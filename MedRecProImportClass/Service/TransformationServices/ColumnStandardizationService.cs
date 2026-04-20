@@ -2106,34 +2106,52 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        // Column-header echoes that sometimes leak into ParameterName. When the
+        // routed-out Name matches one of these exactly (case-insensitive), it is
+        // a header echo per NULL Preservation Rule §0.2 and may be dropped.
+        private static readonly HashSet<string> _headerEchoSet = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Population Estimates", "Population Estimate",
+            "Pharmacokinetic Parameter", "Pharmacokinetic Parameters",
+            "PK Parameter", "PK Parameters",
+            "Parameter", "Parameters",
+            "Values", "Value", "Estimate", "Estimates",
+            "N",
+        };
+
         /**************************************************************/
         /// <summary>
-        /// Phase 2 sub-pass: PK-specific canonicalization and column-role correction.
-        /// Runs only on PK observations. Four corrections in order:
-        /// (a) swap ParameterName ↔ ParameterSubtype when the PK term landed in Subtype,
-        /// (b) reroute population-style labels from ParameterName into Population,
-        /// (c) canonicalize ParameterName via <see cref="PkParameterDictionary"/>,
-        /// (d) flag PD markers (IPA, VASP-PRI, etc.) for later review.
+        /// Phase 2 sub-pass: Enforces the PK column contract across every PK
+        /// observation. Guarantees that <see cref="ParsedObservation.ParameterName"/>
+        /// holds a canonical PK term and <see cref="ParsedObservation.ParameterSubtype"/>
+        /// holds only a short qualifier (never a PK term or a descriptive phrase).
+        /// Displaced Name content is routed to its contract-assigned column
+        /// (Population / TreatmentArm / DoseRegimen / StudyContext) to honor the
+        /// NULL Preservation Rule.
         /// </summary>
         /// <remarks>
-        /// ## Why this exists
-        /// Some SPL tables — notably pharmacogenomic studies — produce rows where a
-        /// metabolizer phenotype ("Poor", "Intermediate") ends up in ParameterName and
-        /// the actual PK term ("Cmax", "AUC") ends up in ParameterSubtype. Per the PK
-        /// column contract, ParameterName must hold the canonical PK term and
-        /// phenotypes belong in Population. Additional cleanup collapses variant
-        /// spellings to canonical form so downstream aggregation works.
+        /// ## Five-step ordered enforcement
+        /// 1. **Fast path** — Name already canonicalizes. Normalize to canonical form.
+        /// 2. **Rescue** — if Name is not a PK term, try to find one in Subtype
+        ///    (direct canonical, descriptive phrase, or Name-as-phrase). Route the
+        ///    displaced Name content to its best-fit column.
+        /// 3. **Subtype scrub** — even on the fast path, strip any residual PK
+        ///    terms from Subtype (they don't belong there).
+        /// 4. **PD marker flag** — unchanged. Flag non-PK markers for review.
+        /// 5. Return `true` when any correction was applied.
         ///
-        /// ## Ordering
-        /// Must run BEFORE <see cref="extractUnitFromParameterSubtype"/>: if that runs
-        /// first it will strip parenthesized unit text from whatever happens to be in
-        /// ParameterSubtype — which might actually be the PK term we need to see.
+        /// ## Why this runs after <see cref="extractUnitFromParameterSubtype"/>
+        /// Unit extraction strips the trailing "(unit)" from Subtype, leaving the
+        /// canonical PK term alone to be rescued by step 2. Running before unit
+        /// extraction would canonicalize "Cmax(mcg/mL)" → Cmax but then the unit
+        /// would never be stripped because the Subtype is already gone.
         /// </remarks>
         /// <param name="obs">The observation to standardize.</param>
         /// <returns>True if any correction was applied.</returns>
         /// <seealso cref="PkParameterDictionary"/>
         /// <seealso cref="PdMarkerDictionary"/>
         /// <seealso cref="PopulationDetector.TryMatchLabel"/>
+        /// <seealso cref="routeOrParkNameContent"/>
         private bool applyPkCanonicalization(ParsedObservation obs)
         {
             #region implementation
@@ -2144,46 +2162,121 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             bool changed = false;
 
-            // (a) ParameterName carries a population descriptor — route to Population
-            //     and null out Name so the swap below can fill it with the PK term.
-            //     Runs BEFORE the swap so the 970-style phenotype case works:
-            //     Name="Poor", Subtype="Cmax" → Population="Poor Metabolizer",
-            //     Name=null → swap fires → Name="Cmax", Subtype=null.
-            if (PopulationDetector.TryMatchLabel(obs.ParameterName, out var popCanon))
+            // Step 1: Fast path — Name already canonicalizes to a PK term.
+            if (PkParameterDictionary.TryCanonicalize(obs.ParameterName, out var canonical1))
             {
-                if (string.IsNullOrWhiteSpace(obs.Population))
-                    obs.Population = popCanon;
-                obs.ParameterName = null;
-                appendFlag(obs, "COL_STD:PK_POPULATION_ROUTED");
-                changed = true;
+                if (!string.Equals(canonical1, obs.ParameterName, StringComparison.Ordinal))
+                {
+                    obs.ParameterName = canonical1;
+                    appendFlag(obs, "COL_STD:PK_NAME_CANONICALIZED");
+                    changed = true;
+                }
+                // fall through to Step 3 (Subtype scrub)
+            }
+            else
+            {
+                // Step 2: Rescue a PK term from Subtype or Name.
+                //   2a. Subtype yields a canonical (via phrase extraction which
+                //       prefers specificity — finds AUC0-inf inside
+                //       "Area under the curve, AUC0-∞" rather than generic AUC).
+                //   2b. Name itself yields a canonical via phrase extraction.
+                string? rescuedCanonical = null;
+                string? rescuedQualifier = null;
+                bool rescuedFromSubtype = false;
+                bool nameWasConsumedWhole = false;
+
+                if (PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                        obs.ParameterSubtype, out var fromSub, out var qSub))
+                {
+                    rescuedCanonical = fromSub;
+                    rescuedQualifier = qSub;
+                    rescuedFromSubtype = true;
+                }
+                else if (PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                             obs.ParameterName, out var fromName, out var qName))
+                {
+                    rescuedCanonical = fromName;
+                    rescuedQualifier = qName;
+                    rescuedFromSubtype = false;
+
+                    // When Name IS exactly the canonical (fast path in step 1 would
+                    // have caught this), we skip routing. Otherwise Name had extra
+                    // content that must be routed.
+                    nameWasConsumedWhole = string.Equals(
+                        rescuedCanonical,
+                        obs.ParameterName ?? string.Empty,
+                        StringComparison.OrdinalIgnoreCase);
+                }
+
+                if (rescuedCanonical != null)
+                {
+                    var oldName = obs.ParameterName;
+
+                    // Route displaced Name content when applicable.
+                    if (!string.IsNullOrWhiteSpace(oldName) && !nameWasConsumedWhole)
+                    {
+                        routeOrParkNameContent(obs, oldName);
+                    }
+
+                    obs.ParameterName = rescuedCanonical;
+
+                    // Choose flag based on the source shape. A "bare" Subtype is
+                    // a single token with no whitespace/commas — that's the
+                    // PK_NAME_SUBTYPE_SWAPPED case (e.g., Subtype="TPEAK" or
+                    // Subtype="Cmax"). Anything more complex (descriptive
+                    // phrase, comma-separated qualifier, etc.) is the
+                    // PK_NAME_FROM_PHRASE case.
+                    string flag;
+                    if (rescuedFromSubtype)
+                    {
+                        var trimmed = obs.ParameterSubtype?.Trim() ?? string.Empty;
+                        var isBareToken = trimmed.Length > 0 &&
+                                          !trimmed.Contains(' ') &&
+                                          !trimmed.Contains(',');
+                        flag = isBareToken
+                            ? "COL_STD:PK_NAME_SUBTYPE_SWAPPED"
+                            : "COL_STD:PK_NAME_FROM_PHRASE";
+
+                        // Subtype was the source — clear it and use the qualifier
+                        // (side-channel may have detected "steady_state" etc.)
+                        obs.ParameterSubtype = rescuedQualifier;
+                    }
+                    else
+                    {
+                        // Name was the source — Subtype untouched unless empty,
+                        // in which case we may use the detected qualifier.
+                        flag = "COL_STD:PK_NAME_FROM_PHRASE";
+                        if (string.IsNullOrWhiteSpace(obs.ParameterSubtype))
+                            obs.ParameterSubtype = rescuedQualifier;
+                    }
+
+                    appendFlag(obs, flag);
+                    changed = true;
+                }
             }
 
-            // (b) Swap when Name is empty and Subtype holds a PK term. Conservative
-            //     by design: if Name already carries something non-empty that is NOT
-            //     a population term, leave it alone. This avoids clobbering parser
-            //     output in tables where the data shape is unusual but not inverted.
-            if (string.IsNullOrWhiteSpace(obs.ParameterName)
-                && PkParameterDictionary.IsPkParameter(obs.ParameterSubtype))
+            // Step 3: Subtype scrub — PK terms never live in Subtype.
+            if (!string.IsNullOrWhiteSpace(obs.ParameterSubtype))
             {
-                obs.ParameterName = obs.ParameterSubtype;
-                obs.ParameterSubtype = null;
-                appendFlag(obs, "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
-                changed = true;
+                if (PkParameterDictionary.IsPkParameter(obs.ParameterSubtype))
+                {
+                    obs.ParameterSubtype = null;
+                    appendFlag(obs, "COL_STD:PK_SUBTYPE_SCRUBBED");
+                    changed = true;
+                }
+                else if (PkParameterDictionary.ContainsPkParameter(obs.ParameterSubtype)
+                         && PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                                obs.ParameterSubtype, out _, out var residualQualifier))
+                {
+                    obs.ParameterSubtype = residualQualifier;
+                    appendFlag(obs, "COL_STD:PK_SUBTYPE_SCRUBBED");
+                    changed = true;
+                }
             }
 
-            // (c) Canonicalize ParameterName via the dictionary. Collapses long-form
-            //     English ("Maximum Plasma Concentrations" → "Cmax"), Unicode variants
-            //     ("AUC0-∞" → "AUC0-inf"), and any residual trailing unit parens.
-            if (PkParameterDictionary.TryCanonicalize(obs.ParameterName, out var canonical)
-                && !string.Equals(canonical, obs.ParameterName, StringComparison.Ordinal))
-            {
-                obs.ParameterName = canonical;
-                appendFlag(obs, "COL_STD:PK_NAME_CANONICALIZED");
-                changed = true;
-            }
-
-            // (d) Flag PD markers so they can be reviewed downstream. No column
-            //     movement — the row is preserved.
+            // Step 4: PD marker flagging. Preserves the row and just emits a flag
+            // so downstream review can audit PD markers (IPA, VASP-PRI) that
+            // shouldn't be in PK tables at all.
             if (PdMarkerDictionary.IsPdMarker(obs.ParameterSubtype)
                 || PdMarkerDictionary.IsPdMarker(obs.ParameterName))
             {
@@ -2192,6 +2285,145 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return changed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Decides where displaced <see cref="ParsedObservation.ParameterName"/>
+        /// content should go when a PK term is being moved in. Honors the NULL
+        /// Preservation Rule — routes to Population / TreatmentArm / DoseRegimen
+        /// / StudyContext when possible, and only drops content that matches a
+        /// known column-header echo.
+        /// </summary>
+        /// <remarks>
+        /// ## Routing priority (first match wins)
+        /// 1. Population (dictionary or regex second pass)
+        /// 2. Drug + dose compound ("Guanfacine 1 mg once daily")
+        /// 3. Pure drug name
+        /// 4. Pure dose regimen (digits but no drug prefix)
+        /// 5. Known column-header echo ("Population Estimates", "Values")
+        /// 6. StudyContext park (preserves unclassifiable data)
+        /// 7. Last-resort drop with <c>PK_NAME_DROPPED_UNCLASSIFIED</c> flag
+        /// </remarks>
+        /// <param name="obs">The observation receiving the routed content.</param>
+        /// <param name="oldName">The displaced ParameterName to route.</param>
+        /// <seealso cref="applyPkCanonicalization"/>
+        /// <seealso cref="PopulationDetector.TryMatchLabel"/>
+        /// <seealso cref="isDrugName"/>
+        /// <seealso cref="DoseExtractor.Extract"/>
+        private void routeOrParkNameContent(ParsedObservation obs, string oldName)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(oldName))
+                return;
+
+            var trimmed = oldName.Trim();
+
+            // (i) Population — dictionary OR regex second pass
+            if (PopulationDetector.TryMatchLabel(trimmed, out var popCanon, out var viaRegex))
+            {
+                if (string.IsNullOrWhiteSpace(obs.Population))
+                    obs.Population = popCanon;
+                appendFlag(obs, viaRegex
+                    ? "COL_STD:PK_POPULATION_ROUTED_REGEX"
+                    : "COL_STD:PK_POPULATION_ROUTED");
+                return;
+            }
+
+            // (ii) Drug + dose compound: "Guanfacine Ext-Release Tablets 1 mg once daily"
+            var (dose, doseUnit) = DoseExtractor.Extract(trimmed);
+            if (dose.HasValue)
+            {
+                // Strip the matched dose fragment to see what's left (drug prefix).
+                var drugPart = stripDoseFragment(trimmed);
+                if (!string.IsNullOrWhiteSpace(drugPart) && isDrugName(drugPart))
+                {
+                    if (string.IsNullOrWhiteSpace(obs.TreatmentArm))
+                        obs.TreatmentArm = drugPart.Trim();
+                    if (string.IsNullOrWhiteSpace(obs.DoseRegimen))
+                    {
+                        // Put the dose fragment (everything BUT the drug prefix) into DoseRegimen.
+                        var doseFragment = trimmed.Substring(drugPart.Length).Trim();
+                        obs.DoseRegimen = string.IsNullOrWhiteSpace(doseFragment) ? trimmed : doseFragment;
+                        if (!obs.Dose.HasValue)
+                        {
+                            obs.Dose = dose;
+                            obs.DoseUnit = doseUnit;
+                        }
+                    }
+                    appendFlag(obs, "COL_STD:PK_NAME_ROUTED_ARM");
+                    return;
+                }
+
+                // Pure dose regimen (no drug prefix).
+                if (string.IsNullOrWhiteSpace(obs.DoseRegimen))
+                    obs.DoseRegimen = trimmed;
+                if (!obs.Dose.HasValue)
+                {
+                    obs.Dose = dose;
+                    obs.DoseUnit = doseUnit;
+                }
+                appendFlag(obs, "COL_STD:PK_NAME_ROUTED_DOSE");
+                return;
+            }
+
+            // (iii) Pure drug name (no dose)
+            if (isDrugName(trimmed))
+            {
+                if (string.IsNullOrWhiteSpace(obs.TreatmentArm))
+                    obs.TreatmentArm = trimmed;
+                appendFlag(obs, "COL_STD:PK_NAME_ROUTED_ARM");
+                return;
+            }
+
+            // (iv) Column-header echo — NULL Preservation Rule §0.2 carve-out.
+            if (_headerEchoSet.Contains(trimmed))
+            {
+                appendFlag(obs, "COL_STD:PK_NAME_ECHO_DROPPED");
+                return;
+            }
+
+            // (v) Unclassifiable — park into StudyContext to preserve the data.
+            if (string.IsNullOrWhiteSpace(obs.StudyContext))
+            {
+                obs.StudyContext = trimmed;
+                appendFlag(obs, "COL_STD:PK_NAME_PARKED_CTX");
+            }
+            else
+            {
+                // Last resort: StudyContext is also occupied. Drop with a flag so
+                // the incident can be audited; this should be 0 on clean data.
+                appendFlag(obs, "COL_STD:PK_NAME_DROPPED_UNCLASSIFIED");
+            }
+
+            #endregion
+        }
+
+        // Matches the LAST numeric dose token plus its unit in a string (used to
+        // strip the dose fragment from "Guanfacine ... 1 mg once daily" → "Guanfacine ...").
+        // Intentionally greedy left-anchor so "Drug Name 1 mg once daily" → "Drug Name".
+        private static readonly System.Text.RegularExpressions.Regex _doseFragmentPattern =
+            new(@"\s*\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|μg|g|ng|kg|mL|units?|U|IU)\b.*$",
+                System.Text.RegularExpressions.RegexOptions.Compiled |
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Strips the numeric dose fragment and everything after it from a
+        /// drug+dose string, leaving just the drug-name prefix. Used by
+        /// <see cref="routeOrParkNameContent"/> to separate "Guanfacine Extended-Release Tablets"
+        /// from "1 mg once daily".
+        /// </summary>
+        private static string stripDoseFragment(string input)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(input))
+                return string.Empty;
+            return _doseFragmentPattern.Replace(input, "").TrimEnd();
 
             #endregion
         }

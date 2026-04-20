@@ -175,9 +175,29 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </remarks>
         public static bool TryMatchLabel(string? raw, out string canonical)
         {
+            return TryMatchLabel(raw, out canonical, out _);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Overload of <see cref="TryMatchLabel(string?, out string)"/> that also
+        /// reports whether the match came from the strict dictionary or the regex
+        /// second-pass. Callers can use <paramref name="matchedViaRegex"/> to emit
+        /// distinct validation flags (dictionary match vs. open-form regex match).
+        /// </summary>
+        /// <param name="raw">Candidate row-label or ParameterName text.</param>
+        /// <param name="canonical">Canonical population string when matched.</param>
+        /// <param name="matchedViaRegex">True when the regex second-pass (age range,
+        /// renal function band, infant-birth-to-N, trimester) produced the match;
+        /// false when the strict dictionary hit first.</param>
+        /// <returns>True when a match is found.</returns>
+        public static bool TryMatchLabel(string? raw, out string canonical, out bool matchedViaRegex)
+        {
             #region implementation
 
             canonical = string.Empty;
+            matchedViaRegex = false;
+
             if (string.IsNullOrWhiteSpace(raw))
                 return false;
 
@@ -189,12 +209,138 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return true;
             }
 
+            // Regex second-pass: open-form population descriptors not enumerable
+            // as dictionary entries. Patterns are anchored (^...$) where sensible
+            // to avoid over-matching arbitrary prose.
+            foreach (var (rx, canonicalize) in _populationRegexPatterns)
+            {
+                var m = rx.Match(key);
+                if (m.Success)
+                {
+                    canonical = canonicalize(m);
+                    matchedViaRegex = true;
+                    return true;
+                }
+            }
+
             return false;
 
             #endregion
         }
 
         #endregion Public Methods
+
+        #region Regex Population Patterns
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex-based population descriptors for open-form row labels that
+        /// cannot be practically enumerated as dictionary entries — age ranges,
+        /// renal function bands, infant-birth-to-N phrases, and pregnancy
+        /// trimesters. Each pattern is paired with a canonicalizer function
+        /// that produces the output Population value.
+        /// </summary>
+        /// <remarks>
+        /// Match order does not matter — patterns are mutually exclusive by
+        /// their anchors.
+        /// </remarks>
+        private static readonly (Regex rx, Func<Match, string> canonicalize)[]
+            _populationRegexPatterns = new (Regex, Func<Match, string>)[]
+        {
+            // Age range: "6 to 11 years", "12-17 years", "18 – 64 Years"
+            (new Regex(
+                @"^\s*(?<lo>\d+)\s*(?:to|[-–])\s*(?<hi>\d+)\s*years?\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => $"Ages {m.Groups["lo"].Value}-{m.Groups["hi"].Value} Years"),
+
+            // Infants birth-to-N: "Infants from Birth to 12 Months", "Infant Birth to 2 Years"
+            (new Regex(
+                @"^\s*Infants?\s+(?:from\s+)?Birth\s+to\s+(?<hi>\d+)\s+(?<unit>Months?|Years?)\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => $"Infants Birth to {m.Groups["hi"].Value} " +
+                  titleCase(m.Groups["unit"].Value.TrimEnd('s') + "s")),
+
+            // Renal function band: "Normal Creatinine Clearance 90-140 mL/min",
+            // "Mild Renal Impairment Creatinine Clearance 60-89 mL/min",
+            // "ESRD Creatinine Clearance <10 mL/min on Hemodialysis"
+            (new Regex(
+                @"^\s*(?<band>Normal|Mild|Moderate|Severe|ESRD|End[\s-]Stage)\b" +
+                @".*?Creatinine\s+Clearance",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => $"{titleCase(m.Groups["band"].Value)} Renal Function"),
+
+            // Trimester: "2nd Trimester of Pregnancy", "Third Trimester", and
+            // compressed "2Trimester" (digit-no-space — observed in OCR output
+            // from SPL tables where the superscript "nd"/"rd" was dropped).
+            (new Regex(
+                @"^\s*(?<ord>1st|2nd|3rd|First|Second|Third|1|2|3)\s*Trimester",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => $"{normalizeOrdinal(m.Groups["ord"].Value)} Trimester"),
+        };
+
+        // Known all-caps acronyms preserved as-is by titleCase. Uppercase lookup
+        // so any case variant of the input still triggers preservation.
+        private static readonly HashSet<string> _preservedAcronyms = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "ESRD"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Title-cases a single word (first letter uppercase, rest lowercase),
+        /// preserving known all-caps acronyms (<c>ESRD</c>). Handles hyphenated
+        /// forms like <c>end-stage</c> → <c>End-Stage</c>.
+        /// </summary>
+        private static string titleCase(string word)
+        {
+            #region implementation
+
+            if (string.IsNullOrEmpty(word))
+                return word;
+
+            if (_preservedAcronyms.Contains(word))
+                return word.ToUpperInvariant();
+
+            var parts = word.Split('-');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i].Length == 0)
+                    continue;
+                if (_preservedAcronyms.Contains(parts[i]))
+                {
+                    parts[i] = parts[i].ToUpperInvariant();
+                    continue;
+                }
+                parts[i] = char.ToUpperInvariant(parts[i][0]) +
+                           parts[i].Substring(1).ToLowerInvariant();
+            }
+            return string.Join("-", parts);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes the ordinal form for trimester matches. Returns <c>First</c>,
+        /// <c>Second</c>, or <c>Third</c> regardless of whether the input used
+        /// numeric (<c>1st</c>) or word form.
+        /// </summary>
+        private static string normalizeOrdinal(string ord)
+        {
+            #region implementation
+
+            return ord.ToLowerInvariant() switch
+            {
+                "1st" or "first" or "1" => "First",
+                "2nd" or "second" or "2" => "Second",
+                "3rd" or "third" or "3" => "Third",
+                _ => titleCase(ord),
+            };
+
+            #endregion
+        }
+
+        #endregion Regex Population Patterns
 
         #region Label Dictionary
 

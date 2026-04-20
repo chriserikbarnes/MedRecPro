@@ -1,5 +1,6 @@
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -1865,10 +1866,13 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Phase 2a: PK sub-parameter in DoseRegimen → routes to ParameterSubtype.
+        /// Phase 2a: PK sub-parameter in DoseRegimen → initially routes to
+        /// ParameterSubtype, then the PK column-contract enforcement
+        /// (<c>applyPkCanonicalization</c>) promotes it to <c>ParameterName</c>
+        /// per the data-dictionary contract (PK terms belong in Name only).
         /// </summary>
         [TestMethod]
-        public async Task Phase2_DoseRegimenTriage_PkSubParam_RoutesToParameterSubtype()
+        public async Task Phase2_DoseRegimenTriage_PkSubParam_RoutesToParameterName()
         {
             #region implementation
 
@@ -1876,6 +1880,7 @@ namespace MedRecProTest
 
             var obs = createObservation("Placebo", category: "PK");
             obs.DoseRegimen = "Cmax";
+            obs.ParameterName = null;
             obs.ParameterSubtype = null;
             obs.PrimaryValueType = "Mean";
 
@@ -1884,8 +1889,12 @@ namespace MedRecProTest
             Assert.IsNull(result[0].DoseRegimen, "DoseRegimen should be null after PK sub-param routing");
             Assert.IsNull(result[0].Dose, "Dose should be cleared when DoseRegimen is routed away");
             Assert.IsNull(result[0].DoseUnit, "DoseUnit should be cleared when DoseRegimen is routed away");
-            Assert.AreEqual("Cmax", result[0].ParameterSubtype);
+            Assert.AreEqual("Cmax", result[0].ParameterName,
+                "Per PK column contract: PK terms must land in ParameterName, not ParameterSubtype");
+            Assert.IsNull(result[0].ParameterSubtype,
+                "ParameterSubtype must be null after Name↔Subtype swap (Subtype reserved for qualifiers only)");
             assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_ROUTED");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
 
             context.Dispose();
             sentinel.Dispose();
@@ -3111,7 +3120,9 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Cmax(pg/mL) → ParameterSubtype="Cmax", Unit="pg/mL".
+        /// Cmax(pg/mL) → after unit extraction (Unit="pg/mL", Subtype="Cmax")
+        /// the PK column-contract enforcement promotes "Cmax" into ParameterName
+        /// and nulls ParameterSubtype per the data-dictionary contract.
         /// </summary>
         [TestMethod]
         public async Task ExtractUnit_CmaxWithUnit()
@@ -3121,14 +3132,18 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Placebo", parameterSubtype: "Cmax(pg/mL)", category: "PK");
+            obs.ParameterName = null; // ensure Name is empty so the Subtype→Name promotion fires
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("Cmax", result[0].ParameterSubtype,
-                "Expected ParameterSubtype to be 'Cmax' after unit extraction");
+            Assert.AreEqual("Cmax", result[0].ParameterName,
+                "Per PK contract, Cmax must land in ParameterName after enforcement");
+            Assert.IsNull(result[0].ParameterSubtype,
+                "ParameterSubtype must be null after Subtype→Name promotion");
             Assert.AreEqual("pg/mL", result[0].Unit,
                 "Expected Unit to be 'pg/mL'");
             assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
 
             context.Dispose();
             sentinel.Dispose();
@@ -3138,7 +3153,9 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// AUC120(pg·hr/mL) → ParameterSubtype="AUC120", Unit="pg·h/mL" (normalized hr→h).
+        /// AUC120(pg·hr/mL) → after unit extraction (Unit="pg·h/mL", Subtype="AUC120")
+        /// the PK column-contract enforcement canonicalizes AUC120 (non-standard
+        /// interval) to the generic AUC canonical and promotes to ParameterName.
         /// </summary>
         [TestMethod]
         public async Task ExtractUnit_AUC120WithHrVariant()
@@ -3148,11 +3165,14 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Placebo", parameterSubtype: "AUC120(pg·hr/mL)", category: "PK");
+            obs.ParameterName = null;
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("AUC120", result[0].ParameterSubtype,
-                "Expected ParameterSubtype to be 'AUC120' after unit extraction");
+            Assert.AreEqual("AUC", result[0].ParameterName,
+                "Non-standard AUC interval collapses to the generic AUC canonical");
+            Assert.IsNull(result[0].ParameterSubtype,
+                "ParameterSubtype must be null after Subtype→Name promotion");
             Assert.AreEqual("pg·h/mL", result[0].Unit,
                 "Expected Unit to be 'pg·h/mL' (normalized from pg·hr/mL)");
             assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
@@ -3165,7 +3185,10 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Cmax(serum, mcg/mL) → ParameterSubtype="Cmax, serum", Unit="mcg/mL".
+        /// Cmax(serum, mcg/mL) → after unit extraction Subtype="Cmax, serum"
+        /// and Unit="mcg/mL". The PK column-contract enforcement then scrubs
+        /// the embedded "Cmax" from Subtype and promotes to ParameterName; the
+        /// "serum" qualifier is preserved as the residual Subtype.
         /// </summary>
         [TestMethod]
         public async Task ExtractUnit_CmaxWithQualifierAndUnit()
@@ -3175,13 +3198,20 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Placebo", parameterSubtype: "Cmax(serum, mcg/mL)", category: "PK");
+            obs.ParameterName = null;
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("Cmax, serum", result[0].ParameterSubtype,
-                "Expected ParameterSubtype to be 'Cmax, serum' after qualifier+unit extraction");
+            Assert.AreEqual("Cmax", result[0].ParameterName,
+                "Cmax should land in ParameterName per PK contract");
             Assert.AreEqual("mcg/mL", result[0].Unit,
                 "Expected Unit to be 'mcg/mL'");
+            // Subtype must NOT contain a PK term — the "Cmax" is gone. "serum"
+            // is a qualifier; the enforcement may keep it or drop it. Assert
+            // only the invariant: no PK term in Subtype.
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                $"ParameterSubtype must not contain a PK term, got: '{result[0].ParameterSubtype}'");
             assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
 
             context.Dispose();
@@ -3192,7 +3222,10 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Serum AUC0-∞(mcg·hr/mL) → ParameterSubtype="Serum AUC0-∞", Unit="mcg·h/mL".
+        /// Serum AUC0-∞(mcg·hr/mL) → after unit extraction (Unit="mcg·h/mL",
+        /// Subtype="Serum AUC0-∞") the PK column-contract enforcement extracts
+        /// AUC0-inf from the embedded PK term and promotes to ParameterName.
+        /// The "Serum" prefix is dropped (sample matrix — not a PK qualifier).
         /// </summary>
         [TestMethod]
         public async Task ExtractUnit_PrefixedAUC()
@@ -3202,11 +3235,15 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Placebo", parameterSubtype: "Serum AUC0-∞(mcg·hr/mL)", category: "PK");
+            obs.ParameterName = null;
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("Serum AUC0-∞", result[0].ParameterSubtype,
-                "Expected ParameterSubtype to be 'Serum AUC0-∞'");
+            Assert.AreEqual("AUC0-inf", result[0].ParameterName,
+                "Embedded canonical PK term extracted from phrase and promoted");
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                $"ParameterSubtype must not contain a PK term, got: '{result[0].ParameterSubtype}'");
             Assert.AreEqual("mcg·h/mL", result[0].Unit,
                 "Expected Unit to be 'mcg·h/mL'");
 
@@ -3218,7 +3255,9 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// AUC84 (no parentheses) → no change.
+        /// AUC84 (no parentheses) → the AUC&lt;digits&gt; catch-all in the PK
+        /// dictionary maps this non-standard interval to the generic AUC canonical;
+        /// the PK column-contract enforcement promotes it into ParameterName.
         /// </summary>
         [TestMethod]
         public async Task ExtractUnit_NoParentheses()
@@ -3228,11 +3267,14 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Placebo", parameterSubtype: "AUC84", category: "PK");
+            obs.ParameterName = null;
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("AUC84", result[0].ParameterSubtype,
-                "Expected ParameterSubtype unchanged when no parentheses present");
+            Assert.AreEqual("AUC", result[0].ParameterName,
+                "Non-standard AUC interval collapses to the generic AUC canonical");
+            Assert.IsNull(result[0].ParameterSubtype,
+                "ParameterSubtype must be null after Subtype→Name promotion");
 
             context.Dispose();
             sentinel.Dispose();
@@ -3242,7 +3284,8 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Tmax(hr) → ParameterSubtype="Tmax", Unit="h" (normalized).
+        /// Tmax(hr) → after unit extraction (Unit="h", Subtype="Tmax") the PK
+        /// column-contract enforcement promotes Tmax into ParameterName.
         /// </summary>
         [TestMethod]
         public async Task ExtractUnit_TmaxHr()
@@ -3252,11 +3295,14 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Placebo", parameterSubtype: "Tmax(hr)", category: "PK");
+            obs.ParameterName = null;
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.AreEqual("Tmax", result[0].ParameterSubtype,
-                "Expected ParameterSubtype to be 'Tmax'");
+            Assert.AreEqual("Tmax", result[0].ParameterName,
+                "Tmax should land in ParameterName per PK contract");
+            Assert.IsNull(result[0].ParameterSubtype,
+                "ParameterSubtype must be null after Subtype→Name promotion");
             Assert.AreEqual("h", result[0].Unit,
                 "Expected Unit to be 'h' (normalized from 'hr')");
 
@@ -3268,7 +3314,9 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// When Unit is already set, extraction should NOT overwrite it.
+        /// When Unit is already set, extraction should NOT overwrite it, but
+        /// ParameterSubtype is still cleaned — the embedded Cmax is promoted
+        /// into ParameterName per the PK column contract.
         /// </summary>
         [TestMethod]
         public async Task ExtractUnit_DoesNotOverwriteExistingUnit()
@@ -3278,15 +3326,17 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Placebo", parameterSubtype: "Cmax(pg/mL)", category: "PK");
+            obs.ParameterName = null;
             obs.Unit = "ng/mL";  // Pre-existing unit
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("ng/mL", result[0].Unit,
                 "Expected existing Unit to be preserved, not overwritten");
-            // ParameterSubtype should still be cleaned up
-            Assert.AreEqual("Cmax", result[0].ParameterSubtype,
-                "Expected ParameterSubtype to be cleaned even when Unit not set");
+            Assert.AreEqual("Cmax", result[0].ParameterName,
+                "Cmax should be promoted to ParameterName per PK contract");
+            Assert.IsNull(result[0].ParameterSubtype,
+                "ParameterSubtype must be null after Subtype→Name promotion");
 
             context.Dispose();
             sentinel.Dispose();
@@ -3748,5 +3798,475 @@ namespace MedRecProTest
         }
 
         #endregion Phase 2: AE Dictionary SOC Resolution
+
+        #region PK Column Contract Enforcement
+
+        /**************************************************************/
+        /// <summary>
+        /// Helper: creates a PK observation with explicit Name/Subtype/Unit
+        /// fields for column-contract tests. Avoids the AE defaults in
+        /// <see cref="createObservation"/>.
+        /// </summary>
+        private static ParsedObservation createPkObservation(
+            string? parameterName,
+            string? parameterSubtype,
+            string? treatmentArm = null,
+            string? dose = null,
+            string? unit = null,
+            string? population = null)
+        {
+            #region implementation
+
+            return new ParsedObservation
+            {
+                TableCategory = "PK",
+                ParameterName = parameterName,
+                ParameterSubtype = parameterSubtype,
+                TreatmentArm = treatmentArm,
+                DoseRegimen = dose,
+                Unit = unit,
+                Population = population,
+                TextTableID = 999,
+                RawValue = "123",
+                PrimaryValue = 123.0,
+                PrimaryValueType = "Mean",
+                ParseConfidence = 0.9
+            };
+
+            #endregion
+        }
+
+        /// <summary>
+        /// Fast path: Name already canonical, Subtype is a short qualifier.
+        /// ParameterName is preserved as-is. Subtype may get its unit-like
+        /// parenthesized content extracted by an upstream Phase-2 pass (that
+        /// is pre-existing behavior and not under test here) — the relevant
+        /// invariant is only that ParameterName stays canonical.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_FastPath_NameCanonical_Preserved()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation("Cmax", "single_dose");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            // Subtype kept (no PK term to scrub, no swap needed).
+            Assert.AreEqual("single_dose", result[0].ParameterSubtype);
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 126/127 Cmax row shape: Name holds a header echo ("Population
+        /// Estimates"), Subtype holds the descriptive phrase with Cmax embedded.
+        /// Expected after enforcement: Name="Cmax", Subtype=qualifier (or null),
+        /// Name was dropped via header-echo rule.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_BenlystaCmaxRow_CanonicalizesAndDropsHeaderEcho()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Population Estimates",
+                parameterSubtype: "Peak concentration at steady state, Cmax,ss",
+                unit: "mcg/mL");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName,
+                "PK term must land in ParameterName per contract");
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                $"ParameterSubtype must not contain a PK term, got: '{result[0].ParameterSubtype}'");
+            Assert.AreEqual("mcg/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:PK_NAME_FROM_PHRASE");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_ECHO_DROPPED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 1769 drug+dose shape: Name holds "Guanfacine Extended-Release
+        /// Tablets 1 mg once daily", Subtype="Cmax". Expected: Name="Cmax",
+        /// TreatmentArm="Guanfacine Extended-Release Tablets", Dose=1, DoseUnit="mg/d".
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_DrugPlusDoseInName_RoutesToArmAndDose()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Guanfacine Extended-Release Tablets 1 mg once daily",
+                parameterSubtype: "Cmax");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            Assert.IsTrue(result[0].ValidationFlags?.Contains("COL_STD:PK_NAME_SUBTYPE_SWAPPED") ?? false);
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 985 infants shape: Name="Infants from Birth to 12 Months",
+        /// Subtype="AUC0 to ∞(ng*hr/mL)". Expected: Name="AUC0-inf",
+        /// Population="Infants Birth to 12 Months", Subtype=null.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_InfantsAgeRangeInName_RoutesToPopulation()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Infants from Birth to 12 Months",
+                parameterSubtype: "AUC0 to ∞(ng*hr/mL)");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("AUC0-inf", result[0].ParameterName);
+            Assert.AreEqual("Infants Birth to 12 Months", result[0].Population);
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                "ParameterSubtype must not contain a PK term");
+            assertHasFlag(result[0], "COL_STD:PK_POPULATION_ROUTED_REGEX");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 3207 shape: Name="Tramadol" (drug name), Subtype="Cmax".
+        /// Expected: Name="Cmax", TreatmentArm="Tramadol", Subtype=null.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_DrugNameInName_RoutesToTreatmentArm()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Tramadol",
+                parameterSubtype: "Cmax");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            // "Tramadol" is a drug in the dictionary — should route to TreatmentArm.
+            // (If not in the loaded drug list, parked in StudyContext instead.)
+            var arm = result[0].TreatmentArm;
+            var studyCtx = result[0].StudyContext;
+            Assert.IsTrue(arm == "Tramadol" || studyCtx == "Tramadol",
+                $"Tramadol should be preserved in TreatmentArm or StudyContext, got Arm='{arm}', Ctx='{studyCtx}'");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 4977 shape: Name="6 to 11 years", Subtype="Cmax". Expected:
+        /// Name="Cmax", Population="Ages 6-11 Years", Subtype=null.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_AgeRangeInName_RoutesToPopulationViaRegex()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "6 to 11 years",
+                parameterSubtype: "Cmax");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.AreEqual("Ages 6-11 Years", result[0].Population);
+            Assert.IsNull(result[0].ParameterSubtype);
+            assertHasFlag(result[0], "COL_STD:PK_POPULATION_ROUTED_REGEX");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 3208 shape: Name="Normal Creatinine Clearance 90 to 140 mL/min",
+        /// Subtype="Cmin". Expected: Name="Cmin", Population="Normal Renal Function".
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_RenalBandInName_RoutesToPopulationViaRegex()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Normal Creatinine Clearance 90 to 140 mL/min",
+                parameterSubtype: "Cmin");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmin", result[0].ParameterName);
+            Assert.AreEqual("Normal Renal Function", result[0].Population);
+            Assert.IsNull(result[0].ParameterSubtype);
+            assertHasFlag(result[0], "COL_STD:PK_POPULATION_ROUTED_REGEX");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// "Total AUC" in Name canonicalizes to "AUC" per the new alias.
+        /// Subtype holds "Single dose" which is a qualifier — kept as-is.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_TotalAUC_CanonicalizesToAUC()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Total AUC",
+                parameterSubtype: "Single dose");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("AUC", result[0].ParameterName);
+            assertHasFlag(result[0], "COL_STD:PK_NAME_CANONICALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// Empty Name + TPEAK(h) in Subtype: the trailing unit is stripped by
+        /// the prior Phase-2 pass, leaving Subtype="TPEAK". The contract enforcement
+        /// then promotes TPEAK → Tmax into ParameterName.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_TPEAKInSubtype_PromotesToTmax()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: null,
+                parameterSubtype: "TPEAK(h)");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Tmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            assertHasFlag(result[0], "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// 2nd Trimester population phrase routes via regex second pass.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_TrimesterInName_RoutesToPopulationViaRegex()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "2nd Trimester of Pregnancy",
+                parameterSubtype: "Cmax");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.AreEqual("Second Trimester", result[0].Population);
+            assertHasFlag(result[0], "COL_STD:PK_POPULATION_ROUTED_REGEX");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// Subtype scrub: Name is already canonical, but Subtype ALSO holds
+        /// a PK term (duplicate). The scrub step demotes Subtype.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_SubtypeScrub_DemotesDuplicatePkTerm()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Cmax",
+                parameterSubtype: "Cmax");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            assertHasFlag(result[0], "COL_STD:PK_SUBTYPE_SCRUBBED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// NULL Preservation guard: Name holds unclassifiable content,
+        /// Subtype holds PK term, StudyContext empty. Name must be preserved
+        /// into StudyContext rather than nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_UnclassifiableName_ParksToStudyContext()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "MysteryValueXYZ",
+                parameterSubtype: "Cmax");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.AreEqual("MysteryValueXYZ", result[0].StudyContext,
+                "Unclassifiable Name must be preserved into StudyContext, not dropped");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_PARKED_CTX");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// Non-PK category guard: ADVERSE_EVENT observation with Subtype="Cmax"
+        /// is NOT modified by the PK enforcement pass.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_NonPkCategory_LeftUnchanged()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = new ParsedObservation
+            {
+                TableCategory = "ADVERSE_EVENT",
+                ParameterName = "Nausea",
+                ParameterCategory = "Gastrointestinal disorders",
+                ParameterSubtype = "Cmax", // deliberately odd; shouldn't be touched
+                TreatmentArm = "Drug A",
+                TextTableID = 42,
+                RawValue = "5",
+                PrimaryValue = 5.0,
+                PrimaryValueType = "Percentage",
+                ParseConfidence = 0.9
+            };
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Nausea", result[0].ParameterName);
+            Assert.AreEqual("Cmax", result[0].ParameterSubtype,
+                "ADVERSE_EVENT rows are outside the PK contract enforcement scope");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 126/127 t½ row: embedded "(t½, days)" inside the descriptive
+        /// phrase should yield canonical t½ plus the "distribution" qualifier.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_DistributionHalfLifePhrase_CanonicalizesToThalf()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Population Estimates",
+                parameterSubtype: "Distribution half-life (t½, days)");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("t½", result[0].ParameterName);
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                $"ParameterSubtype must not contain a PK term, got: '{result[0].ParameterSubtype}'");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_FROM_PHRASE");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 126/127 Vss row: "Volume of distribution at steady state (Vss, L)"
+        /// canonicalizes to Vss (not Vd — the "at steady state" specificity wins).
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_VolumeAtSteadyStatePhrase_CanonicalizesToVss()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Population Estimates",
+                parameterSubtype: "Volume of distribution at steady state (Vss, L)");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Vss", result[0].ParameterName);
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                $"ParameterSubtype must not contain a PK term, got: '{result[0].ParameterSubtype}'");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_FROM_PHRASE");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 126/127 Systemic Clearance row: canonicalizes to CL, Unit stays L/day
+        /// extracted by prior pass.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_SystemicClearancePhrase_CanonicalizesToCL()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Population Estimates",
+                parameterSubtype: "Systemic clearance (CL, mL/day)");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("CL", result[0].ParameterName);
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                "ParameterSubtype must not contain a PK term");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_FROM_PHRASE");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /// <summary>
+        /// TID 126/127 AUC row: canonicalizes to AUC0-inf from the embedded
+        /// "(AUC0-∞, day·mcg/mL)" form.
+        /// </summary>
+        [TestMethod]
+        public async Task PkContract_AreaUnderCurvePhrase_CanonicalizesToAUC0inf()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Population Estimates",
+                parameterSubtype: "Area under the curve (AUC0-∞, day·mcg/mL)");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("AUC0-inf", result[0].ParameterName);
+            Assert.IsFalse(
+                PkParameterDictionary.ContainsPkParameter(result[0].ParameterSubtype),
+                "ParameterSubtype must not contain a PK term");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        #endregion PK Column Contract Enforcement
     }
 }

@@ -99,6 +99,124 @@ caption_keywords        string   Tokenized Caption text
 
 ---
 
+## 1.5 PK ParameterName / ParameterSubtype Enforcement
+
+The PK column contract (see `column-contracts.md` → PK) states:
+- **`ParameterName` (R)** must hold a canonical PK parameter name (Cmax, AUC0-24, t½, CL/F, Vss, …).
+- **`ParameterSubtype` (O)** must hold only a short PK qualifier (`CV(%)`, `steady_state`, `single_dose`, `fasted`, `fed`).
+
+PK terms must NEVER appear in `ParameterSubtype`. Other content — drug names,
+populations, doses, study labels — displaced into `ParameterName` by parser
+ambiguity must be routed to its contract-assigned column rather than dropped.
+
+This enforcement runs in Stage 3.25 Phase 2 as `applyPkCanonicalization`,
+after `extractUnitFromParameterSubtype` (so parenthesized units are already
+stripped) and before `normalizeUnit`.
+
+### Ordered Pipeline
+
+```
+STEP  ACTION
+────  ────────────────────────────────────────────────────────────────
+1     Fast path: Name canonicalizes → normalize and fall through.
+        Flag: PK_NAME_CANONICALIZED (when value changed)
+
+2     Rescue PK term when Name does NOT canonicalize:
+        2a: TryExtractCanonicalFromPhrase on Subtype.
+            - Bare token (no whitespace/commas) → flag PK_NAME_SUBTYPE_SWAPPED
+            - Descriptive phrase → flag PK_NAME_FROM_PHRASE
+            Route displaced Name via routeOrParkNameContent.
+            Subtype replaced by detected qualifier (or null).
+        2b: TryExtractCanonicalFromPhrase on Name (Name IS the phrase).
+            Route displaced Name only if Name had more than the canonical.
+            Flag: PK_NAME_FROM_PHRASE
+
+3     Subtype scrub: if Subtype still holds a PK term, demote/scrub it.
+        IsPkParameter(Subtype) → null, flag PK_SUBTYPE_SCRUBBED
+        ContainsPkParameter(Subtype) → reduce to residual qualifier,
+                                       flag PK_SUBTYPE_SCRUBBED
+
+4     PD marker flag (unchanged): IPA / VASP-PRI / etc. flagged but preserved.
+        Flag: PK_NON_PK_MARKER_DETECTED
+```
+
+### routeOrParkNameContent — Displaced Name Routing
+
+First-match-wins ordered decision tree for preserving content displaced from
+`ParameterName`. Honors NULL Preservation Rule §0.
+
+```
+ORDER  TEST                                              ACTION
+─────  ────────────────────────────────────────────────  ────────────────────
+i      PopulationDetector.TryMatchLabel matches          Population = canonical
+         (dictionary OR regex second pass — age ranges,   Flag: PK_POPULATION_ROUTED
+         renal bands, trimesters, infants-birth-to-N)         or PK_POPULATION_ROUTED_REGEX
+
+ii     DoseExtractor.Extract yields a dose AND the       TreatmentArm = drug prefix
+       non-dose prefix is a known drug name              DoseRegimen = dose fragment
+                                                          Dose, DoseUnit populated
+                                                          Flag: PK_NAME_ROUTED_ARM
+
+iii    isDrugName(Name) (no dose present)                TreatmentArm = Name
+                                                          Flag: PK_NAME_ROUTED_ARM
+
+iv     DoseExtractor yields a dose AND no drug prefix    DoseRegimen = Name
+                                                          Flag: PK_NAME_ROUTED_DOSE
+
+v      Name matches _headerEchoSet ("Population          No column written
+       Estimates", "Values", "Estimate", etc.)            Flag: PK_NAME_ECHO_DROPPED
+                                                          (NULL Preservation §0.2
+                                                           header-echo carve-out)
+
+vi     StudyContext empty                                StudyContext = Name
+                                                          Flag: PK_NAME_PARKED_CTX
+
+vii    (last resort — StudyContext occupied)             No column written
+                                                          Flag: PK_NAME_DROPPED_UNCLASSIFIED
+```
+
+### Dictionary Aliases — Extensions added for the enforcement pass
+
+| Canonical | New aliases |
+|-----------|-------------|
+| AUC       | `Total AUC`, `Overall AUC` |
+| Cmax      | `Peak concentration`, `Peak Concentrations`, `Peak concentration at steady state` |
+| Tmax      | `TPEAK`, `T peak`, `T-peak`, `Time of Peak` |
+| Ctrough   | `C0h`, `C 0h`, `C0`, `Concentration at 0 hours`, `Predose Concentration` |
+| Vss       | `Volume of Distribution at Steady State` (and lowercase/hyphenated variants) |
+| AUC0-inf  | `AUC0 to ∞`, `AUC0 to inf`, `AUC 0 to ∞`, `AUC 0 to inf` (space-word variants) |
+| AUC0-24   | `AUC0 to 24`, `AUC 0 to 24`, `AUC0 to 24h` |
+| AUC0-12   | `AUC0 to 12`, `AUC 0 to 12` |
+| AUC0-t    | `AUC0 to t`, `AUC 0 to t` |
+
+### PopulationDetector Regex Second Pass
+
+Pattern second-pass runs after the strict dictionary lookup misses. Anchored
+`^...$` where sensible to prevent over-matching arbitrary prose.
+
+| Pattern                                                         | Canonical form         |
+|-----------------------------------------------------------------|------------------------|
+| `^\s*(?<lo>\d+)\s*(?:to|[-–])\s*(?<hi>\d+)\s*years?\s*$`       | `Ages {lo}-{hi} Years` |
+| `^\s*Infants?\s+(?:from\s+)?Birth\s+to\s+(?<hi>\d+)\s+(?<unit>Months?|Years?)\s*$` | `Infants Birth to {hi} {Unit}` |
+| `^\s*(?<band>Normal|Mild|Moderate|Severe|ESRD|End[\s-]Stage)\b.*?Creatinine\s+Clearance` | `{band} Renal Function` |
+| `^\s*(?<ord>1st|2nd|3rd|First|Second|Third)\s+Trimester`        | `{Ord} Trimester`      |
+
+`ESRD` is preserved all-caps; other bands are title-cased (`Normal`, `Mild`,
+`Moderate`, `Severe`, `End-Stage`).
+
+### Validation Flags Added by §1.5
+
+- `COL_STD:PK_NAME_FROM_PHRASE` — descriptive phrase decomposed into canonical + qualifier
+- `COL_STD:PK_NAME_ROUTED_ARM` — Name was a drug name / drug+dose compound
+- `COL_STD:PK_NAME_ROUTED_DOSE` — Name was a pure dose regimen
+- `COL_STD:PK_NAME_ECHO_DROPPED` — Name matched a known column-header echo
+- `COL_STD:PK_NAME_PARKED_CTX` — Name preserved into StudyContext as rescue
+- `COL_STD:PK_NAME_DROPPED_UNCLASSIFIED` — last-resort drop; **0 on clean data**
+- `COL_STD:PK_SUBTYPE_SCRUBBED` — Subtype held a PK term while Name was already canonical
+- `COL_STD:PK_POPULATION_ROUTED_REGEX` — population matched by regex second pass (vs dictionary)
+
+---
+
 ## 2. PrimaryValueType Enum Migration
 
 ### From Old to New
@@ -360,4 +478,16 @@ VALUETYPE_UNRESOLVED        PrimaryValueType couldn't resolve from Numeric
 HTML_ENTITY_DECODED         HTML entities decoded from RawValue/ParameterName
 FOOTNOTE_STRIPPED           Footnote marker removed during parse
 DICT:SOC_RESOLVED           NULL ParameterCategory resolved from AE dictionary lookup
+COL_STD:PK_NAME_CANONICALIZED        PK name collapsed to canonical form
+COL_STD:PK_NAME_SUBTYPE_SWAPPED      Bare PK term promoted from Subtype to Name
+COL_STD:PK_NAME_FROM_PHRASE          PK canonical extracted from descriptive phrase
+COL_STD:PK_NAME_ROUTED_ARM           Displaced Name routed to TreatmentArm (drug / drug+dose)
+COL_STD:PK_NAME_ROUTED_DOSE          Displaced Name routed to DoseRegimen
+COL_STD:PK_NAME_ECHO_DROPPED         Displaced Name matched known column-header echo
+COL_STD:PK_NAME_PARKED_CTX           Displaced Name parked into StudyContext
+COL_STD:PK_NAME_DROPPED_UNCLASSIFIED Last-resort drop (0 expected on clean data)
+COL_STD:PK_SUBTYPE_SCRUBBED          Subtype demoted / reduced to qualifier
+COL_STD:PK_POPULATION_ROUTED         Displaced Name matched population dictionary
+COL_STD:PK_POPULATION_ROUTED_REGEX   Displaced Name matched population regex second-pass
+COL_STD:PK_NON_PK_MARKER_DETECTED    IPA / VASP-PRI etc. flagged for review
 ```

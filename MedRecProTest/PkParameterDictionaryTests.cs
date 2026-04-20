@@ -222,5 +222,295 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion NormalizeUnicode
+
+        #region New Aliases — Total AUC, Peak Concentration, TPEAK, C0h, Space-Variant AUC
+
+        [TestMethod]
+        [DataRow("Total AUC", "AUC")]
+        [DataRow("total auc", "AUC")]
+        [DataRow("Overall AUC", "AUC")]
+        public void TryCanonicalize_TotalAUC_MapsToAUC(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        [TestMethod]
+        [DataRow("Peak concentration", "Cmax")]
+        [DataRow("Peak Concentrations", "Cmax")]
+        [DataRow("Peak concentration at steady state", "Cmax")]
+        [DataRow("Peak Concentration at Steady State", "Cmax")]
+        public void TryCanonicalize_PeakConcentrationVariants_MapToCmax(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        [TestMethod]
+        [DataRow("TPEAK", "Tmax")]
+        [DataRow("T PEAK", "Tmax")]
+        [DataRow("T-peak", "Tmax")]
+        [DataRow("Time of Peak", "Tmax")]
+        public void TryCanonicalize_TPEAKVariants_MapToTmax(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        [TestMethod]
+        [DataRow("C0h", "Ctrough")]
+        [DataRow("C 0h", "Ctrough")]
+        [DataRow("Predose Concentration", "Ctrough")]
+        public void TryCanonicalize_C0hVariants_MapToCtrough(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        [TestMethod]
+        [DataRow("AUC0 to ∞", "AUC0-inf")]
+        [DataRow("AUC0 to inf", "AUC0-inf")]
+        [DataRow("AUC0 to infinity", "AUC0-inf")]
+        [DataRow("AUC 0 to ∞", "AUC0-inf")]
+        [DataRow("AUC 0 to inf", "AUC0-inf")]
+        public void TryCanonicalize_AUC0ToInfSpaceVariants_MapToAUC0Inf(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        [TestMethod]
+        [DataRow("AUC0 to 24", "AUC0-24")]
+        [DataRow("AUC 0 to 24", "AUC0-24")]
+        [DataRow("AUC0 to 24h", "AUC0-24")]
+        [DataRow("AUC(0 to 24)", "AUC0-24")]
+        public void TryCanonicalize_AUC0To24SpaceVariants_MapToAUC024(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        [TestMethod]
+        [DataRow("AUC0 to ∞(ng*hr/mL)", "AUC0-inf")]
+        public void TryCanonicalize_AUC0ToInfWithEmbeddedUnit_MapsCorrectly(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        #endregion New Aliases
+
+        #region ContainsPkParameter — Extended Coverage
+
+        [TestMethod]
+        [DataRow("Total AUC")]
+        [DataRow("TPEAK(h)‡")]
+        [DataRow("Peak concentration at steady state (Cmax,ss, mcg/mL)")]
+        [DataRow("AUC0 to ∞(ng*hr/mL)")]
+        [DataRow("Change in AUC")]
+        public void ContainsPkParameter_ExtendedVariants_ReturnsTrue(string input)
+        {
+            Assert.IsTrue(PkParameterDictionary.ContainsPkParameter(input),
+                $"ContainsPkParameter should match: {input}");
+        }
+
+        #endregion ContainsPkParameter — Extended Coverage
+
+        #region TryExtractCanonicalFromPhrase
+
+        [TestMethod]
+        public void TryExtractCanonicalFromPhrase_CmaxSteadyStateWithUnit_ReturnsCmaxAndSteadyState()
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                "Peak concentration at steady state (Cmax,ss, mcg/mL)",
+                out var canon, out var qualifier);
+
+            Assert.IsTrue(ok);
+            Assert.AreEqual("Cmax", canon);
+            Assert.AreEqual("steady_state", qualifier);
+        }
+
+        [TestMethod]
+        public void TryExtractCanonicalFromPhrase_AreaUnderCurveAUCInfWithUnit_ReturnsAUCInf()
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                "Area under the curve (AUC0-∞, day•mcg/mL)",
+                out var canon, out _);
+
+            Assert.IsTrue(ok);
+            Assert.AreEqual("AUC0-inf", canon);
+        }
+
+        [TestMethod]
+        public void TryExtractCanonicalFromPhrase_DistributionHalfLife_ReturnsThalfAndDistribution()
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                "Distribution half-life (t½, days)",
+                out var canon, out var qualifier);
+
+            Assert.IsTrue(ok);
+            Assert.AreEqual("t½", canon);
+            Assert.AreEqual("distribution", qualifier);
+        }
+
+        [TestMethod]
+        public void TryExtractCanonicalFromPhrase_TerminalHalfLife_ReturnsThalfAndTerminal()
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                "Terminal half-life (t½, days)",
+                out var canon, out var qualifier);
+
+            Assert.IsTrue(ok);
+            Assert.AreEqual("t½", canon);
+            Assert.AreEqual("terminal", qualifier);
+        }
+
+        [TestMethod]
+        public void TryExtractCanonicalFromPhrase_SystemicClearanceWithUnit_ReturnsCL()
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                "Systemic clearance (CL, mL/day)",
+                out var canon, out _);
+
+            Assert.IsTrue(ok);
+            Assert.AreEqual("CL", canon);
+        }
+
+        [TestMethod]
+        public void TryExtractCanonicalFromPhrase_VolumeOfDistributionSteadyState_ReturnsVssAndSteadyState()
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                "Volume of distribution at steady state (Vss, L)",
+                out var canon, out var qualifier);
+
+            Assert.IsTrue(ok);
+            Assert.AreEqual("Vss", canon);
+            Assert.AreEqual("steady_state", qualifier);
+        }
+
+        [TestMethod]
+        [DataRow("steady state", false)]
+        [DataRow("Dose", false)]
+        [DataRow("Healthy Subjects", false)]
+        [DataRow("", false)]
+        [DataRow("N=50", false)]
+        public void TryExtractCanonicalFromPhrase_NonPkInputs_ReturnsFalse(string input, bool expected)
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                input, out _, out _);
+            Assert.AreEqual(expected, ok);
+        }
+
+        [TestMethod]
+        public void TryExtractCanonicalFromPhrase_Null_ReturnsFalse()
+        {
+            var ok = PkParameterDictionary.TryExtractCanonicalFromPhrase(
+                null, out var canon, out var qualifier);
+            Assert.IsFalse(ok);
+            Assert.AreEqual(string.Empty, canon);
+            Assert.IsNull(qualifier);
+        }
+
+        #endregion TryExtractCanonicalFromPhrase
+
+        #region Footnote Marker Stripping + AUCT/AUC Numeric Variants (smoke-test follow-ups)
+
+        /// <summary>
+        /// Trailing footnote markers (*, †, ‡, §) must not defeat canonicalization.
+        /// Observed in TID 37621 where "AUC48(ng·h/mL)*" failed to canonicalize.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Cmax*", "Cmax")]
+        [DataRow("Cmax†", "Cmax")]
+        [DataRow("Cmax‡", "Cmax")]
+        [DataRow("AUCT*", "AUCtau")]
+        public void TryCanonicalize_TrailingFootnoteMarkers_Stripped(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"expected match for '{input}'");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// Trailing footnote marker AFTER trailing paren must also be stripped:
+        /// "AUC48(ng·h/mL)*" → generic AUC (non-standard interval collapses).
+        /// </summary>
+        [TestMethod]
+        [DataRow("AUC48(ng·h/mL)*", "AUC")]
+        [DataRow("AUC48(ng·h/mL)", "AUC")]
+        [DataRow("Cmax(pg/mL)*", "Cmax")]
+        public void TryCanonicalize_FootnoteAfterParens_Stripped(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"expected match for '{input}'");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// AUCT and AUCτ variants collapse to AUCtau (observed in TID 24822
+        /// Bismuth table where Subtype="AUCT(ng · h/mL)" defeated rescue).
+        /// </summary>
+        [TestMethod]
+        [DataRow("AUCT", "AUCtau")]
+        [DataRow("AUCτ", "AUCtau")]
+        [DataRow("AUCT(ng · h/mL)", "AUCtau")]
+        [DataRow("AUC(τ)", "AUCtau")]
+        public void TryCanonicalize_AUCTVariants_MapToAUCtau(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"expected match for '{input}'");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// AUC24h (no "0-" prefix) maps to AUC0-24. Observed in TID 9918
+        /// Rilpivirine table where Subtype="AUC24h, ng.h/mL".
+        /// </summary>
+        [TestMethod]
+        [DataRow("AUC24h", "AUC0-24")]
+        [DataRow("AUC12h", "AUC0-12")]
+        public void TryCanonicalize_AUCNhVariants_MapToInterval(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"expected match for '{input}'");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// Non-standard numeric intervals (AUC48, AUC72, AUC8, AUC96) collapse
+        /// to the generic AUC canonical. Observed in TID 37621 AUC48 rows.
+        /// Standard intervals (AUC24, AUC12) must still route to their dedicated
+        /// canonicals (AUC0-24, AUC0-12).
+        /// </summary>
+        [TestMethod]
+        [DataRow("AUC48", "AUC")]
+        [DataRow("AUC48h", "AUC")]
+        [DataRow("AUC72", "AUC")]
+        [DataRow("AUC8", "AUC")]
+        [DataRow("AUC96", "AUC")]
+        public void TryCanonicalize_NonStandardAUCIntervals_MapToGenericAUC(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"expected match for '{input}'");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// Regression guard: the AUC<digits> catch-all must NOT override the
+        /// dedicated AUC0-24 / AUC0-12 entries — those must still canonicalize
+        /// to their specific forms (AUC0-24, AUC0-12), not the generic AUC.
+        /// Entries are ordered specific-first so the iteration in
+        /// TryCanonicalize's prefix scan finds them first.
+        /// </summary>
+        [TestMethod]
+        [DataRow("AUC24", "AUC0-24")]
+        [DataRow("AUC12", "AUC0-12")]
+        public void TryCanonicalize_StandardIntervals_StayDedicated(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        #endregion Footnote Marker Stripping + AUCT/AUC Numeric Variants
     }
 }

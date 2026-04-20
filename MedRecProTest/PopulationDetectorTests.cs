@@ -326,5 +326,123 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion TryMatchLabel
+
+        #region TryMatchLabel — Regex Second Pass
+
+        /**************************************************************/
+        /// <summary>
+        /// Age-range row labels ("6 to 11 years", "12-17 Years") are matched by
+        /// the regex second pass and canonicalized to "Ages {lo}-{hi} Years".
+        /// </summary>
+        [TestMethod]
+        [DataRow("6 to 11 years", "Ages 6-11 Years")]
+        [DataRow("12 to 16 years", "Ages 12-16 Years")]
+        [DataRow("12-17 years", "Ages 12-17 Years")]
+        [DataRow("18 to 64 Years", "Ages 18-64 Years")]
+        public void TryMatchLabel_AgeRange_RegexMatch(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical, out var viaRegex);
+            Assert.IsTrue(hit);
+            Assert.AreEqual(expected, canonical);
+            Assert.IsTrue(viaRegex, "age range should match via regex second pass");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Infants Birth-to-N phrases canonicalize with consistent "Infants Birth to {N} {Unit}" form.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Infants from Birth to 12 Months", "Infants Birth to 12 Months")]
+        [DataRow("Infant Birth to 2 Years", "Infants Birth to 2 Years")]
+        [DataRow("Infants Birth to 6 Months", "Infants Birth to 6 Months")]
+        public void TryMatchLabel_InfantsBirthToN_RegexMatch(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical, out var viaRegex);
+            Assert.IsTrue(hit);
+            Assert.AreEqual(expected, canonical);
+            Assert.IsTrue(viaRegex);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Renal function band phrases collapse to "{Band} Renal Function"
+        /// regardless of whether "Renal Impairment" or extra qualifiers appear.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Normal Creatinine Clearance 90-140 mL/min", "Normal Renal Function")]
+        [DataRow("Mild Creatinine Clearance 60-90 mL/min", "Mild Renal Function")]
+        [DataRow("Moderate Creatinine Clearance 30-60 mL/min", "Moderate Renal Function")]
+        [DataRow("Severe Creatinine Clearance 10-30 mL/min", "Severe Renal Function")]
+        [DataRow("Severe Renal Impairment Creatinine Clearance 10-30 mL/min", "Severe Renal Function")]
+        [DataRow("ESRD Creatinine Clearance <10 mL/min on Hemodialysis", "ESRD Renal Function")]
+        public void TryMatchLabel_RenalFunctionBand_RegexMatch(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical, out var viaRegex);
+            Assert.IsTrue(hit);
+            Assert.AreEqual(expected, canonical);
+            Assert.IsTrue(viaRegex);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Trimester phrases canonicalize to "First / Second / Third Trimester"
+        /// from either numeric ("2nd") or word ("Second") forms.
+        /// </summary>
+        [TestMethod]
+        [DataRow("1st Trimester of Pregnancy", "First Trimester")]
+        [DataRow("2nd Trimester of Pregnancy", "Second Trimester")]
+        [DataRow("3rd Trimester", "Third Trimester")]
+        [DataRow("First Trimester of Pregnancy", "First Trimester")]
+        [DataRow("Second Trimester", "Second Trimester")]
+        [DataRow("Third Trimester", "Third Trimester")]
+        // Compressed ordinal-no-space forms observed in TID 9918 (OCR dropped
+        // the superscript "nd"/"rd"): "2Trimester of pregnancy" → Second Trimester.
+        [DataRow("1Trimester of pregnancy", "First Trimester")]
+        [DataRow("2Trimester of pregnancy", "Second Trimester")]
+        [DataRow("3Trimester of pregnancy", "Third Trimester")]
+        [DataRow("2Trimester", "Second Trimester")]
+        public void TryMatchLabel_Trimester_RegexMatch(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical, out var viaRegex);
+            Assert.IsTrue(hit);
+            Assert.AreEqual(expected, canonical);
+            Assert.IsTrue(viaRegex);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// The regex second pass must not over-match: drug names, PK parameter
+        /// names, and unrelated medical terms remain unmatched.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Tramadol")]
+        [DataRow("Cmax")]
+        [DataRow("Normal Saline")]
+        [DataRow("Aspirin 500 mg once daily")]
+        [DataRow("Arbitrary prose with no population signal")]
+        public void TryMatchLabel_RegexSecondPass_DoesNotOverMatch(string input)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical, out _);
+            Assert.IsFalse(hit, $"'{input}' should not match as population");
+            Assert.AreEqual(string.Empty, canonical);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dictionary matches report matchedViaRegex = false, distinguishing them
+        /// from regex-second-pass matches for downstream flag emission.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Pediatric")]
+        [DataRow("Healthy Volunteers")]
+        [DataRow("Poor")]
+        public void TryMatchLabel_DictionaryMatch_MatchedViaRegexIsFalse(string input)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out _, out var viaRegex);
+            Assert.IsTrue(hit);
+            Assert.IsFalse(viaRegex, "dictionary hit should set matchedViaRegex = false");
+        }
+
+        #endregion TryMatchLabel — Regex Second Pass
     }
 }

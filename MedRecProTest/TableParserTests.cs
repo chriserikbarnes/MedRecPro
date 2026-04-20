@@ -798,8 +798,10 @@ namespace MedRecPro.Service.Test
         /**************************************************************/
         /// <summary>
         /// End-to-end parse of the transposed Estradiol table produces observations with
-        /// ParameterName = PK metric, DoseRegimen = dose header, Unit extracted from the
-        /// parenthesized metric, and the PK_TRANSPOSED_LAYOUT_SWAP flag.
+        /// ParameterName = canonical PK metric, DoseRegimen = dose header, Unit extracted
+        /// from the parenthesized metric, and the PK_TRANSPOSED_LAYOUT_SWAP flag. Both
+        /// AUC84 and AUC120 collapse to the generic canonical AUC (non-standard intervals
+        /// aren't in the 26-term canonical list per the data dictionary).
         /// </summary>
         [TestMethod]
         public void PkParser_TransposedLayout_SwapProducesCorrectObservations()
@@ -813,19 +815,27 @@ namespace MedRecPro.Service.Test
             // 4 metrics × 3 doses = 12 observations
             Assert.AreEqual(12, results.Count);
 
-            // ParameterName is the PK metric name (unit stripped)
+            // ParameterName values: 3 distinct canonicals (AUC / Cmax / Tmax).
+            // AUC84 and AUC120 both collapse to the generic "AUC" canonical.
             var paramNames = results.Select(r => r.ParameterName).Distinct().OrderBy(n => n).ToList();
             CollectionAssert.AreEqual(
-                new[] { "AUC120", "AUC84", "Cmax", "Tmax" },
+                new[] { "AUC", "Cmax", "Tmax" },
                 paramNames);
 
-            // DoseRegimen carries the dose header, and Dose/DoseUnit are extracted
-            var auc84Low = results.First(r => r.ParameterName == "AUC84" && r.DoseRegimen == "0.025 mg/day");
-            Assert.AreEqual("pg·hr/mL", auc84Low.Unit);
-            Assert.AreEqual(0.025m, auc84Low.Dose);
-            Assert.AreEqual("mg/d", auc84Low.DoseUnit);
-            Assert.IsTrue(auc84Low.ValidationFlags?.Contains("PK_TRANSPOSED_LAYOUT_SWAP") == true,
-                $"Expected PK_TRANSPOSED_LAYOUT_SWAP flag, got '{auc84Low.ValidationFlags}'");
+            // 2 metrics × 3 doses = 6 AUC observations after collapse
+            Assert.AreEqual(6, results.Count(r => r.ParameterName == "AUC"));
+            Assert.AreEqual(3, results.Count(r => r.ParameterName == "Cmax"));
+            Assert.AreEqual(3, results.Count(r => r.ParameterName == "Tmax"));
+
+            // DoseRegimen carries the dose header, and Dose/DoseUnit are extracted.
+            // Pick the pg·hr/mL-unit AUC row for the 0.025 mg/day dose (came from AUC84 row).
+            var aucLow = results.First(r => r.ParameterName == "AUC"
+                                         && r.DoseRegimen == "0.025 mg/day"
+                                         && r.Unit == "pg·hr/mL");
+            Assert.AreEqual(0.025m, aucLow.Dose);
+            Assert.AreEqual("mg/d", aucLow.DoseUnit);
+            Assert.IsTrue(aucLow.ValidationFlags?.Contains("PK_TRANSPOSED_LAYOUT_SWAP") == true,
+                $"Expected PK_TRANSPOSED_LAYOUT_SWAP flag, got '{aucLow.ValidationFlags}'");
 
             // Cmax has a different unit
             var cmaxMid = results.First(r => r.ParameterName == "Cmax" && r.DoseRegimen == "0.05 mg/day");
@@ -2472,6 +2482,66 @@ namespace MedRecPro.Service.Test
             Assert.IsTrue(
                 results.Any(r => (r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_CANONICALIZED")),
                 "expected PK_TRANSPOSED_CANONICALIZED when long-form English is collapsed");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Regression test for the production 0-observation bug on TextTableID
+        /// 13202/13203/22685/22686/33852 (Ceftriaxone). The trimmed 4-row test
+        /// above passes because every row canonicalizes to PK; the production
+        /// table has 7 rows where only 4 are PK metrics and the remaining 3
+        /// (CSF Concentration, Range, Time after dose) are non-PK. Verifies the
+        /// transposed-layout swap still fires at 4-of-7 majority and produces
+        /// the expected 4 × 2 = 8 PK observations (non-PK rows may still be
+        /// emitted but the swap must not be blocked by their presence).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TransposedLayout_CeftriaxoneFullShape_RecoversObservations()
+        {
+            var table = createTestTable(
+                new[] { null, "50 mg/kg IV", "75 mg/kg IV" },
+                new List<string?[]>
+                {
+                    new[] { "Maximum Plasma Concentrations (mcg/mL)", "216", "275" },
+                    new[] { "Elimination Half-life (hour)", "4.6", "4.3" },
+                    new[] { "Plasma Clearance (mL/hour/kg)", "49", "60" },
+                    new[] { "Volume of Distribution (mL/kg)", "338", "373" },
+                    new[] { "CSF Concentration –inflamed meninges (mcg/mL)", "5.6", "6.4" },
+                    new[] { "Range (mcg/mL)", "1.3 to 18.5", "1.3 to 44" },
+                    new[] { "Time after dose (hour)", "3.7 (± 1.6)", "3.3 (± 1.4)" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // The 4 canonical PK rows × 2 dose columns MUST produce 8 observations.
+            // Non-PK rows (CSF/Range/Time-after-dose) may add extras but the 4 canonical
+            // metrics must be present after the swap.
+            var pkCanonicalNames = new[] { "Cmax", "t½", "CL", "Vd" };
+            foreach (var canonical in pkCanonicalNames)
+            {
+                Assert.IsTrue(
+                    results.Any(r => r.ParameterName == canonical),
+                    $"expected at least one observation with ParameterName == \"{canonical}\"");
+            }
+
+            // Each of the 4 canonical PK rows should have 2 dose observations.
+            foreach (var canonical in pkCanonicalNames)
+            {
+                var dosesForParam = results
+                    .Where(r => r.ParameterName == canonical)
+                    .Select(r => r.DoseRegimen)
+                    .ToList();
+                Assert.IsTrue(dosesForParam.Contains("50 mg/kg IV"),
+                    $"expected DoseRegimen=\"50 mg/kg IV\" for {canonical}");
+                Assert.IsTrue(dosesForParam.Contains("75 mg/kg IV"),
+                    $"expected DoseRegimen=\"75 mg/kg IV\" for {canonical}");
+            }
+
+            Assert.IsTrue(
+                results.Any(r => (r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_LAYOUT_SWAP")),
+                "expected PK_TRANSPOSED_LAYOUT_SWAP to fire at 4-of-7 majority");
         }
 
         #endregion PK Transposed Layout Relaxation

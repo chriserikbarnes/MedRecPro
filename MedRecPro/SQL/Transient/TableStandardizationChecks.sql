@@ -34,35 +34,47 @@ order by TableCategory
 --where [TextTableID] = 203
 
 
+-- Json output
+DECLARE @header NVARCHAR(MAX) = '================================================================================';
+DECLARE @title NVARCHAR(MAX) = 'PK TABLE DATA - NDJSON FORMAT (each line is valid JSON)';
+
+PRINT @header;
+PRINT @title;
+PRINT @header;
 
 SELECT 
-    [TextTableID],
-    [TableCategory],
-    [ParameterName],
-    [ParameterCategory],
-    [ParameterSubtype],
-    [TreatmentArm],
-    [ArmN],
-    [StudyContext],
-    [Dose],
-    [DoseUnit],
-    [DoseRegimen],
-    [RawValue],
-    [PrimaryValue],
-    [PrimaryValueType],
-    [SecondaryValue],
-    [SecondaryValueType],
-    [LowerBound],
-    [UpperBound],
-    [BoundType],
-    [Unit],
-    [ParseConfidence],
-    [ParseRule],
-    [ValidationFlags]
+    (SELECT 
+        [TextTableID],
+        [TableCategory],
+        [ParameterName],
+        [ParameterCategory],
+        [ParameterSubtype],
+        [TreatmentArm],
+        [ArmN],
+        [StudyContext],
+        [Dose],
+        [DoseUnit],
+        [DoseRegimen],
+        [RawValue],
+        [PrimaryValue],
+        [PrimaryValueType],
+        [SecondaryValue],
+        [SecondaryValueType],
+        [LowerBound],
+        [UpperBound],
+        [BoundType],
+        [Unit],
+        [ParseConfidence],
+        [ParseRule],
+        [ValidationFlags]
+    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS JsonLine
 FROM [dbo].[tmp_FlattenedStandardizedTable]
 WHERE TableCategory = 'PK'
-ORDER BY [TextTableID]
-FOR JSON PATH, ROOT('records');
+ORDER BY [TextTableID];
+
+PRINT @header;
+
+--
 
 SELECT [TableCategory]
     ,[ParameterName]
