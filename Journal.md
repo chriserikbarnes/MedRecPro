@@ -2114,3 +2114,41 @@ Ran the full `MedRecProTest` suite after the markdown-log feature landed — 28 
 **Design note on the `Util` singleton**: the real long-term fix is to remove `Util`'s static `_encryptionService` / `_httpContextAccessor` / `_dictionaryUtilityService` fields (the file already has a comment at line 30 saying "better to refactor to instance methods"). That's a larger refactor touching every caller of `Util.DecryptAnd*`. For now, the test helper defends the boundary — production code paths always run after DI initialization so they're unaffected.
 
 ---
+
+### 2026-04-20 8:54 AM EST — Category filter for the markdown standardization log
+
+Added a table-category filter to the per-table markdown diagnostic log that was introduced in the previous session. Motivation: long imports with `--markdown-log` were dumping every one of N tables into a single file, drowning any signal from the category the user was actually debugging. Now the user can narrow a run to just PK, or just ADVERSE_EVENT, etc., and keep the output focused for downstream AI analysis.
+
+**Scope decisions (confirmed up front via AskUserQuestion)**:
+- Menu-only surface. No CLI flag — `--markdown-log` on the command line continues to log every category (the CLI path is rarely interactive and a filter flag would widen the change without a clear payoff).
+- Silent skip for non-matching tables — no placeholder comments, no skip notes. Cleaner grep/diff for AI tooling.
+- Single-select (one category or ALL), matching the format in the user's example.
+
+**Implementation** — the filter lives on `MarkdownReportSink` so the gate fires at the single chokepoint:
+
+- `MarkdownReportSink.cs` — new `IReadOnlySet<TableCategory>? _categoryFilter` field, optional `categoryFilter` parameter on `CreateOrNullAsync` (defaults to null = ALL), early-return `ValueTask.CompletedTask` from `AppendAsync` when the entry's category is not in the set, and a public `SelectedCategory` accessor used by the batch confirmation table.
+- `ConsoleHelper.cs` — `promptForMarkdownLogAsync` now calls a new `promptForMarkdownLogCategoryFilter` helper after the path is confirmed. Category list is built by reflecting over `Enum.GetNames<TableCategory>()` (so future enum additions appear automatically), alphabetically sorted, with `ALL` prepended. Batch-mode confirmation summary gained a `"Markdown Filter"` row beneath the existing path row.
+- Service-layer code (`TableStandardizationService.ExecuteParseSingleAsync`, `ExecuteParseWithStagesAsync`, the per-batch append helper) — **zero changes**. Every `reportSink?.AppendAsync(...)` call goes through the new gate.
+
+**Tests** — added four new tests to `MarkdownReportSinkTests.cs` next to the existing ones:
+- `AppendAsync_NullCategoryFilter_WritesAllEntries` — regression guard for the default code path.
+- `AppendAsync_CategoryFilterMatches_WritesMatchingEntry`
+- `AppendAsync_CategoryFilterDoesNotMatch_SilentlySkipsEntry`
+- `AppendAsync_CategoryFilterMixed_WritesOnlyMatches`
+
+Extended the existing `buildEntry` helper with an optional `TableCategory category = TableCategory.SKIP` parameter so the new tests can push mixed-category traffic through the sink without duplicating the entry-builder code.
+
+**Verification**:
+- `dotnet build MedRecProConsole.csproj` — 0 errors. No new warnings on any file touched by this change.
+- `dotnet test --filter FullyQualifiedName~MarkdownReportSinkTests` — 12/12 passed (8 pre-existing + 4 new).
+- `dotnet test` (full suite) — **1172/1172 passed**, 0 failed. Regression coverage intact for `TableStandardizationMarkdownWriterTests` and `TableStandardizationServiceMarkdownTests` (the optional parameter default preserves every existing call site).
+- Interactive menu smoke tests (single-ALL, single-match, single-miss, batch-PK) — deferred to the user; the change is a CLI/menu feature with no browser-observable surface, so I flagged that rather than fabricating results.
+
+**Files changed**:
+- `MedRecProConsole/Services/Reporting/MarkdownReportSink.cs` — new field, new factory parameter, `AppendAsync` gate, `SelectedCategory` property.
+- `MedRecProConsole/Helpers/ConsoleHelper.cs` — new `using MedRecProImportClass.Models;`, updated `promptForMarkdownLogAsync`, new `promptForMarkdownLogCategoryFilter`, new row on the batch confirmation table.
+- `MedRecProTest/Reporting/MarkdownReportSinkTests.cs` — `buildEntry` overload, four new tests.
+
+**Design note**: the user's example showed `ALL` at the bottom of the list, but `SelectionPrompt`'s default highlight lands on the first item, so I kept `ALL` at the top of the rendered list (still single-select, still matches the spirit of the example). This means hitting Enter without moving defaults to ALL — the least-surprising behavior for a user who opened the prompt only to see what's there.
+
+---

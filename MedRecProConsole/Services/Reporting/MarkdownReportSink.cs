@@ -1,5 +1,6 @@
 using System.Text;
 using System.Threading.Channels;
+using MedRecProImportClass.Models;
 using Spectre.Console;
 
 namespace MedRecProConsole.Services.Reporting
@@ -34,6 +35,7 @@ namespace MedRecProConsole.Services.Reporting
         private readonly Channel<TableReportEntry> _channel;
         private readonly StreamWriter _writer;
         private readonly Task _consumerTask;
+        private readonly IReadOnlySet<TableCategory>? _categoryFilter;
         private bool _disposed;
 
         #endregion
@@ -46,16 +48,30 @@ namespace MedRecProConsole.Services.Reporting
         /// </summary>
         public string Path { get; }
 
+        /**************************************************************/
+        /// <summary>
+        /// The single category this sink is filtering to, or <c>null</c> when no filter is
+        /// active (all categories pass through).
+        /// </summary>
+        /// <remarks>
+        /// The interactive menu is single-select, so in practice the filter set — when
+        /// present — holds exactly one category. For multi-category filters this returns the
+        /// first enumerated value.
+        /// </remarks>
+        public TableCategory? SelectedCategory =>
+            _categoryFilter is null ? null : _categoryFilter.FirstOrDefault();
+
         #endregion
 
         #region construction
 
-        private MarkdownReportSink(string path, StreamWriter writer)
+        private MarkdownReportSink(string path, StreamWriter writer, IReadOnlySet<TableCategory>? categoryFilter)
         {
             #region implementation
 
             Path = path;
             _writer = writer;
+            _categoryFilter = categoryFilter;
 
             _channel = Channel.CreateUnbounded<TableReportEntry>(new UnboundedChannelOptions
             {
@@ -78,8 +94,15 @@ namespace MedRecProConsole.Services.Reporting
         /// <param name="interactiveAppendPrompt">When true and the target file already exists,
         /// the user is prompted via <see cref="AnsiConsole"/> to choose append or overwrite.
         /// CLI/quiet callers should pass false (always append silently).</param>
+        /// <param name="categoryFilter">Optional set of <see cref="TableCategory"/> values to
+        /// restrict writing. Null (default) lets every entry through. When non-null,
+        /// <see cref="AppendAsync"/> silently drops entries whose category is not in the set
+        /// — no placeholder comment is written.</param>
         /// <returns>Open sink, or null when <paramref name="path"/> is null/whitespace.</returns>
-        public static Task<MarkdownReportSink?> CreateOrNullAsync(string? path, bool interactiveAppendPrompt)
+        public static Task<MarkdownReportSink?> CreateOrNullAsync(
+            string? path,
+            bool interactiveAppendPrompt,
+            IReadOnlySet<TableCategory>? categoryFilter = null)
         {
             #region implementation
 
@@ -124,7 +147,7 @@ namespace MedRecProConsole.Services.Reporting
                 writer.WriteLine();
             }
 
-            return Task.FromResult<MarkdownReportSink?>(new MarkdownReportSink(resolved, writer));
+            return Task.FromResult<MarkdownReportSink?>(new MarkdownReportSink(resolved, writer, categoryFilter));
 
             #endregion
         }
@@ -141,6 +164,11 @@ namespace MedRecProConsole.Services.Reporting
         /// <param name="entry">The per-table snapshot to append.</param>
         /// <param name="ct">Cancellation token; cancels the enqueue, not pending writes.</param>
         /// <exception cref="ObjectDisposedException">Thrown when called after <see cref="DisposeAsync"/>.</exception>
+        /// <remarks>
+        /// When a category filter is active and <paramref name="entry"/>'s category is not in
+        /// the set, the call completes synchronously with no side effects — the entry is not
+        /// enqueued and nothing is written to disk.
+        /// </remarks>
         public ValueTask AppendAsync(TableReportEntry entry, CancellationToken ct = default)
         {
             #region implementation
@@ -148,6 +176,10 @@ namespace MedRecProConsole.Services.Reporting
             if (_disposed)
                 throw new ObjectDisposedException(nameof(MarkdownReportSink));
             ArgumentNullException.ThrowIfNull(entry);
+
+            // Silently skip entries outside the user-chosen category filter.
+            if (_categoryFilter is not null && !_categoryFilter.Contains(entry.Category))
+                return ValueTask.CompletedTask;
 
             return _channel.Writer.WriteAsync(entry, ct);
 

@@ -54,9 +54,13 @@ namespace MedRecPro.Service.Test.Reporting
         /**************************************************************/
         /// <summary>
         /// Builds a trivial entry with a unique TextTableID so tests can count
-        /// per-entry headers.
+        /// per-entry headers. Optional category override lets filter tests drive
+        /// the sink with a mix of categories.
         /// </summary>
-        private static TableReportEntry buildEntry(int textTableId)
+        /// <param name="textTableId">Identifier embedded in the H2 header.</param>
+        /// <param name="category">Category assigned to the entry. Defaults to
+        /// <see cref="TableCategory.SKIP"/> to preserve pre-existing test behaviour.</param>
+        private static TableReportEntry buildEntry(int textTableId, TableCategory category = TableCategory.SKIP)
         {
             #region implementation
 
@@ -74,7 +78,7 @@ namespace MedRecPro.Service.Test.Reporting
                     },
                     Rows = new List<ReconstructedRow>()
                 },
-                Category = TableCategory.SKIP,
+                Category = category,
                 ParserName = null,
                 Observations = Array.Empty<ParsedObservation>(),
                 ClaudeSkipped = true
@@ -265,6 +269,105 @@ namespace MedRecPro.Service.Test.Reporting
             {
                 StringAssert.Contains(content, $"TextTableID={i}");
             }
+        }
+
+        #endregion
+
+        #region Category Filter
+
+        /**************************************************************/
+        /// <summary>
+        /// With no category filter (default <c>null</c>), entries of every category land in
+        /// the file. Regression guard: the filter parameter must not affect the un-filtered
+        /// code path callers relied on before this change.
+        /// </summary>
+        [TestMethod]
+        public async Task AppendAsync_NullCategoryFilter_WritesAllEntries()
+        {
+            var path = newTempPath();
+
+            await using (var sink = await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: false))
+            {
+                Assert.IsNull(sink!.SelectedCategory, "Null filter should surface as null SelectedCategory.");
+                await sink.AppendAsync(buildEntry(1, TableCategory.PK));
+                await sink.AppendAsync(buildEntry(2, TableCategory.ADVERSE_EVENT));
+                await sink.AppendAsync(buildEntry(3, TableCategory.EFFICACY));
+            }
+
+            var content = await File.ReadAllTextAsync(path);
+            StringAssert.Contains(content, "TextTableID=1");
+            StringAssert.Contains(content, "TextTableID=2");
+            StringAssert.Contains(content, "TextTableID=3");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// When a filter includes the entry's category, the entry is written to the file
+        /// normally.
+        /// </summary>
+        [TestMethod]
+        public async Task AppendAsync_CategoryFilterMatches_WritesMatchingEntry()
+        {
+            var path = newTempPath();
+            IReadOnlySet<TableCategory> filter = new HashSet<TableCategory> { TableCategory.PK };
+
+            await using (var sink = await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: false, filter))
+            {
+                Assert.AreEqual(TableCategory.PK, sink!.SelectedCategory);
+                await sink.AppendAsync(buildEntry(77, TableCategory.PK));
+            }
+
+            var content = await File.ReadAllTextAsync(path);
+            StringAssert.Contains(content, "## TextTableID=77");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// When the filter excludes the entry's category, the entry is silently dropped —
+        /// no placeholder comment, no H2 header, nothing.
+        /// </summary>
+        [TestMethod]
+        public async Task AppendAsync_CategoryFilterDoesNotMatch_SilentlySkipsEntry()
+        {
+            var path = newTempPath();
+            IReadOnlySet<TableCategory> filter = new HashSet<TableCategory> { TableCategory.PK };
+
+            await using (var sink = await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: false, filter))
+            {
+                await sink!.AppendAsync(buildEntry(88, TableCategory.ADVERSE_EVENT));
+            }
+
+            var content = await File.ReadAllTextAsync(path);
+            Assert.AreEqual(0, CountOccurrences(content, "## TextTableID="),
+                "Non-matching entry must not produce any per-entry H2 header.");
+            Assert.IsFalse(content.Contains("TextTableID=88"),
+                "The filtered-out TextTableID must not appear anywhere in the file.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Mixed input: three entries submitted, only the single matching one lands in the
+        /// file and in the right place.
+        /// </summary>
+        [TestMethod]
+        public async Task AppendAsync_CategoryFilterMixed_WritesOnlyMatches()
+        {
+            var path = newTempPath();
+            IReadOnlySet<TableCategory> filter = new HashSet<TableCategory> { TableCategory.PK };
+
+            await using (var sink = await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: false, filter))
+            {
+                await sink!.AppendAsync(buildEntry(10, TableCategory.ADVERSE_EVENT));
+                await sink.AppendAsync(buildEntry(20, TableCategory.PK));
+                await sink.AppendAsync(buildEntry(30, TableCategory.EFFICACY));
+            }
+
+            var content = await File.ReadAllTextAsync(path);
+            Assert.AreEqual(1, CountOccurrences(content, "## TextTableID="),
+                "Exactly one entry (the PK one) should be written.");
+            StringAssert.Contains(content, "TextTableID=20");
+            Assert.IsFalse(content.Contains("TextTableID=10"));
+            Assert.IsFalse(content.Contains("TextTableID=30"));
         }
 
         #endregion

@@ -1,3 +1,4 @@
+using MedRecProImportClass.Models;
 using MedRecProImportClass.Service;
 using MedRecProImportClass.Service.ParsingServices;
 using MedRecProConsole.Models;
@@ -1879,6 +1880,10 @@ namespace MedRecProConsole.Helpers
             confirmTable.AddRow("Validation", "[green]Enabled[/] (Stage 4)");
             confirmTable.AddRow("Markdown Log",
                 batchSink != null ? $"[green]{Markup.Escape(batchSink.Path)}[/]" : "[grey](disabled)[/]");
+            confirmTable.AddRow("Markdown Filter",
+                batchSink == null
+                    ? "[grey]-[/]"
+                    : (batchSink.SelectedCategory?.ToString() ?? "ALL"));
 
             AnsiConsole.Write(confirmTable);
             AnsiConsole.WriteLine();
@@ -1941,9 +1946,12 @@ namespace MedRecProConsole.Helpers
         /// When the user accepts and the target file already exists, the sink prompts a
         /// second time asking whether to append (keeping prior sections) or overwrite.
         /// Default path uses a timestamp so simultaneous sessions do not collide.
+        /// After the path is confirmed, the user is asked whether to log every table
+        /// (<c>ALL</c>) or restrict the log to a single <see cref="TableCategory"/>.
         /// </remarks>
         /// <returns>Open sink ready to be passed to a standardization service method, or null.</returns>
         /// <seealso cref="MarkdownReportSink"/>
+        /// <seealso cref="promptForMarkdownLogCategoryFilter"/>
         private static async Task<MarkdownReportSink?> promptForMarkdownLogAsync()
         {
             #region implementation
@@ -1967,7 +1975,50 @@ namespace MedRecProConsole.Helpers
                         ? ValidationResult.Success()
                         : ValidationResult.Error("[red]Path cannot be empty[/]")));
 
-            return await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: true);
+            // Narrow the log to a single table category (or ALL). Running a 500-table batch
+            // with only PK tables captured keeps the file focused for downstream AI analysis.
+            var categoryFilter = promptForMarkdownLogCategoryFilter();
+
+            return await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: true, categoryFilter);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prompts the user to pick a <see cref="TableCategory"/> to log, or <c>ALL</c> for
+        /// no filtering. Returns <c>null</c> for the <c>ALL</c> choice (which
+        /// <see cref="MarkdownReportSink.CreateOrNullAsync"/> interprets as "no filter").
+        /// </summary>
+        /// <returns>A single-element set for a specific category, or null for ALL.</returns>
+        /// <remarks>
+        /// Choices are built from <see cref="Enum.GetNames{TableCategory}"/> so that any new
+        /// category added to the enum automatically appears in the menu. <c>ALL</c> is
+        /// prepended and kept as the default.
+        /// </remarks>
+        /// <seealso cref="TableCategory"/>
+        private static IReadOnlySet<TableCategory>? promptForMarkdownLogCategoryFilter()
+        {
+            #region implementation
+
+            const string all = "ALL";
+
+            var choices = new[] { all }
+                .Concat(Enum.GetNames<TableCategory>().OrderBy(n => n, StringComparer.Ordinal))
+                .ToArray();
+
+            var selection = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[dodgerblue1]Filter tables by category:[/] [grey](ALL = log every table)[/]")
+                    .HighlightStyle("dodgerblue1")
+                    .PageSize(choices.Length)
+                    .AddChoices(choices));
+
+            if (selection == all)
+                return null;
+
+            // SelectionPrompt only hands back values from `choices`, so Parse is safe here.
+            return new HashSet<TableCategory> { Enum.Parse<TableCategory>(selection) };
 
             #endregion
         }

@@ -1,6 +1,7 @@
 ﻿USE MedRecLocal
 
 SELECT  [TextTableID]
+    ,[TableCategory]
 	,[ParameterName]
 	,[ParameterCategory]
 	,[ParameterSubtype]
@@ -18,13 +19,12 @@ SELECT  [TextTableID]
 	,[LowerBound]
 	,[UpperBound]
 	,[BoundType]
-	--,[PValue]
 	,[Unit]
 	,[ParseConfidence]
 	,[ParseRule]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where TableCategory <> 'ADVERSE_EVENT'
+where TableCategory = 'PK'
 order by TableCategory
 --Where PValue is not null
 --where ArmN is not null and PrimaryValue is not null
