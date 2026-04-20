@@ -949,6 +949,7 @@ namespace MedRecProConsole.Services
             services.AddScoped<ITableParser, BmdTableParser>();
             services.AddScoped<ITableParser, TissueRatioTableParser>();
             services.AddScoped<ITableParser, DosingTableParser>();
+            services.AddScoped<ITableParser, TextDescriptiveTableParser>();
             services.AddScoped<ITableParserRouter, TableParserRouter>();
             services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();
 

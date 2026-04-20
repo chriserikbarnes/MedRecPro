@@ -2419,5 +2419,198 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Caption StudyContext Extraction Tests
+
+        #region PK Transposed Layout Relaxation — Long-Form English Row Labels
+
+        /**************************************************************/
+        /// <summary>
+        /// Mirrors TextTableID=13202/22685/33852 (Ceftriaxone): col 0 header is
+        /// blank/missing, dose headers occupy cols 1..n, row labels use long-form
+        /// English PK names. Verifies the relaxed transposed-layout detection
+        /// recovers observations and canonicalizes ParameterName via the
+        /// <see cref="PkParameterDictionary"/>.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TransposedLayout_BlankCol0Header_RecoversObservations()
+        {
+            var table = createTestTable(
+                new[] { null, "50 mg/kg IV", "75 mg/kg IV" },
+                new List<string?[]>
+                {
+                    new[] { "Maximum Plasma Concentrations (mcg/mL)", "216", "275" },
+                    new[] { "Elimination Half-life (hour)", "4.6", "4.3" },
+                    new[] { "Plasma Clearance (mL/hour/kg)", "49", "60" },
+                    new[] { "Volume of Distribution (mL/kg)", "338", "373" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // 4 rows × 2 dose columns = 8 observations
+            Assert.AreEqual(8, results.Count,
+                "transposed layout should produce rows × dose-columns observations");
+
+            // Every observation is PK
+            Assert.IsTrue(results.All(r => r.TableCategory == "PK"));
+
+            // Canonical names — collapsed via PkParameterDictionary
+            var names = results.Select(r => r.ParameterName).Distinct().ToList();
+            CollectionAssert.Contains(names, "Cmax");
+            CollectionAssert.Contains(names, "t½");
+            CollectionAssert.Contains(names, "CL");
+            CollectionAssert.Contains(names, "Vd");
+
+            // DoseRegimen carries the original column header, not the row label
+            Assert.IsTrue(results.Any(r => r.DoseRegimen == "50 mg/kg IV"));
+            Assert.IsTrue(results.Any(r => r.DoseRegimen == "75 mg/kg IV"));
+
+            // Flagging
+            Assert.IsTrue(
+                results.Any(r => (r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_LAYOUT_SWAP")),
+                "expected PK_TRANSPOSED_LAYOUT_SWAP on at least one observation");
+            Assert.IsTrue(
+                results.Any(r => (r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_CANONICALIZED")),
+                "expected PK_TRANSPOSED_CANONICALIZED when long-form English is collapsed");
+        }
+
+        #endregion PK Transposed Layout Relaxation
+
+        #region PK Two-Column Population Routing
+
+        /**************************************************************/
+        /// <summary>
+        /// Mirrors TextTableID=970 shape: col 0 carries CYP2C19 metabolizer
+        /// phenotypes (Poor / Intermediate / Normal / Ultrarapid), col 1 is a
+        /// dedicated dose column, and cols 2+ carry PK / PD parameters. Verifies
+        /// phenotypes route to <c>Population</c> rather than being parked in
+        /// <c>ParameterSubtype</c>.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_TwoColumnLayout_PhenotypeRowsRouteToPopulation()
+        {
+            var table = createTestTable(
+                new[] { "Phenotype", "Dose", "Cmax (ng/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "Poor",          "300 mg (24 h)", "11 (4)" },
+                    new[] { "Intermediate",  "300 mg (24 h)", "23 (11)" },
+                    new[] { "Normal",        "300 mg (24 h)", "32 (21)" },
+                    new[] { "Ultrarapid",    "300 mg (24 h)", "24 (10)" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.IsTrue(results.All(r => r.ParameterName == "Cmax"),
+                "every row should carry canonical Cmax as ParameterName");
+
+            // Population populated, ParameterSubtype empty
+            Assert.IsTrue(results.Any(r => r.Population == "Poor Metabolizer"));
+            Assert.IsTrue(results.Any(r => r.Population == "Intermediate Metabolizer"));
+            Assert.IsTrue(results.Any(r => r.Population == "Normal Metabolizer"));
+            Assert.IsTrue(results.Any(r => r.Population == "Ultrarapid Metabolizer"));
+            Assert.IsTrue(results.All(r => string.IsNullOrWhiteSpace(r.ParameterSubtype)));
+            Assert.IsTrue(results.All(r =>
+                (r.ValidationFlags ?? "").Contains("PK_COL0_POP_ROUTED")));
+        }
+
+        #endregion PK Two-Column Population Routing
+
+        #region Router PK Content Validation
+
+        /**************************************************************/
+        /// <summary>
+        /// Narrative drug-interaction tables under LOINC 34090-1 (Clinical
+        /// Pharmacology) should downgrade to <see cref="TableCategory.TEXT_DESCRIPTIVE"/>
+        /// when no PK parameter appears in headers or rows and cells are prose-heavy.
+        /// Mirrors TextTableID=6139/6140/6141.
+        /// </summary>
+        [TestMethod]
+        public void Router_ClinicalPharmacology_NarrativeContent_DowngradesToTextDescriptive()
+        {
+            var longProse = string.Join(" ", Enumerable.Repeat("word", 30));
+
+            var table = createTestTable(
+                new[] { "Drug or Drug Class", "Effect" },
+                new List<string?[]>
+                {
+                    new[] { "Carbamazepine Hydantoins", longProse },
+                    new[] { "Other drugs: Phenobarbital Rifampin", longProse }
+                },
+                parentSectionCode: "34090-1");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, parser) = router.Route(table);
+
+            Assert.AreEqual(TableCategory.TEXT_DESCRIPTIVE, category);
+            Assert.IsNotNull(parser);
+            Assert.IsInstanceOfType(parser, typeof(TextDescriptiveTableParser));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Legitimate PK table content (PK parameter names in headers) keeps the
+        /// PK category even under LOINC 34090-1 — content validation must not
+        /// regress the happy path.
+        /// </summary>
+        [TestMethod]
+        public void Router_ClinicalPharmacology_WithPkHeaders_ConfirmsPk()
+        {
+            var table = createTestTable(
+                new[] { "Dose", "Cmax (mcg/mL)", "AUC (mcg·h/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "50 mg", "0.29", "1.2" }
+                },
+                parentSectionCode: "34090-1");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, parser) = router.Route(table);
+
+            Assert.AreEqual(TableCategory.PK, category);
+            Assert.IsInstanceOfType(parser, typeof(PkTableParser));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Transposed PK table (long-form English row labels, blank col-0 header)
+        /// should still route to PK because row labels match the PK dictionary.
+        /// </summary>
+        [TestMethod]
+        public void Router_ClinicalPharmacology_TransposedLongFormRowLabels_ConfirmsPk()
+        {
+            var table = createTestTable(
+                new[] { null, "50 mg/kg IV", "75 mg/kg IV" },
+                new List<string?[]>
+                {
+                    new[] { "Maximum Plasma Concentrations (mcg/mL)", "216", "275" },
+                    new[] { "Elimination Half-life (hour)", "4.6", "4.3" }
+                },
+                parentSectionCode: "34090-1");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.PK, category);
+        }
+
+        #endregion Router PK Content Validation
     }
 }

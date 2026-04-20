@@ -1,4 +1,5 @@
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -183,8 +184,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             return code switch
             {
-                CODE_CLINICAL_PHARMACOLOGY => TableCategory.PK,
-                CODE_PHARMACOKINETICS => TableCategory.PK,
+                CODE_CLINICAL_PHARMACOLOGY => validatePkOrDowngrade(table),
+                CODE_PHARMACOKINETICS => validatePkOrDowngrade(table),
                 CODE_ADVERSE_REACTIONS => TableCategory.ADVERSE_EVENT,
                 CODE_CLINICAL_STUDIES => TableCategory.EFFICACY,
                 CODE_DOSAGE_ADMINISTRATION => TableCategory.DOSING,
@@ -210,7 +211,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return categorizeFromCaption(table);
 
             if (title.Contains("Pharmacokinetics", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.PK;
+                return validatePkOrDowngrade(table);
             if (title.Contains("Adverse", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.ADVERSE_EVENT;
             if (title.Contains("Dosage", StringComparison.OrdinalIgnoreCase) ||
@@ -244,7 +245,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return TableCategory.ADVERSE_EVENT;
             if (caption.Contains("Pharmacokinetic", StringComparison.OrdinalIgnoreCase) ||
                 caption.Contains("PK Parameter", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.PK;
+                return validatePkOrDowngrade(table);
             if (caption.Contains("Efficacy", StringComparison.OrdinalIgnoreCase) ||
                 caption.Contains("Clinical", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.EFFICACY;
@@ -256,6 +257,122 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return TableCategory.TISSUE_DISTRIBUTION;
 
             return TableCategory.OTHER;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates a PK section-code or caption hint against actual table content.
+        /// Returns <see cref="TableCategory.PK"/> when at least one canonical PK
+        /// parameter name appears in a column header or row label; otherwise
+        /// downgrades to <see cref="TableCategory.TEXT_DESCRIPTIVE"/> when the table
+        /// is prose-heavy, or <see cref="TableCategory.OTHER"/> when the content
+        /// shape is structured but non-PK.
+        /// </summary>
+        /// <remarks>
+        /// Prevents the common failure where every table in LOINC 34090-1 / 43682-4
+        /// gets tagged PK regardless of content — narrative DDI tables, hormone
+        /// physiology summaries, and non-PK pharmacogenomic tables end up under PK
+        /// and produce 0 observations from the parser. Content validation keeps PK
+        /// reserved for tables the parser can actually decompose.
+        /// </remarks>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns>Resolved category after content check.</returns>
+        /// <seealso cref="PkParameterDictionary"/>
+        /// <seealso cref="computeProseRatio"/>
+        private static TableCategory validatePkOrDowngrade(ReconstructedTable table)
+        {
+            #region implementation
+
+            // Count PK hits in header columns — uses ContainsPkParameter so modifier
+            // phrases like "Change in AUC" or "Ratio of Cmax" still count as PK.
+            int headerHits = 0;
+            if (table.Header?.Columns != null)
+            {
+                foreach (var col in table.Header.Columns)
+                {
+                    if (PkParameterDictionary.ContainsPkParameter(col.LeafHeaderText))
+                        headerHits++;
+                }
+            }
+
+            // Count PK hits in col 0 row labels (row-label axis). Also uses the
+            // contains-style match so long-form English labels and trailing unit
+            // parens do not defeat recognition.
+            int rowHits = 0;
+            foreach (var row in table.DataRows())
+            {
+                var col0 = row.CellAt(0)?.CleanedText?.Trim();
+                if (PkParameterDictionary.ContainsPkParameter(col0))
+                    rowHits++;
+            }
+
+            // Confirm PK when either axis carries ≥1 canonical PK term
+            if (headerHits + rowHits >= 1)
+                return TableCategory.PK;
+
+            // No PK content — decide between TEXT_DESCRIPTIVE (prose) and OTHER (structured)
+            if (computeProseRatio(table) >= 0.30)
+                return TableCategory.TEXT_DESCRIPTIVE;
+
+            return TableCategory.OTHER;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Ratio of data cells that look like prose: cell length &gt; 120 characters
+        /// OR whitespace-delimited word count &gt; 20. A table with predominantly
+        /// narrative cells falls into <see cref="TableCategory.TEXT_DESCRIPTIVE"/>
+        /// rather than <see cref="TableCategory.OTHER"/>.
+        /// </summary>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns>Prose ratio in [0.0, 1.0]; 0.0 when the table has no data cells.</returns>
+        private static double computeProseRatio(ReconstructedTable table)
+        {
+            #region implementation
+
+            int proseCells = 0;
+            int totalCells = 0;
+
+            foreach (var row in table.DataRows())
+            {
+                if (row.Cells == null)
+                    continue;
+
+                foreach (var cell in row.Cells)
+                {
+                    var text = cell.CleanedText;
+                    if (string.IsNullOrWhiteSpace(text))
+                        continue;
+
+                    totalCells++;
+
+                    if (text.Length > 120)
+                    {
+                        proseCells++;
+                        continue;
+                    }
+
+                    // Rough word count — split on whitespace, skip empties
+                    var wordCount = 0;
+                    foreach (var token in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        wordCount++;
+                        if (wordCount > 20)
+                            break;
+                    }
+                    if (wordCount > 20)
+                        proseCells++;
+                }
+            }
+
+            if (totalCells == 0)
+                return 0.0;
+
+            return (double)proseCells / totalCells;
 
             #endregion
         }

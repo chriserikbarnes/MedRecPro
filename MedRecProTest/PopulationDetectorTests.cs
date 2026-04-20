@@ -257,5 +257,74 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Levenshtein Similarity Tests
+
+        #region TryMatchLabel — Metabolizer Phenotypes & Row-Label Populations
+
+        /**************************************************************/
+        /// <summary>
+        /// CYP2C19 metabolizer phenotypes resolve to canonical "Xxx Metabolizer"
+        /// population strings when they appear as bare row labels.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Poor", "Poor Metabolizer")]
+        [DataRow("Intermediate", "Intermediate Metabolizer")]
+        [DataRow("Normal", "Normal Metabolizer")]
+        [DataRow("Ultrarapid", "Ultrarapid Metabolizer")]
+        [DataRow("Extensive", "Extensive Metabolizer")]
+        [DataRow("Poor Metabolizer", "Poor Metabolizer")]
+        [DataRow("Intermediate Metabolizers", "Intermediate Metabolizer")]
+        public void TryMatchLabel_Phenotype_ReturnsCanonical(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical);
+            Assert.IsTrue(hit, $"'{input}' should match");
+            Assert.AreEqual(expected, canonical);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Standard population row labels (Healthy Subjects, Pediatric, Elderly)
+        /// resolve via <see cref="PopulationDetector.TryMatchLabel"/>.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Healthy Subjects", "Healthy Volunteers")]
+        [DataRow("Healthy Volunteers", "Healthy Volunteers")]
+        [DataRow("Pediatric", "Pediatric")]
+        [DataRow("Elderly", "Elderly")]
+        [DataRow("Renal Impairment", "Renal Impairment")]
+        public void TryMatchLabel_StandardPopulation_ReturnsCanonical(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical);
+            Assert.IsTrue(hit);
+            Assert.AreEqual(expected, canonical);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Non-population content (PK parameter names, PD markers, prose) does not
+        /// match — prevents false reroutes from ParameterName to Population.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Cmax")]
+        [DataRow("AUC0-inf")]
+        [DataRow("IPA")]
+        [DataRow("VASP-PRI")]
+        [DataRow("Some arbitrary prose about a drug")]
+        [DataRow("")]
+        public void TryMatchLabel_NonPopulation_ReturnsFalse(string input)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical);
+            Assert.IsFalse(hit, $"'{input}' should not match as population");
+            Assert.AreEqual(string.Empty, canonical);
+        }
+
+        [TestMethod]
+        public void TryMatchLabel_Null_ReturnsFalse()
+        {
+            var hit = PopulationDetector.TryMatchLabel(null, out var canonical);
+            Assert.IsFalse(hit);
+            Assert.AreEqual(string.Empty, canonical);
+        }
+
+        #endregion TryMatchLabel
     }
 }

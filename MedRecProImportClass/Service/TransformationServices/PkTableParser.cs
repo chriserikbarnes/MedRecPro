@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -152,15 +153,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             "Pharmacokinetic Parameter", "Pharmacokinetic Parameters"
         };
 
-        /**************************************************************/
-        /// <summary>
-        /// Pattern for canonical PK metric name prefixes in column 0 data cells of a
-        /// transposed PK layout. Used by <see cref="detectTransposedPkLayout"/> to verify
-        /// that row labels are PK metrics (e.g., "AUC84(pg·hr/mL)", "Cmax(pg/mL)").
-        /// </summary>
-        private static readonly Regex _pkMetricRowLabelPattern = new(
-            @"^\s*(AUC\w*|C\s*max|C\s*min|C\s*avg|C\s*ss|T\s*max|T\s*min|T\s*1/2|t½|Half-?life|CL(?:/F)?|Vd(?:/F)?|V\s*ss|Vz|MRT|Lambda_?z|Ke|Ka)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        // _pkMetricRowLabelPattern was retired — PK metric detection in transposed
+        // layouts now goes through the shared PkParameterDictionary so long-form
+        // English variants ("Maximum Plasma Concentrations") and Unicode-laden
+        // forms ("AUC0-∞(mcg⋅hr/mL)") match in addition to short abbreviations.
 
         /**************************************************************/
         /// <summary>
@@ -273,12 +269,29 @@ namespace MedRecProImportClass.Service.TransformationServices
                             var o = createBaseObservation(table, r, cell, TableCategory.PK);
                             o.ParameterName = param.name;
                             o.ParameterCategory = currentCategory;
-                            o.ParameterSubtype = col0Text;
+
+                            // If col 0 is a known population descriptor (e.g., "Poor"
+                            // CYP2C19 phenotype, "Healthy Subjects"), route to Population
+                            // rather than park it in ParameterSubtype. This preserves the
+                            // PK ParameterName and keeps the phenotype queryable. The
+                            // routed row-level value beats the table-level caption-derived
+                            // default because the row label is strictly more specific.
+                            var col0IsPop = PopulationDetector.TryMatchLabel(col0Text, out var col0Pop);
+                            if (col0IsPop)
+                            {
+                                o.Population = col0Pop;
+                                o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_POP_ROUTED");
+                            }
+                            else
+                            {
+                                o.ParameterSubtype = col0Text;
+                                o.Population = population;
+                            }
+
                             o.DoseRegimen = doseRegimen;
                             var (pkDose1, pkDoseUnit1) = DoseExtractor.Extract(doseRegimen);
                             o.Dose = pkDose1;
                             o.DoseUnit = pkDoseUnit1;
-                            o.Population = population;
                             o.Timepoint = timepoint;
                             o.Time = time;
                             o.TimeUnit = timeUnit;
@@ -1182,11 +1195,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <remarks>
         /// ## Detection signals (all three must hold)
         /// 1. Column 0 header matches a generic "Parameter"-style label
-        ///    (see <see cref="_transposedLayoutCol0Headers"/>).
+        ///    (see <see cref="_transposedLayoutCol0Headers"/>) OR is blank/missing.
         /// 2. Every non-col-0 header is dose-shaped (matches <see cref="_doseHeaderPattern"/>).
-        /// 3. At least 2 data-body rows have col 0 text starting with a canonical PK
-        ///    metric name (see <see cref="_pkMetricRowLabelPattern"/>) AND they form
-        ///    the majority of data-body rows.
+        /// 3. At least 2 data-body rows have col 0 text matching a canonical PK
+        ///    metric name via <see cref="PkParameterDictionary.IsPkParameter"/>
+        ///    AND they form the majority of data-body rows.
         ///
         /// Requiring all three signals simultaneously avoids false positives on
         /// ambiguous tables.
@@ -1209,10 +1222,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (table.Header?.Columns == null || table.Header.Columns.Count < 2)
                 return false;
 
-            // Signal 1: col 0 header is a generic "Parameter"-style label
+            // Signal 1: col 0 header is either a generic "Parameter"-style label
+            // OR blank/missing (common when the source HTML omitted a label for the
+            // row-description column — e.g., the Ceftriaxone tables in the corpus).
             var col0Text = table.Header.Columns[0].LeafHeaderText?.Trim();
-            if (string.IsNullOrWhiteSpace(col0Text) ||
-                !_transposedLayoutCol0Headers.Contains(col0Text))
+            var col0IsGenericOrBlank = string.IsNullOrWhiteSpace(col0Text)
+                || _transposedLayoutCol0Headers.Contains(col0Text);
+            if (!col0IsGenericOrBlank)
                 return false;
 
             // Signal 2: every non-col-0 header is dose-shaped
@@ -1230,7 +1246,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (totalHeaders == 0 || doseHeaders != totalHeaders)
                 return false;
 
-            // Signal 3: majority of data rows carry canonical PK metric row labels
+            // Signal 3: majority of data rows carry canonical PK metric row labels.
+            // Uses PkParameterDictionary so long-form English phrases like
+            // "Maximum Plasma Concentrations" and "Elimination Half-life (hr)" match
+            // in addition to abbreviated forms (Cmax, AUC, t½).
             int metricRows = 0;
             int totalRows = 0;
             foreach (var row in getDataBodyRows(table))
@@ -1239,7 +1258,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(t))
                     continue;
                 totalRows++;
-                if (_pkMetricRowLabelPattern.IsMatch(t))
+                if (PkParameterDictionary.IsPkParameter(t))
                     metricRows++;
             }
 
@@ -1285,15 +1304,29 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (!string.IsNullOrWhiteSpace(originalDoseRegimen))
                 {
                     var m = _paramUnitPattern.Match(originalDoseRegimen);
+                    string rawParamName;
                     if (m.Success)
                     {
-                        o.ParameterName = m.Groups[1].Value.Trim();
+                        rawParamName = m.Groups[1].Value.Trim();
                         if (string.IsNullOrWhiteSpace(o.Unit))
                             o.Unit = m.Groups[2].Value.Trim();
                     }
                     else
                     {
-                        o.ParameterName = originalDoseRegimen.Trim();
+                        rawParamName = originalDoseRegimen.Trim();
+                    }
+
+                    // Collapse long-form English and Unicode-laden variants to canonical
+                    // PK names (e.g., "Maximum Plasma Concentrations" → "Cmax",
+                    // "Elimination Half-life" → "t½", "AUC0-∞" → "AUC0-inf").
+                    if (PkParameterDictionary.TryCanonicalize(rawParamName, out var canonicalName))
+                    {
+                        o.ParameterName = canonicalName;
+                        o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_TRANSPOSED_CANONICALIZED");
+                    }
+                    else
+                    {
+                        o.ParameterName = rawParamName;
                     }
                 }
 

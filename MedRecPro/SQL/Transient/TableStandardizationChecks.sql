@@ -33,6 +33,37 @@ order by TableCategory
 --where ParameterSubtype is not null
 --where [TextTableID] = 203
 
+
+
+SELECT 
+    [TextTableID],
+    [TableCategory],
+    [ParameterName],
+    [ParameterCategory],
+    [ParameterSubtype],
+    [TreatmentArm],
+    [ArmN],
+    [StudyContext],
+    [Dose],
+    [DoseUnit],
+    [DoseRegimen],
+    [RawValue],
+    [PrimaryValue],
+    [PrimaryValueType],
+    [SecondaryValue],
+    [SecondaryValueType],
+    [LowerBound],
+    [UpperBound],
+    [BoundType],
+    [Unit],
+    [ParseConfidence],
+    [ParseRule],
+    [ValidationFlags]
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+WHERE TableCategory = 'PK'
+ORDER BY [TextTableID]
+FOR JSON PATH, ROOT('records');
+
 SELECT [TableCategory]
     ,[ParameterName]
 	,[ParameterCategory]

@@ -2152,3 +2152,49 @@ Extended the existing `buildEntry` helper with an optional `TableCategory catego
 **Design note**: the user's example showed `ALL` at the bottom of the list, but `SelectionPrompt`'s default highlight lands on the first item, so I kept `ALL` at the top of the rendered list (still single-select, still matches the spirit of the example). This means hitting Enter without moving defaults to ALL — the least-surprising behavior for a user who opened the prompt only to see what's there.
 
 ---
+
+### 2026-04-20 11:35 AM EST — PK Table Parsing: Shared Dictionary, Layout Fixes, Router Content Validation
+
+Fixed three related defects in the PK standardization pipeline after evaluating `AI Prompts/PK_Table_Sample.json` and `standardization-report-20260420-093100.md`: (1) inverted `ParameterName`/`ParameterSubtype` on pharmacogenomic rows (e.g., TextTableID=970 stored phenotype "Poor" in `ParameterName` and PK term "Cmax" in `ParameterSubtype`); (2) no canonicalization of long-form PK labels ("Maximum Plasma Concentrations" → `Cmax`, "AUC0-∞(mcg⋅hr/mL)" → `AUC0-inf`) or Unicode variants (`⋅` vs `·` defeated the unit normalization map); (3) every table under LOINC 34090-1 / 43682-4 was routed to PK without content validation, so narrative DDI tables (6139/6140/6141), hormone physiology (6138), and pharmacogenomic PD tables (970) were labeled PK while legitimate transposed Ceftriaxone tables (13202/13203/22685/22686/33852) produced 0 observations because `PkTableParser.detectTransposedPkLayout` required col 0 to literally be `"Parameter"` and rejected long-form English row labels.
+
+**Approach** — single source of truth + layout relaxation + content validation at routing:
+
+- New `PkParameterDictionary` (service-local, under `Service/TransformationServices/Dictionaries/`) is the single canonical map. Declares 19 canonical PK names (Cmax, Cmin, Ctrough, Cavg, Css, Tmax, t½, MRT, MAT, AUC, AUC0-inf, AUC0-24, AUC0-12, AUC0-t, AUClast, AUCtau, CL, CL/F, CLr, Vd, Vd/F, Vss, ke, ka, λz, F) with alias lists covering long-form English, Unicode-laden forms, and parenthetical qualifiers. Public API: `IsPkParameter`, `TryCanonicalize`, `StartsWithPk`, `ContainsPkParameter`, `NormalizeUnicode`. `NormalizeUnicode` folds U+22C5 (DOT OPERATOR) to U+00B7 (MIDDLE DOT) and runs NFKC so "mcg⋅hr/mL" collapses to the key the unit normalization map already uses. Two-phase lookup (parens intact → trailing-paren stripped → prefix regex fallback) so `AUC(0-24)` stays distinct from bare `AUC` in the alias index.
+- New `PdMarkerDictionary` is a narrow hash set (IPA, VASP-PRI, PRI, MPA, etc.) used only for flagging — rows are preserved.
+- `PkTableParser.detectTransposedPkLayout` now accepts blank/null col 0 header and uses `PkParameterDictionary.IsPkParameter` for row-label recognition (replaces `_pkMetricRowLabelPattern`). `applyTransposedPkLayoutSwap` canonicalizes ParameterName after the swap and emits `PK_TRANSPOSED_CANONICALIZED`. The two-column Parse branch routes col 0 to `Population` via a new `PopulationDetector.TryMatchLabel` when it matches a phenotype (Poor/Intermediate/Normal/Ultrarapid + standard populations), emitting `PK_COL0_POP_ROUTED`.
+- `PopulationDetector` gained `TryMatchLabel(string raw, out string canonical)` with a deliberately strict row-label dictionary (no free-form prose matching).
+- `ColumnStandardizationService` gained `applyPkCanonicalization` as a new Phase 2 sub-pass that runs AFTER `extractUnitFromParameterSubtype` (critical — the unit is still embedded in Subtype at that point) and AFTER the two safeguards: (a) reroute population from ParameterName first, (b) only swap Subtype→Name when Name is empty, (c) canonicalize via dictionary, (d) flag PD markers. Conservative swap condition avoids clobbering parser output in weird-but-not-inverted tables. New flags: `COL_STD:PK_NAME_SUBTYPE_SWAPPED`, `COL_STD:PK_POPULATION_ROUTED`, `COL_STD:PK_NAME_CANONICALIZED`, `COL_STD:PK_NON_PK_MARKER_DETECTED`. `_unitNormalizationMap` gained `⋅`-keyed entries as belt-and-suspenders alongside the NormalizeUnicode pipe. The retired `_pkSubParams` HashSet and `_pkSubParamPrefixPattern` regex were removed; all three call sites (DoseRegimen triage, DDI drug-name route, study-name check) now call the shared dictionary.
+- `MlNetCorrectionService` had its own duplicate `_pkSubParams` / `_pkSubParamPrefixPattern`; migrated to the shared dictionary too.
+- New `TableCategory.TEXT_DESCRIPTIVE` enum value and new `TextDescriptiveTableParser` (emits one observation per non-empty data cell with `PrimaryValueType="Text"` and `RawValue` set). Registered in DI in both `MedRecProConsole/Services/TableStandardizationService.cs` and `MedRecProConsole/Services/ImportService.cs`.
+- `TableParserRouter` now gates LOINC 34090-1 / 43682-4 and the "Pharmacokinetic" caption fallback through a new `validatePkOrDowngrade` helper: counts header + row-label PK hits via `PkParameterDictionary.ContainsPkParameter` (picks up "Change in AUC" and "Ratio of Cmax"), and if none match, computes a prose ratio (cells >120 chars or >20 words) — ≥30% prose downgrades to `TEXT_DESCRIPTIVE`, otherwise `OTHER`. Added `ReconstructedTableExtensions` (`DataRows`, `CellAt`) so the router can inspect table content without being a `BaseTableParser` subclass.
+
+**Tests** — added `PkParameterDictionaryTests.cs` (60+ assertions across exact/alias/Unicode/negative cases), `PdMarkerDictionaryTests.cs`, 5 new PK behavioral tests in `TableParserTests.cs` (transposed blank-col0 recovery, two-column phenotype routing, router downgrade, router PK-confirm with PK headers, router PK-confirm with long-form transposed labels), and 17 new `PopulationDetector.TryMatchLabel` assertions in `PopulationDetectorTests.cs`. Fixed two bugs found during test-first iteration: `Regex.Escape` was destroying the prefix patterns inside the dictionary helper (removed), and the trailing-paren strip was collapsing `AUC(0-inf)` and bare `AUC` to the same alias key (stored keys now preserve parens, lookup does a two-phase strip).
+
+**Verification**:
+- `dotnet build MedRecProImportClass.csproj` — 0 errors (141 warnings, all pre-existing).
+- `dotnet test MedRecProTest.csproj` — **1292/1292 passed**. Iterations: initial run found 5 dictionary-test failures (fixed by removing `Regex.Escape` and splitting storage/lookup keys), then 7 integration failures (4 ExtractUnit tests + 2 router tests + 1 DoseRegimen triage test) — fixed by reordering the Phase 2 pipeline so unit extraction runs before the Name↔Subtype swap and by tightening the swap to fire only when Name is empty. Added `ContainsPkParameter` so router recognizes "Change in AUC" / "Change in Cmax" as PK content.
+- End-to-end production run deferred — user will generate a fresh `standardization-report-*.md` and diff against `standardization-report-20260420-093100.md` to confirm the 0-observation tables (13202/13203/22685/22686/33852) recover and the misclassified tables (970/6138/6139/6140/6141) move out of PK.
+
+**Files changed** (new):
+- `MedRecProImportClass/Service/TransformationServices/Dictionaries/PkParameterDictionary.cs`
+- `MedRecProImportClass/Service/TransformationServices/Dictionaries/PdMarkerDictionary.cs`
+- `MedRecProImportClass/Service/TransformationServices/TextDescriptiveTableParser.cs`
+- `MedRecProImportClass/Service/TransformationServices/ReconstructedTableExtensions.cs`
+- `MedRecProTest/PkParameterDictionaryTests.cs`
+- `MedRecProTest/PdMarkerDictionaryTests.cs`
+
+**Files changed** (modified):
+- `MedRecProImportClass/Models/TableCategory.cs` — added `TEXT_DESCRIPTIVE` enum member.
+- `MedRecProImportClass/Service/TransformationServices/PkTableParser.cs` — transposed-layout relaxation (accept blank col 0), dictionary-based row-label match, canonicalization after swap, two-column Population routing. Removed `_pkMetricRowLabelPattern`.
+- `MedRecProImportClass/Service/TransformationServices/ColumnStandardizationService.cs` — new `applyPkCanonicalization`, Unicode `⋅` unit map entries, NormalizeUnicode piped through unit extraction and normalization, migrated three call sites to `PkParameterDictionary`. Removed `_pkSubParams` and `_pkSubParamPrefixPattern`.
+- `MedRecProImportClass/Service/TransformationServices/PopulationDetector.cs` — new `TryMatchLabel` + label-to-canonical dictionary covering phenotypes.
+- `MedRecProImportClass/Service/TransformationServices/TableParserRouter.cs` — `validatePkOrDowngrade` gate, `computeProseRatio` helper, switched row/header scan to `ContainsPkParameter`.
+- `MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs` — migrated duplicate `_pkSubParams` / `_pkSubParamPrefixPattern` to the shared dictionary.
+- `MedRecProConsole/Services/TableStandardizationService.cs`, `MedRecProConsole/Services/ImportService.cs` — registered `TextDescriptiveTableParser` in DI.
+- `MedRecProTest/TableParserTests.cs`, `MedRecProTest/PopulationDetectorTests.cs` — new PK layout, router, and label-matching tests.
+
+**Follow-ups flagged but not done**:
+- Real end-to-end production run / report diff — needs a fresh standardization pass against the same SPL corpus.
+- `ContainsPkParameter` regex is deliberately narrow and may miss some DDI header phrases; expand based on the first regression run.
+
+---

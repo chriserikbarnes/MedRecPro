@@ -155,7 +155,103 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to resolve a column 0 or ParameterName cell value to a canonical
+        /// population string. Handles the standard populations already covered by
+        /// <see cref="_populationKeywords"/> plus CYP metabolizer phenotypes
+        /// (Poor / Intermediate / Normal / Ultrarapid / Extensive) that appear in
+        /// pharmacogenomic PK tables.
+        /// </summary>
+        /// <param name="raw">Candidate row-label or ParameterName text.</param>
+        /// <param name="canonical">Canonical population string when matched, otherwise empty.</param>
+        /// <returns>True when a match is found.</returns>
+        /// <remarks>
+        /// Matching is deliberately strict — it only fires on exact or near-exact text
+        /// matches against the label dictionary so that free-form prose in a
+        /// ParameterName cell is not mis-routed. Callers should only invoke this when
+        /// the surrounding TableCategory is PK (or similar) where a population-style
+        /// label would be a schema violation.
+        /// </remarks>
+        public static bool TryMatchLabel(string? raw, out string canonical)
+        {
+            #region implementation
+
+            canonical = string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            var key = _whitespaceCollapse.Replace(raw.Trim(), " ");
+
+            if (_labelToCanonical.TryGetValue(key, out var hit))
+            {
+                canonical = hit;
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
         #endregion Public Methods
+
+        #region Label Dictionary
+
+        // Case-insensitive mapping from row-label text to canonical Population value.
+        // Extends _populationKeywords with CYP metabolizer phenotypes and their
+        // "Intermediate Metabolizer"-style long forms.
+        private static readonly Dictionary<string, string> _labelToCanonical = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Standard populations (match the existing _populationKeywords + common surface forms)
+            ["Pediatric"] = "Pediatric",
+            ["Pediatric Patients"] = "Pediatric",
+            ["Geriatric"] = "Geriatric",
+            ["Elderly"] = "Elderly",
+            ["Neonatal"] = "Neonatal",
+            ["Neonates"] = "Neonatal",
+            ["Postmenopausal"] = "Postmenopausal Women",
+            ["Postmenopausal Women"] = "Postmenopausal Women",
+            ["Premenopausal"] = "Premenopausal Women",
+            ["Pregnant"] = "Pregnant Women",
+            ["Pregnant Women"] = "Pregnant Women",
+            ["Premature Infants"] = "Premature Infants",
+            ["Preterm Infants"] = "Premature Infants",
+            ["Renal Impairment"] = "Renal Impairment",
+            ["Hepatic Impairment"] = "Hepatic Impairment",
+            ["Healthy Volunteers"] = "Healthy Volunteers",
+            ["Healthy Subjects"] = "Healthy Volunteers",
+            ["Adult Healthy Volunteers"] = "Adult Healthy Volunteers",
+            ["Adult"] = "Adult",
+            ["Adults"] = "Adult",
+
+            // CYP metabolizer phenotypes — bare forms as they appear in row labels
+            ["Poor"] = "Poor Metabolizer",
+            ["Intermediate"] = "Intermediate Metabolizer",
+            ["Normal"] = "Normal Metabolizer",
+            ["Ultrarapid"] = "Ultrarapid Metabolizer",
+            ["Ultra-rapid"] = "Ultrarapid Metabolizer",
+            ["Extensive"] = "Extensive Metabolizer",
+            ["Rapid"] = "Rapid Metabolizer",
+
+            // CYP metabolizer phenotypes — explicit long forms
+            ["Poor Metabolizer"] = "Poor Metabolizer",
+            ["Poor Metabolizers"] = "Poor Metabolizer",
+            ["Intermediate Metabolizer"] = "Intermediate Metabolizer",
+            ["Intermediate Metabolizers"] = "Intermediate Metabolizer",
+            ["Normal Metabolizer"] = "Normal Metabolizer",
+            ["Normal Metabolizers"] = "Normal Metabolizer",
+            ["Ultrarapid Metabolizer"] = "Ultrarapid Metabolizer",
+            ["Ultrarapid Metabolizers"] = "Ultrarapid Metabolizer",
+            ["Extensive Metabolizer"] = "Extensive Metabolizer",
+            ["Extensive Metabolizers"] = "Extensive Metabolizer",
+            ["Rapid Metabolizer"] = "Rapid Metabolizer",
+        };
+
+        // Whitespace collapser used by TryMatchLabel to normalize lookup keys
+        private static readonly Regex _whitespaceCollapse = new(@"\s+", RegexOptions.Compiled);
+
+        #endregion Label Dictionary
 
         #region Internal Methods
 

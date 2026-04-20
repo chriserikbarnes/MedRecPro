@@ -78,6 +78,16 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
+        /// Text-only narrative tables — drug interaction prose, safety narratives,
+        /// hormone physiology descriptions, and similar. Values are whole-cell text
+        /// and are not numerically comparable. Produced by the router downgrading
+        /// section-code-hinted PK tables that fail content validation (no PK
+        /// parameter names in headers or row labels and prose-heavy cells).
+        /// </summary>
+        TEXT_DESCRIPTIVE,
+
+        /**************************************************************/
+        /// <summary>
         /// Unclassified but parseable tables. Used when no specific parser matches
         /// but the table contains structured data worth preserving.
         /// </summary>

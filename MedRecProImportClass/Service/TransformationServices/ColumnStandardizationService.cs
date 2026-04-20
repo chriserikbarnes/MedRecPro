@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -100,27 +101,9 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #region Phase 2 Static Dictionaries
 
-        /**************************************************************/
-        /// <summary>
-        /// PK sub-parameter names that should NOT be in DoseRegimen.
-        /// When found in DoseRegimen, route to ParameterSubtype.
-        /// </summary>
-        private static readonly HashSet<string> _pkSubParams = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "Cmax", "Cmin", "Tmax", "AUC", "AUC0-inf", "AUC0-t", "AUC0-24", "AUCtau",
-            "AUC(0-inf)", "AUC(0-t)", "AUC(0-24)", "AUClast",
-            "t1/2", "t½", "half-life", "elimination half-life",
-            "CL/F", "CLss/F", "CL", "CLss", "Clearance", "Apparent Clearance",
-            "V/F", "Vd/F", "Vss", "Vd", "Vz/F", "Volume of Distribution",
-            "ke", "MRT", "MAT", "F(%)", "Bioavailability",
-            "CV(%)", "Cavg", "Cthrough", "Ctrough"
-        };
-
-        /**************************************************************/
-        /// <summary>Regex to detect PK sub-parameter names in DoseRegimen (prefix match).</summary>
-        private static readonly Regex _pkSubParamPrefixPattern = new(
-            @"^(?:AUC|Cmax|Cmin|Tmax|CL(?:/F|ss)?|V(?:d|ss|z)?(?:/F)?|t(?:1/2|½)|half-?life|clearance|volume\s+of\s+distribution|MRT|MAT|ke|bioavailability|F\s*\(?\s*%\s*\)?|CV\s*\(?\s*%\s*\)?|Serum\b)",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        // Former PK sub-parameter fields (_pkSubParams, _pkSubParamPrefixPattern)
+        // were migrated to the shared PkParameterDictionary. Callers now use
+        // PkParameterDictionary.IsPkParameter / StartsWithPk.
 
         /**************************************************************/
         /// <summary>Regex to detect residual population content in DoseRegimen.</summary>
@@ -228,7 +211,19 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["pg·hr/mL"] = "pg·h/mL",
             ["mcg·hr/mL"] = "mcg·h/mL",
             ["ng·hr/mL"] = "ng·h/mL",
-            ["ug·hr/mL"] = "mcg·h/mL"
+            ["ug·hr/mL"] = "mcg·h/mL",
+            // Unicode U+22C5 DOT OPERATOR variants observed in SPL source tables.
+            // PkParameterDictionary.NormalizeUnicode folds these to U+00B7 before lookup,
+            // so duplicate keys exist here only as a safety net for any path that skips
+            // the unicode fold.
+            ["mcg⋅hr/mL"] = "mcg·h/mL",
+            ["ng⋅hr/mL"] = "ng·h/mL",
+            ["pg⋅hr/mL"] = "pg·h/mL",
+            ["µg⋅hr/mL"] = "µg·h/mL",
+            ["mcg⋅h/mL"] = "mcg·h/mL",
+            ["ng⋅h/mL"] = "ng·h/mL",
+            ["pg⋅h/mL"] = "pg·h/mL",
+            ["µg⋅h/mL"] = "µg·h/mL"
         };
 
         /**************************************************************/
@@ -1763,6 +1758,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (normalizeParameterName(obs)) corrections++;
             if (normalizeTreatmentArm(obs)) corrections++;
             if (extractUnitFromParameterSubtype(obs)) corrections++;
+            // PK post-parse canonicalization MUST run after unit extraction so the
+            // embedded unit (e.g., "AUC0-∞(mcg·hr/mL)") gets pulled out before the
+            // Name ↔ Subtype swap moves the PK term out of the Subtype field.
+            if (applyPkCanonicalization(obs)) corrections++;
             if (normalizeUnit(obs)) corrections++;
             if (normalizeParameterCategory(obs)) corrections++;
 
@@ -1861,7 +1860,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             var val = obs.DoseRegimen.Trim();
 
             // Priority 1: PK sub-parameter match → route to ParameterSubtype
-            if (_pkSubParams.Contains(val) || _pkSubParamPrefixPattern.IsMatch(val))
+            if (PkParameterDictionary.IsPkParameter(val) || PkParameterDictionary.StartsWithPk(val))
             {
                 if (string.IsNullOrEmpty(obs.ParameterSubtype))
                     obs.ParameterSubtype = val;
@@ -1991,7 +1990,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Priority 4: DDI drug name (not a PK param) → route to ParameterSubtype
             if (string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase) &&
-                isDrugName(val) && !_pkSubParams.Contains(val) && !_pkSubParamPrefixPattern.IsMatch(val))
+                isDrugName(val) && !PkParameterDictionary.IsPkParameter(val) && !PkParameterDictionary.StartsWithPk(val))
             {
                 if (string.IsNullOrEmpty(obs.ParameterSubtype))
                     obs.ParameterSubtype = val;
@@ -2093,7 +2092,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             // Priority 5: Study name (all-caps short token) — only if it's NOT a drug name
-            if (_studyNamePattern.IsMatch(val) && !isDrugName(val) && !_pkSubParams.Contains(val))
+            if (_studyNamePattern.IsMatch(val) && !isDrugName(val) && !PkParameterDictionary.IsPkParameter(val))
             {
                 if (string.IsNullOrEmpty(obs.StudyContext))
                     obs.StudyContext = val;
@@ -2103,6 +2102,96 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 sub-pass: PK-specific canonicalization and column-role correction.
+        /// Runs only on PK observations. Four corrections in order:
+        /// (a) swap ParameterName ↔ ParameterSubtype when the PK term landed in Subtype,
+        /// (b) reroute population-style labels from ParameterName into Population,
+        /// (c) canonicalize ParameterName via <see cref="PkParameterDictionary"/>,
+        /// (d) flag PD markers (IPA, VASP-PRI, etc.) for later review.
+        /// </summary>
+        /// <remarks>
+        /// ## Why this exists
+        /// Some SPL tables — notably pharmacogenomic studies — produce rows where a
+        /// metabolizer phenotype ("Poor", "Intermediate") ends up in ParameterName and
+        /// the actual PK term ("Cmax", "AUC") ends up in ParameterSubtype. Per the PK
+        /// column contract, ParameterName must hold the canonical PK term and
+        /// phenotypes belong in Population. Additional cleanup collapses variant
+        /// spellings to canonical form so downstream aggregation works.
+        ///
+        /// ## Ordering
+        /// Must run BEFORE <see cref="extractUnitFromParameterSubtype"/>: if that runs
+        /// first it will strip parenthesized unit text from whatever happens to be in
+        /// ParameterSubtype — which might actually be the PK term we need to see.
+        /// </remarks>
+        /// <param name="obs">The observation to standardize.</param>
+        /// <returns>True if any correction was applied.</returns>
+        /// <seealso cref="PkParameterDictionary"/>
+        /// <seealso cref="PdMarkerDictionary"/>
+        /// <seealso cref="PopulationDetector.TryMatchLabel"/>
+        private bool applyPkCanonicalization(ParsedObservation obs)
+        {
+            #region implementation
+
+            // Guard: only PK rows — DRUG_INTERACTION has its own column conventions
+            if (!string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            bool changed = false;
+
+            // (a) ParameterName carries a population descriptor — route to Population
+            //     and null out Name so the swap below can fill it with the PK term.
+            //     Runs BEFORE the swap so the 970-style phenotype case works:
+            //     Name="Poor", Subtype="Cmax" → Population="Poor Metabolizer",
+            //     Name=null → swap fires → Name="Cmax", Subtype=null.
+            if (PopulationDetector.TryMatchLabel(obs.ParameterName, out var popCanon))
+            {
+                if (string.IsNullOrWhiteSpace(obs.Population))
+                    obs.Population = popCanon;
+                obs.ParameterName = null;
+                appendFlag(obs, "COL_STD:PK_POPULATION_ROUTED");
+                changed = true;
+            }
+
+            // (b) Swap when Name is empty and Subtype holds a PK term. Conservative
+            //     by design: if Name already carries something non-empty that is NOT
+            //     a population term, leave it alone. This avoids clobbering parser
+            //     output in tables where the data shape is unusual but not inverted.
+            if (string.IsNullOrWhiteSpace(obs.ParameterName)
+                && PkParameterDictionary.IsPkParameter(obs.ParameterSubtype))
+            {
+                obs.ParameterName = obs.ParameterSubtype;
+                obs.ParameterSubtype = null;
+                appendFlag(obs, "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
+                changed = true;
+            }
+
+            // (c) Canonicalize ParameterName via the dictionary. Collapses long-form
+            //     English ("Maximum Plasma Concentrations" → "Cmax"), Unicode variants
+            //     ("AUC0-∞" → "AUC0-inf"), and any residual trailing unit parens.
+            if (PkParameterDictionary.TryCanonicalize(obs.ParameterName, out var canonical)
+                && !string.Equals(canonical, obs.ParameterName, StringComparison.Ordinal))
+            {
+                obs.ParameterName = canonical;
+                appendFlag(obs, "COL_STD:PK_NAME_CANONICALIZED");
+                changed = true;
+            }
+
+            // (d) Flag PD markers so they can be reviewed downstream. No column
+            //     movement — the row is preserved.
+            if (PdMarkerDictionary.IsPdMarker(obs.ParameterSubtype)
+                || PdMarkerDictionary.IsPdMarker(obs.ParameterName))
+            {
+                appendFlag(obs, "COL_STD:PK_NON_PK_MARKER_DETECTED");
+                changed = true;
+            }
+
+            return changed;
 
             #endregion
         }
@@ -2139,6 +2228,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (!string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
                 return false;
+
+            // Fold Unicode variants (⋅ → ·) before regex match and unit lookup
+            obs.ParameterSubtype = PkParameterDictionary.NormalizeUnicode(obs.ParameterSubtype);
 
             // Match trailing parenthesized content
             var match = _subtypeTrailingParenPattern.Match(obs.ParameterSubtype);
@@ -2244,7 +2336,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(obs.Unit))
                 return false;
 
-            var val = obs.Unit.Trim();
+            // Fold Unicode dot operator (U+22C5) to middle dot (U+00B7) so the
+            // _unitNormalizationMap keyed on "·" matches cells like "mcg⋅h/mL".
+            var val = PkParameterDictionary.NormalizeUnicode(obs.Unit).Trim();
 
             // Rule 1: Exact match in known units → keep
             if (_knownUnits.Contains(val))

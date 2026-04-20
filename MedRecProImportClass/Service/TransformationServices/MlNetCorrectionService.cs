@@ -1,4 +1,5 @@
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML;
 using Microsoft.ML.Data;
@@ -171,20 +172,9 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #region DoseRegimen Label Synthesis Patterns
 
-        /**************************************************************/
-        /// <summary>PK sub-parameter names for DoseRegimen routing label synthesis.</summary>
-        private static readonly HashSet<string> _pkSubParams = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "Cmax", "Cmin", "Tmax", "AUC", "AUC0-inf", "AUC0-t", "AUC0-24",
-            "AUCinf", "AUCtau", "AUClast", "t1/2", "t½", "CL/F", "CL",
-            "V/F", "Vss", "Vd", "ke", "MRT", "MAT", "bioavailability", "CV(%)"
-        };
-
-        /**************************************************************/
-        /// <summary>PK sub-parameter prefix pattern for fuzzy matching.</summary>
-        private static readonly Regex _pkSubParamPrefixPattern = new(
-            @"^(AUC|Cmax|Cmin|Tmax|CL|Vd|Vss|MRT|MAT|t1/2|t½|ke)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        // Former _pkSubParams / _pkSubParamPrefixPattern fields were migrated to
+        // the shared PkParameterDictionary. Callers use
+        // PkParameterDictionary.IsPkParameter / StartsWithPk.
 
         /**************************************************************/
         /// <summary>Actual dose pattern — digit followed by a unit.</summary>
@@ -1220,7 +1210,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             var val = record.DoseRegimen.Trim();
 
             // Priority 1: PK sub-parameter → ParameterSubtype
-            if (_pkSubParams.Contains(val) || _pkSubParamPrefixPattern.IsMatch(val))
+            if (PkParameterDictionary.IsPkParameter(val) || PkParameterDictionary.StartsWithPk(val))
                 return "ParameterSubtype";
 
             // Priority 2: Actual dose → Keep
