@@ -276,6 +276,28 @@ namespace MedRecProImportClass.Service.TransformationServices
                 @"^\s*(?<ord>1st|2nd|3rd|First|Second|Third|1|2|3)\s*Trimester",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase),
              m => $"{normalizeOrdinal(m.Groups["ord"].Value)} Trimester"),
+
+            // R1.1: age-qualified Subjects with trailer — "Elderly Subjects (mean age, 70.5 year)",
+            // "Healthy Subjects (N=18)", "Pediatric Patients aged 6 to 16".
+            // Strips the parenthesized / descriptor trailer and returns the
+            // bare age stratum as the canonical Population.
+            (new Regex(
+                @"^\s*(?<pop>Elderly|Young|Adult|Pediatric|Geriatric|Healthy|Hemodialysis)\s+(?:Subjects?|Patients?|Volunteers?|Adults?|Children)\b",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => titleCase(m.Groups["pop"].Value) switch {
+                 "Healthy" => "Healthy Volunteers",
+                 "Hemodialysis" => "Hemodialysis Patients",
+                 "Pediatric" => "Pediatric",
+                 var p => p,
+             }),
+
+            // R1.1: "Patients with {Condition}" — "Patients with Renal Impairment",
+            // "Patients With Liver Disease", "Patients With Cardiac Failure".
+            // Canonicalizes to the condition-only form.
+            (new Regex(
+                @"^\s*Patients?\s+[Ww]ith\s+(?<cond>Renal|Hepatic|Cardiac|Liver|Kidney)\s+(?<state>Impairment|Disease|Failure|Dysfunction)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => $"{titleCase(m.Groups["cond"].Value)} {titleCase(m.Groups["state"].Value)}"),
         };
 
         // Known all-caps acronyms preserved as-is by titleCase. Uppercase lookup
@@ -392,6 +414,45 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["Extensive Metabolizer"] = "Extensive Metabolizer",
             ["Extensive Metabolizers"] = "Extensive Metabolizer",
             ["Rapid Metabolizer"] = "Rapid Metabolizer",
+
+            // R1.1 additions — sex, age, dialysis, and multi-word stratifiers
+            // that appeared in the 2026-04-21 post-R1 validation audit as
+            // TreatmentArm false positives (e.g., Norfloxacin / TID 2069).
+            // These surface as bare single-word col 0 labels in compound
+            // layouts and were falling through to the drug-name heuristic.
+            //
+            // Sex strata
+            ["Male"] = "Male",
+            ["Males"] = "Male",
+            ["Female"] = "Female",
+            ["Females"] = "Female",
+            // Bare age strata (age-range and "Elderly" already covered above;
+            // "Young" / "Young Adults" are the common bare forms)
+            ["Young"] = "Young Adults",
+            ["Young Adults"] = "Young Adults",
+            ["Elderly Subjects"] = "Elderly",
+            ["Elderly Patients"] = "Elderly",
+            ["Children"] = "Pediatric",
+            ["Infants"] = "Infants",
+            ["Adolescents"] = "Adolescents",
+            // Dialysis / end-stage renal forms — the word "Hemodialysis" alone
+            // appears as a row label in renal PK tables. The detailed renal
+            // bands ("CLCR X to Y mL/min") continue to route via the regex
+            // second pass.
+            ["Hemodialysis"] = "Hemodialysis Patients",
+            ["Hemodialysis Patients"] = "Hemodialysis Patients",
+            ["CAPD"] = "CAPD Patients",
+            ["CAPD Patients"] = "CAPD Patients",
+            ["Peritoneal Dialysis"] = "Peritoneal Dialysis Patients",
+            // Subject-group compound forms with optional parenthesized trailer
+            // (the parens are stripped before lookup by the regex second pass)
+            ["Pediatric Subjects"] = "Pediatric",
+            ["Adult Subjects"] = "Adult",
+            ["Healthy"] = "Healthy Volunteers",
+            // HIV-specific populations appearing in antiretroviral labels
+            ["HIV-1-Infected Pediatric Subjects"] = "HIV-1-Infected Pediatric Subjects",
+            ["HIV-Infected Pediatric Subjects"] = "HIV-1-Infected Pediatric Subjects",
+            ["HIV-1-Infected Adults"] = "HIV-1-Infected Adults",
         };
 
         // Whitespace collapser used by TryMatchLabel to normalize lookup keys

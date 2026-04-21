@@ -83,6 +83,22 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^%\s+(\d+\.?\d*)\s*(mg|mL|mcg|µg|g|IU|[Uu]nits?)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /**************************************************************/
+        /// <summary>
+        /// Matches the LAST numeric dose token plus its unit in a string, used by
+        /// <see cref="StripDoseFragment"/> to split compound "Drug + Dose" row labels
+        /// like "Atorvastatin 10 mg/day for 8 days" into a drug-name prefix
+        /// ("Atorvastatin") and a dose fragment ("10 mg/day for 8 days").
+        /// </summary>
+        /// <remarks>
+        /// Intentionally greedy left-anchor: matches from the first `\d+ (mg|mcg|…)` token
+        /// through end-of-string, so everything after the first numeric dose — including
+        /// trailing schedule text ("for 8 days", "once daily") — is removed.
+        /// </remarks>
+        private static readonly Regex _doseFragmentPattern = new(
+            @"\s*\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|μg|g|ng|kg|mL|units?|U|IU)\b.*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         #endregion Compiled Regex Patterns
 
         #region Public Methods
@@ -177,6 +193,37 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return (null, null);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Strips the numeric dose fragment (and any trailing schedule text) from a
+        /// compound "drug + dose" row label, returning just the drug-name prefix.
+        /// Used by PK row-label classification to split labels like
+        /// "Atorvastatin 10 mg/day for 8 days" → "Atorvastatin".
+        /// </summary>
+        /// <remarks>
+        /// Returns an empty string when the input is null or whitespace.
+        /// Returns the input unchanged (trimmed) when no dose fragment is detected.
+        /// </remarks>
+        /// <param name="input">Candidate row-label text.</param>
+        /// <returns>Drug-name prefix with the trailing dose fragment removed.</returns>
+        /// <example>
+        /// <code>
+        /// DoseExtractor.StripDoseFragment("Atorvastatin 10 mg/day for 8 days") // "Atorvastatin"
+        /// DoseExtractor.StripDoseFragment("Placebo")                          // "Placebo"
+        /// DoseExtractor.StripDoseFragment("100 mg")                           // ""
+        /// </code>
+        /// </example>
+        public static string StripDoseFragment(string? input)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(input))
+                return string.Empty;
+            return _doseFragmentPattern.Replace(input, "").TrimEnd();
 
             #endregion
         }

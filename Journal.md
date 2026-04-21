@@ -2287,3 +2287,161 @@ User ran a smoke test on the Phase-2 enforcement change and provided screenshots
 - Ceftriaxone 0-observation regression (still unresolved at Stage 2 / data-provenance layer; the Phase-2 work doesn't affect parser input).
 
 ---
+
+### 2026-04-20 6:30 PM EST — PK Compliance Evaluation + Wave 1 R1 (Row-Label Context Propagation)
+
+User asked for a data-scientist-style evaluation of the 2026-04-20 1:56 PM and 2:56 PM enforcement passes against `PK_Table_Sample.json` (limited to `TextTableID < 18000` — **12,523 rows across 610 tables**) and cross-referenced with `standardization-report-20260420-151743.md`. Then build a remediation plan and implement the highest-impact first wave.
+
+**Corpus-level compliance measured against the PK contract in `column-contracts.md`**:
+| Metric | Current | Target |
+|---|---|---|
+| `ParameterName` canonical PK term | **57.4%** (7,187) | ≥ 95% |
+| `ParameterSubtype` non-qualifier (violation) | **51.1%** (6,396) | < 5% |
+| `TreatmentArm` populated | **4.3%** (535) | ≥ 20% |
+| `DoseRegimen` populated | **13.3%** (1,667) | ≥ 65% |
+| `Population` populated | **0.0%** (0) | ~15% |
+| `Timepoint` populated | **0.0%** (0) | ~10% |
+| `Unit` empty (`MISSING_R_Unit`) | 45.3% | < 15% |
+| Both Name & Subtype empty (zombie) | 2.2% (273) | 0% |
+
+The enforcement pass fixed easy PK-term inversions but exposed much deeper issues — the Stage 3 parser never propagates row-label context (drug name, dose regimen, population, timepoint) from col 0 into the PK cells' context columns. Sampled TIDs (126/127 BENLYSTA, 184 Zithromax, 569 Thyroid, 571 Azithromycin DDI, 2069 Norfloxacin renal, 13202/13203 Ceftriaxone) confirm the pattern. Identified **10 root causes (R1–R10)** across three layers — parser, Phase 2 routing, classifier / unit / ML.NET — grouped into three execution waves. Full plan persisted at `C:\Users\chris\.claude\plans\c-users-chris-documents-ai-prompts-pk-t-steady-dongarra.md`.
+
+**Wave 1 R1 implemented this session** (parser row-label context propagation, backward-compat preserving):
+
+- **`PkTableParser.classifyRowLabel(col0Text) -> RowLabelClassification`** — new private static helper returning one of `{Population, TreatmentArm, DoseRegimen, Timepoint, DrugPlusDose, Unknown}` with resolved destination-column values. Priority order: (1) pure dose with no prefix → `DoseRegimen`; (2) drug+dose compound (DoseExtractor yields dose AND prefix passes the conservative `_drugNameHeuristicPattern` AND is not a PK term / population) → `DrugPlusDose` splitting into TreatmentArm + DoseRegimen; (3) timepoint regex match (`Day N`, `N days`, `single dose`, `steady state`, `08:00 to 13:00`, `C72`) → `Timepoint` + Time + TimeUnit via `extractDuration`; (4) `PopulationDetector.TryMatchLabel` (dictionary or regex second-pass) → `Population`, flag differentiates dictionary vs regex match; (5) bare drug-name heuristic (capitalized token, no digits, not a PK term) → `TreatmentArm`; (6) otherwise `Unknown` (caller retains pre-R1 behavior).
+
+- **Two-column path (`PkTableParser.Parse` lines 247–305)** — switched from the inlined `PopulationDetector.TryMatchLabel` → Population / else → ParameterSubtype routing to the unified `classifyRowLabel` switch. Population routing now fires with `PK_COL0_POP_ROUTED` (dictionary) vs `PK_COL0_POP_ROUTED_REGEX` (regex second-pass) distinction. TreatmentArm + DrugPlusDose routing added. Timepoint override (col 0 timepoint beats regimen-derived duration). Unknown fallback still drops col 0 into `ParameterSubtype` so Phase 2 enforcement sees the same input as before.
+
+- **Single-column path (lines 307–339)** — same classifier applied AFTER the existing `col0IsPopulation` header-keyword check. When col 0 header doesn't flag "Population" but the row label text itself IS a known population ("Healthy Subjects", renal band, age range), `classifyRowLabel` now routes to Population rather than letting it leak into DoseRegimen. DrugPlusDose splits populate both TreatmentArm and DoseRegimen. Attribution flags emitted per observation so downstream reports can audit which R1 rule fired.
+
+- **`DoseExtractor.StripDoseFragment(string?)`** — promoted from the private static helper in `ColumnStandardizationService.cs:2420` to `public static` in `DoseExtractor.cs`. The regex `_doseFragmentPattern` (`\s*\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|…|IU)\b.*$`) is duplicated in the new home so the existing ColumnStandardizationService caller remains unchanged — **no cross-file refactor risk**. The new public helper is available for PK parser drug+dose splitting and any future Phase-2 routing that needs it.
+
+- **`RowLabelKind` enum + `RowLabelClassification` readonly struct** — private types on `PkTableParser`. The struct carries `Population`/`TreatmentArm`/`DoseRegimen`/`Timepoint`/`Time`/`TimeUnit`/`MatchedPopulationViaRegex`. `extractDuration` returns `double?` for time, so the struct's `Time` is `double?` (not `decimal?` as initially drafted) to match `ParsedObservation.Time`.
+
+- **Validation flags (new)**: `PK_COL0_POP_ROUTED_REGEX`, `PK_COL0_ARM_ROUTED`, `PK_COL0_ARM_DOSE_SPLIT`, `PK_COL0_TIMEPOINT_ROUTED`. `PK_COL0_POP_ROUTED` pre-existed (two-column path only) — now fires from both paths and represents only the dictionary-match case.
+
+**Backward compatibility** — explicit and verified. (1) Classifier returns `Unknown` when no rule fires, and Unknown restores the pre-R1 column placement exactly — DoseRegimen for single-column, ParameterSubtype for two-column. So existing parse behavior on rows like "50 mg oral (once daily x 7 days)" is preserved bit-for-bit. (2) AE, Efficacy, Dosing, BMD parsers are untouched. (3) `ColumnStandardizationService`, `PopulationDetector`, `PkParameterDictionary` are not modified. (4) The existing `PkParser_TwoColumnLayout_PhenotypeRowsRouteToPopulation` test continues to pass because the new code routes Poor/Intermediate/Normal/Ultrarapid phenotypes through the same `PopulationDetector.TryMatchLabel` path, just via the classifier switch now.
+
+**Tests added** (`TableParserTests.cs` new `#region PK R1 Row-Label Classification`, 8 cases):
+1. `PkParser_R1_TwoColumn_BareDrugRoutesToTreatmentArm` — TID 571 shape: drug name in two-column col 0 → TreatmentArm, Subtype null
+2. `PkParser_R1_SingleColumn_DrugPlusDoseSplitsIntoArmAndRegimen` — compound "Atorvastatin 10 mg/day for 8 days" → TreatmentArm + DoseRegimen split
+3. `PkParser_R1_SingleColumn_PopulationLabelRoutesToPopulation` — "Healthy Subjects" in single-column → Population (was DoseRegimen pre-R1)
+4. `PkParser_R1_SingleColumn_RenalBandRegexRoutesWithRegexFlag` — Creatinine Clearance renal band via regex second pass → Population + PK_COL0_POP_ROUTED_REGEX
+5. `PkParser_R1_SingleColumn_TimepointLabelRoutesToTimepoint` — "Day 14" / "Single Dose" col 0 → Timepoint (not DoseRegimen)
+6. `PkParser_R1_SingleColumn_PureDosePreservesBackwardCompat` — bit-for-bit guarantee that pure-dose rows still land in DoseRegimen with no R1 attribution flags
+7. `PkParser_R1_SingleColumn_DescriptivePhraseFallsThroughToUnknown` — "Adults given 50 mg once daily N=12" falls to Unknown, lands in DoseRegimen pre-R1 style
+8. `PkParser_R1_AdverseEventShape_DoesNotCrossContaminate` — MedDRA PT terms ("Nausea", "Headache") never get misrouted to Timepoint by the classifier
+
+**Verification**:
+- `dotnet build MedRecProImportClass.csproj` — 0 errors, 143 warnings (all pre-existing).
+- `dotnet test MedRecProTest.csproj` — **1410/1410 passing** (up from 1402; 8 new R1 tests; **0 regressions**). PK-parser-filtered run: 44/44. AE parsers and Phase 2 enforcement tests untouched.
+- Corpus recompute deferred — user will re-run the pipeline and regenerate `PK_Table_Sample.json` to measure actual compliance delta against the R1 baseline. Expected lift: `TreatmentArm 4.3%→~20%`, `DoseRegimen 13.3%→~65%`, `Population 0%→~15%`, `Timepoint 0%→~10%`. Additional deltas require Wave 1 R2 (context-column suppression) and R3 (section-divider suppression).
+
+**Files changed** (modified):
+- `MedRecProImportClass/Service/TransformationServices/DoseExtractor.cs` — `_doseFragmentPattern` regex + new `public static StripDoseFragment`
+- `MedRecProImportClass/Service/TransformationServices/PkTableParser.cs` — `_timepointLabelPattern`, `_drugNameHeuristicPattern`, `RowLabelKind` enum, `RowLabelClassification` struct, `classifyRowLabel` method; `Parse` two-column path and single-column path rewritten to use the classifier with Unknown fallback preserving pre-R1 behavior
+- `MedRecProTest/TableParserTests.cs` — new "PK R1 Row-Label Classification" region (8 tests)
+
+**Still deferred** (next waves):
+- Wave 1 R2 (context-column suppression — "Dose of Co-administered Drug", "Subject Group", "n" columns shouldn't produce observations)
+- Wave 1 R3 (section-divider suppression — "**Single dose**", "**Multiple dose**" rows)
+- Wave 2 R4 (Unicode variants: `t1⁄2` U+2044, "Serum T1/2" prefix)
+- Wave 2 R5 (missing PK aliases: CLREN/CLcr, Cmax1/Cmax2, Vdss→Vss, Peak Conc.→Cmax, C24/C72, tlag, AUCtldc)
+- Wave 2 R6 (Subtype non-PK routing — drugs/doses/populations/timepoints/metabolites/header echoes routed out of Subtype)
+- Wave 2 R7 (unconditional Name fitness + Timepoint write bug)
+- Wave 3 R8 (DDI downgrade in classifier), R9 (ML.NET loading), R10 (Unit extraction)
+
+---
+
+### 2026-04-21 11:33 AM EST — Wave 1 R1 Validation + R1.1 Follow-Up Patch
+
+User ran the production pipeline against the corpus with the 2026-04-20 R1 build and shared `standardization-report-20260421-094128.md` for validation against the pre-R1 baseline. Comparing 1,466 PK tables (30,296 Stage 3 observation rows) between the two reports confirmed R1 is active and measurably working — but also surfaced a correctness regression that required an immediate follow-up patch (R1.1).
+
+**Validation outcome (R1 goals assessment)**:
+
+| Metric | Pre-R1 | Post-R1 | Delta | R1 target |
+|---|---|---|---|---|
+| PK Stage 3 rows with `Arm` populated | 1,603 (5.3%) | **7,621 (25.2%)** | **+6,018 / +19.9 pp** | ~20% |
+
+**Quantitative R1 target exceeded (25.2% vs ~20%).** Spot checks:
+- TID 571 (Azithromycin DDI) — all 80 rows pre-R1 had `Arm = -`; post-R1 every row shows the co-administered drug name (Atorvastatin, Carbamazepine, Cetirizine, etc.). Clearest demonstration of single-column + two-column classifier routing.
+- TID 2069 (Norfloxacin renal) — `Male` / `Female` / `Young` / `Elderly` / `Hemodialysis` / `CAPD` rows now populate Arm (but this turned out to be the BUG case, not a success — see R1.1 below).
+- TIDs 126 / 127 / 184 / 569 / 13202 / 1 — no Stage 3 Arm change (backward-compat preserved).
+- TID 13203 — multi-word labels (`Healthy Subjects`, `Patients With Liver Disease`) still fall to Unknown because they don't match the dictionary or regex; R1.1 partially addresses via new regex.
+
+**Correctness regression discovered**: the top 50 Arm values post-R1 contain ~832 rows (10.9%) of mis-routed content across 3 families:
+1. **Population stratifiers routing to TreatmentArm** — `Male` (98), `Female` (98), `Young` (98), `Hemodialysis` (98), `Elderly`, `Pediatric Subjects` (80)
+2. **Food-state labels routing to TreatmentArm** — `Light Breakfast` (72)
+3. **ADME section dividers routing to TreatmentArm** — `Metabolism` (63), `Distribution` (61), `Elimination` (60), `Absorption` (47), plus generic header echoes like `Parameter` (57)
+
+**Root cause investigation** revealed two distinct layers:
+- The `_drugNameHeuristicPattern` (R1 step 5) is too permissive — matches any capitalized 3-25 char token that isn't in `PkParameterDictionary.IsPkParameter` and isn't matched by `PopulationDetector.TryMatchLabel`. `PopulationDetector._labelToCanonical` only had 12 entries and the regex second-pass only covered age ranges / infants / renal-creatinine-clearance / trimesters — missing sex, bare-age-strata, dialysis status, ADME dividers.
+- **More critical discovery**: TID 2069's `Male/Female/Young/Elderly/Hemodialysis` routing to TreatmentArm was NOT from the R1 single-column classifier — TID 2069 has `InferredHeader + SocDividers` flags, which routes it through `parseCompoundLayout` (`PkTableParser.cs:1221`). That path has `o.TreatmentArm = armLabel;` at line 1310 UNCONDITIONALLY, without any classification. **R1 only modified single-column and two-column paths; the compound-layout path was untouched and is where most of the post-R1 false positives came from.** This is a gap I missed in the R1 design — the compound path handles a sizable fraction of the corpus (tables with InferredHeader + SocDividers).
+
+**Wave 1 R1.1 implementation**:
+
+- **`PopulationDetector._labelToCanonical` expansion** — added 20+ entries covering the observed false-positive families:
+  - Sex strata: `Male` / `Males` → "Male", `Female` / `Females` → "Female"
+  - Bare age strata: `Young` / `Young Adults` → "Young Adults", `Elderly Subjects` / `Elderly Patients` → "Elderly", `Children` → "Pediatric", `Infants` → "Infants", `Adolescents` → "Adolescents"
+  - Dialysis status: `Hemodialysis` / `Hemodialysis Patients` → "Hemodialysis Patients", `CAPD` / `CAPD Patients` → "CAPD Patients", `Peritoneal Dialysis` → "Peritoneal Dialysis Patients"
+  - Subject-group compound forms: `Pediatric Subjects` → "Pediatric", `Adult Subjects` → "Adult", `Healthy` → "Healthy Volunteers"
+  - HIV-specific populations: `HIV-1-Infected Pediatric Subjects`, `HIV-1-Infected Adults`
+
+- **`PopulationDetector._populationRegexPatterns` extensions** — two new patterns:
+  - Age-qualified Subjects with descriptor trailer: `^\s*(?<pop>Elderly|Young|Adult|Pediatric|Geriatric|Healthy|Hemodialysis)\s+(?:Subjects?|Patients?|Volunteers?|Adults?|Children)\b` → canonicalizes to the bare age stratum. Handles "Elderly Subjects (mean age, 70.5 year)" → "Elderly" and "Healthy Subjects (N=18)" → "Healthy Volunteers".
+  - Patients-with-condition: `^\s*Patients?\s+[Ww]ith\s+(?<cond>Renal|Hepatic|Cardiac|Liver|Kidney)\s+(?<state>Impairment|Disease|Failure|Dysfunction)` → "{Condition} {State}" canonical form. Handles "Patients With Liver Disease" → "Liver Disease", "Patients with Renal Impairment" → "Renal Impairment".
+
+- **`PkTableParser._nonDrugNegativeList`** — new `HashSet<string>` with 30+ entries rejecting non-drug capitalized tokens before they reach the drug-name heuristic:
+  - ADME section dividers: `Absorption`, `Distribution`, `Metabolism`, `Elimination`, `Excretion`, `Protein Binding`, `Disposition`
+  - Generic schema / header echoes: `Parameter`(s), `Value`(s), `Estimate`(s), `Mean`, `Median`, `Range`, `Subject`(s), `Patient`(s), `Group`(s), `Dose`(s), `Route`(s), `Schedule`, `Regimen`(s), `Formulation`(s), `Comparison`(s), `Treatment`(s), `Condition`(s), `Study`, `Studies`, `Trial`(s), `Analyte`(s), `Control`(s), `Placebo`, `Baseline`, `Single dose`, `Multiple dose`, `Steady state`
+  - Wired into `classifyRowLabel` step 5 — the drug heuristic now checks `!_nonDrugNegativeList.Contains(text)` before matching. On reject, falls through to `RowLabelKind.Unknown` (pre-R1 fallback) — safer than wrong routing.
+
+- **`_timepointLabelPattern` extensions** — added food-state qualifiers: `fasted`, `fasting`, `fed\s+state`, `light\s+breakfast`, `high[\s-]?fat\s+meal`, `moderate[\s-]?fat\s+meal`, `low[\s-]?fat\s+meal`. These route to Timepoint rather than TreatmentArm. The bare word "Fed" is intentionally excluded to avoid accidental substring matches in drug names.
+
+- **`parseCompoundLayout` R1.1 patch** (most impactful change) — the compound-layout path (line ~1275 onward) now calls `classifyRowLabel(col0Text)` and routes to the appropriate column per the classifier's Kind:
+  - `RowLabelKind.Population` → `armLabel = null`, `Population = classifier's canonical`, flag `PK_COMPOUND_POP_ROUTED` (or `_REGEX`)
+  - `RowLabelKind.Timepoint` → `armLabel = null`, `Timepoint/Time/TimeUnit` from classifier, flag `PK_COMPOUND_TIMEPOINT_ROUTED`
+  - `RowLabelKind.DrugPlusDose` → `armLabel = drug prefix`, `currentDoseRegimen = dose fragment` (only when dose column is empty), flag `PK_COMPOUND_ARM_DOSE_SPLIT`
+  - `RowLabelKind.TreatmentArm` / `DoseRegimen` / `Unknown` → pre-R1.1 behavior preserved (col 0 → TreatmentArm). This is the DOMINANT happy path for compound tables (drug-name row labels in renal/hepatic impairment tables).
+  - `ArmN` extraction from col 0 `(n=X)` trailer runs REGARDLESS of classification — ArmN attaches to the observation regardless of which context column holds the col-0 label.
+
+- **Existing test updates (4 tests)** — the `PkParser_CompoundHeader_*` tests encoded the pre-R1.1 contract-violating behavior (all compound-layout col 0 → TreatmentArm). Updated to reflect the correct post-R1.1 routing:
+  - `_RowLabelToTreatmentArm` — now asserts every row has TreatmentArm OR Population populated; "Healthy Volunteers ..." routes to Population; "Alcoholic Cirrhosis" still in TreatmentArm (Unknown fallback)
+  - `_ArmNExtraction` — queries Population (not TreatmentArm) for Healthy-Volunteer rows; ArmN assertion unchanged
+  - `_TimeParamDetected` — query updated to Population
+  - `_CaptionArmN_Fallback_DoesNotOverrideExisting` — query updated to Population for Healthy-Volunteer row; Cirrhosis query unchanged
+
+- **8 new R1.1 tests** (`TableParserTests.cs` new `#region PK R1.1 PopulationDetector + Compound-Layout Routing`):
+  1. `PkParser_R1_1_SexStratumRoutesToPopulation_NotTreatmentArm` — Male / Female → Population
+  2. `PkParser_R1_1_BareAgeStratumRoutesToPopulation` — Young → "Young Adults", Elderly → "Elderly"
+  3. `PkParser_R1_1_DialysisStatusRoutesToPopulation` — Hemodialysis / CAPD → Population
+  4. `PkParser_R1_1_ElderlySubjectsWithTrailerRoutesToPopulation` — "Elderly Subjects (mean age, 70.5 year)" → "Elderly"
+  5. `PkParser_R1_1_AdmeDividerDoesNotRouteToTreatmentArm` — Absorption / Distribution / Metabolism / Elimination → Unknown fallback
+  6. `PkParser_R1_1_GenericHeaderEchoDoesNotRouteToTreatmentArm` — Parameter / Subject / Mean → no routing
+  7. `PkParser_R1_1_FoodStateRoutesToTimepoint` — Fasted / Light Breakfast / High-Fat Meal → Timepoint
+  8. `PkParser_R1_1_CompoundLayout_PopulationRoutesCorrectly` — compound layout end-to-end: "Healthy Volunteers GFR..." → Population, ArmN=6 preserved, `PK_COMPOUND_POP_ROUTED` flag emitted
+
+**Verification**:
+- `dotnet build MedRecProImportClass.csproj` — 0 errors, 143 warnings (all pre-existing).
+- `dotnet test MedRecProTest.csproj` — **1418/1418 passing**. 1410 baseline (after R1) + 8 new R1.1 tests. 4 existing compound-header tests were updated (not newly failing) to reflect the corrected contract routing. **Zero regressions in non-compound tests.**
+- Iteration: initial R1.1 run had 4 test failures in existing compound-header tests — these encoded the old (contract-violating) behavior where all compound-layout col 0 text went to TreatmentArm. Updated the test assertions to the correct post-R1.1 state (population labels → Population, ArmN preserved). Test changes were mechanical — switching `r.TreatmentArm!.Contains("Healthy Volunteers")` → `r.Population?.Contains("Healthy Volunteers") == true`.
+
+**Expected R1.1 corpus impact** (user will re-run the pipeline to measure):
+- The 832+ rows in the top-50 false-positive families should drop out of the `Arm` column
+- Total `Arm` population stays ≥ 25% (the drug-routing wins remain; only the mis-routed content moves out)
+- `Population` column — currently 0% populated in JSON dump — should rise substantially (Population is not visible in the Stage 3 report's column set; requires JSON regeneration to measure)
+- `Timepoint` column — gains the Food-state rows (~72+)
+
+**Files changed**:
+- `MedRecProImportClass/Service/TransformationServices/PopulationDetector.cs` — 20+ new dictionary entries + 2 new regex patterns
+- `MedRecProImportClass/Service/TransformationServices/PkTableParser.cs` — `_timepointLabelPattern` extended with food-state; `_nonDrugNegativeList` added; `classifyRowLabel` step 5 checks negative list; `parseCompoundLayout` applies `classifyRowLabel` with destination-routing switch
+- `MedRecProTest/TableParserTests.cs` — 4 existing compound-header tests updated; 8 new R1.1 tests added
+- `C:\Users\chris\.claude\plans\c-users-chris-documents-ai-prompts-pk-t-steady-dongarra.md` — Wave 1 R1 validation section + Wave 1 R1.1 scope section
+
+**Follow-ups still deferred**:
+- User needs to regenerate `standardization-report-YYYYMMDD-HHMMSS.md` and `PK_Table_Sample.json` with the R1.1 build to quantify the actual post-R1.1 compliance impact
+- Wave 1 R2 (context-column suppression — "Dose of Co-administered Drug" / "Subject Group" / "n" columns shouldn't emit observations). Deferred to the next session.
+- Wave 1 R3 (section-divider suppression — `**Single dose**` / `**Multiple dose**` rows)
+- Waves 2 and 3 unchanged from original plan
+
+---

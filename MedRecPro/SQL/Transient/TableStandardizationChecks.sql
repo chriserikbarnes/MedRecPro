@@ -69,7 +69,7 @@ SELECT
         [ValidationFlags]
     FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS JsonLine
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-WHERE TableCategory = 'PK'
+WHERE TableCategory = 'PK' and TextTableID < 18000
 ORDER BY [TextTableID];
 
 PRINT @header;

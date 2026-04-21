@@ -167,6 +167,247 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^\s*\d+(?:\.\d+)?\s*(mg|mcg|µg|μg|g|ng|kg|mL|units?|U|IU)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /**************************************************************/
+        /// <summary>
+        /// Matches pure timepoint row labels — "Day N", "Week N", "N days", "N weeks",
+        /// "N hours", "N months", "single dose", "steady state", "predose", clock
+        /// ranges ("08:00 to 13:00"), and the short-form "C0", "C24", "C72".
+        /// </summary>
+        /// <remarks>
+        /// Anchored to start of string so free-form prose with an embedded
+        /// "Day N" fragment is not misrouted to Timepoint. Used by
+        /// <see cref="classifyRowLabel"/>.
+        /// </remarks>
+        private static readonly Regex _timepointLabelPattern = new(
+            @"^\s*(?:"
+          + @"(?:Day|Week|Month|Cycle|Visit)\s+\d+"
+          + @"|\d+(?:\.\d+)?\s*(?:days?|weeks?|hours?|hrs?|h|months?|minutes?|min)"
+          + @"|\d+\s*(?:to|[-–])\s*\d+\s*(?:days?|weeks?|hours?|months?)"
+          + @"|single\s+dose|steady[\s-]?state|pre[-\s]?dose|post[-\s]?dose|baseline"
+          + @"|\d{1,2}:\d{2}(?:\s*(?:to|[-–])\s*\d{1,2}:\d{2})?"
+          + @"|C\d{1,3}(?:h|hr|hrs|hour|hours)?"
+          // R1.1: food / fasting state qualifiers — these appear as col 0 labels
+          // in food-effect PK tables and belong in Timepoint (or a fasting qualifier)
+          // rather than TreatmentArm. "Fed" alone is intentionally excluded to avoid
+          // accidentally matching drug-name substrings; the multi-word forms are
+          // specific enough.
+          + @"|fasted|fasting|fed\s+state|light\s+breakfast|high[\s-]?fat\s+meal|moderate[\s-]?fat\s+meal|low[\s-]?fat\s+meal"
+          + @")\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Heuristic pattern for "looks like a single drug name" — a capitalized
+        /// token (or two tokens separated by a slash / hyphen) with no digits and
+        /// no dose unit. Used only as a last-resort routing hint when other
+        /// classifications fail. Deliberately conservative to avoid false routing
+        /// of descriptive phrases or captions.
+        /// </summary>
+        /// <remarks>
+        /// Rejects strings with digits, parentheses, or trailing verbs. Accepts:
+        /// "Atorvastatin", "Trimethoprim/Sulfamethoxazole", "Lopinavir-Ritonavir".
+        /// Rejects: "Healthy Subjects", "Adults given 50 mg once daily for 7 days".
+        /// </remarks>
+        private static readonly Regex _drugNameHeuristicPattern = new(
+            @"^[A-Z][a-zA-Z]{2,24}(?:[/\-][A-Z]?[a-zA-Z]{2,24}){0,2}\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.1 — Negative list for the drug-name heuristic. These capitalized
+        /// tokens pass the permissive <see cref="_drugNameHeuristicPattern"/>
+        /// but are NOT drug names — they are ADME section-divider words,
+        /// generic row labels, or schema-keyword echoes. Rejecting them forces
+        /// <see cref="classifyRowLabel"/> to return <see cref="RowLabelKind.Unknown"/>
+        /// so the pre-R1 fallback (col 0 → DoseRegimen / ParameterSubtype)
+        /// applies — never route these to TreatmentArm.
+        /// </summary>
+        /// <remarks>
+        /// Derived from the 2026-04-21 post-R1 audit: the top 50 Arm values
+        /// included 11 families of non-drug content (Metabolism, Distribution,
+        /// Elimination, Absorption, Parameter, Subject/Subjects, etc.) that
+        /// were polluting TreatmentArm. Single-word sex / age-strata / dialysis
+        /// terms are handled differently — they route to Population via the
+        /// expanded <see cref="PopulationDetector"/> dictionary, which is checked
+        /// BEFORE this negative list.
+        /// </remarks>
+        private static readonly HashSet<string> _nonDrugNegativeList = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // ADME section dividers (pharmacology process categories)
+            "Absorption", "Distribution", "Metabolism", "Elimination",
+            "Excretion", "Protein Binding", "Disposition",
+            // Generic schema / header echoes
+            "Parameter", "Parameters", "Value", "Values",
+            "Estimate", "Estimates", "Mean", "Median", "Range",
+            "Subject", "Subjects", "Patient", "Patients",
+            "Group", "Groups", "Dose", "Doses",
+            "Route", "Routes", "Schedule", "Regimen", "Regimens",
+            "Formulation", "Formulations", "Comparison", "Comparisons",
+            "Treatment", "Treatments", "Condition", "Conditions",
+            "Study", "Studies", "Trial", "Trials", "Analyte", "Analytes",
+            "Control", "Controls", "Placebo", "Baseline",
+            // Compound-header row-1 echoes observed in TID 569 / 2069 shape
+            "Single dose", "Multiple dose", "Steady state",
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Classification for the leading (col 0) row-label text in a PK data row.
+        /// Drives which context column(s) the label populates: Population / TreatmentArm /
+        /// DoseRegimen / Timepoint / compound TreatmentArm+DoseRegimen. Returns
+        /// <see cref="Unknown"/> when no confident classification can be made — in
+        /// that case the existing fallback path (DoseRegimen or ParameterSubtype)
+        /// preserves backward compatibility.
+        /// </summary>
+        private enum RowLabelKind
+        {
+            /// <summary>No confident classification — caller retains existing fallback behavior.</summary>
+            Unknown = 0,
+            /// <summary>Label matches the population dictionary / regex (e.g., "Healthy Subjects", "CLCR 50-80 mL/min").</summary>
+            Population,
+            /// <summary>Label is a pure drug name with no embedded dose (e.g., "Atorvastatin").</summary>
+            TreatmentArm,
+            /// <summary>Label is a pure dose regimen with no drug-name prefix (e.g., "500 mg oral").</summary>
+            DoseRegimen,
+            /// <summary>Label is a timepoint / visit descriptor (e.g., "Day 14", "Single Dose", "C72").</summary>
+            Timepoint,
+            /// <summary>Label is a compound drug + dose string (e.g., "Atorvastatin 10 mg/day for 8 days").</summary>
+            DrugPlusDose,
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Outcome of <see cref="classifyRowLabel"/> — the chosen <see cref="RowLabelKind"/>
+        /// plus the destination-column values the parser should apply to each PK
+        /// observation in the row. Values default to null; only the fields that
+        /// correspond to the chosen kind are populated.
+        /// </summary>
+        private readonly struct RowLabelClassification
+        {
+            public RowLabelKind Kind { get; init; }
+            public string? Population { get; init; }
+            public string? TreatmentArm { get; init; }
+            public string? DoseRegimen { get; init; }
+            public string? Timepoint { get; init; }
+            public double? Time { get; init; }
+            public string? TimeUnit { get; init; }
+            public bool MatchedPopulationViaRegex { get; init; }
+
+            public static readonly RowLabelClassification Unknown = new() { Kind = RowLabelKind.Unknown };
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Classifies the col 0 row-label text into one of the <see cref="RowLabelKind"/>
+        /// categories and returns the resolved destination-column values. Priority order:
+        /// 1. Pure dose (no text prefix)      → DoseRegimen
+        /// 2. Timepoint pattern match         → Timepoint + Time + TimeUnit
+        /// 3. Population dictionary / regex   → Population
+        /// 4. Drug + dose compound            → TreatmentArm + DoseRegimen
+        /// 5. Drug-name heuristic (bare word) → TreatmentArm
+        /// 6. Otherwise                       → Unknown (caller falls back)
+        /// </summary>
+        /// <remarks>
+        /// Only returns non-Unknown when the classification is confident. This
+        /// preserves backward compatibility: rows that don't match any rule
+        /// continue to receive the pre-R1 behavior (single-column → DoseRegimen,
+        /// two-column → ParameterSubtype). Population tests already fire in both
+        /// paths; this method consolidates and extends the routing so drug-name
+        /// and timepoint-only labels also find their correct column.
+        /// </remarks>
+        /// <param name="col0Text">The trimmed col 0 cell text.</param>
+        /// <returns>Classification with resolved values, or Unknown when no rule fires.</returns>
+        private static RowLabelClassification classifyRowLabel(string? col0Text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(col0Text))
+                return RowLabelClassification.Unknown;
+
+            var text = col0Text.Trim();
+
+            // 1. Pure dose regimen — col 0 is just a dose like "500 mg" or "1 g/kg oral"
+            //    with no text prefix before the number. DoseExtractor returns a dose
+            //    and the text BEFORE the first digit is empty / whitespace.
+            var (dose, doseUnit) = DoseExtractor.Extract(text);
+            if (dose.HasValue)
+            {
+                var firstDigit = text.IndexOfAny("0123456789".ToCharArray());
+                var prefix = firstDigit > 0 ? text[..firstDigit].Trim() : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(prefix))
+                {
+                    return new RowLabelClassification
+                    {
+                        Kind = RowLabelKind.DoseRegimen,
+                        DoseRegimen = text,
+                    };
+                }
+
+                // 4. Drug + dose compound — prefix is a non-empty word that passes the
+                //    conservative drug-name heuristic AND is not a known population.
+                //    Split into TreatmentArm (prefix) + DoseRegimen (everything from
+                //    the first digit onward).
+                var isPop = PopulationDetector.TryMatchLabel(prefix, out _);
+                var isPkTerm = PkParameterDictionary.IsPkParameter(prefix);
+                if (!isPop && !isPkTerm && _drugNameHeuristicPattern.IsMatch(prefix))
+                {
+                    return new RowLabelClassification
+                    {
+                        Kind = RowLabelKind.DrugPlusDose,
+                        TreatmentArm = prefix,
+                        DoseRegimen = text[firstDigit..].Trim(),
+                    };
+                }
+                // Prefix didn't pass drug heuristic — fall through so existing
+                // behavior (col0Text → DoseRegimen or ParameterSubtype) applies.
+            }
+
+            // 2. Timepoint — "Day 14", "5 days", "Single Dose", "08:00 to 13:00", "C72"
+            if (_timepointLabelPattern.IsMatch(text))
+            {
+                var (time, timeUnit, timepoint) = extractDuration(text);
+                return new RowLabelClassification
+                {
+                    Kind = RowLabelKind.Timepoint,
+                    Timepoint = timepoint ?? text,
+                    Time = time,
+                    TimeUnit = timeUnit,
+                };
+            }
+
+            // 3. Population — TryMatchLabel runs both the strict dictionary and the
+            //    regex second-pass (age ranges, renal bands, trimesters).
+            if (PopulationDetector.TryMatchLabel(text, out var popCanonical, out var matchedViaRegex))
+            {
+                return new RowLabelClassification
+                {
+                    Kind = RowLabelKind.Population,
+                    Population = popCanonical,
+                    MatchedPopulationViaRegex = matchedViaRegex,
+                };
+            }
+
+            // 5. Drug-name heuristic — last-resort bare drug token. Conservative
+            //    so descriptive phrases fall through to Unknown. R1.1: reject
+            //    ADME section dividers and generic schema-keyword echoes via
+            //    the negative list so these don't pollute TreatmentArm.
+            if (!PkParameterDictionary.IsPkParameter(text)
+                && !_nonDrugNegativeList.Contains(text)
+                && _drugNameHeuristicPattern.IsMatch(text))
+            {
+                return new RowLabelClassification
+                {
+                    Kind = RowLabelKind.TreatmentArm,
+                    TreatmentArm = text,
+                };
+            }
+
+            return RowLabelClassification.Unknown;
+
+            #endregion
+        }
+
         #region ITableParser Implementation
 
         /**************************************************************/
@@ -242,6 +483,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(col0Text))
                     continue;
 
+                // Classify col 0 row label once per row — feeds both layout paths
+                // and both paths preserve their existing fallback when the classifier
+                // returns Unknown. Kind == Population is honored before the legacy
+                // "col0 → ParameterSubtype" placement (two-column) and before the
+                // "col0 → DoseRegimen" placement (single-column).
+                var rowLabel = classifyRowLabel(col0Text);
+
                 // --- Two-column context layout ---
                 if (hasDoseColumn)
                 {
@@ -270,31 +518,82 @@ namespace MedRecProImportClass.Service.TransformationServices
                             o.ParameterName = param.name;
                             o.ParameterCategory = currentCategory;
 
-                            // If col 0 is a known population descriptor (e.g., "Poor"
-                            // CYP2C19 phenotype, "Healthy Subjects"), route to Population
-                            // rather than park it in ParameterSubtype. This preserves the
-                            // PK ParameterName and keeps the phenotype queryable. The
-                            // routed row-level value beats the table-level caption-derived
-                            // default because the row label is strictly more specific.
-                            var col0IsPop = PopulationDetector.TryMatchLabel(col0Text, out var col0Pop);
-                            if (col0IsPop)
+                            // R1 — Apply row-label classification. Each Kind routes col 0
+                            // to its contract-assigned column(s); Unknown falls through to
+                            // the pre-R1 behavior (col 0 → ParameterSubtype) for backward
+                            // compatibility. Population routing via TryMatchLabel dictionary
+                            // or regex keeps firing under Kind == Population.
+                            switch (rowLabel.Kind)
                             {
-                                o.Population = col0Pop;
-                                o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_POP_ROUTED");
-                            }
-                            else
-                            {
-                                o.ParameterSubtype = col0Text;
-                                o.Population = population;
+                                case RowLabelKind.Population:
+                                    o.Population = rowLabel.Population;
+                                    o.ValidationFlags = appendFlag(
+                                        o.ValidationFlags,
+                                        rowLabel.MatchedPopulationViaRegex
+                                            ? "PK_COL0_POP_ROUTED_REGEX"
+                                            : "PK_COL0_POP_ROUTED");
+                                    break;
+
+                                case RowLabelKind.TreatmentArm:
+                                    o.TreatmentArm = rowLabel.TreatmentArm;
+                                    o.Population = population;
+                                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_ARM_ROUTED");
+                                    break;
+
+                                case RowLabelKind.DrugPlusDose:
+                                    o.TreatmentArm = rowLabel.TreatmentArm;
+                                    o.Population = population;
+                                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_ARM_DOSE_SPLIT");
+                                    // Dose regimen from the col 0 split — only used when the
+                                    // dedicated dose column (doseColumnIndex) cell is blank.
+                                    // Otherwise the explicit dose column wins per existing
+                                    // two-column contract.
+                                    if (string.IsNullOrWhiteSpace(doseRegimen))
+                                    {
+                                        doseRegimen = rowLabel.DoseRegimen;
+                                        (time, timeUnit, timepoint) = extractDuration(doseRegimen);
+                                    }
+                                    break;
+
+                                case RowLabelKind.Timepoint:
+                                    o.Timepoint = rowLabel.Timepoint;
+                                    o.Time = rowLabel.Time;
+                                    o.TimeUnit = rowLabel.TimeUnit;
+                                    o.Population = population;
+                                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_TIMEPOINT_ROUTED");
+                                    break;
+
+                                case RowLabelKind.DoseRegimen:
+                                    // Rare in two-column (dedicated dose col usually present)
+                                    // but handle for defensive completeness.
+                                    if (string.IsNullOrWhiteSpace(doseRegimen))
+                                    {
+                                        doseRegimen = rowLabel.DoseRegimen;
+                                        (time, timeUnit, timepoint) = extractDuration(doseRegimen);
+                                    }
+                                    o.Population = population;
+                                    break;
+
+                                case RowLabelKind.Unknown:
+                                default:
+                                    // Pre-R1 fallback: park col 0 in ParameterSubtype. Phase 2
+                                    // enforcement (Stage 3.25 applyPkCanonicalization) will
+                                    // further route non-qualifier content out of Subtype.
+                                    o.ParameterSubtype = col0Text;
+                                    o.Population = population;
+                                    break;
                             }
 
                             o.DoseRegimen = doseRegimen;
                             var (pkDose1, pkDoseUnit1) = DoseExtractor.Extract(doseRegimen);
                             o.Dose = pkDose1;
                             o.DoseUnit = pkDoseUnit1;
-                            o.Timepoint = timepoint;
-                            o.Time = time;
-                            o.TimeUnit = timeUnit;
+                            if (o.Timepoint == null)
+                            {
+                                o.Timepoint = timepoint;
+                                o.Time = time;
+                                o.TimeUnit = timeUnit;
+                            }
                             o.Unit = param.unit;
 
                             parseAndApplyPkValue(table, o, cell, param, captionHint);
@@ -303,12 +602,61 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
                     });
                 }
-                // --- Standard single-column layout (existing behavior) ---
+                // --- Standard single-column layout (existing behavior, R1-enhanced) ---
                 else
                 {
-                    // Determine DoseRegimen vs Population based on column 0 header
-                    var doseRegimen = col0IsPopulation ? null : col0Text;
-                    var rowPopulation = col0IsPopulation ? col0Text : population;
+                    // Baseline behavior: when col0IsPopulation (header keyword), col 0 → Population
+                    // and DoseRegimen is null. Else col 0 → DoseRegimen. R1 layers row-label
+                    // classification on top so "Atorvastatin 10 mg/day" splits to TreatmentArm
+                    // + DoseRegimen, "Healthy Subjects" routes to Population even when the
+                    // header didn't flag col 0 as Population, and "Day 14" routes to Timepoint.
+                    string? doseRegimen = null;
+                    string? rowTreatmentArm = null;
+                    string? rowPopulation = population;
+                    string? rowTimepointOverride = null;
+                    double? rowTimeOverride = null;
+                    string? rowTimeUnitOverride = null;
+
+                    if (col0IsPopulation)
+                    {
+                        rowPopulation = col0Text;
+                    }
+                    else
+                    {
+                        switch (rowLabel.Kind)
+                        {
+                            case RowLabelKind.Population:
+                                rowPopulation = rowLabel.Population;
+                                break;
+
+                            case RowLabelKind.TreatmentArm:
+                                rowTreatmentArm = rowLabel.TreatmentArm;
+                                break;
+
+                            case RowLabelKind.DrugPlusDose:
+                                rowTreatmentArm = rowLabel.TreatmentArm;
+                                doseRegimen = rowLabel.DoseRegimen;
+                                break;
+
+                            case RowLabelKind.Timepoint:
+                                rowTimepointOverride = rowLabel.Timepoint;
+                                rowTimeOverride = rowLabel.Time;
+                                rowTimeUnitOverride = rowLabel.TimeUnit;
+                                break;
+
+                            case RowLabelKind.DoseRegimen:
+                                doseRegimen = rowLabel.DoseRegimen;
+                                break;
+
+                            case RowLabelKind.Unknown:
+                            default:
+                                // Pre-R1 fallback: col 0 → DoseRegimen (preserves all
+                                // existing single-column behavior).
+                                doseRegimen = col0Text;
+                                break;
+                        }
+                    }
+
                     var (time, timeUnit, timepoint) = extractDuration(doseRegimen);
 
                     parseRowSafe(table, row, observations, (r, obs) =>
@@ -326,10 +674,35 @@ namespace MedRecProImportClass.Service.TransformationServices
                             o.Dose = pkDose2;
                             o.DoseUnit = pkDoseUnit2;
                             o.Population = rowPopulation;
-                            o.Timepoint = timepoint;
-                            o.Time = time;
-                            o.TimeUnit = timeUnit;
+                            o.TreatmentArm = rowTreatmentArm;
+                            // Timepoint from the row-label classifier wins over the
+                            // dose-regimen-derived duration; else fall back to the
+                            // regimen-derived value.
+                            o.Timepoint = rowTimepointOverride ?? timepoint;
+                            o.Time = rowTimeOverride ?? time;
+                            o.TimeUnit = rowTimeUnitOverride ?? timeUnit;
                             o.Unit = param.unit;
+
+                            // Attribution flags so downstream can audit which R1 rule fired
+                            switch (rowLabel.Kind)
+                            {
+                                case RowLabelKind.Population:
+                                    o.ValidationFlags = appendFlag(
+                                        o.ValidationFlags,
+                                        rowLabel.MatchedPopulationViaRegex
+                                            ? "PK_COL0_POP_ROUTED_REGEX"
+                                            : "PK_COL0_POP_ROUTED");
+                                    break;
+                                case RowLabelKind.TreatmentArm:
+                                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_ARM_ROUTED");
+                                    break;
+                                case RowLabelKind.DrugPlusDose:
+                                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_ARM_DOSE_SPLIT");
+                                    break;
+                                case RowLabelKind.Timepoint:
+                                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_TIMEPOINT_ROUTED");
+                                    break;
+                            }
 
                             parseAndApplyPkValue(table, o, cell, param, captionHint);
 
@@ -955,9 +1328,66 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(col0Text))
                     continue;
 
-                // Col 0 = treatment arm label
-                var armLabel = col0Text;
-                var armN = extractArmNFromLabel(armLabel);
+                // R1.1 — Classify col 0 row label so compound-layout tables
+                // (e.g., TID 2069 Norfloxacin with `Male`/`Female`/`Young`/`Elderly`/
+                // `Hemodialysis`/`CLCR X to Y mL/min` row labels and `InferredHeader +
+                // SocDividers` flags) route population stratifiers to Population
+                // rather than sending col 0 straight to TreatmentArm. Pre-R1.1 the
+                // compound path unconditionally parked col 0 into TreatmentArm,
+                // producing the 832+ false-positive rows observed in the 2026-04-21
+                // post-R1 validation audit. `Unknown` falls back to the pre-R1.1
+                // behavior (TreatmentArm = col 0) to preserve drug-name / treatment
+                // arms (the common happy path for this layout).
+                var rowLabel = classifyRowLabel(col0Text);
+
+                // Col 0 = treatment arm label (default) — overridden per classification
+                string? armLabel = col0Text;
+                string? rowPopulationOverride = null;
+                string? rowTimepointOverride = null;
+                double? rowTimeOverride = null;
+                string? rowTimeUnitOverride = null;
+                string? attributionFlag = null;
+
+                switch (rowLabel.Kind)
+                {
+                    case RowLabelKind.Population:
+                        armLabel = null;
+                        rowPopulationOverride = rowLabel.Population;
+                        attributionFlag = rowLabel.MatchedPopulationViaRegex
+                            ? "PK_COMPOUND_POP_ROUTED_REGEX"
+                            : "PK_COMPOUND_POP_ROUTED";
+                        break;
+
+                    case RowLabelKind.Timepoint:
+                        armLabel = null;
+                        rowTimepointOverride = rowLabel.Timepoint;
+                        rowTimeOverride = rowLabel.Time;
+                        rowTimeUnitOverride = rowLabel.TimeUnit;
+                        attributionFlag = "PK_COMPOUND_TIMEPOINT_ROUTED";
+                        break;
+
+                    case RowLabelKind.DrugPlusDose:
+                        armLabel = rowLabel.TreatmentArm;
+                        // Only override the dose column if it's empty — the
+                        // explicit dose column keeps precedence in compound tables.
+                        if (string.IsNullOrWhiteSpace(currentDoseRegimen))
+                        {
+                            currentDoseRegimen = rowLabel.DoseRegimen;
+                        }
+                        attributionFlag = "PK_COMPOUND_ARM_DOSE_SPLIT";
+                        break;
+
+                    case RowLabelKind.TreatmentArm:
+                    case RowLabelKind.DoseRegimen:
+                    case RowLabelKind.Unknown:
+                    default:
+                        // Pre-R1.1 behavior: col 0 → TreatmentArm. This is the
+                        // dominant happy path for compound layouts (drug-name
+                        // row labels in renal/hepatic impairment tables).
+                        break;
+                }
+
+                var armN = extractArmNFromLabel(col0Text);
 
                 // Dose from dose column (carry forward if dose column present)
                 if (doseColIndex >= 0)
@@ -988,11 +1418,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var (pkDose3, pkDoseUnit3) = DoseExtractor.Extract(currentDoseRegimen);
                         o.Dose = pkDose3;
                         o.DoseUnit = pkDoseUnit3;
-                        o.Population = population;
-                        o.Timepoint = timepoint;
-                        o.Time = time;
-                        o.TimeUnit = timeUnit;
+                        o.Population = rowPopulationOverride ?? population;
+                        o.Timepoint = rowTimepointOverride ?? timepoint;
+                        o.Time = rowTimeOverride ?? time;
+                        o.TimeUnit = rowTimeUnitOverride ?? timeUnit;
                         o.Unit = param.unit;
+                        if (attributionFlag != null)
+                            o.ValidationFlags = appendFlag(o.ValidationFlags, attributionFlag);
 
                         parseAndApplyPkValue(table, o, cell, param, captionHint);
 
