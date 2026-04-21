@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 using Microsoft.EntityFrameworkCore;
@@ -1862,12 +1863,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Priority 1: PK sub-parameter match → route to ParameterSubtype
             if (PkParameterDictionary.IsPkParameter(val) || PkParameterDictionary.StartsWithPk(val))
             {
-                if (string.IsNullOrEmpty(obs.ParameterSubtype))
-                    obs.ParameterSubtype = val;
-                obs.DoseRegimen = null;
-                obs.Dose = null;
-                obs.DoseUnit = null;
-                appendFlag(obs, "COL_STD:PK_SUBPARAM_ROUTED");
+                DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.ParameterSubtype, val);
+                appendFlag(obs, DoseRegimenRoutingPolicy.FlagPkSubparamRouted);
                 return true;
             }
 
@@ -1891,36 +1888,24 @@ namespace MedRecProImportClass.Service.TransformationServices
                 (string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase)))
             {
-                if (string.IsNullOrEmpty(obs.ParameterSubtype))
-                    obs.ParameterSubtype = val;
-                obs.DoseRegimen = null;
-                obs.Dose = null;
-                obs.DoseUnit = null;
-                appendFlag(obs, "COL_STD:COADMIN_ROUTED");
+                DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.ParameterSubtype, val);
+                appendFlag(obs, DoseRegimenRoutingPolicy.FlagCoAdminRouted);
                 return true;
             }
 
             // Priority 4: Residual population pattern
             if (_residualPopulationPattern.IsMatch(val))
             {
-                if (string.IsNullOrEmpty(obs.Population))
-                    obs.Population = val;
-                obs.DoseRegimen = null;
-                obs.Dose = null;
-                obs.DoseUnit = null;
-                appendFlag(obs, "COL_STD:POPULATION_EXTRACTED");
+                DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.Population, val);
+                appendFlag(obs, DoseRegimenRoutingPolicy.FlagPopulationExtracted);
                 return true;
             }
 
             // Priority 5: Residual timepoint pattern
             if (_residualTimepointPattern.IsMatch(val))
             {
-                if (string.IsNullOrEmpty(obs.Timepoint))
-                    obs.Timepoint = val;
-                obs.DoseRegimen = null;
-                obs.Dose = null;
-                obs.DoseUnit = null;
-                appendFlag(obs, "COL_STD:TIMEPOINT_EXTRACTED");
+                DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.Timepoint, val);
+                appendFlag(obs, DoseRegimenRoutingPolicy.FlagTimepointExtracted);
                 return true;
             }
 
@@ -1928,9 +1913,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (val.Equals("Co-administered Drug", StringComparison.OrdinalIgnoreCase) ||
                 val.Equals("Coadministered Drug", StringComparison.OrdinalIgnoreCase))
             {
-                obs.DoseRegimen = null;
-                obs.Dose = null;
-                obs.DoseUnit = null;
+                DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.None);
                 appendFlag(obs, "COL_STD:ROW_TYPE=HEADER");
                 return true;
             }
@@ -3182,21 +3165,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Appends a standardization flag to the observation's ValidationFlags field.
-        /// Follows the existing semicolon-delimited convention used by BatchValidationService.
+        /// Appends a standardization flag to the observation's ValidationFlags field. Delegates
+        /// to the shared <see cref="ValidationFlagExtensions.AppendValidationFlag"/> helper so
+        /// the delimiter convention (<c>"; "</c>) stays in one place across services.
         /// </summary>
         /// <param name="obs">Observation to flag.</param>
         /// <param name="flag">Flag string to append (e.g., "COL_STD:ARM_WAS_N").</param>
-        private static void appendFlag(ParsedObservation obs, string flag)
-        {
-            #region implementation
-
-            obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
-                ? flag
-                : $"{obs.ValidationFlags}; {flag}";
-
-            #endregion
-        }
+        private static void appendFlag(ParsedObservation obs, string flag) => obs.AppendValidationFlag(flag);
 
         /**************************************************************/
         /// <summary>

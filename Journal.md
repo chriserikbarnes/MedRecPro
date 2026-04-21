@@ -2445,3 +2445,47 @@ User ran the production pipeline against the corpus with the 2026-04-20 R1 build
 - Waves 2 and 3 unchanged from original plan
 
 ---
+
+### 2026-04-21 1:17 PM EST — WET Remediation: 7-Phase TransformationServices Refactor
+
+Completed the full WET-remediation plan for `MedRecProImportClass.Service.TransformationServices`. The plan was verified against the current source by two parallel Explore agents, then refined with user input on Phase 6/7 scope before execution.
+
+**Phases landed (in order):**
+
+1. **Phase 1 + 2 — DoseRegimen routing policy + flag constants.** New `MedRecProImportClass/Helpers/DoseRegimenRoutingPolicy.cs` centralizes: four `COL_STD:*_ROUTED` / `_EXTRACTED` flag constants, the four target-label constants (`ParameterSubtype` / `Population` / `Timepoint` / `Keep`), a `RouteTarget` enum, and five primitives (`HasRoutingFlag`, `IsAlreadyRouted`, `RouteTargetFromFlags`, `ParseTarget`, `TargetLabel`, `ApplyRoute`). **Key design decision:** the two services' regex decision trees are intentionally *not* centralized — `ColumnStandardizationService._residualPopulationPattern` is anchored with pediatric/neonatal/kg-range coverage while `MlNetCorrectionService._residualPopulationPattern` is narrower word-boundary — combining them would change ML label-synthesis behavior. Only the shared primitives are extracted. `ApplyRoute` takes an optional `sourceValue` parameter to preserve the pre-existing difference between rule-based (assigns trimmed value) and ML-based (assigns raw `obs.DoseRegimen`) paths. Redirected `normalizeDoseRegimen` priorities 1/3/4/5/6, deleted `routeDoseRegimen` (only one caller), simplified the ML Stage 2 skip-guard from 5-line boolean chain to a single call.
+
+2. **Phase 3 — Accumulator-cap helper.** New `appendAndCapAccumulator(List<MlTrainingRecord>)` private method replaces ~15 lines of duplicated AddRange + overflow-trim + cursor-shift logic in both `accumulateBatch` and the ephemeral branch of `FeedClaudeCorrectedBatchAsync`. Preserves the `_accumulatorSizeAtLastTrain` cursor-shift comment block so the "why" of the shift is still visible.
+
+3. **Phase 4 — Adaptive-threshold helper.** New `clampAndApplyAnomalyThreshold(float)` private method centralizes `Math.Max(_configuredAnomalyFloor, candidate)` + conditional write to `_claudeSettings.MlAnomalyScoreThreshold`. Used by `InitializeAsync` (store load) and `FeedClaudeCorrectedBatchAsync` (runtime ratchet). Logging stays at the call sites because the two events use different log messages.
+
+4. **Phase 5 — Multiclass training helper.** New generic `trainMulticlassModel<TInput>` driver takes a row projection, label accessor, pipeline fit callback, engine replacement callback, and three log-format tokens (`stagePrefix`, `skipLabelKind`, `modelKind`). Collapsed three ~50-line per-stage trainers (`trainTableCategoryModel`, `trainDoseRegimenModel`, `trainPrimaryValueTypeModel`) into thin configuration methods. Preserved per-stage variations: SDCA vs LBFGS trainer, different featurizer sets, different engine fields. Failure-path engine nulling matches prior behavior (old engine NOT disposed on failure — matches the pre-existing leak to avoid any observable change).
+
+5. **Phase 6 — Prediction-stage executor.** New generic `executePredictionStage<TInput, TOutput>` helper takes the prediction engine, projected input, label/score accessors, threshold, no-op-label (the "if predicted == current/Keep/Numeric, skip" check), an on-accept callback for mutation+flag+log, and a stage number. Collapsed three ~35-line per-stage methods. Preserved per-stage preconditions at the call site (e.g. `PrimaryValueType == "Numeric"` gate, `IsAlreadyRouted` gate). Claude stages intentionally stay outside this executor per user's prior answer.
+
+6. **Phase 7 — Shared flag helper.** New `MedRecProImportClass/Helpers/ValidationFlagExtensions.cs` with `AppendValidationFlag(this ParsedObservation, string)` extension. The three byte-identical `private static void appendFlag` methods in `MlNetCorrectionService`, `ColumnStandardizationService`, and `ClaudeApiCorrectionService` are now 1-line forwarders so all ~40+ existing call sites stay unchanged. Explicitly out of scope: `BaseTableParser.appendFlag` (functional, returns string) and `RowValidationService.appendFlags` (batch/plural) — different shapes per user's scope decision.
+
+**Verification**:
+- `dotnet build MedRecProImportClass.csproj` — 0 errors, 142 warnings (all pre-existing in unrelated files, unchanged from baseline).
+- `dotnet test MedRecProTest.csproj` — **1418/1418 passing, 0 failures**. Same baseline as pre-refactor. Zero regressions across all seven phases.
+- Test build had to use `--no-dependencies` + `dotnet test --no-build` because `MedRecPro.exe` (PID 16224) was running and locking the output exe path. Workaround is safe since MedRecProImportClass was fully rebuilt before the test run.
+
+**Files added**:
+- `MedRecProImportClass/Helpers/DoseRegimenRoutingPolicy.cs` — routing-flag constants, target-label constants, `RouteTarget` enum, 6 static primitive methods (HasRoutingFlag, IsAlreadyRouted, RouteTargetFromFlags, ParseTarget, TargetLabel, ApplyRoute). Docstrings include the "why regex stays per-service" rationale so future contributors don't accidentally merge the regex sets.
+- `MedRecProImportClass/Helpers/ValidationFlagExtensions.cs` — single `AppendValidationFlag` extension method with the `"; "` delimiter convention documented.
+
+**Files modified**:
+- `MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs` — all seven phases touched this file; net line count dropped despite adding three new generic helpers (`appendAndCapAccumulator`, `clampAndApplyAnomalyThreshold`, `trainMulticlassModel<TInput>`, `executePredictionStage<TInput, TOutput>`).
+- `MedRecProImportClass/Service/TransformationServices/ColumnStandardizationService.cs` — Phase 1 redirects 5 inline route-mutation blocks; Phase 7 forwarder.
+- `MedRecProImportClass/Service/TransformationServices/ClaudeApiCorrectionService.cs` — Phase 7 only (added `using MedRecProImportClass.Helpers;` + forwarder).
+- `C:\Users\chris\.claude\plans\wet-remediation-plan-lucky-robin.md` — the approved plan, referenced throughout.
+
+**Key preserved behaviors** (would have been regressions if missed):
+- Trimmed vs untrimmed source value in `ApplyRoute` (`sourceValue` optional param).
+- `routeDoseRegimen`'s fall-through source-nulling even for unrecognized targets (preserved via `RouteTarget.None` handling).
+- Per-stage skipped/success/failure log messages kept their exact wording via three format tokens in `trainMulticlassModel`.
+- On-training-failure, the outgoing prediction engine is *not* disposed — matches prior behavior exactly, even though that's a latent buffer leak; fixing it is out of scope for a behavior-preserving refactor.
+- `COL_STD:DOSEREGIMEN_ROUTED_TO` legacy skip-guard preserved as `FlagDoseRegimenRoutedToPrefix` constant; the substring is never actually emitted anywhere in the codebase but the guard-check stays intact.
+
+**What this unlocks**: future rule changes to DoseRegimen routing, flag constants, threshold floor, or the training/prediction scaffolding now have exactly one touchpoint each. The duplication auditor identified one additional `appendFlag` copy in `ClaudeApiCorrectionService` not in the original draft plan — that's now folded in too.
+
+---

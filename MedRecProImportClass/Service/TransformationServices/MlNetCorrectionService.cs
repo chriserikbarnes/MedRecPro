@@ -1,3 +1,4 @@
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 using Microsoft.Extensions.Logging;
@@ -250,12 +251,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 // AdaptiveThreshold defaults to 0.0f on a fresh install — writing it raw
                 // would silently demote a user-configured 0.75 floor and disable the gate.
                 var persistedAdaptive = _trainingStore.GetAdaptiveThreshold();
-                var effectiveThreshold = Math.Max(_configuredAnomalyFloor, persistedAdaptive);
-
-                if (_claudeSettings != null)
-                {
-                    _claudeSettings.MlAnomalyScoreThreshold = effectiveThreshold;
-                }
+                var effectiveThreshold = clampAndApplyAnomalyThreshold(persistedAdaptive);
 
                 _logger.LogInformation(
                     "Loaded {Count} training records from store. Effective anomaly threshold: {Effective:F4} " +
@@ -369,9 +365,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            if (_tableCategoryEngine == null)
-                return;
-
             var input = new TableCategoryInput
             {
                 Caption = obs.Caption ?? string.Empty,
@@ -380,25 +373,23 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ParseRule = obs.ParseRule ?? string.Empty
             };
 
-            try
-            {
-                var prediction = _tableCategoryEngine.Predict(input);
-                var maxScore = prediction.Score?.Length > 0 ? prediction.Score.Max() : 0f;
-
-                if (maxScore >= _settings.TableCategoryMinConfidence &&
-                    !string.Equals(prediction.PredictedLabel, obs.TableCategory, StringComparison.OrdinalIgnoreCase))
+            executePredictionStage(
+                obs,
+                _tableCategoryEngine,
+                input,
+                p => p.PredictedLabel,
+                p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
+                _settings.TableCategoryMinConfidence,
+                obs.TableCategory,
+                (prediction, maxScore) =>
                 {
                     var oldCategory = obs.TableCategory;
                     obs.TableCategory = prediction.PredictedLabel;
                     appendFlag(obs, $"MLNET:CATEGORY_CORRECTED:{prediction.PredictedLabel}:{maxScore:F2}");
                     _logger.LogDebug("Stage 1: TableCategory corrected '{Old}' → '{New}' (score={Score:F2})",
                         oldCategory, prediction.PredictedLabel, maxScore);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Stage 1 prediction failed for SourceRowSeq={Row}", obs.SourceRowSeq);
-            }
+                },
+                stageNumber: 1);
 
             #endregion
         }
@@ -418,18 +409,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            if (_doseRegimenEngine == null)
-                return;
-
             if (string.IsNullOrEmpty(obs.DoseRegimen))
                 return;
 
             // Skip if already routed by ColumnStandardizationService rules
-            if (obs.ValidationFlags?.Contains("COL_STD:DOSEREGIMEN_ROUTED_TO") == true ||
-                obs.ValidationFlags?.Contains("COL_STD:PK_SUBPARAM_ROUTED") == true ||
-                obs.ValidationFlags?.Contains("COL_STD:COADMIN_ROUTED") == true ||
-                obs.ValidationFlags?.Contains("COL_STD:POPULATION_EXTRACTED") == true ||
-                obs.ValidationFlags?.Contains("COL_STD:TIMEPOINT_EXTRACTED") == true)
+            if (DoseRegimenRoutingPolicy.IsAlreadyRouted(obs.ValidationFlags))
                 return;
 
             var input = new DoseRegimenRoutingInput
@@ -441,58 +425,23 @@ namespace MedRecProImportClass.Service.TransformationServices
                 HasDose = obs.Dose.HasValue ? 1f : 0f
             };
 
-            try
-            {
-                var prediction = _doseRegimenEngine.Predict(input);
-                var maxScore = prediction.Score?.Length > 0 ? prediction.Score.Max() : 0f;
-
-                if (maxScore >= 0.80f && !string.Equals(prediction.PredictedLabel, "Keep", StringComparison.OrdinalIgnoreCase))
+            executePredictionStage(
+                obs,
+                _doseRegimenEngine,
+                input,
+                p => p.PredictedLabel,
+                p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
+                0.80f,
+                DoseRegimenRoutingPolicy.TargetLabelKeep,
+                (prediction, maxScore) =>
                 {
-                    routeDoseRegimen(obs, prediction.PredictedLabel!);
+                    var target = DoseRegimenRoutingPolicy.ParseTarget(prediction.PredictedLabel);
+                    DoseRegimenRoutingPolicy.ApplyRoute(obs, target);
                     appendFlag(obs, $"MLNET:DOSEREGIMEN_ROUTED_TO_{prediction.PredictedLabel!.ToUpperInvariant()}:{maxScore:F2}");
                     _logger.LogDebug("Stage 2: DoseRegimen routed to {Target} (score={Score:F2})",
                         prediction.PredictedLabel, maxScore);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Stage 2 prediction failed for SourceRowSeq={Row}", obs.SourceRowSeq);
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Routes DoseRegimen content to the specified target column, nulling the source.
-        /// </summary>
-        /// <param name="obs">Observation to modify.</param>
-        /// <param name="target">Target column: "ParameterSubtype", "Population", or "Timepoint".</param>
-        private static void routeDoseRegimen(ParsedObservation obs, string target)
-        {
-            #region implementation
-
-            var value = obs.DoseRegimen;
-
-            switch (target.ToLowerInvariant())
-            {
-                case "parametersubtype":
-                    if (string.IsNullOrEmpty(obs.ParameterSubtype))
-                        obs.ParameterSubtype = value;
-                    break;
-                case "population":
-                    if (string.IsNullOrEmpty(obs.Population))
-                        obs.Population = value;
-                    break;
-                case "timepoint":
-                    if (string.IsNullOrEmpty(obs.Timepoint))
-                        obs.Timepoint = value;
-                    break;
-            }
-
-            obs.DoseRegimen = null;
-            obs.Dose = null;
-            obs.DoseUnit = null;
+                },
+                stageNumber: 2);
 
             #endregion
         }
@@ -512,9 +461,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            if (_primaryValueTypeEngine == null)
-                return;
-
             if (!string.Equals(obs.PrimaryValueType, "Numeric", StringComparison.OrdinalIgnoreCase))
                 return;
 
@@ -528,25 +474,23 @@ namespace MedRecProImportClass.Service.TransformationServices
                 HasUpperBound = obs.UpperBound.HasValue ? 1f : 0f
             };
 
-            try
-            {
-                var prediction = _primaryValueTypeEngine.Predict(input);
-                var maxScore = prediction.Score?.Length > 0 ? prediction.Score.Max() : 0f;
-
-                if (maxScore >= 0.80f &&
-                    !string.Equals(prediction.PredictedLabel, "Numeric", StringComparison.OrdinalIgnoreCase))
+            executePredictionStage(
+                obs,
+                _primaryValueTypeEngine,
+                input,
+                p => p.PredictedLabel,
+                p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
+                0.80f,
+                "Numeric",
+                (prediction, maxScore) =>
                 {
                     var oldType = obs.PrimaryValueType;
                     obs.PrimaryValueType = prediction.PredictedLabel;
                     appendFlag(obs, $"MLNET:PVTYPE_DISAMBIGUATED:{prediction.PredictedLabel}:{maxScore:F2}");
                     _logger.LogDebug("Stage 3: PrimaryValueType disambiguated '{Old}' → '{New}' (score={Score:F2})",
                         oldType, prediction.PredictedLabel, maxScore);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Stage 3 prediction failed for SourceRowSeq={Row}", obs.SourceRowSeq);
-            }
+                },
+                stageNumber: 3);
 
             #endregion
         }
@@ -688,27 +632,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (newRecords.Count > 0)
             {
-                _trainingAccumulator.AddRange(newRecords);
-
-                // Enforce MaxAccumulatorRows on the in-memory copy so it stays bounded in
-                // parallel with the persistent store (which already caps via evictIfOverCapacity).
-                // Oldest-first trim is sufficient here — retrains happen frequently and recent
-                // rows dominate, so per-key categorical coverage is preserved.
-                var overflow = _trainingAccumulator.Count - _settings.MaxAccumulatorRows;
-                if (overflow > 0)
-                {
-                    _trainingAccumulator.RemoveRange(0, overflow);
-
-                    // The retrain gate in tryRetrain() uses
-                    //     newRows = _trainingAccumulator.Count - _accumulatorSizeAtLastTrain
-                    // as an absolute cursor into the list. Removing N records from the front
-                    // shrinks Count by N, so we must shift the cursor back by N to preserve
-                    // the "new rows since last retrain" delta. Without this, the gate
-                    // becomes permanently false once the accumulator hits its cap and no
-                    // further retrains ever fire — every UNII first seen after that point
-                    // would receive NOMODEL.
-                    _accumulatorSizeAtLastTrain = Math.Max(0, _accumulatorSizeAtLastTrain - overflow);
-                }
+                appendAndCapAccumulator(newRecords);
 
                 if (_trainingStore != null)
                 {
@@ -720,9 +644,114 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Appends training records to the in-memory accumulator and enforces
+        /// <see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/>, shifting the retrain cursor
+        /// so the gate delta in <see cref="tryRetrain"/> stays correct after oldest-first trim.
+        /// </summary>
+        /// <remarks>
+        /// Oldest-first trim is sufficient because retrains happen frequently and recent rows
+        /// dominate, so per-key categorical coverage is preserved. The retrain gate uses
+        /// <c>_trainingAccumulator.Count - _accumulatorSizeAtLastTrain</c> as an absolute cursor
+        /// into the list; removing N records from the front shrinks Count by N, so the cursor is
+        /// shifted back by N to preserve the "new rows since last retrain" delta. Without this,
+        /// the gate would become permanently false once the accumulator hit its cap, no further
+        /// retrains would ever fire, and every UNII first seen after that point would receive
+        /// NOMODEL. The method is a no-op when <paramref name="records"/> is empty.
+        /// </remarks>
+        /// <param name="records">Records to append.</param>
+        private void appendAndCapAccumulator(List<MlTrainingRecord> records)
+        {
+            #region implementation
+
+            if (records.Count == 0)
+                return;
+
+            _trainingAccumulator.AddRange(records);
+
+            var overflow = _trainingAccumulator.Count - _settings.MaxAccumulatorRows;
+            if (overflow > 0)
+            {
+                _trainingAccumulator.RemoveRange(0, overflow);
+                _accumulatorSizeAtLastTrain = Math.Max(0, _accumulatorSizeAtLastTrain - overflow);
+            }
+
+            #endregion
+        }
+
         #endregion Training — Retrain Trigger and Accumulator
 
         #region Model Training Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Generic multiclass training driver — handles filter/project, label-cardinality guard,
+        /// <c>LoadFromEnumerable</c>, pipeline fit, engine disposal/replace, and standardized logging.
+        /// Caller supplies the training-DTO projection, the label accessor used for the distinct
+        /// guard, the pipeline build-and-fit step, and the engine replacement callback.
+        /// </summary>
+        /// <remarks>
+        /// Shared scaffolding around the three per-stage trainers
+        /// (<see cref="trainTableCategoryModel"/>, <see cref="trainDoseRegimenModel"/>,
+        /// <see cref="trainPrimaryValueTypeModel"/>). The caller controls everything that varies
+        /// per stage — featurizers, trainer choice (SDCA vs LBFGS), which engine to dispose/assign —
+        /// while this helper owns the common skeleton: try/catch, distinct-label guard, and
+        /// success/skip/failure log messages shaped by <paramref name="stagePrefix"/>,
+        /// <paramref name="skipLabelKind"/>, and <paramref name="modelKind"/>. On training
+        /// failure (<see cref="InvalidOperationException"/> or <see cref="ArgumentOutOfRangeException"/>),
+        /// <paramref name="replaceEngine"/> is invoked with <c>null</c> so the caller nulls its
+        /// engine field without disposing the outgoing instance — matching the prior per-method behavior.
+        /// </remarks>
+        /// <typeparam name="TInput">Typed training input DTO (e.g. <c>TableCategoryInput</c>).</typeparam>
+        /// <param name="rows">Source training records.</param>
+        /// <param name="project">Filter + project step producing the typed training rows.</param>
+        /// <param name="labelOf">Accessor returning the label string for the distinct-cardinality guard.</param>
+        /// <param name="fitPipeline">Builds the ML.NET pipeline and fits it against the supplied <see cref="IDataView"/>.</param>
+        /// <param name="replaceEngine">Disposes the outgoing engine and assigns a new one on success, or nulls it on failure.</param>
+        /// <param name="stagePrefix">Log prefix — e.g. "Stage 1".</param>
+        /// <param name="skipLabelKind">Label noun used in the "fewer than 2 distinct X labels" skip message.</param>
+        /// <param name="modelKind">Model noun used in the success/failure messages.</param>
+        private void trainMulticlassModel<TInput>(
+            List<MlTrainingRecord> rows,
+            Func<IEnumerable<MlTrainingRecord>, IEnumerable<TInput>> project,
+            Func<TInput, string?> labelOf,
+            Func<IDataView, ITransformer> fitPipeline,
+            Action<ITransformer?> replaceEngine,
+            string stagePrefix,
+            string skipLabelKind,
+            string modelKind) where TInput : class
+        {
+            #region implementation
+
+            try
+            {
+                var trainingData = project(rows).ToList();
+
+                // Guard: need at least 2 distinct labels for multiclass training to succeed.
+                if (trainingData.Select(labelOf).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2)
+                {
+                    _logger.LogDebug("{Stage} training skipped — fewer than 2 distinct {Kind} labels",
+                        stagePrefix, skipLabelKind);
+                    return;
+                }
+
+                var dataView = _mlContext.Data.LoadFromEnumerable(trainingData);
+                var model = fitPipeline(dataView);
+                replaceEngine(model);
+
+                _logger.LogDebug("{Stage} {Kind} model trained on {Count} rows",
+                    stagePrefix, modelKind, trainingData.Count);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
+            {
+                _logger.LogWarning(ex, "{Stage} {Kind} model training failed — engine remains null",
+                    stagePrefix, modelKind);
+                replaceEngine(null);
+            }
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -734,9 +763,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            try
-            {
-                var trainingData = rows
+            trainMulticlassModel<TableCategoryInput>(
+                rows,
+                source => source
                     .Where(r => !string.IsNullOrEmpty(r.TableCategory))
                     .Select(r => new TableCategoryInput
                     {
@@ -745,41 +774,37 @@ namespace MedRecProImportClass.Service.TransformationServices
                         ParentSectionCode = r.ParentSectionCode ?? string.Empty,
                         ParseRule = r.ParseRule ?? string.Empty,
                         TableCategory = r.TableCategory!
-                    })
-                    .ToList();
-
-                // Guard: need at least 2 distinct labels
-                if (trainingData.Select(d => d.TableCategory).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2)
+                    }),
+                t => t.TableCategory,
+                dataView =>
                 {
-                    _logger.LogDebug("Stage 1 training skipped — fewer than 2 distinct TableCategory labels");
-                    return;
-                }
-
-                var dataView = _mlContext.Data.LoadFromEnumerable(trainingData);
-
-                var pipeline = _mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(TableCategoryInput.TableCategory))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("CaptionFeatures", nameof(TableCategoryInput.Caption)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("SectionFeatures", nameof(TableCategoryInput.SectionTitle)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("LoincFeatures", nameof(TableCategoryInput.ParentSectionCode)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("ParseRuleFeatures", nameof(TableCategoryInput.ParseRule)))
-                    .Append(_mlContext.Transforms.Concatenate("Features", "CaptionFeatures", "SectionFeatures", "LoincFeatures", "ParseRuleFeatures"))
-                    .Append(_mlContext.MulticlassClassification.Trainers.SdcaMaximumEntropy(labelColumnName: "Label", featureColumnName: "Features"))
-                    .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
-
-                var model = pipeline.Fit(dataView);
-
-                // Release native ML.NET buffers on the outgoing engine before replacing it —
-                // PredictionEngine<T,U> is IDisposable and would otherwise live until GC finalization.
-                (_tableCategoryEngine as IDisposable)?.Dispose();
-                _tableCategoryEngine = _mlContext.Model.CreatePredictionEngine<TableCategoryInput, TableCategoryPrediction>(model);
-
-                _logger.LogDebug("Stage 1 TableCategory model trained on {Count} rows", trainingData.Count);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
-            {
-                _logger.LogWarning(ex, "Stage 1 TableCategory model training failed — engine remains null");
-                _tableCategoryEngine = null;
-            }
+                    var pipeline = _mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(TableCategoryInput.TableCategory))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("CaptionFeatures", nameof(TableCategoryInput.Caption)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("SectionFeatures", nameof(TableCategoryInput.SectionTitle)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("LoincFeatures", nameof(TableCategoryInput.ParentSectionCode)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("ParseRuleFeatures", nameof(TableCategoryInput.ParseRule)))
+                        .Append(_mlContext.Transforms.Concatenate("Features", "CaptionFeatures", "SectionFeatures", "LoincFeatures", "ParseRuleFeatures"))
+                        .Append(_mlContext.MulticlassClassification.Trainers.SdcaMaximumEntropy(labelColumnName: "Label", featureColumnName: "Features"))
+                        .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
+                    return pipeline.Fit(dataView);
+                },
+                model =>
+                {
+                    if (model != null)
+                    {
+                        // Release native ML.NET buffers on the outgoing engine before replacing it —
+                        // PredictionEngine<T,U> is IDisposable and would otherwise live until GC finalization.
+                        (_tableCategoryEngine as IDisposable)?.Dispose();
+                        _tableCategoryEngine = _mlContext.Model.CreatePredictionEngine<TableCategoryInput, TableCategoryPrediction>(model);
+                    }
+                    else
+                    {
+                        _tableCategoryEngine = null;
+                    }
+                },
+                stagePrefix: "Stage 1",
+                skipLabelKind: "TableCategory",
+                modelKind: "TableCategory");
 
             #endregion
         }
@@ -795,9 +820,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            try
-            {
-                var trainingData = rows
+            trainMulticlassModel<DoseRegimenRoutingInput>(
+                rows,
+                source => source
                     .Where(r => !string.IsNullOrEmpty(r.DoseRegimen) || hasRoutingFlagOnRecord(r))
                     .Select(r => new DoseRegimenRoutingInput
                     {
@@ -808,40 +833,35 @@ namespace MedRecProImportClass.Service.TransformationServices
                         HasDose = r.Dose.HasValue ? 1f : 0f,
                         RoutingTarget = labelDoseRegimenRoutingFromRecord(r)
                     })
-                    .Where(r => r.RoutingTarget != null)
-                    .ToList();
-
-                // Guard: need at least 2 distinct labels
-                if (trainingData.Select(d => d.RoutingTarget).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2)
+                    .Where(r => r.RoutingTarget != null),
+                t => t.RoutingTarget,
+                dataView =>
                 {
-                    _logger.LogDebug("Stage 2 training skipped — fewer than 2 distinct routing labels");
-                    return;
-                }
-
-                var dataView = _mlContext.Data.LoadFromEnumerable(trainingData);
-
-                var pipeline = _mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(DoseRegimenRoutingInput.RoutingTarget))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("DoseFeatures", nameof(DoseRegimenRoutingInput.DoseRegimen)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("CategoryFeatures", nameof(DoseRegimenRoutingInput.TableCategory)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("CaptionFeatures", nameof(DoseRegimenRoutingInput.Caption)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("ParamFeatures", nameof(DoseRegimenRoutingInput.ParameterName)))
-                    .Append(_mlContext.Transforms.Concatenate("Features", "DoseFeatures", "CategoryFeatures", "CaptionFeatures", "ParamFeatures", nameof(DoseRegimenRoutingInput.HasDose)))
-                    .Append(_mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(labelColumnName: "Label", featureColumnName: "Features"))
-                    .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
-
-                var model = pipeline.Fit(dataView);
-
-                // Release native ML.NET buffers on the outgoing engine before replacing it.
-                (_doseRegimenEngine as IDisposable)?.Dispose();
-                _doseRegimenEngine = _mlContext.Model.CreatePredictionEngine<DoseRegimenRoutingInput, DoseRegimenRoutingPrediction>(model);
-
-                _logger.LogDebug("Stage 2 DoseRegimen model trained on {Count} rows", trainingData.Count);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
-            {
-                _logger.LogWarning(ex, "Stage 2 DoseRegimen model training failed — engine remains null");
-                _doseRegimenEngine = null;
-            }
+                    var pipeline = _mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(DoseRegimenRoutingInput.RoutingTarget))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("DoseFeatures", nameof(DoseRegimenRoutingInput.DoseRegimen)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("CategoryFeatures", nameof(DoseRegimenRoutingInput.TableCategory)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("CaptionFeatures", nameof(DoseRegimenRoutingInput.Caption)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("ParamFeatures", nameof(DoseRegimenRoutingInput.ParameterName)))
+                        .Append(_mlContext.Transforms.Concatenate("Features", "DoseFeatures", "CategoryFeatures", "CaptionFeatures", "ParamFeatures", nameof(DoseRegimenRoutingInput.HasDose)))
+                        .Append(_mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(labelColumnName: "Label", featureColumnName: "Features"))
+                        .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
+                    return pipeline.Fit(dataView);
+                },
+                model =>
+                {
+                    if (model != null)
+                    {
+                        (_doseRegimenEngine as IDisposable)?.Dispose();
+                        _doseRegimenEngine = _mlContext.Model.CreatePredictionEngine<DoseRegimenRoutingInput, DoseRegimenRoutingPrediction>(model);
+                    }
+                    else
+                    {
+                        _doseRegimenEngine = null;
+                    }
+                },
+                stagePrefix: "Stage 2",
+                skipLabelKind: "routing",
+                modelKind: "DoseRegimen");
 
             #endregion
         }
@@ -856,9 +876,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            try
-            {
-                var trainingData = rows
+            trainMulticlassModel<PrimaryValueTypeInput>(
+                rows,
+                source => source
                     .Where(r => !string.IsNullOrEmpty(r.PrimaryValueType) &&
                                 !string.Equals(r.PrimaryValueType, "Numeric", StringComparison.OrdinalIgnoreCase))
                     .Select(r => new PrimaryValueTypeInput
@@ -870,42 +890,37 @@ namespace MedRecProImportClass.Service.TransformationServices
                         HasLowerBound = r.HasLowerBound ? 1f : 0f,
                         HasUpperBound = r.HasUpperBound ? 1f : 0f,
                         PrimaryValueType = r.PrimaryValueType!
-                    })
-                    .ToList();
-
-                // Guard: need at least 2 distinct labels
-                if (trainingData.Select(d => d.PrimaryValueType).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2)
+                    }),
+                t => t.PrimaryValueType,
+                dataView =>
                 {
-                    _logger.LogDebug("Stage 3 training skipped — fewer than 2 distinct PrimaryValueType labels");
-                    return;
-                }
-
-                var dataView = _mlContext.Data.LoadFromEnumerable(trainingData);
-
-                var pipeline = _mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(PrimaryValueTypeInput.PrimaryValueType))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("UnitFeatures", nameof(PrimaryValueTypeInput.Unit)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("CategoryFeatures", nameof(PrimaryValueTypeInput.TableCategory)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("ParseRuleFeatures", nameof(PrimaryValueTypeInput.ParseRule)))
-                    .Append(_mlContext.Transforms.Text.FeaturizeText("CaptionFeatures", nameof(PrimaryValueTypeInput.Caption)))
-                    .Append(_mlContext.Transforms.Concatenate("Features",
-                        "UnitFeatures", "CategoryFeatures", "ParseRuleFeatures", "CaptionFeatures",
-                        nameof(PrimaryValueTypeInput.HasLowerBound), nameof(PrimaryValueTypeInput.HasUpperBound)))
-                    .Append(_mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(labelColumnName: "Label", featureColumnName: "Features"))
-                    .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
-
-                var model = pipeline.Fit(dataView);
-
-                // Release native ML.NET buffers on the outgoing engine before replacing it.
-                (_primaryValueTypeEngine as IDisposable)?.Dispose();
-                _primaryValueTypeEngine = _mlContext.Model.CreatePredictionEngine<PrimaryValueTypeInput, PrimaryValueTypePrediction>(model);
-
-                _logger.LogDebug("Stage 3 PrimaryValueType model trained on {Count} rows", trainingData.Count);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
-            {
-                _logger.LogWarning(ex, "Stage 3 PrimaryValueType model training failed — engine remains null");
-                _primaryValueTypeEngine = null;
-            }
+                    var pipeline = _mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(PrimaryValueTypeInput.PrimaryValueType))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("UnitFeatures", nameof(PrimaryValueTypeInput.Unit)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("CategoryFeatures", nameof(PrimaryValueTypeInput.TableCategory)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("ParseRuleFeatures", nameof(PrimaryValueTypeInput.ParseRule)))
+                        .Append(_mlContext.Transforms.Text.FeaturizeText("CaptionFeatures", nameof(PrimaryValueTypeInput.Caption)))
+                        .Append(_mlContext.Transforms.Concatenate("Features",
+                            "UnitFeatures", "CategoryFeatures", "ParseRuleFeatures", "CaptionFeatures",
+                            nameof(PrimaryValueTypeInput.HasLowerBound), nameof(PrimaryValueTypeInput.HasUpperBound)))
+                        .Append(_mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(labelColumnName: "Label", featureColumnName: "Features"))
+                        .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
+                    return pipeline.Fit(dataView);
+                },
+                model =>
+                {
+                    if (model != null)
+                    {
+                        (_primaryValueTypeEngine as IDisposable)?.Dispose();
+                        _primaryValueTypeEngine = _mlContext.Model.CreatePredictionEngine<PrimaryValueTypeInput, PrimaryValueTypePrediction>(model);
+                    }
+                    else
+                    {
+                        _primaryValueTypeEngine = null;
+                    }
+                },
+                stagePrefix: "Stage 3",
+                skipLabelKind: "PrimaryValueType",
+                modelKind: "PrimaryValueType");
 
             #endregion
         }
@@ -1166,16 +1181,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Checks whether a <see cref="MlTrainingRecord"/> has any DoseRegimen routing flag
         /// from Stage 3.25 stored in its <see cref="MlTrainingRecord.ValidationFlags"/>.
+        /// Delegates to <see cref="DoseRegimenRoutingPolicy.HasRoutingFlag"/>.
         /// </summary>
         private static bool hasRoutingFlagOnRecord(MlTrainingRecord record)
         {
             #region implementation
 
-            return record.ValidationFlags != null &&
-                   (record.ValidationFlags.Contains("COL_STD:PK_SUBPARAM_ROUTED") ||
-                    record.ValidationFlags.Contains("COL_STD:COADMIN_ROUTED") ||
-                    record.ValidationFlags.Contains("COL_STD:POPULATION_EXTRACTED") ||
-                    record.ValidationFlags.Contains("COL_STD:TIMEPOINT_EXTRACTED"));
+            return DoseRegimenRoutingPolicy.HasRoutingFlag(record.ValidationFlags);
 
             #endregion
         }
@@ -1183,8 +1195,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Synthesizes a DoseRegimen routing label from a <see cref="MlTrainingRecord"/>
-        /// for Stage 2 training. Same logic as <see cref="labelDoseRegimenRouting"/> but
-        /// operates on the compact training record type.
+        /// for Stage 2 training. When the row has already been routed by rules, infers the
+        /// label from its routing flags; otherwise applies the ML-tuned regex decision tree.
         /// </summary>
         /// <param name="record">Training record to label.</param>
         /// <returns>Routing target label or null.</returns>
@@ -1193,16 +1205,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             // If DoseRegimen was already routed by rules, infer label from flags
-            if (hasRoutingFlagOnRecord(record))
-            {
-                if (record.ValidationFlags!.Contains("COL_STD:PK_SUBPARAM_ROUTED") ||
-                    record.ValidationFlags!.Contains("COL_STD:COADMIN_ROUTED"))
-                    return "ParameterSubtype";
-                if (record.ValidationFlags!.Contains("COL_STD:POPULATION_EXTRACTED"))
-                    return "Population";
-                if (record.ValidationFlags!.Contains("COL_STD:TIMEPOINT_EXTRACTED"))
-                    return "Timepoint";
-            }
+            var flagTarget = DoseRegimenRoutingPolicy.RouteTargetFromFlags(record.ValidationFlags);
+            if (flagTarget != DoseRegimenRoutingPolicy.RouteTarget.None)
+                return DoseRegimenRoutingPolicy.TargetLabel(flagTarget);
 
             if (string.IsNullOrWhiteSpace(record.DoseRegimen))
                 return null;
@@ -1211,22 +1216,22 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Priority 1: PK sub-parameter → ParameterSubtype
             if (PkParameterDictionary.IsPkParameter(val) || PkParameterDictionary.StartsWithPk(val))
-                return "ParameterSubtype";
+                return DoseRegimenRoutingPolicy.TargetLabelParameterSubtype;
 
             // Priority 2: Actual dose → Keep
             if (_actualDosePattern.IsMatch(val))
-                return "Keep";
+                return DoseRegimenRoutingPolicy.TargetLabelKeep;
 
             // Priority 3: Population pattern
             if (_residualPopulationPattern.IsMatch(val))
-                return "Population";
+                return DoseRegimenRoutingPolicy.TargetLabelPopulation;
 
             // Priority 4: Timepoint pattern
             if (_residualTimepointPattern.IsMatch(val))
-                return "Timepoint";
+                return DoseRegimenRoutingPolicy.TargetLabelTimepoint;
 
             // Default: Keep
-            return "Keep";
+            return DoseRegimenRoutingPolicy.TargetLabelKeep;
 
             #endregion
         }
@@ -1268,8 +1273,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // Honor the configured floor on the runtime ratchet. The store's raw
                     // adaptive value may still be climbing from its 0.0f default and could
                     // otherwise demote a user-configured floor (e.g. 0.75).
-                    var effectiveThreshold = Math.Max(_configuredAnomalyFloor, newThreshold.Value);
-                    _claudeSettings.MlAnomalyScoreThreshold = effectiveThreshold;
+                    var effectiveThreshold = clampAndApplyAnomalyThreshold(newThreshold.Value);
                     _logger.LogInformation(
                         "Adaptive threshold updated: effective={Effective:F4} " +
                         "(floor={Floor:F4}, ratcheted={Ratcheted:F4})",
@@ -1278,22 +1282,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
             else
             {
-                // Ephemeral mode — just add to in-memory accumulator
-                _trainingAccumulator.AddRange(records);
-
-                // Enforce MaxAccumulatorRows so the in-memory copy stays bounded even when
-                // there is no persistent store to fall back on. Oldest-first trim matches
-                // the semantics used in accumulateBatch.
-                var overflow = _trainingAccumulator.Count - _settings.MaxAccumulatorRows;
-                if (overflow > 0)
-                {
-                    _trainingAccumulator.RemoveRange(0, overflow);
-
-                    // Shift the retrain cursor back by the same amount — see accumulateBatch
-                    // for the full explanation. Without this, tryRetrain would gate off
-                    // permanently once the accumulator hits its cap.
-                    _accumulatorSizeAtLastTrain = Math.Max(0, _accumulatorSizeAtLastTrain - overflow);
-                }
+                // Ephemeral mode — accumulate in memory with cap enforcement.
+                appendAndCapAccumulator(records);
             }
 
             if (correctedCount > 0)
@@ -1309,6 +1299,105 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion Claude Feedback
 
         #region Helper Methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Generic prediction-stage executor — handles engine-null guard, Predict under try/catch,
+        /// score computation, threshold + no-op-label gate, and consistent failure logging.
+        /// Caller supplies accessors and the on-accept mutation block (which writes the observation,
+        /// appends the flag, and emits the success log line).
+        /// </summary>
+        /// <remarks>
+        /// Shared scaffolding around <see cref="applyTableCategoryCorrection"/>,
+        /// <see cref="applyDoseRegimenRouting"/>, and <see cref="applyPrimaryValueTypeDisambiguation"/>.
+        /// Stage-specific preconditions (e.g. "skip if already routed", "skip unless PrimaryValueType
+        /// is Numeric") remain at the call site — the helper owns only the common Predict-and-gate
+        /// skeleton. The threshold gate is
+        /// <c>maxScore &gt;= minConfidence &amp;&amp; !OrdinalIgnoreCase.Equals(predictedLabel, noOpLabel)</c> —
+        /// same shape as the three pre-existing methods. Exceptions from
+        /// <c>PredictionEngine.Predict</c> (which can wrap schema or feature-shape errors) are caught
+        /// and logged at Debug level with the observation's <see cref="ParsedObservation.SourceRowSeq"/>
+        /// for traceability; the observation is left unchanged.
+        /// </remarks>
+        /// <typeparam name="TInput">Typed ML.NET input DTO for the stage.</typeparam>
+        /// <typeparam name="TOutput">Typed ML.NET prediction DTO for the stage.</typeparam>
+        /// <param name="obs">Observation being scored (used for the failure log context only).</param>
+        /// <param name="engine">Prediction engine; the helper is a no-op when this is null.</param>
+        /// <param name="input">Projected input DTO.</param>
+        /// <param name="labelOf">Accessor returning the predicted label from the prediction DTO.</param>
+        /// <param name="scoreOf">Accessor returning the scalar confidence from the prediction DTO.</param>
+        /// <param name="minConfidence">Minimum confidence to trigger <paramref name="onAccept"/>.</param>
+        /// <param name="noOpLabel">Label value against which the predicted label is compared; if equal (ordinal-ignore-case), <paramref name="onAccept"/> is not invoked.</param>
+        /// <param name="onAccept">Callback invoked when the gate passes — mutates observation, appends flag, logs success.</param>
+        /// <param name="stageNumber">Stage number used in the failure log ("Stage {N} prediction failed...").</param>
+        private void executePredictionStage<TInput, TOutput>(
+            ParsedObservation obs,
+            PredictionEngine<TInput, TOutput>? engine,
+            TInput input,
+            Func<TOutput, string?> labelOf,
+            Func<TOutput, float> scoreOf,
+            float minConfidence,
+            string? noOpLabel,
+            Action<TOutput, float> onAccept,
+            int stageNumber)
+            where TInput : class
+            where TOutput : class, new()
+        {
+            #region implementation
+
+            if (engine == null)
+                return;
+
+            try
+            {
+                var prediction = engine.Predict(input);
+                var maxScore = scoreOf(prediction);
+                var label = labelOf(prediction);
+
+                if (maxScore >= minConfidence &&
+                    !string.Equals(label, noOpLabel, StringComparison.OrdinalIgnoreCase))
+                {
+                    onAccept(prediction, maxScore);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Stage {Stage} prediction failed for SourceRowSeq={Row}",
+                    stageNumber, obs.SourceRowSeq);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Clamps a candidate anomaly threshold to <see cref="_configuredAnomalyFloor"/> and,
+        /// when <see cref="_claudeSettings"/> is present, writes the effective value to
+        /// <see cref="ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold"/>. Returns the
+        /// effective value regardless of whether the write occurred.
+        /// </summary>
+        /// <remarks>
+        /// The store's adaptive threshold starts at 0.0f on a fresh install — writing it raw
+        /// would silently demote a user-configured floor (e.g. 0.75) and disable the anomaly
+        /// gate. Centralizing the floor clamp keeps the initialization path
+        /// (<see cref="InitializeAsync"/>) and the runtime ratchet path
+        /// (<see cref="FeedClaudeCorrectedBatchAsync"/>) in sync.
+        /// </remarks>
+        /// <param name="candidate">Raw candidate threshold (e.g. persisted or newly computed).</param>
+        /// <returns>Effective threshold after clamping to the configured floor.</returns>
+        private float clampAndApplyAnomalyThreshold(float candidate)
+        {
+            #region implementation
+
+            var effective = Math.Max(_configuredAnomalyFloor, candidate);
+            if (_claudeSettings != null)
+            {
+                _claudeSettings.MlAnomalyScoreThreshold = effective;
+            }
+            return effective;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -1345,21 +1434,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Appends a flag to the observation's ValidationFlags field.
-        /// Follows the existing semicolon-delimited convention used by ColumnStandardizationService.
+        /// Appends a flag to the observation's ValidationFlags field. Delegates to the shared
+        /// <see cref="ValidationFlagExtensions.AppendValidationFlag"/> helper so the delimiter
+        /// convention (<c>"; "</c>) stays in one place across services.
         /// </summary>
         /// <param name="obs">Observation to flag.</param>
         /// <param name="flag">Flag string to append.</param>
-        private static void appendFlag(ParsedObservation obs, string flag)
-        {
-            #region implementation
-
-            obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
-                ? flag
-                : $"{obs.ValidationFlags}; {flag}";
-
-            #endregion
-        }
+        private static void appendFlag(ParsedObservation obs, string flag) => obs.AppendValidationFlag(flag);
 
         /**************************************************************/
         /// <summary>

@@ -1,3 +1,4 @@
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -1014,20 +1015,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Appends a flag to the observation's ValidationFlags, separated by "; ".
+        /// Appends a flag to the observation's ValidationFlags, separated by <c>"; "</c>.
+        /// Delegates to the shared <see cref="ValidationFlagExtensions.AppendValidationFlag"/>
+        /// helper so the delimiter convention stays in one place across services.
         /// </summary>
         /// <param name="obs">Observation to flag.</param>
         /// <param name="flag">Flag to append.</param>
-        private static void appendFlag(ParsedObservation obs, string flag)
-        {
-            #region implementation
-
-            obs.ValidationFlags = string.IsNullOrEmpty(obs.ValidationFlags)
-                ? flag
-                : $"{obs.ValidationFlags}; {flag}";
-
-            #endregion
-        }
+        private static void appendFlag(ParsedObservation obs, string flag) => obs.AppendValidationFlag(flag);
 
         /**************************************************************/
         /// <summary>
