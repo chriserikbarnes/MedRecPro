@@ -68,6 +68,12 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         // U+221E INFINITY SIGN
         private const char INFINITY_SIGN = '\u221E';
 
+        // R4 — U+2044 FRACTION SLASH, U+2215 DIVISION SLASH. Both appear in real
+        // SPL tables as the slash in "t1⁄2" variants (U+2044) and occasionally in
+        // unit expressions. Fold to ASCII '/' so downstream regex/lookup matches.
+        private const char FRACTION_SLASH = '\u2044';
+        private const char DIVISION_SLASH = '\u2215';
+
         // Collapse sequences of whitespace to a single space
         private static readonly Regex _whitespaceCollapse = new(@"\s+", RegexOptions.Compiled);
 
@@ -89,15 +95,20 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /**************************************************************/
         /// <summary>
         /// Folds Unicode variants so downstream lookups see a canonical codepoint form.
-        /// Currently maps U+22C5 (DOT OPERATOR, `⋅`) onto U+00B7 (MIDDLE DOT, `·`) and
-        /// runs an NFKC normalization pass over the result.
+        /// Maps U+22C5 (DOT OPERATOR, `⋅`) onto U+00B7 (MIDDLE DOT, `·`),
+        /// U+2044 (FRACTION SLASH, `⁄`) and U+2215 (DIVISION SLASH, `∕`) onto
+        /// ASCII `/`, then runs an NFKC normalization pass over the result.
         /// </summary>
         /// <param name="input">Raw text from the source table.</param>
         /// <returns>Canonicalized string, or the empty string when <paramref name="input"/> is null.</returns>
         /// <remarks>
-        /// Real SPL tables have been observed to use `⋅` in unit expressions like
-        /// `mcg⋅hr/mL`. The existing normalization map keys use `·`, so without this
-        /// fold the normalization step silently fails and units remain embedded.
+        /// Real SPL tables use:
+        /// - `⋅` (U+22C5) in unit expressions like `mcg⋅hr/mL` — folded to `·`
+        ///   (U+00B7) so the `_unitNormalizationMap` keys match.
+        /// - `⁄` (U+2044 FRACTION SLASH) in `t1⁄2` variants — folded to `/` so
+        ///   `t1/2` resolves to the canonical `t½` entry.
+        /// - `∕` (U+2215 DIVISION SLASH) in rare compound units — folded to `/`
+        ///   for symmetry.
         /// </remarks>
         public static string NormalizeUnicode(string? input)
         {
@@ -107,13 +118,28 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 return string.Empty;
 
             // Fast path: replace known codepoint variants first
-            var folded = input.Replace(DOT_OPERATOR, MIDDLE_DOT);
+            var folded = input
+                .Replace(DOT_OPERATOR, MIDDLE_DOT)
+                .Replace(FRACTION_SLASH, '/')
+                .Replace(DIVISION_SLASH, '/');
 
             // NFKC also collapses things like fullwidth digits; safe for unit text
             return folded.Normalize(NormalizationForm.FormKC);
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// R4 — Biological-matrix prefixes that sometimes prepend a canonical PK
+        /// term in SPL tables (<c>"Serum T1/2"</c>, <c>"Plasma Cmax"</c>,
+        /// <c>"Blood AUC"</c>). Stripping the matrix prefix at lookup time lets
+        /// the downstream alias index resolve the bare canonical without
+        /// declaring matrix-prefixed aliases on every entry.
+        /// </summary>
+        private static readonly Regex _matrixPrefixStrip = new(
+            @"^\s*(?:Serum|Plasma|Blood|Whole\s+Blood|Urine|Cerebrospinal\s+Fluid|CSF)\s+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         #endregion Unicode Normalization
 
@@ -155,12 +181,16 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 // -- Concentration metrics --
                 new("Cmax",
                     new[] { "Cmax", "C max", "Cmax,ss", "Cmax ss",
+                            // R5 — numeric-suffix period variants and shorthand
+                            "Cmax1", "Cmax2", "Cmax 1", "Cmax 2",
+                            "Peak Conc.", "Peak Conc",
                             "Maximum Plasma Concentration", "Maximum Plasma Concentrations",
                             "Maximum Concentration", "Peak Plasma Concentration",
                             "Peak Concentration", "Peak Concentrations",
                             "Peak concentration at steady state",
                             "Peak Concentration at Steady State" },
-                    prefix("Cmax", "C\\s*max",
+                    prefix("Cmax(?:\\s*[12])?", "C\\s*max(?:\\s*[12])?",
+                           "Peak\\s+Conc\\.?",
                            "Maximum\\s+Plasma\\s+Concentrations?",
                            "Peak\\s+Plasma\\s+Concentrations?",
                            "Peak\\s+Concentrations?(?:\\s+at\\s+steady\\s+state)?",
@@ -168,19 +198,36 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
 
                 new("Cmin",
                     new[] { "Cmin", "C min", "Cmin,ss",
+                            // R5 — inter-peak minimum (observed as Cminip in TID 571 shape)
+                            "Cminip", "Cmin,ip", "Cmin ip",
                             "Minimum Plasma Concentration", "Minimum Concentration" },
-                    prefix("Cmin", "C\\s*min", "Minimum\\s+Plasma\\s+Concentration",
+                    prefix("Cmin(?:ip|,ip|\\s*ip)?", "C\\s*min",
+                           "Minimum\\s+Plasma\\s+Concentration",
                            "Minimum\\s+Concentration")),
 
                 new("Ctrough",
                     new[] { "Ctrough", "Cthrough", "C trough",
                             "Trough Concentration", "Trough Plasma Concentration",
                             "C0h", "C 0h", "C0", "C 0",
+                            // R5 — additional timepoint-indexed concentrations.
+                            // C12, C24, C48, C72, C96 are "concentration at hour N"
+                            // measurements reported in steady-state PK tables;
+                            // semantically they are trough-like observations, so
+                            // they collapse to the Ctrough canonical.
+                            "C12", "C12h", "C 12", "C 12h",
+                            "C24", "C24h", "C 24", "C 24h",
+                            "C48", "C48h", "C 48", "C 48h",
+                            "C72", "C72h", "C 72", "C 72h",
+                            "C96", "C96h", "C 96", "C 96h",
                             "Concentration at 0 hours", "Predose Concentration" },
                     prefix("Ctrough", "Cthrough", "C\\s*trough",
                            "Trough\\s+(?:Plasma\\s+)?Concentration",
                            "C\\s*0\\s*h\\b", "Predose\\s+Concentration",
-                           "Concentration\\s+at\\s+0\\s+hours?")),
+                           "Concentration\\s+at\\s+0\\s+hours?",
+                           // R5 — generic C<N>[h] pattern for concentration-at-hour
+                           // time points. Excludes C0 (covered above) and C<N>-<M>
+                           // range forms (reserved for AUC-style intervals).
+                           "C\\s*\\d{1,3}\\s*h?(?![\\w\\-/])")),
 
                 new("Cavg",
                     new[] { "Cavg", "C avg", "Css,avg", "Css avg",
@@ -195,11 +242,13 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 // -- Time metrics --
                 new("Tmax",
                     new[] { "Tmax", "T max", "Tmax,ss",
+                            // R5 — numeric-suffix period variants
+                            "Tmax1", "Tmax2", "Tmax 1", "Tmax 2",
                             "Time to Maximum Concentration", "Time to Peak",
                             "Time to Peak Concentration",
                             "TPEAK", "T PEAK", "T peak", "T-peak",
                             "Time of Peak" },
-                    prefix("Tmax", "T\\s*max",
+                    prefix("Tmax(?:\\s*[12])?", "T\\s*max(?:\\s*[12])?",
                            "TPEAK", "T[\\s-]?peak",
                            "Time\\s+to\\s+Maximum\\s+Concentration",
                            "Time\\s+to\\s+Peak",
@@ -209,9 +258,19 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                     new[] { "t½", "t1/2", "T 1/2", "T1/2", "Half-life", "Half Life",
                             "Half-Life", "Elimination Half-life", "Elimination Half Life",
                             "Elimination Half-Life", "Terminal Half-life",
-                            "Terminal Half Life", "Plasma Half-life", "Apparent Half-life" },
-                    prefix("t½", "t\\s*1/2", "T\\s*1/2",
-                           "(?:Elimination|Terminal|Plasma|Apparent)\\s+Half[\\s-]?Life",
+                            "Terminal Half Life", "Plasma Half-life", "Apparent Half-life",
+                            // R5 — compact/variant forms observed in SPL corpus:
+                            // "t1/2terminal" (no space), "t1/2λz", and distribution-phase
+                            // variants. The U+2044 FRACTION SLASH case "t1⁄2" is
+                            // normalized to "t1/2" by NormalizeUnicode before lookup.
+                            "t1/2terminal", "t1/2 terminal", "t 1/2 terminal",
+                            "t1/2λz", "t1/2 λz", "t1/2 lambda-z", "t1/2 lambda z",
+                            "t1/2 β", "t1/2β", "t1/2 alpha", "t1/2α",
+                            "Distribution Half-life", "Distribution Half Life",
+                            "Distribution Half-Life" },
+                    prefix("t½", "t\\s*1/2(?:\\s*(?:terminal|λz|β|α|alpha|beta|lambda[\\s-]?z))?",
+                           "T\\s*1/2(?:\\s*(?:terminal|λz|β|α|alpha|beta|lambda[\\s-]?z))?",
+                           "(?:Elimination|Terminal|Plasma|Apparent|Distribution)\\s+Half[\\s-]?Life",
                            "Half[\\s-]?Life")),
 
                 new("MRT",
@@ -221,6 +280,15 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 new("MAT",
                     new[] { "MAT", "Mean Absorption Time" },
                     prefix("MAT", "Mean\\s+Absorption\\s+Time")),
+
+                // R5 — Absorption lag time (tlag). Observed in oral PK tables as a
+                // separate time-domain metric; keep as its own canonical rather
+                // than collapsing to Tmax because the semantics differ (tlag is
+                // the delay before any drug appears, not the time-to-peak).
+                new("tlag",
+                    new[] { "tlag", "t lag", "t-lag", "tLag", "Tlag",
+                            "Lag Time", "Absorption Lag Time" },
+                    prefix("t[\\s-]?lag", "Absorption\\s+Lag\\s+Time", "Lag\\s+Time")),
 
                 // -- AUC family (more specific variants appear with their own canonical forms) --
                 new("AUC0-inf",
@@ -255,8 +323,12 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
 
                 new("AUClast",
                     new[] { "AUClast", "AUC last", "AUC_last",
-                            "AUC to last measurable", "AUC to last measurable concentration" },
-                    prefix("AUClast", "AUC[\\s_]last", "AUC\\s+to\\s+last\\s+measurable")),
+                            // R5 — "AUC to last detectable concentration" variant
+                            "AUCtldc", "AUC tldc", "AUC_tldc",
+                            "AUC to last measurable", "AUC to last measurable concentration",
+                            "AUC to last detectable", "AUC to last detectable concentration" },
+                    prefix("AUClast", "AUCtldc", "AUC[\\s_](?:last|tldc)",
+                           "AUC\\s+to\\s+last\\s+(?:measurable|detectable)")),
 
                 new("AUCtau",
                     new[] { "AUCtau", "AUC tau", "AUC(0-tau)", "AUC 0-tau",
@@ -276,13 +348,20 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                             "Area Under the Curve", "Area Under Curve",
                             "Area Under the Concentration-Time Curve" },
                     prefix("AUC(?![0-9\\-])",
-                           // AUC<N>[h] catch-all. The `(?!0)` lookahead reserves
+                           // AUC<N>[h|d] catch-all. The `(?!0)` lookahead reserves
                            // AUC0-XX forms (AUC0-inf, AUC0-24, AUC0-12, AUC0-t)
                            // for their dedicated entries — without this, a raw
                            // "AUC0 to ∞" would eagerly match AUC via the \d+.
                            // Non-standard intervals (AUC48, AUC72, AUC8, AUC96)
                            // still collapse to the generic AUC via this pattern.
-                           "AUC(?!0)\\d+\\s*h?\\b",
+                           // R5 — extend with 'd' suffix for AUC<N>d variants
+                           // observed in thyroid/hormone PK tables.
+                           "AUC(?!0)\\d+\\s*[hd]?\\b",
+                           // R5 — AUC0-<N>d form (e.g., "AUC0-180d") not covered
+                           // by the dedicated 24/12/t entries. Collapses to
+                           // generic AUC rather than introducing a day-scoped
+                           // canonical for every possible interval.
+                           "AUC\\s*[\\(]?\\s*0\\s*(?:[\\-–,]|\\s+to\\s+)\\s*\\d+\\s*d",
                            "Total\\s+AUC(?![0-9\\-])",
                            "Overall\\s+AUC(?![0-9\\-])",
                            "Area\\s+Under\\s+(?:the\\s+)?(?:Concentration-Time\\s+)?Curve")),
@@ -303,8 +382,20 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                            "Clearance")),
 
                 new("CLr",
-                    new[] { "CLr", "CL r", "Renal Clearance" },
-                    prefix("CLr", "CL\\s*r", "Renal\\s+Clearance")),
+                    new[] { "CLr", "CL r", "Renal Clearance",
+                            // R5 — CLREN / CLcr / CLCR shorthand forms commonly
+                            // used in SPL renal-impairment PK tables. The bare
+                            // abbreviation forms canonicalize here; when bound
+                            // to a numeric range ("CLCR 50-80 mL/min") the
+                            // content is a POPULATION descriptor — handled by
+                            // PopulationDetector regex / R6 subtype routing,
+                            // not here.
+                            "CLREN", "CLren", "CL ren", "CL-REN",
+                            "CLcr", "CLCR", "CL cr", "CL-CR",
+                            "Creatinine Clearance" },
+                    prefix("CL[\\s-]?(?:r|REN|ren|cr|CR)(?!\\w)",
+                           "Renal\\s+Clearance",
+                           "Creatinine\\s+Clearance")),
 
                 // -- Volume of distribution --
                 new("Vd/F",
@@ -316,12 +407,16 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
 
                 new("Vss",
                     new[] { "Vss", "V ss", "V,ss", "Vd,ss",
+                            // R5 — Vdss is the same concept as Vss (the "d" stands
+                            // for "distribution", which is redundant with "volume of
+                            // distribution"). Collapse to Vss canonical.
+                            "Vdss", "Vd ss", "Vd-ss", "Vd SS", "V dss",
                             "Steady-State Volume of Distribution",
                             "Steady State Volume of Distribution",
                             "Volume of Distribution at Steady State",
                             "Volume of Distribution at Steady-State",
                             "Volume of distribution at steady state" },
-                    prefix("V(?:d,)?ss", "V\\s*,?\\s*ss",
+                    prefix("V(?:d[,\\s-]?)?ss", "V\\s*,?\\s*ss", "Vdss",
                            "Steady[\\s-]State\\s+Volume\\s+of\\s+Distribution",
                            "Volume\\s+of\\s+Distribution\\s+at\\s+Steady[\\s-]State")),
 
@@ -518,6 +613,31 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 {
                     canonical = entry.Canonical;
                     return true;
+                }
+            }
+
+            // R4 — Third-chance lookup with biological-matrix prefix stripped.
+            // Applies to "Serum T1/2", "Plasma Cmax", "Blood AUC", etc. Stripping
+            // only happens when the prefix regex actually matches and leaves
+            // non-empty content, so pure "Serum" never collapses to an empty lookup.
+            var matrixStripped = _matrixPrefixStrip.Replace(scanKey, string.Empty).Trim();
+            if (!string.IsNullOrEmpty(matrixStripped)
+                && !string.Equals(matrixStripped, scanKey, StringComparison.Ordinal))
+            {
+                // Try alias index first, then prefix regex scan on the stripped form.
+                if (_aliasIndex.TryGetValue(matrixStripped, out var c3))
+                {
+                    canonical = c3;
+                    return true;
+                }
+                foreach (var entry in Entries)
+                {
+                    var m = entry.PrefixPattern.Match(matrixStripped);
+                    if (m.Success && m.Index == 0)
+                    {
+                        canonical = entry.Canonical;
+                        return true;
+                    }
                 }
             }
 
@@ -752,12 +872,12 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             @"\b(?:" +
             @"AUC(?:\w*|\s*\(?\s*0\s*(?:[\-–,]|\s+to\s+)\s*(?:inf(?:inity)?|∞|\d+|t|tau)\s*\)?)?|" +
             @"Total\s+AUC|Overall\s+AUC|" +
-            @"Cmax|Cmin|Tmax|TPEAK|T[\s-]?peak|Cavg|Ctrough|Cthrough|Css|" +
-            @"C\s*0\s*h\b|Predose\s+Concentration|" +
-            @"t½|t\s*1/2|T\s*1/2|Half[\s-]?Life|Elimination\s+Half[\s-]?Life|" +
-            @"CL(?:/F|ss)?|Cl(?:/F|ss)?|" +
-            @"Vd(?:/F)?|V/F|Vz/F|Vss|Volume\s+of\s+Distribution|" +
-            @"MRT|Mean\s+Residence\s+Time|" +
+            @"Cmax(?:\s*[12])?|Cmin(?:ip)?|Tmax(?:\s*[12])?|TPEAK|T[\s-]?peak|Cavg|Ctrough|Cthrough|Css|" +
+            @"C\s*0\s*h\b|C\s*\d{1,3}\s*h?\b|Predose\s+Concentration|Peak\s+Conc\.?|" +
+            @"t½|t\s*1/2|T\s*1/2|t[\s-]?lag|Half[\s-]?Life|Elimination\s+Half[\s-]?Life|" +
+            @"CL(?:/F|ss)?|Cl(?:/F|ss)?|CL[\s-]?(?:r|REN|ren|cr|CR)|Creatinine\s+Clearance|" +
+            @"Vd(?:/F|ss)?|V/F|Vz/F|Vss|Vdss|Volume\s+of\s+Distribution|" +
+            @"MRT|Mean\s+Residence\s+Time|Absorption\s+Lag\s+Time|" +
             @"(?:Maximum|Peak)\s+(?:Plasma\s+)?Concentrations?|" +
             @"(?:Plasma|Total|Systemic|Renal|Oral|Apparent)\s+Clearance|" +
             @"Bioavailability" +

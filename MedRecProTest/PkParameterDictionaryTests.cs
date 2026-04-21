@@ -512,5 +512,248 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Footnote Marker Stripping + AUCT/AUC Numeric Variants
+
+        #region Wave 2 R4 — Unicode Variant Folding + Matrix Prefix
+
+        /// <summary>
+        /// R4 — U+2044 FRACTION SLASH in <c>t1⁄2</c> variants folds to ASCII
+        /// <c>/</c> before lookup so the canonical <c>t½</c> alias resolves.
+        /// Observed in TID 126/127 (BENLYSTA) shape.
+        /// </summary>
+        [TestMethod]
+        public void R4_NormalizeUnicode_FractionSlash_FoldsToForwardSlash()
+        {
+            // U+2044 FRACTION SLASH
+            var input = "t1\u20442";
+            var normalized = PkParameterDictionary.NormalizeUnicode(input);
+            Assert.IsTrue(normalized.Contains('/'),
+                $"FRACTION SLASH (U+2044) must fold to '/', got: '{normalized}'");
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"input '{input}' (with U+2044) should canonicalize to t½");
+            Assert.AreEqual("t½", canon);
+        }
+
+        /// <summary>
+        /// R4 — U+2215 DIVISION SLASH also folds to ASCII <c>/</c>.
+        /// </summary>
+        [TestMethod]
+        public void R4_NormalizeUnicode_DivisionSlash_FoldsToForwardSlash()
+        {
+            // U+2215 DIVISION SLASH
+            var input = "t1\u22152";
+            var normalized = PkParameterDictionary.NormalizeUnicode(input);
+            Assert.IsTrue(normalized.Contains('/'),
+                $"DIVISION SLASH (U+2215) must fold to '/', got: '{normalized}'");
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual("t½", canon);
+        }
+
+        /// <summary>
+        /// R4 — Biological-matrix prefixes (Serum, Plasma, Blood) are stripped
+        /// at lookup time so matrix-prefixed variants resolve to the bare
+        /// canonical. Observed in TID 569 (thyroid hormone) shape.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Serum T1/2", "t½")]
+        [DataRow("Plasma T1/2", "t½")]
+        [DataRow("Blood T1/2", "t½")]
+        [DataRow("Whole Blood Cmax", "Cmax")]
+        [DataRow("Urine AUC", "AUC")]
+        public void R4_TryCanonicalize_MatrixPrefixStripped_ResolvesCanonical(
+            string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"'{input}' should canonicalize after matrix-prefix strip");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R4 guard: a matrix-only input (no PK term after the prefix) must NOT
+        /// yield a canonical match. Prevents "Serum" alone from accidentally
+        /// canonicalizing to anything.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Serum")]
+        [DataRow("Plasma")]
+        [DataRow("Blood")]
+        public void R4_TryCanonicalize_BareMatrix_DoesNotMatch(string input)
+        {
+            Assert.IsFalse(PkParameterDictionary.TryCanonicalize(input, out _),
+                $"bare '{input}' must not canonicalize");
+        }
+
+        #endregion Wave 2 R4 — Unicode Variant Folding + Matrix Prefix
+
+        #region Wave 2 R5 — New PK Aliases
+
+        /// <summary>
+        /// R5 — Renal clearance shorthand forms (CLREN, CLcr, CLCR) canonicalize
+        /// to CLr. Observed ~80 rows in the 2026-04-21 audit with these forms
+        /// in Subtype. Creatinine Clearance as a term also maps here.
+        /// </summary>
+        [TestMethod]
+        [DataRow("CLREN", "CLr")]
+        [DataRow("CLren", "CLr")]
+        [DataRow("CLcr", "CLr")]
+        [DataRow("CLCR", "CLr")]
+        [DataRow("Creatinine Clearance", "CLr")]
+        [DataRow("Renal Clearance", "CLr")]
+        public void R5_TryCanonicalize_RenalClearanceVariants_MapToCLr(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"'{input}' should canonicalize");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — Numeric-suffix period variants for Cmax/Tmax (period 1/2 dosing)
+        /// and "Peak Conc." shorthand. Observed 59 rows in the audit with
+        /// "Peak Conc." in Name.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Cmax1", "Cmax")]
+        [DataRow("Cmax2", "Cmax")]
+        [DataRow("Peak Conc.", "Cmax")]
+        [DataRow("Peak Conc", "Cmax")]
+        [DataRow("Tmax1", "Tmax")]
+        [DataRow("Tmax2", "Tmax")]
+        public void R5_TryCanonicalize_NumericSuffixAndPeakConc_MapToCanonical(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"'{input}' should canonicalize to {expected}");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — <c>Cminip</c> (interpeak minimum concentration) maps to Cmin.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Cminip", "Cmin")]
+        [DataRow("Cmin,ip", "Cmin")]
+        [DataRow("Cmin ip", "Cmin")]
+        public void R5_TryCanonicalize_Cminip_MapsToCmin(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — Timepoint-indexed concentrations (C12, C24, C48, C72, C96) all
+        /// resolve to Ctrough. These are "concentration at hour N" measurements
+        /// in steady-state PK tables; semantically trough-like.
+        /// </summary>
+        [TestMethod]
+        [DataRow("C12", "Ctrough")]
+        [DataRow("C24", "Ctrough")]
+        [DataRow("C48", "Ctrough")]
+        [DataRow("C72", "Ctrough")]
+        [DataRow("C96", "Ctrough")]
+        [DataRow("C12h", "Ctrough")]
+        [DataRow("C24h", "Ctrough")]
+        public void R5_TryCanonicalize_TimepointConcentrations_MapToCtrough(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"'{input}' should canonicalize to Ctrough");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — <c>Vdss</c> canonicalizes to <c>Vss</c>. The "d" in Vdss stands
+        /// for "distribution" which is redundant with "volume of distribution".
+        /// Observed 36 rows in the audit with Vdss in Name.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Vdss", "Vss")]
+        [DataRow("Vd,ss", "Vss")]
+        [DataRow("Vd ss", "Vss")]
+        public void R5_TryCanonicalize_Vdss_MapsToVss(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — New <c>tlag</c> canonical (absorption lag time). Distinct from
+        /// Tmax (time-to-peak) — tlag is the delay before drug appears.
+        /// </summary>
+        [TestMethod]
+        [DataRow("tlag", "tlag")]
+        [DataRow("tLag", "tlag")]
+        [DataRow("Tlag", "tlag")]
+        [DataRow("t lag", "tlag")]
+        [DataRow("t-lag", "tlag")]
+        [DataRow("Lag Time", "tlag")]
+        [DataRow("Absorption Lag Time", "tlag")]
+        public void R5_TryCanonicalize_TlagVariants_MapToTlag(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"'{input}' should canonicalize to tlag");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — <c>AUCtldc</c> (AUC to last detectable concentration) resolves
+        /// to AUClast.
+        /// </summary>
+        [TestMethod]
+        [DataRow("AUCtldc", "AUClast")]
+        [DataRow("AUC_tldc", "AUClast")]
+        [DataRow("AUC to last detectable", "AUClast")]
+        public void R5_TryCanonicalize_AUCtldc_MapsToAUClast(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon));
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — <c>AUC0-Nd</c> day-interval variants (e.g., AUC0-180d) collapse
+        /// to the generic AUC canonical. Observed in long-duration PK tables.
+        /// </summary>
+        [TestMethod]
+        [DataRow("AUC0-180d", "AUC")]
+        [DataRow("AUC0-90d", "AUC")]
+        public void R5_TryCanonicalize_AUCDayInterval_CollapsesToAUC(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"'{input}' should canonicalize to generic AUC");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — Distribution / terminal half-life variants. Phase-tagged forms
+        /// fold to the same t½ canonical; the phase qualifier is captured
+        /// separately by <see cref="PkParameterDictionary.TryExtractCanonicalFromPhrase"/>.
+        /// </summary>
+        [TestMethod]
+        [DataRow("t1/2terminal", "t½")]
+        [DataRow("t1/2 terminal", "t½")]
+        [DataRow("t1/2λz", "t½")]
+        [DataRow("Distribution Half-life", "t½")]
+        public void R5_TryCanonicalize_PhaseTaggedHalfLife_MapsToTHalf(string input, string expected)
+        {
+            Assert.IsTrue(PkParameterDictionary.TryCanonicalize(input, out var canon),
+                $"'{input}' should canonicalize to t½");
+            Assert.AreEqual(expected, canon);
+        }
+
+        /// <summary>
+        /// R5 — IsPkParameter recognizes all R5-added aliases. Confirms the
+        /// alias index is wired for detection (not just canonicalization).
+        /// </summary>
+        [TestMethod]
+        [DataRow("CLREN")]
+        [DataRow("Peak Conc.")]
+        [DataRow("Cminip")]
+        [DataRow("C24")]
+        [DataRow("Vdss")]
+        [DataRow("tlag")]
+        [DataRow("AUCtldc")]
+        public void R5_IsPkParameter_RecognizesNewAliases(string input)
+        {
+            Assert.IsTrue(PkParameterDictionary.IsPkParameter(input),
+                $"IsPkParameter should recognize '{input}'");
+        }
+
+        #endregion Wave 2 R5 — New PK Aliases
     }
 }

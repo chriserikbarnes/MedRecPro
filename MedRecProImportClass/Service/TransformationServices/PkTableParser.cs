@@ -98,6 +98,253 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// R2 — Column-header patterns for non-PK context columns that should be
+        /// suppressed by <see cref="extractParameterDefinitions"/>. Matching columns
+        /// do NOT emit <c>ParameterName</c> observations — they either carry label
+        /// content handled elsewhere (co-administered drug name, subject group) or
+        /// carry values already surfaced on a sibling column (Dose of X, Number of
+        /// Subjects).
+        /// </summary>
+        /// <remarks>
+        /// Derived from the TID 571 / 2069 audit (2026-04-21). Pre-R2, columns like
+        /// "Co-administered Drug" / "Dose of Azithromycin" / "Subject Group" / "n"
+        /// emitted spurious <c>ParameterName="&lt;header&gt;"</c> text observations
+        /// that polluted the PK corpus (~6,000–8,000 rows). Bare "n" / "N" is
+        /// retained by <see cref="_sampleSizeHeaders"/> as a Count-typed column
+        /// (legitimate sample-size metric), so it is NOT in this suppression set.
+        /// </remarks>
+        /// <seealso cref="_sampleSizeHeaders"/>
+        /// <seealso cref="_doseColumnHeaders"/>
+        /// <seealso cref="isContextColumnHeader"/>
+        private static readonly Regex[] _contextColumnHeaderPatterns = new[]
+        {
+            // "Co-administered Drug", "Coadministered Drug" (both hyphenations)
+            new Regex(@"^\s*Co-?administered\s+Drug\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            // "Dose of Azithromycin", "Dose of Co-administered Drug", "Dose of CYP3A4"
+            // Uses uppercase-first token to avoid matching "Dose" alone (which is a
+            // legitimate dose column handled by _doseColumnHeaders).
+            new Regex(@"^\s*Dose\s+of\s+[A-Z][\w\-\s/,]{1,60}\s*$",
+                RegexOptions.Compiled),
+            // "Subject Group", "Patient Group", "Treatment Group"
+            new Regex(@"^\s*(?:Subject|Patient|Treatment|Study)\s+Group\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            // "Number of Subjects", "Number of Patients"
+            new Regex(@"^\s*Number\s+of\s+(?:Subjects?|Patients?|Volunteers?)\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            // "Condition" / "Conditions" / "Treatment" / "Treatments" — generic context
+            // labels that carry population/timepoint text, not PK values.
+            new Regex(@"^\s*(?:Condition|Conditions|Treatment|Treatments)\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            // "Formulation" / "Route of Administration" — context columns on some
+            // bioequivalence / formulation-comparison PK tables.
+            new Regex(@"^\s*(?:Formulation|Formulations)\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^\s*Route\s+of\s+Administration\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// R2 — Returns true when the given column-header text matches one of the
+        /// non-PK context column patterns defined by
+        /// <see cref="_contextColumnHeaderPatterns"/>. Used by
+        /// <see cref="extractParameterDefinitions"/> to skip emission of paramDefs
+        /// (and therefore observations) for columns that don't carry PK values.
+        /// </summary>
+        /// <param name="headerText">Trimmed header cell text.</param>
+        /// <returns>True when the text matches a known non-PK context column.</returns>
+        /// <seealso cref="_contextColumnHeaderPatterns"/>
+        internal static bool isContextColumnHeader(string? headerText)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(headerText))
+                return false;
+
+            foreach (var rx in _contextColumnHeaderPatterns)
+            {
+                if (rx.IsMatch(headerText))
+                    return true;
+            }
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — Pattern matching the "divider shell" used in SPL tables to separate
+        /// dosing regimens or study phases: text wrapped in one-or-more leading/
+        /// trailing asterisks (<c>**Single dose**</c>), optionally ending with a
+        /// colon (<c>**500 mg tablet single dose:**</c>), or a bare phrase ending in
+        /// a colon (<c>Single dose:</c>). The inner text is captured in group 1.
+        /// </summary>
+        /// <remarks>
+        /// This intentionally accepts a trailing colon so phrases like
+        /// "effects of gender and age:" — which TID 2069 uses as a section title
+        /// inside a data row — are recognized as dividers.
+        /// </remarks>
+        private static readonly Regex _sectionDividerShellPattern = new(
+            @"^\s*\*+\s*(.+?)\s*[:：]?\s*\*+\s*$" +
+            @"|^\s*(.+?)\s*[:：]\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — Qualifier detection for section-divider text. Returns a canonical
+        /// qualifier token (<c>single_dose</c>, <c>multiple_dose</c>,
+        /// <c>steady_state</c>, <c>fasted</c>, <c>fed</c>) when the divider text
+        /// contains a recognized PK condition phrase, otherwise null.
+        /// </summary>
+        /// <remarks>
+        /// Used by <see cref="detectSectionDivider"/> so subsequent data rows can
+        /// carry the sticky qualifier in <c>ParameterSubtype</c>.
+        /// </remarks>
+        private static readonly (Regex pattern, string qualifier)[] _sectionDividerQualifiers = new[]
+        {
+            (new Regex(@"\bsingle[\s-]?dose\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "single_dose"),
+            (new Regex(@"\bmultiple[\s-]?dose\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "multiple_dose"),
+            (new Regex(@"\bsteady[\s-]?state\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "steady_state"),
+            (new Regex(@"\bfasted\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "fasted"),
+            (new Regex(@"\bfed\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "fed"),
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — Outcome of <see cref="detectSectionDivider"/>. When the scanned row
+        /// qualifies as a section divider, carries the detected qualifier string
+        /// (stored sticky by the parse loop) and optional embedded dose regimen
+        /// string (extracted from phrases like
+        /// <c>"500 mg oral tablet single dose, effects of gender and age:"</c>).
+        /// </summary>
+        internal readonly struct SectionDividerResult
+        {
+            /// <summary>True when the row is a section divider (suppress the row's observations).</summary>
+            public bool IsDivider { get; init; }
+            /// <summary>Canonical qualifier token (single_dose / multiple_dose / steady_state / fasted / fed), or null.</summary>
+            public string? StickyQualifier { get; init; }
+            /// <summary>Embedded dose regimen extracted from the divider text, or null.</summary>
+            public string? StickyDoseRegimen { get; init; }
+            /// <summary>Raw divider text (inner content, shell stripped) for audit/logging.</summary>
+            public string? DividerText { get; init; }
+
+            /// <summary>Default non-divider result.</summary>
+            public static readonly SectionDividerResult None = new() { IsDivider = false };
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — Detects whether a data row is a section divider — a row with a
+        /// single non-empty cell that wraps its text in asterisks or ends in a
+        /// colon, and whose text carries a recognized PK qualifier phrase.
+        /// </summary>
+        /// <remarks>
+        /// Examples detected:
+        /// <list type="bullet">
+        /// <item><c>**Single dose**</c> → qualifier="single_dose"</item>
+        /// <item><c>**Multiple dose**</c> → qualifier="multiple_dose"</item>
+        /// <item><c>**500 mg oral tablet single dose, effects of gender and age:**</c>
+        /// → qualifier="single_dose", dose="500 mg oral tablet"</item>
+        /// <item><c>Fasted conditions:</c> → qualifier="fasted"</item>
+        /// </list>
+        /// A row is NOT a divider when it has multiple non-empty cells
+        /// (data row with col 0 label plus PK values).
+        /// </remarks>
+        /// <param name="row">Candidate data row.</param>
+        /// <returns>Detection result with sticky qualifier and dose, or
+        /// <see cref="SectionDividerResult.None"/> when the row is not a divider.</returns>
+        /// <seealso cref="_sectionDividerShellPattern"/>
+        /// <seealso cref="_sectionDividerQualifiers"/>
+        internal static SectionDividerResult detectSectionDivider(ReconstructedRow row)
+        {
+            #region implementation
+
+            if (row?.Cells == null)
+                return SectionDividerResult.None;
+
+            // Require exactly one non-empty cell. A typical divider has a single
+            // col 0 span; multi-cell rows are data rows.
+            ProcessedCell? soleCell = null;
+            int nonEmptyCount = 0;
+            foreach (var c in row.Cells)
+            {
+                if (!string.IsNullOrWhiteSpace(c.CleanedText))
+                {
+                    nonEmptyCount++;
+                    soleCell = c;
+                    if (nonEmptyCount > 1)
+                        return SectionDividerResult.None;
+                }
+            }
+            if (nonEmptyCount != 1 || soleCell == null)
+                return SectionDividerResult.None;
+
+            var text = soleCell.CleanedText!.Trim();
+
+            // The cell text must match the divider shell (asterisk-wrapped OR
+            // trailing colon). Bare plaintext is treated as a normal row.
+            var shellMatch = _sectionDividerShellPattern.Match(text);
+            if (!shellMatch.Success)
+                return SectionDividerResult.None;
+
+            // Capture group 1 is the asterisk-wrapped form; group 2 is the
+            // trailing-colon form. Use whichever matched.
+            var inner = shellMatch.Groups[1].Success && shellMatch.Groups[1].Length > 0
+                ? shellMatch.Groups[1].Value.Trim()
+                : shellMatch.Groups[2].Success
+                    ? shellMatch.Groups[2].Value.Trim()
+                    : text;
+
+            if (string.IsNullOrWhiteSpace(inner))
+                return SectionDividerResult.None;
+
+            // Require at least one qualifier match OR an embedded dose regimen.
+            // Otherwise a bare "Summary:" line would be suppressed wrongly.
+            string? qualifier = null;
+            foreach (var (pattern, qname) in _sectionDividerQualifiers)
+            {
+                if (pattern.IsMatch(inner))
+                {
+                    qualifier = qname;
+                    break;
+                }
+            }
+
+            // Extract any embedded dose regimen from the divider text.
+            var (dose, doseUnit) = DoseExtractor.Extract(inner);
+            string? stickyDose = null;
+            if (dose.HasValue)
+            {
+                // The dose fragment is the substring starting at the first digit.
+                var firstDigit = inner.IndexOfAny("0123456789".ToCharArray());
+                if (firstDigit >= 0)
+                {
+                    stickyDose = inner[firstDigit..].TrimEnd('*', ':', ' ', '\t', '，', ',');
+                }
+                // Guard against regressions: "100 mg" alone is a pure dose — caller
+                // handles via classifyRowLabel, not as a section divider.
+                _ = doseUnit;
+            }
+
+            // Treat as divider only when we got at least a qualifier or a dose.
+            // This prevents arbitrary "Title:" rows from being suppressed.
+            if (qualifier == null && stickyDose == null)
+                return SectionDividerResult.None;
+
+            return new SectionDividerResult
+            {
+                IsDivider = true,
+                StickyQualifier = qualifier,
+                StickyDoseRegimen = stickyDose,
+                DividerText = inner,
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Regex patterns for ± dispersion type resolution. Scanned against header paths,
         /// footnotes, and caption text to determine what the ± symbol represents.
         /// Ordered by specificity: full phrase before abbreviation.
@@ -191,7 +438,11 @@ namespace MedRecProImportClass.Service.TransformationServices
           // rather than TreatmentArm. "Fed" alone is intentionally excluded to avoid
           // accidentally matching drug-name substrings; the multi-word forms are
           // specific enough.
-          + @"|fasted|fasting|fed\s+state|light\s+breakfast|high[\s-]?fat\s+meal|moderate[\s-]?fat\s+meal|low[\s-]?fat\s+meal"
+          + @"|fasted|fasting|fed\s+state|light\s+breakfast"
+          + @"|high[\s-]?fat\s+(?:meal|breakfast|lunch|dinner)"
+          + @"|moderate[\s-]?fat\s+(?:meal|breakfast|lunch|dinner)"
+          + @"|low[\s-]?fat\s+(?:meal|breakfast|lunch|dinner)"
+          + @"|standard\s+breakfast|regular\s+breakfast|breakfast"
           + @")\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -471,10 +722,31 @@ namespace MedRecProImportClass.Service.TransformationServices
                     : null;
             }
 
+            // R3 — Sticky state carried across data rows within this parse.
+            // Updated when a section-divider row fires, applied to subsequent
+            // observations whose own columns are empty. Keeps pre-R3 behavior
+            // intact when no divider is present (both values stay null).
+            string? stickyQualifier = null;
+            string? stickyDoseRegimen = null;
+
             // Iterate data rows
             var dataRows = getDataBodyRows(table);
             foreach (var row in dataRows)
             {
+                // R3 — Detect section-divider rows BEFORE any other processing.
+                // These rows carry a single cell with text like "**Single dose**"
+                // that both (a) carries a qualifier state to apply to following
+                // rows and (b) should NOT emit observations of its own.
+                var divider = detectSectionDivider(row);
+                if (divider.IsDivider)
+                {
+                    if (divider.StickyQualifier != null)
+                        stickyQualifier = divider.StickyQualifier;
+                    if (divider.StickyDoseRegimen != null)
+                        stickyDoseRegimen = divider.StickyDoseRegimen;
+                    continue;
+                }
+
                 // Column 0 text (always read for both layouts)
                 var col0Cell = getCellAtColumn(row, 0);
                 var col0Text = col0Cell?.CleanedText?.Trim();
@@ -657,7 +929,20 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
                     }
 
-                    var (time, timeUnit, timepoint) = extractDuration(doseRegimen);
+                    // R3 — Apply sticky dose from the most recent section divider
+                    // when this row's classifier did not yield its own DoseRegimen.
+                    // Preserves pre-R3 behavior when no divider has fired (sticky
+                    // values are null → effectiveDose falls through to doseRegimen).
+                    var effectiveDose = !string.IsNullOrWhiteSpace(doseRegimen)
+                        ? doseRegimen
+                        : stickyDoseRegimen;
+
+                    var (time, timeUnit, timepoint) = extractDuration(effectiveDose);
+
+                    // Capture sticky-state snapshots for the closure below so the
+                    // lambda binds values rather than mutable outer locals.
+                    var rowStickyQualifier = stickyQualifier;
+                    var rowStickyDose = stickyDoseRegimen;
 
                     parseRowSafe(table, row, observations, (r, obs) =>
                     {
@@ -669,8 +954,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                             var o = createBaseObservation(table, r, cell, TableCategory.PK);
                             o.ParameterName = param.name;
-                            o.DoseRegimen = doseRegimen;
-                            var (pkDose2, pkDoseUnit2) = DoseExtractor.Extract(doseRegimen);
+                            o.DoseRegimen = effectiveDose;
+                            var (pkDose2, pkDoseUnit2) = DoseExtractor.Extract(effectiveDose);
                             o.Dose = pkDose2;
                             o.DoseUnit = pkDoseUnit2;
                             o.Population = rowPopulation;
@@ -682,6 +967,18 @@ namespace MedRecProImportClass.Service.TransformationServices
                             o.Time = rowTimeOverride ?? time;
                             o.TimeUnit = rowTimeUnitOverride ?? timeUnit;
                             o.Unit = param.unit;
+
+                            // R3 — Apply sticky qualifier to ParameterSubtype when
+                            // no subtype has been set by upstream routing. The
+                            // qualifier is a contract-allowed PK condition token
+                            // (single_dose / multiple_dose / steady_state / fasted / fed)
+                            // per column-contracts.md.
+                            if (rowStickyQualifier != null && string.IsNullOrWhiteSpace(o.ParameterSubtype))
+                            {
+                                o.ParameterSubtype = rowStickyQualifier;
+                                o.ValidationFlags = appendFlag(
+                                    o.ValidationFlags, "PK_SECTION_QUALIFIER_APPLIED");
+                            }
 
                             // Attribution flags so downstream can audit which R1 rule fired
                             switch (rowLabel.Kind)
@@ -702,6 +999,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                                 case RowLabelKind.Timepoint:
                                     o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_COL0_TIMEPOINT_ROUTED");
                                     break;
+                            }
+
+                            if (rowStickyDose != null
+                                && !string.IsNullOrWhiteSpace(o.DoseRegimen)
+                                && ReferenceEquals(o.DoseRegimen, rowStickyDose))
+                            {
+                                o.ValidationFlags = appendFlag(
+                                    o.ValidationFlags, "PK_SECTION_DOSE_APPLIED");
                             }
 
                             parseAndApplyPkValue(table, o, cell, param, captionHint);
@@ -896,6 +1201,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var col = table.Header.Columns[i];
                 var text = col.LeafHeaderText?.Trim();
                 if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                // R2 — Suppress non-PK context columns (Co-administered Drug,
+                // Dose of X, Subject Group, Number of Subjects, …). Without this
+                // filter, such columns emit spurious ParameterName="<header>"
+                // text observations polluting the corpus.
+                if (isContextColumnHeader(text))
                     continue;
 
                 // Check if column is a sample size column
@@ -1663,8 +1975,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (!col0IsGenericOrBlank)
                 return false;
 
-            // Signal 2: every non-col-0 header is dose-shaped
-            int doseHeaders = 0;
+            // Signal 2 (R1.2-broadened): every non-col-0 header is either
+            // dose-shaped OR classifies as a PK row-label kind (Timepoint,
+            // Population, DrugPlusDose, TreatmentArm, DoseRegimen) via
+            // <see cref="classifyRowLabel"/>. Pre-R1.2 this signal required
+            // dose-shape only; that rejected food-state ("Light Breakfast") and
+            // population-stratifier transposed tables that R1.2 now routes
+            // correctly. Generic prose headers (Unknown kind) still disqualify.
+            int recognizedHeaders = 0;
             int totalHeaders = 0;
             for (int i = 1; i < table.Header.Columns.Count; i++)
             {
@@ -1672,10 +1990,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(h))
                     continue;
                 totalHeaders++;
-                if (_doseHeaderPattern.IsMatch(h))
-                    doseHeaders++;
+                if (_doseHeaderPattern.IsMatch(h) ||
+                    classifyRowLabel(h).Kind != RowLabelKind.Unknown)
+                    recognizedHeaders++;
             }
-            if (totalHeaders == 0 || doseHeaders != totalHeaders)
+            if (totalHeaders == 0 || recognizedHeaders != totalHeaders)
                 return false;
 
             // Signal 3: majority of data rows carry canonical PK metric row labels.
@@ -1715,13 +2034,19 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// 2. originalDoseRegimen ← o.DoseRegimen (PK metric)
         /// 3. Split originalDoseRegimen via <see cref="_paramUnitPattern"/> → (name, unit)
         /// 4. o.ParameterName = name; o.Unit = unit (if not already set)
-        /// 5. o.DoseRegimen = originalParamName
-        /// 6. Re-extract (Dose, DoseUnit) from the new DoseRegimen
-        /// 7. If the unit is a time-measure, surface PrimaryValue on Time/TimeUnit
-        /// 8. Append "PK_TRANSPOSED_LAYOUT_SWAP" to ValidationFlags
+        /// 5. R1.2 — Classify originalParamName via <see cref="classifyRowLabel"/>.
+        ///    - Timepoint kind (food-state, "Day N") → write Timepoint / Time / TimeUnit;
+        ///      leave DoseRegimen = null. Flag <c>PK_TRANSPOSED_HEADER_TIMEPOINT_ROUTED</c>.
+        ///    - Population kind (sex, age stratum, impairment) → write Population;
+        ///      leave DoseRegimen = null. Flag <c>PK_TRANSPOSED_HEADER_POP_ROUTED</c>.
+        ///    - TreatmentArm / DrugPlusDose / DoseRegimen / Unknown → preserve pre-R1.2
+        ///      behavior (DoseRegimen = originalParamName, re-extract Dose/DoseUnit).
+        /// 6. If the unit is a time-measure, surface PrimaryValue on Time/TimeUnit
+        /// 7. Append "PK_TRANSPOSED_LAYOUT_SWAP" to ValidationFlags
         /// </remarks>
         /// <param name="observations">Observations to swap in place.</param>
         /// <seealso cref="detectTransposedPkLayout"/>
+        /// <seealso cref="classifyRowLabel"/>
         internal static void applyTransposedPkLayoutSwap(List<ParsedObservation> observations)
         {
             #region implementation
@@ -1762,13 +2087,60 @@ namespace MedRecProImportClass.Service.TransformationServices
                     }
                 }
 
-                // Rebuild DoseRegimen from the original column header and re-extract Dose/DoseUnit
-                o.DoseRegimen = originalParamName;
-                var (dose, doseUnit) = DoseExtractor.Extract(originalParamName);
-                if (dose.HasValue)
+                // R1.2 — Classify the original column header (now about to become
+                // DoseRegimen/TreatmentArm) so food-state, population, or timepoint
+                // headers route to their contract-correct columns. The pre-R1.2
+                // behavior parked every header in DoseRegimen regardless of content.
+                var headerClass = classifyRowLabel(originalParamName);
+
+                switch (headerClass.Kind)
                 {
-                    o.Dose = dose;
-                    o.DoseUnit = doseUnit;
+                    case RowLabelKind.Timepoint:
+                        // Food-state ("Light Breakfast", "Fasted") and timepoint
+                        // ("Day 14", "C72") headers populate Timepoint, not DoseRegimen.
+                        o.Timepoint = headerClass.Timepoint;
+                        o.Time = headerClass.Time;
+                        o.TimeUnit = headerClass.TimeUnit;
+                        o.DoseRegimen = null;
+                        o.Dose = null;
+                        o.DoseUnit = null;
+                        o.ValidationFlags = appendFlag(
+                            o.ValidationFlags, "PK_TRANSPOSED_HEADER_TIMEPOINT_ROUTED");
+                        break;
+
+                    case RowLabelKind.Population:
+                        // Stratifier headers ("Healthy Volunteers", "Renal Impairment",
+                        // "Male"/"Female" in food-effect tables) populate Population.
+                        // Only write when empty so an upstream caption-derived
+                        // population is not clobbered.
+                        if (string.IsNullOrWhiteSpace(o.Population))
+                            o.Population = headerClass.Population;
+                        o.DoseRegimen = null;
+                        o.Dose = null;
+                        o.DoseUnit = null;
+                        o.ValidationFlags = appendFlag(
+                            o.ValidationFlags,
+                            headerClass.MatchedPopulationViaRegex
+                                ? "PK_TRANSPOSED_HEADER_POP_ROUTED_REGEX"
+                                : "PK_TRANSPOSED_HEADER_POP_ROUTED");
+                        break;
+
+                    case RowLabelKind.TreatmentArm:
+                    case RowLabelKind.DrugPlusDose:
+                    case RowLabelKind.DoseRegimen:
+                    case RowLabelKind.Unknown:
+                    default:
+                        // Pre-R1.2 behavior: column header → DoseRegimen, re-extract
+                        // Dose/DoseUnit. This is the happy path for dose-level column
+                        // headers like "50 mg/kg IV" (TID 13202 Ceftriaxone shape).
+                        o.DoseRegimen = originalParamName;
+                        var (dose, doseUnit) = DoseExtractor.Extract(originalParamName);
+                        if (dose.HasValue)
+                        {
+                            o.Dose = dose;
+                            o.DoseUnit = doseUnit;
+                        }
+                        break;
                 }
 
                 // If the metric is a time measurement (Tmax, Half-life), surface PrimaryValue
@@ -1882,6 +2254,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 var text = cell.CleanedText?.Trim();
                 if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                // R2 — Suppress non-PK context columns in compound sub-headers too.
+                // Prevents compound-layout tables from emitting ParameterName for
+                // columns like "Co-administered Drug" if they ever surface here.
+                if (isContextColumnHeader(text))
                     continue;
 
                 // Check if column is a sample size column

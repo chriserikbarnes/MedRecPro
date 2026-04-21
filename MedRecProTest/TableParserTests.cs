@@ -3209,5 +3209,364 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Router PK Content Validation
+
+        #region PK R1.2 Transposed-Header Classification (Wave 1 R1.2)
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2 — Transposed layout with food-state column headers. TID 22430
+        /// (Tamsulosin) shape: row labels are PK metrics ("Cmin(ng/mL)",
+        /// "Cmax(ng/mL)"), column headers are "Light Breakfast" / "Fasted" /
+        /// "High-Fat Breakfast". Post-R1.2: Timepoint is populated, DoseRegimen
+        /// stays null, flag <c>PK_TRANSPOSED_HEADER_TIMEPOINT_ROUTED</c> fires.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_Transposed_FoodStateHeaderRoutesToTimepoint()
+        {
+            var table = createTestTable(
+                new[] { "Parameter", "Light Breakfast", "Fasted", "High-Fat Breakfast" },
+                new List<string?[]>
+                {
+                    new[] { "Cmax (ng/mL)", "10.1", "12.3", "14.5" },
+                    new[] { "Tmax (h)",     "2.0",  "1.0",  "4.0"  }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(6, results.Count);
+            Assert.IsTrue(results.All(r => r.Timepoint != null),
+                "every row should have Timepoint populated from the transposed food-state header");
+            Assert.IsTrue(results.All(r => string.IsNullOrWhiteSpace(r.DoseRegimen)),
+                "DoseRegimen must stay null when header is a food-state timepoint");
+            Assert.IsTrue(results.All(r =>
+                (r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_HEADER_TIMEPOINT_ROUTED")),
+                "every row should carry the R1.2 timepoint attribution flag");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2 — Transposed layout with population column headers. Post-R1.2:
+        /// Population is populated from the column header, DoseRegimen stays null,
+        /// flag <c>PK_TRANSPOSED_HEADER_POP_ROUTED</c> fires.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_Transposed_PopulationHeaderRoutesToPopulation()
+        {
+            var table = createTestTable(
+                new[] { "Parameter", "Healthy Subjects", "Renal Impairment" },
+                new List<string?[]>
+                {
+                    new[] { "Cmax (mcg/mL)", "5.5", "7.0" },
+                    new[] { "AUC (mcg·h/mL)", "47.5", "62.1" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.IsTrue(results.Any(r => r.Population == "Healthy Volunteers"),
+                "Healthy Subjects header should populate Population=Healthy Volunteers");
+            Assert.IsTrue(results.Any(r => r.Population == "Renal Impairment"),
+                "Renal Impairment header should populate Population");
+            Assert.IsTrue(results.All(r => string.IsNullOrWhiteSpace(r.DoseRegimen)),
+                "DoseRegimen must be null when header is a population stratifier");
+            Assert.IsTrue(results.All(r =>
+                (r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_HEADER_POP_ROUTED")),
+                "every row should carry the R1.2 population attribution flag");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2 backward-compat guard: transposed layout with dose-level column
+        /// headers (TID 13202 Ceftriaxone shape: "50 mg/kg IV" / "75 mg/kg IV")
+        /// preserves pre-R1.2 behavior — DoseRegimen populated from the column
+        /// header, Dose/DoseUnit extracted. No food-state / population flag fires.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_Transposed_DoseHeader_PreservesPreR1_2Behavior()
+        {
+            var table = createTestTable(
+                new[] { null, "50 mg/kg IV", "75 mg/kg IV" },
+                new List<string?[]>
+                {
+                    new[] { "Maximum Plasma Concentrations (mcg/mL)", "216", "275" },
+                    new[] { "Elimination Half-life (hour)", "4.6", "4.3" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.IsTrue(results.All(r => !string.IsNullOrWhiteSpace(r.DoseRegimen)),
+                "Dose-level column headers must still populate DoseRegimen");
+            Assert.IsTrue(results.All(r =>
+                !((r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_HEADER_TIMEPOINT_ROUTED"))),
+                "Dose headers must NOT fire the R1.2 timepoint flag");
+            Assert.IsTrue(results.All(r =>
+                !((r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_HEADER_POP_ROUTED"))),
+                "Dose headers must NOT fire the R1.2 population flag");
+            // Existing transposed-layout flags still fire
+            Assert.IsTrue(results.All(r =>
+                (r.ValidationFlags ?? "").Contains("PK_TRANSPOSED_LAYOUT_SWAP")));
+        }
+
+        #endregion PK R1.2 Transposed-Header Classification
+
+        #region PK R2 Context-Column Suppression (Wave 1 R2)
+
+        /**************************************************************/
+        /// <summary>
+        /// R2 — <see cref="PkTableParser.isContextColumnHeader"/> returns true
+        /// for the non-PK context column labels the audit identified.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R2_isContextColumnHeader_DetectsKnownPatterns()
+        {
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Co-administered Drug"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Coadministered Drug"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Dose of Azithromycin"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Dose of Co-administered Drug"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Subject Group"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Patient Group"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Number of Subjects"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Condition"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Formulation"));
+            Assert.IsTrue(PkTableParser.isContextColumnHeader("Route of Administration"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R2 — <see cref="PkTableParser.isContextColumnHeader"/> returns false
+        /// for legitimate PK column headers. Guards against over-matching.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R2_isContextColumnHeader_DoesNotMatchPkHeaders()
+        {
+            Assert.IsFalse(PkTableParser.isContextColumnHeader("Cmax (mcg/mL)"));
+            Assert.IsFalse(PkTableParser.isContextColumnHeader("AUC0-inf"));
+            Assert.IsFalse(PkTableParser.isContextColumnHeader("Dose")); // Dose alone is a dose column, not context
+            Assert.IsFalse(PkTableParser.isContextColumnHeader("n"));    // Sample size — handled elsewhere
+            Assert.IsFalse(PkTableParser.isContextColumnHeader(null));
+            Assert.IsFalse(PkTableParser.isContextColumnHeader(""));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R2 — PK table with a "Co-administered Drug" context column mixed in
+        /// with legitimate PK columns: the context column should produce no
+        /// observations, only the PK columns (Cmax, AUC) should emit rows.
+        /// Mirrors TID 571 shape after R1 routes col 0 to TreatmentArm.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R2_ContextColumnSuppressed_NoSpuriousObservations()
+        {
+            var table = createTestTable(
+                new[] { "Regimen", "Co-administered Drug", "Cmax (mcg/mL)", "AUC (mcg·h/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "Atorvastatin 10 mg/day", "Atorvastatin", "0.83", "1.01" },
+                    new[] { "Carbamazepine 200 mg",   "Carbamazepine", "0.97", "0.96" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // Expect 2 rows × 2 PK params = 4 observations (NOT 6 that would include context col)
+            Assert.AreEqual(4, results.Count,
+                "Only PK columns (Cmax, AUC) should emit observations; context column suppressed.");
+            Assert.IsTrue(results.All(r =>
+                r.ParameterName == "Cmax" || r.ParameterName == "AUC"),
+                "No observation should carry ParameterName='Co-administered Drug'.");
+            Assert.IsFalse(results.Any(r => r.ParameterName == "Co-administered Drug"),
+                "Context column 'Co-administered Drug' must not emit any observation.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R2 — Multiple context columns (Subject Group + Dose of X + Number of
+        /// Subjects) are all suppressed; only PK parameter columns remain.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R2_MultipleContextColumns_AllSuppressed()
+        {
+            var table = createTestTable(
+                new[] { "Regimen", "Subject Group", "Dose of Co-administered Drug",
+                        "Number of Subjects", "Cmax (mcg/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "Study Drug 50 mg", "Healthy", "placebo", "12", "5.5" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // 1 row × 1 PK column = 1 observation
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Cmax", results[0].ParameterName);
+        }
+
+        #endregion PK R2 Context-Column Suppression
+
+        #region PK R3 Section-Divider Suppression (Wave 1 R3)
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — <see cref="PkTableParser.detectSectionDivider"/> recognizes
+        /// asterisk-wrapped single-cell divider rows with PK qualifier
+        /// phrases and extracts both qualifier state and embedded dose.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_detectSectionDivider_AsteriskWrappedSingleDose()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0,
+                                        CleanedText = "**Single dose**" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1,
+                                        CleanedText = null },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2,
+                                        CleanedText = null }
+                }
+            };
+
+            var result = PkTableParser.detectSectionDivider(row);
+
+            Assert.IsTrue(result.IsDivider);
+            Assert.AreEqual("single_dose", result.StickyQualifier);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — Divider with embedded dose and qualifier:
+        /// "**500 mg oral tablet single dose, effects of gender and age:**"
+        /// Returns qualifier="single_dose", stickyDoseRegimen="500 mg oral tablet".
+        /// Mirrors TID 2069 shape.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_detectSectionDivider_DoseAndQualifierExtracted()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0,
+                                        CleanedText = "**500 mg oral tablet single dose, effects of gender and age:**" }
+                }
+            };
+
+            var result = PkTableParser.detectSectionDivider(row);
+
+            Assert.IsTrue(result.IsDivider);
+            Assert.AreEqual("single_dose", result.StickyQualifier);
+            Assert.IsTrue(result.StickyDoseRegimen != null && result.StickyDoseRegimen.StartsWith("500 mg"),
+                $"expected dose fragment to start with '500 mg', got '{result.StickyDoseRegimen}'");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — A normal PK data row (col 0 label + numeric PK cells) must
+        /// NOT be detected as a divider. Guards against suppressing legitimate rows.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_detectSectionDivider_DataRowNotMisclassified()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0,
+                                        CleanedText = "Healthy Subjects" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1,
+                                        CleanedText = "5.5" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2,
+                                        CleanedText = "47.5" }
+                }
+            };
+
+            var result = PkTableParser.detectSectionDivider(row);
+
+            Assert.IsFalse(result.IsDivider,
+                "A data row with multiple non-empty cells must not be classified as a divider");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — A single-cell row whose text does NOT contain a PK qualifier
+        /// or embedded dose (e.g., "Summary:") must NOT be detected as a
+        /// divider. Prevents over-suppression of legitimate title rows.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_detectSectionDivider_NoQualifier_NotDivider()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0,
+                                        CleanedText = "Summary:" }
+                }
+            };
+
+            var result = PkTableParser.detectSectionDivider(row);
+
+            Assert.IsFalse(result.IsDivider,
+                "A bare title (no qualifier, no dose) must not be misclassified as a divider");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3 — End-to-end: a single-column PK table with a "**Single dose**"
+        /// section divider between groups of data rows. Pre-R3 the divider
+        /// emitted 7 spurious text observations (one per PK column); post-R3
+        /// the divider is suppressed AND subsequent data rows inherit the
+        /// sticky qualifier as ParameterSubtype with flag
+        /// <c>PK_SECTION_QUALIFIER_APPLIED</c>.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_EndToEnd_DividerSuppressedAndQualifierApplied()
+        {
+            // Build a mini TID 2069 shape — col 0 label + 2 PK value columns
+            // with a single-dose divider row embedded between data rows.
+            var table = createTestTable(
+                new[] { "Regimen", "Cmax (mcg/mL)", "AUC (mcg·h/mL)" },
+                new List<string?[]>
+                {
+                    // Row 0: section divider (single cell, asterisk-wrapped)
+                    new[] { "**Single dose**", null, null },
+                    // Row 1: actual data
+                    new[] { "250 mg oral", "5.5", "54.4" },
+                    new[] { "500 mg oral", "7.0", "67.7" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // Only 2 data rows × 2 PK params = 4 observations (divider suppressed)
+            Assert.AreEqual(4, results.Count,
+                "Section divider row must NOT emit observations");
+            Assert.IsFalse(results.Any(r =>
+                (r.RawValue ?? "").Contains("Single dose")),
+                "No observation should carry the divider text as RawValue");
+            Assert.IsTrue(results.All(r => r.ParameterSubtype == "single_dose"),
+                "All post-divider observations should carry the sticky qualifier");
+            Assert.IsTrue(results.All(r =>
+                (r.ValidationFlags ?? "").Contains("PK_SECTION_QUALIFIER_APPLIED")),
+                "Sticky-qualifier attribution flag must fire");
+        }
+
+        #endregion PK R3 Section-Divider Suppression
     }
 }

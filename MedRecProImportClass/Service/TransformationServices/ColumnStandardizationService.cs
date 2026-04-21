@@ -2100,6 +2100,48 @@ namespace MedRecProImportClass.Service.TransformationServices
             "Parameter", "Parameters",
             "Values", "Value", "Estimate", "Estimates",
             "N",
+            // R6 — Observed header echoes that leaked into Subtype/Name in the
+            // 2026-04-21 corpus audit. These are statistic descriptors or
+            // column-caption echoes, not PK terms or populations.
+            "Mean (SD)", "Mean ± SD", "Mean+/-SD", "Mean +/- SD",
+            "Geometric Mean", "Arithmetic Mean", "Median", "Mean", "SD",
+            "Mean (CV%)", "Mean (CV)", "Geometric Mean (CV%)",
+            "Pharmacokinetic Parameter [mean (SD)]", "Pharmacokinetic Parameter [mean (SD )]",
+            "Pharmacokinetic Parameter (mean)", "Pharmacokinetic Parameter (median)",
+            "Major route of elimination", "% of dose excreted",
+            "Apparent terminal elimination half-life",
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// R6 — Contract-allowed <see cref="ParsedObservation.ParameterSubtype"/>
+        /// qualifier tokens per <c>column-contracts.md</c> §PK. Any Subtype value
+        /// that does NOT match one of these (after trimming and lowercasing) is
+        /// treated as misplaced content and routed via
+        /// <see cref="routeOrParkNameContent"/> by Step 3b of
+        /// <see cref="applyPkCanonicalization"/>.
+        /// </summary>
+        /// <remarks>
+        /// Includes both the underscore-separated canonical forms emitted by
+        /// <see cref="PkParameterDictionary.TryExtractCanonicalFromPhrase"/>
+        /// and the human-readable forms ("steady state", "single dose") that
+        /// may appear in upstream cell text.
+        /// </remarks>
+        private static readonly HashSet<string> _allowedPkQualifierSet = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Variability statistic
+            "CV(%)", "CV%", "CV", "%CV", "Coefficient of Variation",
+            // Dosing-state qualifiers
+            "steady_state", "steady state", "steady-state",
+            "single_dose", "single dose", "single-dose",
+            "multiple_dose", "multiple dose", "multiple-dose",
+            // Fasting-state qualifiers
+            "fasted", "fasting",
+            "fed",
+            // Phase qualifiers
+            "terminal", "terminal phase",
+            "distribution", "distribution phase",
+            "absorption", "elimination",
         };
 
         /**************************************************************/
@@ -2257,6 +2299,22 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
             }
 
+            // Step 3b (R6): Route non-qualifier Subtype content out of Subtype.
+            // Anything left in Subtype that isn't an allowed qualifier token
+            // (steady_state/single_dose/fasted/fed/terminal/distribution/CV(%)
+            // — see _allowedPkQualifierSet) is displaced content. Reuse the
+            // same 7-step decision tree the Step-2 rescue uses via
+            // routeOrParkNameContent, then null Subtype and flag.
+            if (!string.IsNullOrWhiteSpace(obs.ParameterSubtype)
+                && !isAllowedPkQualifier(obs.ParameterSubtype))
+            {
+                var oldSubtype = obs.ParameterSubtype;
+                routeOrParkNameContent(obs, oldSubtype);
+                obs.ParameterSubtype = null;
+                appendFlag(obs, "COL_STD:PK_SUBTYPE_ROUTED");
+                changed = true;
+            }
+
             // Step 4: PD marker flagging. Preserves the row and just emits a flag
             // so downstream review can audit PD markers (IPA, VASP-PRI) that
             // shouldn't be in PK tables at all.
@@ -2267,7 +2325,45 @@ namespace MedRecProImportClass.Service.TransformationServices
                 changed = true;
             }
 
+            // Step 5 (R7): Unconditional ParameterName fitness check. At this
+            // point Steps 1-4 have had their chance to resolve Name to a PK
+            // canonical. If Name is still populated and does NOT canonicalize
+            // AND does not contain a PK term anywhere, it's non-PK content
+            // that leaked through — route it out so ParameterName holds only
+            // canonical PK terms (or null).
+            if (!string.IsNullOrWhiteSpace(obs.ParameterName)
+                && !PkParameterDictionary.IsPkParameter(obs.ParameterName)
+                && !PkParameterDictionary.ContainsPkParameter(obs.ParameterName))
+            {
+                var oldName = obs.ParameterName;
+                routeOrParkNameContent(obs, oldName);
+                obs.ParameterName = null;
+                appendFlag(obs, "COL_STD:PK_NAME_CLEANED_NONCANON");
+                changed = true;
+            }
+
             return changed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R6 — Returns true when <paramref name="subtype"/> is a contract-allowed
+        /// PK qualifier per <see cref="_allowedPkQualifierSet"/>. Applies lightweight
+        /// normalization (trim, lowercase) before membership check so variants like
+        /// "Steady State" / "steady_state" / "Steady-State" all resolve.
+        /// </summary>
+        /// <param name="subtype">Candidate ParameterSubtype value.</param>
+        /// <returns>True when the value is an allowed qualifier.</returns>
+        /// <seealso cref="_allowedPkQualifierSet"/>
+        private static bool isAllowedPkQualifier(string? subtype)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(subtype))
+                return true; // empty is trivially allowed
+            return _allowedPkQualifierSet.Contains(subtype.Trim());
 
             #endregion
         }
@@ -2313,6 +2409,18 @@ namespace MedRecProImportClass.Service.TransformationServices
                 appendFlag(obs, viaRegex
                     ? "COL_STD:PK_POPULATION_ROUTED_REGEX"
                     : "COL_STD:PK_POPULATION_ROUTED");
+                return;
+            }
+
+            // (i.5 — R7) Timepoint descriptor — route to Timepoint column so
+            // content like "Day 14", "5 days", "Single Dose", "C72",
+            // "08:00 to 13:00" lands in its contract column instead of
+            // falling through to StudyContext.
+            if (_timepointRoutingPattern.IsMatch(trimmed))
+            {
+                if (string.IsNullOrWhiteSpace(obs.Timepoint))
+                    obs.Timepoint = trimmed;
+                appendFlag(obs, "COL_STD:PK_TIMEPOINT_ROUTED");
                 return;
             }
 
@@ -2392,6 +2500,32 @@ namespace MedRecProImportClass.Service.TransformationServices
             new(@"\s*\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|μg|g|ng|kg|mL|units?|U|IU)\b.*$",
                 System.Text.RegularExpressions.RegexOptions.Compiled |
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// R7 — Anchored pattern recognizing timepoint descriptors for the
+        /// Timepoint routing step inside <see cref="routeOrParkNameContent"/>.
+        /// Covers visit labels ("Day N", "Week N"), numeric durations
+        /// ("5 days", "24 hours"), clock ranges ("08:00 to 13:00"), C<N>h
+        /// concentration labels, and PK dosing state tokens ("single dose",
+        /// "steady state", "pre-dose").
+        /// </summary>
+        /// <remarks>
+        /// Anchored to start of string so stray prose with an embedded day
+        /// fragment does not misroute to Timepoint. Kept in sync with the
+        /// parser-side <c>_timepointLabelPattern</c> in <c>PkTableParser.cs</c>.
+        /// </remarks>
+        private static readonly System.Text.RegularExpressions.Regex _timepointRoutingPattern = new(
+            @"^\s*(?:"
+          + @"(?:Day|Week|Month|Cycle|Visit)\s+\d+"
+          + @"|\d+(?:\.\d+)?\s*(?:days?|weeks?|hours?|hrs?|h|months?|minutes?|min)"
+          + @"|\d+\s*(?:to|[-–])\s*\d+\s*(?:days?|weeks?|hours?|months?)"
+          + @"|single\s+dose|steady[\s-]?state|pre[-\s]?dose|post[-\s]?dose|baseline"
+          + @"|\d{1,2}:\d{2}(?:\s*(?:to|[-–])\s*\d{1,2}:\d{2})?"
+          + @"|C\d{1,3}(?:h|hr|hrs|hour|hours)?"
+          + @")\s*$",
+            System.Text.RegularExpressions.RegexOptions.Compiled |
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         /**************************************************************/
         /// <summary>

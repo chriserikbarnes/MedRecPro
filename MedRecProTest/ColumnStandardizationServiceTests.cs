@@ -4268,5 +4268,300 @@ namespace MedRecProTest
         }
 
         #endregion PK Column Contract Enforcement
+
+        #region Wave 2 R6 — Subtype Non-PK Routing (Step 3b)
+
+        /**************************************************************/
+        /// <summary>
+        /// R6 — Subtype holds a drug name ("Ketoconazole") while Name is a PK
+        /// canonical. Expected after enforcement: Name preserved, TreatmentArm
+        /// populated from Subtype, Subtype cleared, flag PK_SUBTYPE_ROUTED.
+        /// </summary>
+        [TestMethod]
+        public async Task R6_PkContract_SubtypeDrugName_RoutesToTreatmentArm()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Cmax",
+                parameterSubtype: "Ketoconazole");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype,
+                "Non-qualifier Subtype must be cleared by Step 3b");
+            var arm = result[0].TreatmentArm;
+            var ctx = result[0].StudyContext;
+            Assert.IsTrue(arm == "Ketoconazole" || ctx == "Ketoconazole",
+                $"Ketoconazole should route to TreatmentArm or StudyContext, got arm='{arm}', ctx='{ctx}'");
+            assertHasFlag(result[0], "COL_STD:PK_SUBTYPE_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R6 — Subtype holds a population descriptor. Expected: Population
+        /// populated from Subtype, Subtype cleared, PK_SUBTYPE_ROUTED flag.
+        /// </summary>
+        [TestMethod]
+        public async Task R6_PkContract_SubtypePopulation_RoutesToPopulation()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "AUC",
+                parameterSubtype: "Female");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("AUC", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            Assert.AreEqual("Female", result[0].Population);
+            assertHasFlag(result[0], "COL_STD:PK_SUBTYPE_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R6 — Subtype holds a timepoint descriptor. Expected: Timepoint
+        /// populated from Subtype via the R7 Timepoint route inside
+        /// routeOrParkNameContent.
+        /// </summary>
+        [TestMethod]
+        public async Task R6_PkContract_SubtypeTimepoint_RoutesToTimepoint()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Tmax",
+                parameterSubtype: "5 days");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Tmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            Assert.AreEqual("5 days", result[0].Timepoint);
+            assertHasFlag(result[0], "COL_STD:PK_SUBTYPE_ROUTED");
+            assertHasFlag(result[0], "COL_STD:PK_TIMEPOINT_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R6 guard: allowed qualifier tokens in Subtype are NOT routed out.
+        /// The contract explicitly permits steady_state / single_dose / fasted /
+        /// fed / terminal / distribution / CV(%) as Subtype content.
+        /// </summary>
+        [TestMethod]
+        public async Task R6_PkContract_AllowedQualifiersInSubtype_Preserved()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // "CV(%)" is omitted — upstream extractUnitFromParameterSubtype
+            // strips trailing parenthesized content, leaving "CV". R6's job is
+            // to leave whatever qualifier remains in Subtype after Phase 2
+            // upstream passes without routing it out. "CV" alone IS allowed.
+            var allowed = new[] { "steady_state", "single_dose", "fasted", "fed",
+                                  "terminal", "distribution", "CV" };
+
+            foreach (var q in allowed)
+            {
+                var obs = createPkObservation(parameterName: "Cmax", parameterSubtype: q);
+                var result = service.Standardize(new List<ParsedObservation> { obs });
+
+                Assert.IsFalse((result[0].ValidationFlags ?? "").Contains("COL_STD:PK_SUBTYPE_ROUTED"),
+                    $"Allowed qualifier '{q}' must NOT fire PK_SUBTYPE_ROUTED");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(result[0].ParameterSubtype),
+                    $"Allowed qualifier '{q}' must be preserved in Subtype (not routed out)");
+            }
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R6 — Extended header-echo set drops "Mean (SD)" / "Geometric Mean"
+        /// from Subtype without leaving data behind (PK_NAME_ECHO_DROPPED or
+        /// absorbed via routing). These are statistic descriptors, not PK
+        /// content.
+        /// </summary>
+        [TestMethod]
+        public async Task R6_PkContract_HeaderEchoSet_ExtendedStatisticsDropped()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Cmax",
+                parameterSubtype: "Mean (SD)");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            // Allow either path: direct echo drop or routed to StudyContext via (v)
+            var subtypeCleared = string.IsNullOrWhiteSpace(result[0].ParameterSubtype);
+            Assert.IsTrue(subtypeCleared, "Statistic-descriptor Subtype should be cleared");
+            assertHasFlag(result[0], "COL_STD:PK_SUBTYPE_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        #endregion Wave 2 R6 — Subtype Non-PK Routing
+
+        #region Wave 2 R7 — Unconditional Name Fitness (Step 5) + Timepoint Route
+
+        /**************************************************************/
+        /// <summary>
+        /// R7 — Name is a pure drug name ("Placebo"), no PK term anywhere.
+        /// Step 5 routes it to TreatmentArm or StudyContext via routeOrParkNameContent,
+        /// nulls Name, fires PK_NAME_CLEANED_NONCANON flag.
+        /// </summary>
+        [TestMethod]
+        public async Task R7_PkContract_NameDrugName_NoPkTermAnywhere_RoutedCleaned()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Placebo",
+                parameterSubtype: null);
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterName,
+                "R7: Name with no canonical and no PK term anywhere must be nulled");
+            var arm = result[0].TreatmentArm;
+            var ctx = result[0].StudyContext;
+            Assert.IsTrue(arm == "Placebo" || ctx == "Placebo",
+                $"Placebo content preserved — arm='{arm}', ctx='{ctx}'");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_CLEANED_NONCANON");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R7 — Name holds a timepoint descriptor. Route to Timepoint via the
+        /// new timepoint step in routeOrParkNameContent.
+        /// </summary>
+        [TestMethod]
+        public async Task R7_PkContract_NameTimepoint_RoutesToTimepoint()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Day 14",
+                parameterSubtype: null);
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterName);
+            Assert.AreEqual("Day 14", result[0].Timepoint);
+            assertHasFlag(result[0], "COL_STD:PK_TIMEPOINT_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R7 guard: Name with an embedded PK term (not in canonical form but
+        /// ContainsPkParameter=true) is NOT cleaned — Step 5 skips it so upstream
+        /// rescue paths (Step 2) can handle it.
+        /// </summary>
+        [TestMethod]
+        public async Task R7_PkContract_NameWithEmbeddedPkTerm_NotCleanedByStep5()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // "Area Under the Curve" contains a PK term (AUC) via the prefix
+            // pattern / ContainsPkParameter; Step 5 must NOT clean it.
+            var obs = createPkObservation(
+                parameterName: "Area Under the Curve",
+                parameterSubtype: null);
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // Fast-path Step 1 or Step 2 rescue should have already resolved
+            // this to a canonical AUC. Name should NOT be null.
+            Assert.IsNotNull(result[0].ParameterName,
+                "Name with embedded PK term must be resolved, not cleaned");
+            // PK_NAME_CLEANED_NONCANON must NOT fire for this case.
+            Assert.IsFalse((result[0].ValidationFlags ?? "").Contains("COL_STD:PK_NAME_CLEANED_NONCANON"),
+                "Step 5 cleanup must not fire when Name contains a PK term");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R7 — Name is a population descriptor that does NOT contain a PK term.
+        /// Step 5 routes it to Population.
+        /// </summary>
+        [TestMethod]
+        public async Task R7_PkContract_NamePopulation_RoutesToPopulation()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Healthy Subjects",
+                parameterSubtype: null);
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterName);
+            Assert.AreEqual("Healthy Volunteers", result[0].Population);
+            assertHasFlag(result[0], "COL_STD:PK_NAME_CLEANED_NONCANON");
+            assertHasFlag(result[0], "COL_STD:PK_POPULATION_ROUTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R7 — Drug+dose compound in Name with no PK term: routes to
+        /// TreatmentArm + DoseRegimen via Step 5.
+        /// </summary>
+        [TestMethod]
+        public async Task R7_PkContract_NameDrugPlusDose_RoutesToArmAndDose()
+        {
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(
+                parameterName: "Guanfacine Extended-Release Tablets 1 mg once daily",
+                parameterSubtype: null);
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterName,
+                "R7 Step 5 should null Name when it has no PK term");
+            // Per NULL Preservation Rule: the displaced content lands in one
+            // of TreatmentArm (if isDrugName(prefix)), DoseRegimen (if dose
+            // extracted but drug prefix unknown), or StudyContext (park).
+            // Test environment's loaded drug dict may differ, so accept any
+            // of the three targets.
+            var hasContent = !string.IsNullOrWhiteSpace(result[0].TreatmentArm) ||
+                             !string.IsNullOrWhiteSpace(result[0].DoseRegimen) ||
+                             !string.IsNullOrWhiteSpace(result[0].StudyContext);
+            Assert.IsTrue(hasContent,
+                $"Content must be preserved somewhere (Arm / DoseRegimen / StudyContext). " +
+                $"arm='{result[0].TreatmentArm}', dose='{result[0].DoseRegimen}', ctx='{result[0].StudyContext}'");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_CLEANED_NONCANON");
+
+            context.Dispose();
+            sentinel.Dispose();
+        }
+
+        #endregion Wave 2 R7 — Unconditional Name Fitness
     }
 }
