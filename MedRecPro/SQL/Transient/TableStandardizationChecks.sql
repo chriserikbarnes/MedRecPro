@@ -24,7 +24,7 @@ SELECT  [TextTableID]
 	,[ParseRule]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where TableCategory = 'PK' and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
+where TableCategory = 'PK'-- and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
 order by TableCategory
 --Where PValue is not null
 --where ArmN is not null and PrimaryValue is not null

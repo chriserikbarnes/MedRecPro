@@ -213,7 +213,8 @@ namespace MedRecProConsole.Helpers
             int? tableId,
             bool noClaude = false,
             bool dropIncompleteRows = false,
-            string? markdownLogPath = null)
+            string? markdownLogPath = null,
+            string? jsonLogPath = null)
         {
             #region implementation
 
@@ -252,6 +253,10 @@ namespace MedRecProConsole.Helpers
             table.AddRow("Markdown Log", string.IsNullOrEmpty(markdownLogPath)
                 ? "[grey](disabled)[/]"
                 : $"[green]{Markup.Escape(markdownLogPath)}[/]");
+
+            table.AddRow("JSON Log", string.IsNullOrEmpty(jsonLogPath)
+                ? "[grey](disabled)[/]"
+                : $"[green]{Markup.Escape(jsonLogPath)}[/]");
 
             AnsiConsole.Write(table);
             AnsiConsole.WriteLine();
@@ -305,10 +310,12 @@ namespace MedRecProConsole.Helpers
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [green]--connection[/] [cyan]<name>[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse[/] [yellow]--drop-incomplete-rows[/]");
             AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/] [magenta]--markdown-log[/] [cyan]<path>[/]");
+            AnsiConsole.MarkupLine("    [white]MedRecProConsole[/] [blue]--standardize-tables[/] [cyan]parse-single[/] [green]--table-id[/] [cyan]12345[/] [magenta]--json-log[/] [cyan]<path.jsonl>[/]");
             AnsiConsole.MarkupLine("    [grey]Parse and validate SPL table data (Ctrl+C saves progress for resume)[/]");
             AnsiConsole.MarkupLine("    [grey]Use --no-claude to disable Claude AI correction (Stage 3.5)[/]");
             AnsiConsole.MarkupLine("    [grey]Use --drop-incomplete-rows to drop rows missing both the ArmN and PrimaryValue (Stage 3.25 quality gate)[/]");
             AnsiConsole.MarkupLine("    [grey]Use --markdown-log <path> to append per-table diagnostic markdown (parse-single only on CLI)[/]");
+            AnsiConsole.MarkupLine("    [grey]Use --json-log <path> for NDJSON companion log — one line per observation; ideal for jq-based audits[/]");
             AnsiConsole.WriteLine();
 
             #endregion

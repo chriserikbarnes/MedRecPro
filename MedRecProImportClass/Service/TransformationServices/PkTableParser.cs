@@ -192,6 +192,24 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// R3.1 — Bare-text exact-qualifier pattern. Recognizes cell text that is
+        /// exactly a canonical PK qualifier phrase after upstream cleaning has
+        /// stripped bold markers (<c>**Single dose**</c> → <c>Single dose</c>).
+        /// </summary>
+        /// <remarks>
+        /// Anchoring (<c>^\s*...\s*$</c>) is load-bearing: it guarantees the
+        /// entire cell is the qualifier, never a qualifier word embedded in
+        /// surrounding prose. That preserves R3's defense-in-depth against
+        /// over-suppressing legitimate single-cell rows (e.g.,
+        /// <c>"Fasted subjects had Cmax of 5.5"</c>).
+        /// </remarks>
+        /// <seealso cref="detectSectionDivider"/>
+        private static readonly Regex _bareQualifierDividerPattern = new(
+            @"^\s*(?:(?:single|multiple)[\s-]?dose|steady[\s-]?state|fasted|fed)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
         /// R3 — Qualifier detection for section-divider text. Returns a canonical
         /// qualifier token (<c>single_dose</c>, <c>multiple_dose</c>,
         /// <c>steady_state</c>, <c>fasted</c>, <c>fed</c>) when the divider text
@@ -236,8 +254,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// R3 — Detects whether a data row is a section divider — a row with a
-        /// single non-empty cell that wraps its text in asterisks or ends in a
-        /// colon, and whose text carries a recognized PK qualifier phrase.
+        /// single non-empty cell whose text either (a) wraps in asterisks, (b)
+        /// ends in a colon, or (c) is an exact bare canonical PK qualifier
+        /// phrase (R3.1) — and whose text carries a recognized PK qualifier
+        /// phrase or embedded dose regimen.
         /// </summary>
         /// <remarks>
         /// Examples detected:
@@ -247,6 +267,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <item><c>**500 mg oral tablet single dose, effects of gender and age:**</c>
         /// → qualifier="single_dose", dose="500 mg oral tablet"</item>
         /// <item><c>Fasted conditions:</c> → qualifier="fasted"</item>
+        /// <item><c>Single dose</c> (bare, post-upstream-bold-strip, R3.1)
+        /// → qualifier="single_dose"</item>
         /// </list>
         /// A row is NOT a divider when it has multiple non-empty cells
         /// (data row with col 0 label plus PK values).
@@ -255,6 +277,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <returns>Detection result with sticky qualifier and dose, or
         /// <see cref="SectionDividerResult.None"/> when the row is not a divider.</returns>
         /// <seealso cref="_sectionDividerShellPattern"/>
+        /// <seealso cref="_bareQualifierDividerPattern"/>
         /// <seealso cref="_sectionDividerQualifiers"/>
         internal static SectionDividerResult detectSectionDivider(ReconstructedRow row)
         {
@@ -283,18 +306,31 @@ namespace MedRecProImportClass.Service.TransformationServices
             var text = soleCell.CleanedText!.Trim();
 
             // The cell text must match the divider shell (asterisk-wrapped OR
-            // trailing colon). Bare plaintext is treated as a normal row.
+            // trailing colon) OR be an exact bare qualifier phrase. Pure
+            // plaintext that is neither is treated as a normal row.
+            string inner;
             var shellMatch = _sectionDividerShellPattern.Match(text);
-            if (!shellMatch.Success)
+            if (shellMatch.Success)
+            {
+                // Capture group 1 is the asterisk-wrapped form; group 2 is the
+                // trailing-colon form. Use whichever matched.
+                inner = shellMatch.Groups[1].Success && shellMatch.Groups[1].Length > 0
+                    ? shellMatch.Groups[1].Value.Trim()
+                    : shellMatch.Groups[2].Success
+                        ? shellMatch.Groups[2].Value.Trim()
+                        : text;
+            }
+            else if (_bareQualifierDividerPattern.IsMatch(text))
+            {
+                // R3.1 — upstream cell cleaning strips **…** bold markers, leaving
+                // bare qualifier text such as "Single dose"/"Multiple dose". The
+                // anchored bare pattern guarantees the whole cell is a qualifier.
+                inner = text;
+            }
+            else
+            {
                 return SectionDividerResult.None;
-
-            // Capture group 1 is the asterisk-wrapped form; group 2 is the
-            // trailing-colon form. Use whichever matched.
-            var inner = shellMatch.Groups[1].Success && shellMatch.Groups[1].Length > 0
-                ? shellMatch.Groups[1].Value.Trim()
-                : shellMatch.Groups[2].Success
-                    ? shellMatch.Groups[2].Value.Trim()
-                    : text;
+            }
 
             if (string.IsNullOrWhiteSpace(inner))
                 return SectionDividerResult.None;
@@ -499,7 +535,137 @@ namespace MedRecProImportClass.Service.TransformationServices
             "Control", "Controls", "Placebo", "Baseline",
             // Compound-header row-1 echoes observed in TID 569 / 2069 shape
             "Single dose", "Multiple dose", "Steady state",
+            // R1.2.1 — food-effect sub-header labels (e.g., TID 3239/29134/33314
+            // shape: `Food | Fasted | Fed | Fasted | Fed | Fasted | Fed`). Without
+            // this entry "Food" matches the drug-name heuristic and gets routed to
+            // TreatmentArm; the full row is also suppressed via
+            // detectFoodStateSubHeader below, but the negative-list entry provides
+            // belt-and-braces defense for any path that checks the classifier.
+            "Food", "Food Effect", "Food State", "Food Condition", "Food Intake",
         };
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Col 0 labels that identify a food-effect sub-header row. When the
+        /// sole non-empty cells in cols 1..N are all food-state qualifiers (Fasted / Fed
+        /// / …) and col 0 matches one of these labels, the row is a sub-header — not
+        /// data — and must be suppressed from observation emission.
+        /// </summary>
+        /// <remarks>
+        /// See <see cref="detectFoodStateSubHeader"/>. Matching is case-insensitive
+        /// and exact after trim.
+        /// </remarks>
+        private static readonly HashSet<string> _foodStateSubHeaderCol0Labels = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Food", "Food Effect", "Food State", "Food Condition", "Food Intake",
+            "Prandial State", "Fed State"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Pattern matching a food-state qualifier token as a <em>complete</em>
+        /// cell text (anchored). Used by <see cref="detectFoodStateSubHeader"/> to
+        /// confirm that the non-col-0 cells in a candidate sub-header row all carry
+        /// food-state metadata, not PK values.
+        /// </summary>
+        /// <remarks>
+        /// Mirrors the food-state alternation in <see cref="_timepointLabelPattern"/>
+        /// but deliberately anchored — we match only cells that are <em>exactly</em>
+        /// a food-state qualifier, so a legitimate data cell such as
+        /// <c>"5.5 (fasted conditions)"</c> never trips the detector. "Fed" alone
+        /// is accepted here because the containing row's col 0 must also be a
+        /// food-descriptor label, which eliminates the false-positive risk that
+        /// disqualified bare "Fed" from the timepoint pattern.
+        /// </remarks>
+        private static readonly Regex _foodStateCellPattern = new(
+            @"^\s*(?:"
+          + @"Fasted|Fed|Fasting|Fed\s+state|Fasting\s+state"
+          + @"|Light\s+Breakfast|Light\s+Meal"
+          + @"|High[\s-]?Fat\s+(?:Meal|Breakfast|Lunch|Dinner)"
+          + @"|Moderate[\s-]?Fat\s+(?:Meal|Breakfast|Lunch|Dinner)"
+          + @"|Low[\s-]?Fat\s+(?:Meal|Breakfast|Lunch|Dinner)"
+          + @"|Standard\s+Breakfast|Regular\s+Breakfast|Breakfast"
+          + @"|With\s+Food|Without\s+Food|With\s+Meal|After\s+Meal"
+          + @")\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Detects whether a data row is a food-effect sub-header row such
+        /// as <c>Food | Fasted | Fed | Fasted | Fed | Fasted | Fed</c> (TID 3239,
+        /// 29134, 33314 shape). Two required signals:
+        /// <list type="number">
+        /// <item><description>Col 0 text matches one of
+        /// <see cref="_foodStateSubHeaderCol0Labels"/>.</description></item>
+        /// <item><description>Every non-empty cell at col &gt; 0 matches
+        /// <see cref="_foodStateCellPattern"/> (i.e., is itself a food-state
+        /// qualifier, not a PK value).</description></item>
+        /// </list>
+        /// </summary>
+        /// <remarks>
+        /// Returning <c>true</c> means the caller must SUPPRESS the row entirely —
+        /// same contract as R3's <see cref="detectSectionDivider"/>. The row
+        /// represents header-level food-state metadata; its values are already
+        /// available on the actual data rows below it.
+        ///
+        /// This is scoped as a targeted suppression (R1.2.1 eliminates the 17
+        /// residual `Arm=Food, Raw=Fasted/Fed` observations measured in
+        /// 2026-04-22's corpus). Per-column food-state attribution (routing
+        /// "Fasted" and "Fed" into ParameterSubtype for each downstream
+        /// observation) is a larger design change reserved for a future wave.
+        /// </remarks>
+        /// <param name="row">Candidate data row.</param>
+        /// <returns><c>true</c> when the row qualifies as a food-state sub-header;
+        /// <c>false</c> otherwise.</returns>
+        /// <seealso cref="_foodStateSubHeaderCol0Labels"/>
+        /// <seealso cref="_foodStateCellPattern"/>
+        internal static bool detectFoodStateSubHeader(ReconstructedRow row)
+        {
+            #region implementation
+
+            if (row?.Cells == null)
+                return false;
+
+            // Iterate cells directly rather than using getCellAtColumn — the sub-header
+            // detection does not need grid-aware span resolution (it keys off
+            // ResolvedColumnStart only), and requiring non-null ResolvedColumnEnd
+            // on test fixtures would be unnecessary friction.
+            string? col0Text = null;
+            int foodStateCellCount = 0;
+
+            foreach (var c in row.Cells)
+            {
+                var colStart = c.ResolvedColumnStart ?? 0;
+                var text = c.CleanedText;
+
+                if (colStart == 0)
+                {
+                    if (!string.IsNullOrWhiteSpace(text))
+                        col0Text = text.Trim();
+                    continue;
+                }
+
+                // Skip empty value cells — acceptable in a sub-header
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                // Any non-empty cell at col > 0 must match the food-state pattern.
+                // Otherwise this row is either data or a different kind of header.
+                if (!_foodStateCellPattern.IsMatch(text))
+                    return false;
+
+                foodStateCellCount++;
+            }
+
+            // Col 0 must be a recognized food-descriptor label AND at least one
+            // non-empty food-state qualifier cell must be present.
+            if (col0Text == null || !_foodStateSubHeaderCol0Labels.Contains(col0Text))
+                return false;
+
+            return foodStateCellCount > 0;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -744,6 +910,15 @@ namespace MedRecProImportClass.Service.TransformationServices
                         stickyQualifier = divider.StickyQualifier;
                     if (divider.StickyDoseRegimen != null)
                         stickyDoseRegimen = divider.StickyDoseRegimen;
+                    continue;
+                }
+
+                // R1.2.1 — Food-effect sub-header suppression. Defense-in-depth for
+                // the rare case where a food-effect table lands in the standard /
+                // two-column layout path instead of compound. Same contract: skip
+                // the row entirely — it carries header-level metadata, not data.
+                if (detectFoodStateSubHeader(row))
+                {
                     continue;
                 }
 
@@ -1639,6 +1814,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                 // Skip empty label rows
                 if (string.IsNullOrWhiteSpace(col0Text))
                     continue;
+
+                // R1.2.1 — Food-effect sub-header suppression. Rows shaped
+                // `Food | Fasted | Fed | Fasted | Fed | …` (TID 3239, 29134, 33314)
+                // are header-level metadata that must NOT emit observations.
+                // Pre-R1.2.1 the compound-layout path treated col 0 = "Food" as a
+                // drug-name TreatmentArm and produced one `Arm=Food, Raw=Fasted/Fed,
+                // Rule=text_descriptive` observation per non-col-0 cell.
+                if (detectFoodStateSubHeader(row))
+                {
+                    continue;
+                }
 
                 // R1.1 — Classify col 0 row label so compound-layout tables
                 // (e.g., TID 2069 Norfloxacin with `Male`/`Female`/`Young`/`Elderly`/

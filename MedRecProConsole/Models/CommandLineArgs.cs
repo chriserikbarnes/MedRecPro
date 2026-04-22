@@ -178,6 +178,23 @@ namespace MedRecProConsole.Models
 
         /**************************************************************/
         /// <summary>
+        /// Gets or sets the path to a JSON (NDJSON) report file (--json-log).
+        /// When set, one JSON line per observation is appended alongside the markdown
+        /// log, enabling programmatic diffing and column-level audits
+        /// (e.g. <c>jq -c 'select(.observation.parameterSubtype == "single_dose")'</c>).
+        /// Valid with all --standardize-tables operations that also accept --markdown-log.
+        /// </summary>
+        /// <remarks>
+        /// Parent directories are created if missing. When the file already exists, the sink
+        /// silently appends in CLI mode; the interactive menu prompts for append/overwrite.
+        /// Convention: <c>.jsonl</c> extension.
+        /// </remarks>
+        /// <seealso cref="StandardizeTablesOperation"/>
+        /// <seealso cref="MarkdownLogPath"/>
+        public string? JsonLogPath { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets whether unattended SPL mode is enabled.
         /// True when --folder is specified.
         /// </summary>
@@ -403,6 +420,13 @@ namespace MedRecProConsole.Models
                     continue;
                 }
 
+                // Handle json-log argument (NDJSON companion file — one line per observation)
+                if (lowerArg.StartsWith("--json-log"))
+                {
+                    result.JsonLogPath = extractArgumentValue(args, ref i, arg, "--json-log", result.Errors);
+                    continue;
+                }
+
                 // Unknown argument
                 if (arg.StartsWith("-") || arg.StartsWith("/"))
                 {
@@ -499,6 +523,12 @@ namespace MedRecProConsole.Models
             if (!string.IsNullOrEmpty(result.MarkdownLogPath) && !result.IsStandardizeTablesMode)
             {
                 result.Errors.Add("--markdown-log can only be used with --standardize-tables.");
+            }
+
+            // Validate --json-log requires --standardize-tables
+            if (!string.IsNullOrEmpty(result.JsonLogPath) && !result.IsStandardizeTablesMode)
+            {
+                result.Errors.Add("--json-log can only be used with --standardize-tables.");
             }
 
             // Validate --batch-size only valid with parse or validate

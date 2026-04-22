@@ -2526,3 +2526,185 @@ Shipped the remaining Wave 1 items (R1.2 transposed-header classification, R2 co
 **Remaining pending work** (Wave 3, not in this session): R8 DDI downgrade in classifier, R9 ML.NET loading diagnosis, R10 unit extraction gap. These are independent and can be scheduled separately per the master plan.
 
 ---
+
+### 2026-04-22 12:28 PM EST — PK Table Parsing R3.1: Bare-text section-divider detection
+
+Shipped Wave 1 R3.1 — the short follow-up surfaced by the post-Iteration-5 corpus diff. R3 correctly suppressed long-form colon-trailer dividers (`effects of gender and age:` 57→0 ✅, `patients with renal impairment:` 43→0 ✅) but missed short asterisk-wrapped dividers because upstream cell cleaning strips `**…**` bold markers, delivering bare `Single dose` / `Multiple dose` text to `detectSectionDivider`. `_sectionDividerShellPattern` required asterisks OR trailing colon — neither was present after cleaning, so the detector fell through and the rows emitted spurious `text_descriptive` observations (57 rows each, ~114 total).
+
+**Root-cause fix**: added `_bareQualifierDividerPattern` — anchored (`^\s*…\s*$`), case-insensitive, matching only the exact canonical qualifier phrases (`single dose`, `multiple dose`, `steady state`, `fasted`, `fed`, with `[\s-]?` for optional hyphenation). Wired into `detectSectionDivider` as a fallback branch after the shell-pattern match fails. Anchoring is load-bearing: it preserves R3's defense-in-depth against over-suppressing single-cell rows whose prose merely *contains* a qualifier word (e.g., "Fasted subjects had Cmax of 5.5"). Downstream qualifier-scan + dose-extraction + final guard (`qualifier == null && stickyDose == null → None`) logic unchanged — just one new entry path into the same machinery.
+
+**Tests** (3 new in `MedRecProTest/TableParserTests.cs` R3 region):
+- `PkParser_R3_1_BareAsteriskStrippedDivider_DetectedAsDivider` — verifies bare `Single dose` AND `Multiple dose` in a single-cell row are recognized (qualifier = `single_dose` / `multiple_dose`).
+- `PkParser_R3_1_BareAsteriskStrippedDivider_EndToEnd_Suppressed` — single-column PK table with bare `Single dose` divider row; asserts 4 observations (2 data rows × 2 PK cols, divider suppressed), all carry `ParameterSubtype = "single_dose"` and `PK_SECTION_QUALIFIER_APPLIED` flag.
+- `PkParser_R3_1_BareTextWithoutQualifier_NotDivider` — over-suppression guard across `Summary`, `Results`, `Notes`, `Discussion`; none classified as divider.
+
+**Verification**: `dotnet build MedRecProImportClass.csproj` 0 errors. `dotnet test MedRecProTest.csproj` → **1,501 passing / 0 failed / 0 skipped** (1,498 baseline + 3 new R3.1, 0 regressions). Matches the master plan's projected test count.
+
+**Expected corpus impact** (to be verified on next MedRecProConsole run against the production corpus): 114 additional `text_descriptive` rows suppressed (Single dose 57 + Multiple dose 57); next-row `ParameterSubtype = single_dose` / `multiple_dose` inheritance becomes visible once the report-formatter extension (next pending item) lands.
+
+**Files modified**:
+- `MedRecProImportClass/Service/TransformationServices/PkTableParser.cs` — added `_bareQualifierDividerPattern`; extended `detectSectionDivider` fallback branch; updated summary doc and `<seealso>` xref.
+- `MedRecProTest/TableParserTests.cs` — 3 new tests in `PK R3 Section-Divider Suppression` region.
+
+**Next up per master plan**: report-formatter extension (JSON companion dump — tooling to unblock quantitative verification of R6/R7 and future waves), then R1.2.1 (23 residual food-state rows in Arm) and Wave 3 (R8 DDI downgrade, R9 ML.NET diagnosis, R10 unit extraction).
+
+---
+
+### 2026-04-22 12:43 PM EST — Report-formatter extension: NDJSON companion dump (`--json-log`)
+
+Shipped the second pending item from the PK Table Parsing Compliance Master Remediation Plan — the tooling-level report-formatter extension that unblocks quantitative verification of R6, R7, and every future routing-heavy wave. Root problem: the Stage 3 markdown report emits only 7 columns (`Parameter | Arm | Raw Value | Primary | Type | Confidence | Rule`), so `Timepoint`, `Population`, `ParameterSubtype`, `DoseRegimen`, `Dose`, `DoseUnit`, `Unit`, and `ValidationFlags` can't be queried or diffed directly. The prior corpus-diff validation (post-Iteration-5, 2026-04-21 PM) could only infer R6/R7 effects indirectly through `ParameterName`/`Arm` shifts.
+
+**Chosen approach (plan option 2)**: dedicated NDJSON companion sink — one JSON line per observation carrying both table-level context (TextTableID, caption, parent section, category, parser) and the full `ParsedObservation` payload. Keeps the markdown human-readable; enables `jq`-based diffing for column-level audits.
+
+**Architecture** — parallel-sink design, minimal coupling:
+- `MedRecProConsole/Services/Reporting/JsonReportSink.cs` — IAsyncDisposable, channel-based producer-consumer loop, per-entry flush. Same ctor signature and append semantics as `MarkdownReportSink` (null-path → null; category filter; silent append / interactive overwrite prompt).
+- `MedRecProConsole/Services/Reporting/TableStandardizationJsonWriter.cs` — static `BuildSection(TableReportEntry)` → NDJSON string. One line per observation (or one meta line with `observation: null` + `observationCount: 0` when a table produced zero obs — so skipped/routed-out tables remain visible). Uses `System.Text.Json` with `CamelCase` naming and `JsonStringEnumConverter` for `TableCategory`. Inlines table context at the top of each line so records are self-contained for flat `jq` queries.
+- CLI: new `--json-log <path>` flag in `CommandLineArgs.cs`, parsed alongside `--markdown-log`, validated to require `--standardize-tables`. Help docs updated in `HelpDocumentation.cs` and `appsettings.json`. Displayed in the mode banner via new `jsonLogPath` parameter to `DisplayStandardizeTablesModeInfo`. Both log flags are independent — users can emit JSON only, markdown only, or both.
+- Wiring: all 4 service entry points (`ExecuteParseSingleAsync`, `ExecuteParseAsync`, `ExecuteValidateAsync`, `ExecuteParseWithStagesAsync`) accept a new optional `JsonReportSink? jsonSink = null` after the existing `reportSink` param (backward-compatible default). Every `reportSink.AppendAsync` call site now also dispatches to `jsonSink` when non-null. Private helper `appendBatchToReportAsync` upgraded to take both sinks and do a single construction of the shared `TableReportEntry`. `Program.cs` opens both sinks with `await using` before the switch-on-operation dispatch.
+
+**Query examples** (embedded in the writer's XML docs for future readers):
+```
+# All rows for a specific table
+jq -c 'select(.textTableId == 571)' report.jsonl
+
+# Count ParameterSubtype values across the corpus
+jq -c 'select(.observation != null) | .observation.parameterSubtype' report.jsonl | sort | uniq -c
+
+# All non-empty Timepoint values for PK tables
+jq -c 'select(.category == "pk" and .observation.timepoint != null) | {tid: .textTableId, param: .observation.parameterName, timepoint: .observation.timepoint}' report.jsonl
+```
+
+**Tests** (+18, all passing):
+- `MedRecProTest/Reporting/TableStandardizationJsonWriterTests.cs` — 6 tests: single-observation → one valid JSON line; R6/R7 column coverage (ParameterSubtype/Timepoint/Population/DoseRegimen/Dose/DoseUnit/Unit/ValidationFlags all round-trip); multi-observation line-count parity with markdown observation count; zero-observation meta line emission; before-Claude flag per-observation key resolution; NDJSON newline termination for `wc -l` correctness.
+- `MedRecProTest/Reporting/JsonReportSinkTests.cs` — 7 tests: null/whitespace path → null sink; valid path creates empty file (no session banner, unlike markdown sink); single-append → one line; multi-append preserves order across entries; category filter drops out-of-scope entries; zero-obs entries produce meta lines through the sink.
+- `MedRecProTest/CommandLineArgsStandardizeTablesTests.cs` — 5 tests in a new `--json-log Tests` region: flag with value, equals syntax, error without `--standardize-tables`, default null, both flags together.
+
+**Verification**: `dotnet build MedRecPro.sln` 0 errors. `dotnet test` → **1,519 passing / 0 failed / 0 skipped** (1,501 baseline + 18 new, 0 regressions). Matches projected count.
+
+**Files created**:
+- `MedRecProConsole/Services/Reporting/JsonReportSink.cs`
+- `MedRecProConsole/Services/Reporting/TableStandardizationJsonWriter.cs`
+- `MedRecProTest/Reporting/JsonReportSinkTests.cs`
+- `MedRecProTest/Reporting/TableStandardizationJsonWriterTests.cs`
+
+**Files modified**:
+- `MedRecProConsole/Models/CommandLineArgs.cs` — new `JsonLogPath` property, `--json-log` parser branch, validation.
+- `MedRecProConsole/Program.cs` — open `JsonReportSink` alongside markdown, pass to service methods, include in mode banner.
+- `MedRecProConsole/Services/TableStandardizationService.cs` — `jsonSink` param threaded through 4 entry points; `appendBatchToReportAsync` takes both sinks.
+- `MedRecProConsole/Helpers/HelpDocumentation.cs` — new param + help lines.
+- `MedRecProConsole/appsettings.json` — new option entry for `--json-log`.
+- `MedRecProTest/CommandLineArgsStandardizeTablesTests.cs` — new `--json-log` test region.
+
+**Interactive menu note**: the interactive `promptForMarkdownLogAsync` path in `ConsoleHelper.cs` is unchanged — CLI (`--json-log`) is the intended entry point for structured-data consumers. Can be extended later if users want an interactive JSON toggle.
+
+**Next up per master plan**: R1.2.1 (23 residual food-state rows in Arm — investigate root cause before coding) and Wave 3 (R8 classifier DDI, R9 ML.NET diagnosis, R10 unit extraction). The three Wave 3 items are independent and can run in parallel. The JSON sink now also makes it possible to quantify R6/R7 post-hoc against the production corpus once the user runs a fresh `MedRecProConsole` pass with `--json-log`.
+
+---
+
+### 2026-04-22 1:54 PM EST — R3.1 corpus validation + interactive JSON log menu
+
+User ran a fresh `MedRecProConsole` batch after the morning's R3.1 + report-formatter ship and produced `standardization-report-20260422-125501.md`. Diffed it against the Iteration-5 baseline `standardization-report-20260421-140844.md` to quantify R3.1's real-world corpus effect and confirm zero regressions.
+
+**R3.1 validation — definitive**:
+- `Single dose` text_descriptive observations (`| Cmax | - | Single dose | - | Text | 0.50 | text_descriptive |` shape): **57 → 0** ✅ (100% elimination).
+- `Multiple dose` text_descriptive observations: **57 → 0** ✅.
+- Total R3.1 target suppression: **114 rows**, matching the plan projection exactly.
+- Prior R3 colon-trailer dividers (`effects of gender and age:`, `patients with renal impairment:`) remained at 0 → 0 — defense-in-depth preserved.
+- Top 13 drug-name Arm values (Fluconazole 138, Nelfinavir 158, Diltiazem 162, Efavirenz 141, Buprenorphine 387, Zidovudine 118, Gemfibrozil 138, Itraconazole 128, Theophylline 84, Atorvastatin 102, Azithromycin 10, Erythromycin 57): **all delta = +0**. Zero drug-routing regressions.
+- Total Stage 3 observations: 32,180 → 32,018 (**−162**). 114 direct R3.1 eliminations + 48 cascading text_descriptive cleanup from sticky-qualifier inheritance on subsequent rows.
+- `text_descriptive` rule total: 13,809 → **13,647** (trending down per plan target).
+- TID 6741 spot-check: 102 → 98 observations. Pre-R3.1 emitted 4 text_descriptive rows for the "Single dose" / "Multiple dose" dividers; post-R3.1 = 0. Subsequent data rows (250 mg / 500 mg / 750 mg oral tablet; 500 mg every 24h) fully retained with all PK values intact.
+
+**Interactive menu gap — fixed**:
+User pointed out that the morning's report-formatter extension only wired `--json-log` as a CLI flag, not as an interactive menu option (they couldn't see where to toggle it from the interactive standardize-tables flow). Filled the gap:
+- Added `promptForJsonLogAsync()` in `MedRecProConsole/Helpers/ConsoleHelper.cs` — parallel to `promptForMarkdownLogAsync`. Confirm → optional path (timestamped `.jsonl` default) → category filter → `JsonReportSink.CreateOrNullAsync` with interactive-append prompt on overwrite.
+- Added `promptForJsonLogCategoryFilter()` — functionally identical to the markdown version; kept separate so future divergence (e.g., multi-select categories for JSON) doesn't affect the markdown prompt UX.
+- Wired into the **parse-single** interactive path: `await using var singleJsonSink = await promptForJsonLogAsync()` followed by `jsonSink: singleJsonSink` on the service call.
+- Wired into the **parse-with-stages batch** interactive path: `await using var batchJsonSink = await promptForJsonLogAsync()` alongside the markdown prompt. Confirmation-summary table extended with `JSON Log` path + `JSON Filter` category rows next to their markdown equivalents.
+- Independent toggles — users can pick either log, both, or neither.
+
+**Master plan updated** (`C:\Users\chris\.claude\plans\PK Table Parsing Compliance Master Remediation Plan.md`):
+- **R3.1** moved from 🔴 HIGH PRIORITY pending → ✅ SHIPPED, with measured corpus deltas copied into the Completed Work section.
+- **Report-formatter extension** moved from 🟡 pending → ✅ SHIPPED.
+- New **Iteration 6** section added summarizing both deliverables and the validation evidence above.
+- **Compliance State** table extended with a `Post-Iter6 (2026-04-22 PM)` column and a new "Single dose / Multiple dose text_descriptive rows" metric row showing 57+57 → 0+0 elimination.
+- **Pending Work** section trimmed to R1.2.1 + Wave 3 (R8/R9/R10) — all independent, can run in parallel.
+- **Critical Files** table updated to include the 5 Iteration-6 files (JsonReportSink, TableStandardizationJsonWriter, CommandLineArgs, ConsoleHelper, TableStandardizationService).
+- **Historical Test Counts**: 1,498 → **1,519** row added (+21: 3 R3.1 + 6 JsonWriter + 7 JsonSink + 5 CLI parser).
+
+**Verification**: `dotnet build MedRecProConsole.csproj` 0 errors (147 pre-existing warnings, none new). `dotnet test MedRecProTest.csproj` → **1,519 passing / 0 failed / 0 skipped**. No regression from the interactive-menu additions.
+
+**Files modified (this session only)**:
+- `MedRecProConsole/Helpers/ConsoleHelper.cs` — `promptForJsonLogAsync` + `promptForJsonLogCategoryFilter` added; both interactive paths wired with a new JSON sink; confirmation-summary table extended.
+- `C:\Users\chris\.claude\plans\PK Table Parsing Compliance Master Remediation Plan.md` — Iteration 6 section + compliance-table expansion + pending-work prune + critical-files update.
+
+**Next up per master plan**: R1.2.1 (investigate root cause for the 23 residual food-state rows in Arm — now directly diagnosable via `--json-log` filters on the production corpus) and Wave 3 (R8/R9/R10, all independent). The JSON sink makes R6/R7 effects and all future routing waves directly quantifiable without regex-digging through markdown.
+
+---
+
+### 2026-04-22 2:44 PM EST — R1.2.1 food-state sub-header + Wave 3 R8 DDI downgrade
+
+Shipped two plan items in one pass: R1.2.1 (residual food-state rows in Arm) and Wave 3 R8 (DDI downgrade in classifier). Both were previously parked pending for "investigate root cause before implementing" — I did the investigation against the post-R3.1 corpus report (`standardization-report-20260422-125501.md`), found the exact trigger shapes, and implemented narrow-surface fixes.
+
+**R1.2.1 — Food-state sub-header suppression**
+
+Investigation: searched `standardization-report-20260422-125501.md` for Stage-3 observations with food-state tokens as TreatmentArm, restricted to the true observation shape `| Parameter | Arm | Raw | Primary | Type | 0.XX | rule |`. Found 17 rows, all with Arm=`Food`, all in 3 tables (TID 3239, 29134, 33314), all with identical structure: `Food | Fasted | Fed | Fasted | Fed | Fasted | Fed`. Traced the path: `parseCompoundLayout` → `classifyRowLabel("Food")` → `_drugNameHeuristicPattern` matches (4-letter capitalized word) AND "Food" is not in `_nonDrugNegativeList` → returns `Kind=TreatmentArm, TreatmentArm="Food"` → each non-col-0 cell emits an observation with Arm=Food, Raw=Fasted/Fed. This is a food-effect table sub-header row, not data.
+
+Fix: added a dedicated detector in [`PkTableParser.cs`](C:/Users/chris/Documents/Repos/MedRecProImportClass/Service/TransformationServices/PkTableParser.cs):
+- `_foodStateSubHeaderCol0Labels` — allowlist of recognized col-0 food-descriptor labels (`Food`, `Food Effect`, `Food State`, `Food Condition`, `Food Intake`, `Prandial State`, `Fed State`).
+- `_foodStateCellPattern` — anchored regex matching cells that are exactly a food-state qualifier (`Fasted`, `Fed`, `Light Breakfast`, `High-Fat Meal`/`Breakfast`/`Lunch`/`Dinner`, `Moderate-Fat ...`, `Low-Fat ...`, `Standard Breakfast`, `Regular Breakfast`, `With Food`, `Without Food`, `After Meal`, `Fasting`, `Fed state`). Anchoring is load-bearing: prevents false-positives on narrative cells that happen to contain a food keyword.
+- `detectFoodStateSubHeader(row)` — returns true when col 0 matches the allowlist AND every non-empty cell at col > 0 matches the cell pattern AND at least one such qualifier cell is present. Iterates `row.Cells` directly rather than via `getCellAtColumn` so the detector does not require `ResolvedColumnEnd` to be populated on test fixtures.
+
+Wiring: called from `parseCompoundLayout` BEFORE row classification; `continue;` skips the row entirely. Also added to the standard / two-column main loop right after `detectSectionDivider` as defense-in-depth for the rare case where a food-effect table lands in the standard path. Belt-and-braces: `_nonDrugNegativeList` also gains the same labels so any future classifier that checks there is covered.
+
+Tests (+7 in `MedRecProTest/TableParserTests.cs` new `PK R1.2.1` region):
+- `PkParser_R1_2_1_FoodWithFastedFedCells_DetectedAsSubHeader` — canonical TID 3239 shape.
+- `PkParser_R1_2_1_AlternateFoodLabels_AllDetected` — all 6 alternate col-0 labels.
+- `PkParser_R1_2_1_VariousFoodStateCells_AllRecognized` — all 8 qualifier-cell variants.
+- `PkParser_R1_2_1_FoodColZeroWithNumericValues_NotDetected` — guard: numeric data values don't trip the detector.
+- `PkParser_R1_2_1_DrugNameColZero_NotDetected` — guard: col 0 allowlist is the gate (drug-name col 0 with food-state cells is still not a sub-header).
+- `PkParser_R1_2_1_FoodColZeroAllEmptyCells_NotDetected` — guard: requires at least one non-empty qualifier cell.
+- `PkParser_R1_2_1_EndToEnd_CompoundLayoutFoodSubHeader_Suppressed` — end-to-end compound layout: sub-header row fully suppressed, downstream data rows still parsed.
+
+Expected corpus impact on next run: 17 `Arm=Food, Raw=Fasted/Fed` text_descriptive rows → 0 across 3 TIDs; net text_descriptive drops ~17 more.
+
+**Wave 3 R8 — DDI downgrade in classifier**
+
+Investigation: scanned corpus for captions and section titles with DDI signals. Found 122 `Drug Interaction` captions, 567 `Co-administered` occurrences (hyphenation-agnostic), 49 `Effect of … on Pharmacokinetic` patterns, 18 `interaction study` / related. Spot-checked 7 TIDs (13081, 13082, 4368, 4369, 9921, 9922, 35339) — all currently routed to `TableCategory.PK` despite being unambiguous DDI tables. The PK parser then emits partial observations (AUC, Cmax ratios) that semantically represent drug-on-drug effects, not subject PK — these are misleading rather than informative.
+
+Fix: `TableParserRouter.looksLikeDdi(ReconstructedTable)` in [`TableParserRouter.cs`](C:/Users/chris/Documents/Repos/MedRecProImportClass/Service/TransformationServices/TableParserRouter.cs). Scans Caption, SectionTitle, and concatenated spanning-header text against `_ddiStrongSignalPattern`:
+- `\bDrug[\s-]?Interaction` — "Drug Interaction" / "Drug-Interaction".
+- `\bCo[\s-]?administ` — co-administered / coadministered / co-administration / coadministration (all hyphenation variants).
+- `\bin\s+the\s+[Pp]resence\s+of\b` — the "Effect of X in the Presence of Y" DDI pattern.
+- `\bDDI\b` — explicit abbreviation.
+
+Deliberately excluded weak signals: `Effect of X on Pharmacokinetics` alone (matches legitimate population-stratification tables like "Effect of Renal Impairment on PK"), bare `inhibitor`/`inducer` (too noisy — appears in PK mechanism-of-action captions). This asymmetry is intentional — the plan requires zero regressions on legitimate PK tables.
+
+Wiring: called FIRST in `validatePkOrDowngrade` (before the PK-content hit count) so PK-coded sections 34090-1 / 43682-4 correctly re-route when the caption/title signals DDI. Also called FIRST in `categorizeFromCaption` for completeness — DDI keywords beat PK/Efficacy/etc. when both are present.
+
+Tests (+6 in `TableParserTests.cs` new `Router Wave 3 R8 — DDI Downgrade` region):
+- `Router_R8_PkCodedSection_CoadministeredCaption_RoutesDrugInteraction` — TID 13081-shape (Phentermine/Topiramate).
+- `Router_R8_DrugInteractionCaption_RoutesDrugInteraction` — TID 9921-shape (Rilpivirine).
+- `Router_R8_InThePresenceOfCaption_RoutesDrugInteraction` — "in the Presence of Coadministered Drugs" caption.
+- `Router_R8_RenalImpairmentCaption_StillRoutesPk` — guard: population-stratification caption remains PK (zero regression assertion).
+- `Router_R8_SectionTitleDrugInteraction_RoutesDrugInteraction` — SectionTitle-carried signal.
+- `Router_R8_looksLikeDdi_ExactKeywordSet` — direct unit test covering 8 positive + 5 negative cases.
+
+Note: DRUG_INTERACTION-category tables currently have no dedicated parser, so re-routed tables will produce 0 observations on the next run. That's correct behavior per the plan — it stops the current mis-categorization from polluting the PK dataset, and a dedicated DDI parser is reserved for future scope. Expected corpus effect: ~7+ TIDs' PK-parser output drops to 0, their prior (misleading) observations are removed.
+
+**One stale test updated**: `RouteAndParsePkTable_DrugInteraction_ParsesCIDashWithFooterRefinement` in `TableParsingOrchestratorStageTests.cs` had a DDI-shape caption (`"Effect of MYCAPSSA on Systemic Exposure of Co-administered Drugs"`) but asserted `TableCategory.PK` — literally the exact bug R8 fixes. The test's actual purpose is CI-dash parsing, not routing, so I updated the Caption to `"Table 4. MYCAPSSA Pharmacokinetic Parameters by Dose"` and the col 0 header from `"Co-administered drug and dosing regimen"` to `"Regimen"`. CI-dash parsing coverage preserved; R8 routing correctness now tested separately in the new Router_R8_* suite.
+
+**Verification**:
+- `dotnet build MedRecPro.sln` — 0 errors.
+- `dotnet test MedRecProTest.csproj` — **1,532 passing / 0 failed / 0 skipped** (1,519 baseline + 13 new: 7 R1.2.1 + 6 R8, 0 regressions).
+- Initial run surfaced 4 failures — 3 R1.2.1 tests (detector relied on `getCellAtColumn` which requires non-null `ResolvedColumnEnd` on test fixtures) and the 1 stale CI-dash test. All 4 resolved: R1.2.1 detector refactored to iterate `row.Cells` directly; CI-dash test caption changed to non-DDI wording.
+
+**Files modified**:
+- `MedRecProImportClass/Service/TransformationServices/PkTableParser.cs` — R1.2.1: `_foodStateSubHeaderCol0Labels`, `_foodStateCellPattern`, `detectFoodStateSubHeader`; extended `_nonDrugNegativeList` with food labels; wired detector into both `parseCompoundLayout` and the standard/two-column main loop.
+- `MedRecProImportClass/Service/TransformationServices/TableParserRouter.cs` — R8: `looksLikeDdi` helper, `_ddiStrongSignalPattern`; pre-check call site added to `validatePkOrDowngrade` and `categorizeFromCaption`; added `using System.Text.RegularExpressions`.
+- `MedRecProTest/TableParserTests.cs` — 7 new R1.2.1 tests + 6 new R8 tests.
+- `MedRecProTest/TableParsingOrchestratorStageTests.cs` — updated caption + col-0 header wording on `RouteAndParsePkTable_DrugInteraction_ParsesCIDashWithFooterRefinement` to keep it in PK routing.
+
+**Ready for smoke test**: the user will run `MedRecProConsole` against the production corpus and diff the resulting markdown/JSON reports to confirm (a) 17 Arm=Food rows eliminated (R1.2.1), (b) ~7+ DDI tables re-route from PK to DRUG_INTERACTION (R8), (c) no drug-name routing regressions. After that, the remaining Wave 3 items are R10 (unit extraction gap — 45.3% MISSING_R_Unit) and R9 (ML.NET diagnosis).
+
+---

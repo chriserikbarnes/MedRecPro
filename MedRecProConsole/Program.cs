@@ -370,7 +370,8 @@ namespace MedRecProConsole
                     cmdArgs.StandardizeTableId,
                     cmdArgs.NoClaude,
                     dropIncompleteRows: dropIncomplete,
-                    markdownLogPath: cmdArgs.MarkdownLogPath);
+                    markdownLogPath: cmdArgs.MarkdownLogPath,
+                    jsonLogPath: cmdArgs.JsonLogPath);
             }
 
             // Execute the requested operation
@@ -382,24 +383,33 @@ namespace MedRecProConsole
             await using var reportSink = await MarkdownReportSink.CreateOrNullAsync(
                 cmdArgs.MarkdownLogPath, interactiveAppendPrompt: false);
 
+            // Open the JSON (NDJSON) companion sink if --json-log was supplied. Same silent-
+            // append semantics as the markdown sink. Can be specified independently of
+            // --markdown-log so users can emit JSON only, markdown only, or both.
+            await using var jsonSink = await JsonReportSink.CreateOrNullAsync(
+                cmdArgs.JsonLogPath, interactiveAppendPrompt: false);
+
             return cmdArgs.StandardizeTablesOperation switch
             {
                 "parse" => await service.ExecuteParseAsync(
                     connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
                     disableClaude: cmdArgs.NoClaude,
                     dropRowsMissingArmNOrPrimaryValue: dropIncomplete,
-                    reportSink: reportSink),
+                    reportSink: reportSink,
+                    jsonSink: jsonSink),
                 "validate" => await service.ExecuteValidateAsync(
                     connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
                     disableClaude: cmdArgs.NoClaude,
                     dropRowsMissingArmNOrPrimaryValue: dropIncomplete,
-                    reportSink: reportSink),
+                    reportSink: reportSink,
+                    jsonSink: jsonSink),
                 "truncate" => await service.ExecuteTruncateAsync(
                     connectionString, cmdArgs.QuietMode),
                 "parse-single" => await service.ExecuteParseSingleAsync(
                     connectionString, cmdArgs.StandardizeTableId!.Value, cmdArgs.VerboseMode,
                     useClaude: !cmdArgs.NoClaude,
-                    reportSink: reportSink),
+                    reportSink: reportSink,
+                    jsonSink: jsonSink),
                 _ => 1
             };
 

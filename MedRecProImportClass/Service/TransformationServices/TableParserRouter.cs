@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 
@@ -240,6 +241,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(caption))
                 return TableCategory.OTHER;
 
+            // Wave 3 R8 — DDI keywords beat PK/Efficacy/etc. Drug-interaction captions
+            // (`Drug Interaction`, `Co-administered`, `in the Presence of`) can appear
+            // alongside `Pharmacokinetic` so the DDI check must run first.
+            if (looksLikeDdi(table))
+                return TableCategory.DRUG_INTERACTION;
+
             if (caption.Contains("Adverse", StringComparison.OrdinalIgnoreCase) ||
                 caption.Contains("Side Effect", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.ADVERSE_EVENT;
@@ -281,9 +288,18 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <returns>Resolved category after content check.</returns>
         /// <seealso cref="PkParameterDictionary"/>
         /// <seealso cref="computeProseRatio"/>
+        /// <seealso cref="looksLikeDdi"/>
         private static TableCategory validatePkOrDowngrade(ReconstructedTable table)
         {
             #region implementation
+
+            // Wave 3 R8 — DDI downgrade. A PK-coded section (34090-1 / 43682-4) frequently
+            // also hosts drug-interaction tables whose shape reuses PK parameter names
+            // (AUC, Cmax, Tmax) but whose semantic is drug-on-drug effect, not a simple
+            // subject-PK readout. Route these to DRUG_INTERACTION BEFORE the PK-content
+            // check so the DDI-specific parser can decompose them correctly.
+            if (looksLikeDdi(table))
+                return TableCategory.DRUG_INTERACTION;
 
             // Count PK hits in header columns — uses ContainsPkParameter so modifier
             // phrases like "Change in AUC" or "Ratio of Cmax" still count as PK.
@@ -320,6 +336,94 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Wave 3 R8 — Strong-signal detector for drug-interaction tables. Returns
+        /// <c>true</c> when the caption or section title contains explicit DDI
+        /// keywords (<c>Drug Interaction</c>, <c>Co-administered</c>,
+        /// <c>Coadministered</c>, <c>in the Presence of</c>, etc.). Used by
+        /// <see cref="validatePkOrDowngrade"/> to re-route PK-coded sections whose
+        /// tables are actually drug-interaction panels.
+        /// </summary>
+        /// <remarks>
+        /// ## Strong signals (each sufficient)
+        /// <list type="bullet">
+        /// <item><description><c>Drug Interaction</c> phrase (any case).</description></item>
+        /// <item><description><c>Co-administered</c> / <c>Coadministered</c>
+        ///   / <c>Co-administration</c> / <c>Coadministration</c> — all hyphenation
+        ///   variants.</description></item>
+        /// <item><description><c>in the Presence of</c> — the "Effect of X in the
+        ///   Presence of Y" DDI pattern.</description></item>
+        /// <item><description><c>DDI</c> abbreviation (standalone token).</description></item>
+        /// </list>
+        ///
+        /// ## Deliberately excluded (weak/ambiguous signals)
+        /// <list type="bullet">
+        /// <item><description><c>Effect of X on Pharmacokinetics of Y</c> alone —
+        ///   also matches legitimate PK tables on population / demographic
+        ///   stratification (e.g., "Effect of Renal Impairment on PK"). Requires
+        ///   one of the strong signals above to qualify as DDI.</description></item>
+        /// <item><description>Single occurrences of <c>inhibitor</c> / <c>inducer</c>
+        ///   — too noisy (appears in many PK captions as mechanism of action).</description></item>
+        /// </list>
+        /// </remarks>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns><c>true</c> when caption or section title carries a strong DDI signal.</returns>
+        internal static bool looksLikeDdi(ReconstructedTable table)
+        {
+            #region implementation
+
+            if (table == null)
+                return false;
+
+            // Combine caption and section title for a single scan — either can carry
+            // the signal. Null-safe concatenation keeps the regex work minimal.
+            var caption = table.Caption ?? string.Empty;
+            var sectionTitle = table.SectionTitle ?? string.Empty;
+            if (caption.Length == 0 && sectionTitle.Length == 0)
+                return false;
+
+            // Spanning-header text is a second possible carrier: DDI tables often
+            // have a banner row like "Coadministered Drug" before the column
+            // parameter names.
+            string? spanning = null;
+            if (table.Header?.Columns != null)
+            {
+                foreach (var col in table.Header.Columns)
+                {
+                    var txt = col.LeafHeaderText;
+                    if (!string.IsNullOrWhiteSpace(txt))
+                    {
+                        spanning = string.IsNullOrEmpty(spanning) ? txt : spanning + " " + txt;
+                    }
+                }
+            }
+            spanning ??= string.Empty;
+
+            return _ddiStrongSignalPattern.IsMatch(caption)
+                || _ddiStrongSignalPattern.IsMatch(sectionTitle)
+                || _ddiStrongSignalPattern.IsMatch(spanning);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Wave 3 R8 — Combined regex for strong DDI signals. One pre-compiled pattern
+        /// with several alternations is cheaper than iterating independent checks.
+        /// </summary>
+        /// <remarks>
+        /// The patterns use word boundaries where meaningful to avoid substring false
+        /// positives (e.g., "coadministered" inside a longer word). <c>DDI</c> is
+        /// wrapped in <c>\b</c> so it does not match words like "middi".
+        /// </remarks>
+        private static readonly Regex _ddiStrongSignalPattern = new(
+            @"\bDrug[\s-]?Interaction"
+          + @"|\bCo[\s-]?administ"                    // co-administered / coadministered / co-administration / coadministration
+          + @"|\bin\s+the\s+[Pp]resence\s+of\b"
+          + @"|\bDDI\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /**************************************************************/
         /// <summary>

@@ -371,5 +371,88 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion
+
+        #region --json-log Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// --json-log with a value sets JsonLogPath and produces no errors when
+        /// paired with --standardize-tables.
+        /// </summary>
+        [TestMethod]
+        public void Parse_JsonLogFlag_SetsPath()
+        {
+            var result = CommandLineArgs.Parse(new[]
+            {
+                "--standardize-tables", "parse-single", "--table-id", "1", "--json-log", "C:\\temp\\out.jsonl"
+            });
+
+            Assert.AreEqual("C:\\temp\\out.jsonl", result.JsonLogPath);
+            Assert.IsFalse(result.HasErrors, "Errors: " + string.Join("; ", result.Errors));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// --json-log=path (equals syntax) also sets JsonLogPath.
+        /// </summary>
+        [TestMethod]
+        public void Parse_JsonLogEqualsSyntax_SetsPath()
+        {
+            var result = CommandLineArgs.Parse(new[]
+            {
+                "--standardize-tables", "parse-single", "--table-id", "1", "--json-log=C:\\report.jsonl"
+            });
+
+            Assert.AreEqual("C:\\report.jsonl", result.JsonLogPath);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// --json-log without --standardize-tables produces an error (same validation
+        /// as --markdown-log, enforced independently).
+        /// </summary>
+        [TestMethod]
+        public void Parse_JsonLogWithoutStandardizeTables_AddsError()
+        {
+            var result = CommandLineArgs.Parse(new[] { "--json-log", "C:\\out.jsonl" });
+
+            Assert.IsTrue(result.HasErrors);
+            Assert.IsTrue(result.Errors.Any(e => e.Contains("--json-log")),
+                "Expected an error mentioning --json-log. Actual: " + string.Join("; ", result.Errors));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Default JsonLogPath (no flag) is null.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NoJsonLog_PathIsNull()
+        {
+            var result = CommandLineArgs.Parse(new[] { "--standardize-tables", "parse" });
+
+            Assert.IsNull(result.JsonLogPath);
+            Assert.IsFalse(result.HasErrors);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// --markdown-log and --json-log can be specified together (independent flags).
+        /// </summary>
+        [TestMethod]
+        public void Parse_BothLogFlagsTogether_BothPathsSet()
+        {
+            var result = CommandLineArgs.Parse(new[]
+            {
+                "--standardize-tables", "parse-single", "--table-id", "1",
+                "--markdown-log", "C:\\a.md",
+                "--json-log", "C:\\a.jsonl"
+            });
+
+            Assert.AreEqual("C:\\a.md", result.MarkdownLogPath);
+            Assert.AreEqual("C:\\a.jsonl", result.JsonLogPath);
+            Assert.IsFalse(result.HasErrors, "Errors: " + string.Join("; ", result.Errors));
+        }
+
+        #endregion
     }
 }

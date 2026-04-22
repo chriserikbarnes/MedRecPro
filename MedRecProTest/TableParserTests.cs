@@ -3210,6 +3210,191 @@ namespace MedRecPro.Service.Test
 
         #endregion Router PK Content Validation
 
+        #region Router Wave 3 R8 — DDI Downgrade
+
+        /**************************************************************/
+        /// <summary>
+        /// R8 — A PK-coded section (34090-1) whose caption carries the classic
+        /// "Effect of X on the Pharmacokinetics of Co-administered Drugs" DDI
+        /// signal must route to DRUG_INTERACTION, not PK. Matches TID 13081 shape.
+        /// </summary>
+        [TestMethod]
+        public void Router_R8_PkCodedSection_CoadministeredCaption_RoutesDrugInteraction()
+        {
+            var table = createTestTable(
+                new[] { "Coadministered Drug", "Cmax Ratio", "AUC Ratio" },
+                new List<string?[]>
+                {
+                    new[] { "Ketoconazole", "1.42", "2.13" }
+                },
+                parentSectionCode: "34090-1",
+                caption: "Table 7. Effect of Phentermine/Topiramate on the Pharmacokinetics of Co-administered Drugs");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DRUG_INTERACTION, category,
+                "DDI caption keyword 'Co-administered' must trump PK content.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R8 — "Drug Interactions:" caption prefix routes to DRUG_INTERACTION.
+        /// Matches TID 9921/9922 (Rilpivirine DDI table) shape.
+        /// </summary>
+        [TestMethod]
+        public void Router_R8_DrugInteractionCaption_RoutesDrugInteraction()
+        {
+            var table = createTestTable(
+                new[] { "Coadministered Drug", "Dose", "Cmax", "AUC" },
+                new List<string?[]>
+                {
+                    new[] { "Rifabutin", "300 mg QD", "1820", "18400" }
+                },
+                parentSectionCode: "34090-1",
+                caption: "Table 11: Drug Interactions: Pharmacokinetic Parameters for Rilpivirine in the Presence of Coadministered Drugs");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DRUG_INTERACTION, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R8 — "in the Presence of" caption matches the DDI pattern even when
+        /// "Co-administered" isn't spelled out separately.
+        /// </summary>
+        [TestMethod]
+        public void Router_R8_InThePresenceOfCaption_RoutesDrugInteraction()
+        {
+            var table = createTestTable(
+                new[] { "Drug", "Cmax Change", "AUC Change" },
+                new List<string?[]>
+                {
+                    new[] { "Atorvastatin", "↓ 15%", "↓ 25%" }
+                },
+                parentSectionCode: "34090-1",
+                caption: "Table 3: Changes in Pharmacokinetic Parameters for RPV in the Presence of Coadministered Drugs");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DRUG_INTERACTION, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R8 — Defense-in-depth: a legitimate PK table whose caption mentions
+        /// "Renal Impairment" (NOT a DDI signal) continues to route to PK.
+        /// Guards against over-routing when the weaker "Effect of X on PK"
+        /// phrase appears without any co-administration keyword.
+        /// </summary>
+        [TestMethod]
+        public void Router_R8_RenalImpairmentCaption_StillRoutesPk()
+        {
+            var table = createTestTable(
+                new[] { "Renal Function", "Cmax (mcg/mL)", "AUC (mcg·h/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "Normal", "5.5", "54.4" },
+                    new[] { "Mild", "6.8", "67.7" }
+                },
+                parentSectionCode: "34090-1",
+                caption: "Table 4. Effect of Renal Impairment on the Pharmacokinetics of Drug X");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.PK, category,
+                "Population-stratification captions must NOT be mistaken for DDI — only explicit co-admin / interaction keywords qualify.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R8 — SectionTitle-carried DDI signal also routes correctly even when
+        /// the Caption is silent.
+        /// </summary>
+        [TestMethod]
+        public void Router_R8_SectionTitleDrugInteraction_RoutesDrugInteraction()
+        {
+            var table = createTestTable(
+                new[] { "Drug", "Cmax", "AUC" },
+                new List<string?[]>
+                {
+                    new[] { "Rifampin", "450", "3200" }
+                },
+                parentSectionCode: "42229-5",
+                caption: "Table X",
+                sectionTitle: "Drug Interactions");
+
+            var router = new TableParserRouter(new ITableParser[]
+            {
+                new PkTableParser(),
+                new TextDescriptiveTableParser()
+            });
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DRUG_INTERACTION, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R8 — Direct unit test of the detector.
+        /// </summary>
+        [TestMethod]
+        public void Router_R8_looksLikeDdi_ExactKeywordSet()
+        {
+            foreach (var caption in new[]
+            {
+                "Drug Interaction Parameters",
+                "Drug-Interaction Table",
+                "Effect of X on Co-administered Drugs",
+                "Coadministered with Rifampin",
+                "Coadministration with ketoconazole",
+                "in the Presence of Rifampin",
+                "in the presence of coadministered drugs",
+                "DDI Analysis"
+            })
+            {
+                var table = new ReconstructedTable { Caption = caption };
+                Assert.IsTrue(TableParserRouter.looksLikeDdi(table),
+                    $"Caption '{caption}' must be recognized as DDI.");
+            }
+
+            foreach (var caption in new[]
+            {
+                "Pharmacokinetics of Drug X",
+                "Effect of Renal Impairment",
+                "Cmax and AUC in Healthy Subjects",
+                "Food Effect",
+                "" // empty
+            })
+            {
+                var table = new ReconstructedTable { Caption = caption };
+                Assert.IsFalse(TableParserRouter.looksLikeDdi(table),
+                    $"Caption '{caption}' must NOT be recognized as DDI.");
+            }
+        }
+
+        #endregion Router Wave 3 R8 — DDI Downgrade
+
         #region PK R1.2 Transposed-Header Classification (Wave 1 R1.2)
 
         /**************************************************************/
@@ -3567,6 +3752,306 @@ namespace MedRecPro.Service.Test
                 "Sticky-qualifier attribution flag must fire");
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// R3.1 — Bare (post-upstream-bold-strip) qualifier text such as
+        /// "Single dose" or "Multiple dose" must be detected as a divider.
+        /// The Stage 1/2 cell cleaner strips <c>**…**</c> markers, so the
+        /// detector sees the bare phrase and — pre-R3.1 — the shell pattern
+        /// rejected it. The anchored <c>_bareQualifierDividerPattern</c>
+        /// fallback restores divider recognition.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_1_BareAsteriskStrippedDivider_DetectedAsDivider()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0,
+                                        CleanedText = "Single dose" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1,
+                                        CleanedText = null },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2,
+                                        CleanedText = null }
+                }
+            };
+
+            var result = PkTableParser.detectSectionDivider(row);
+
+            Assert.IsTrue(result.IsDivider,
+                "Bare 'Single dose' in a single-cell row must be recognized as a divider");
+            Assert.AreEqual("single_dose", result.StickyQualifier);
+
+            // Also verify 'Multiple dose' — the second commonly observed form
+            row.Cells[0].CleanedText = "Multiple dose";
+            var result2 = PkTableParser.detectSectionDivider(row);
+            Assert.IsTrue(result2.IsDivider,
+                "Bare 'Multiple dose' in a single-cell row must be recognized as a divider");
+            Assert.AreEqual("multiple_dose", result2.StickyQualifier);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3.1 — End-to-end: a single-column PK table where the section
+        /// divider row arrives as plain text "Single dose" (asterisks
+        /// stripped by upstream cleaning). Post-R3.1 the divider is
+        /// suppressed and subsequent data rows inherit ParameterSubtype =
+        /// "single_dose" with flag PK_SECTION_QUALIFIER_APPLIED.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_1_BareAsteriskStrippedDivider_EndToEnd_Suppressed()
+        {
+            var table = createTestTable(
+                new[] { "Regimen", "Cmax (mcg/mL)", "AUC (mcg·h/mL)" },
+                new List<string?[]>
+                {
+                    // Row 0: bare (post-bold-strip) divider
+                    new[] { "Single dose", null, null },
+                    new[] { "250 mg oral", "5.5", "54.4" },
+                    new[] { "500 mg oral", "7.0", "67.7" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count,
+                "Bare divider row must NOT emit observations");
+            Assert.IsFalse(results.Any(r =>
+                (r.RawValue ?? "").Contains("Single dose")),
+                "No observation should carry the divider text as RawValue");
+            Assert.IsTrue(results.All(r => r.ParameterSubtype == "single_dose"),
+                "All post-divider observations should carry the sticky qualifier");
+            Assert.IsTrue(results.All(r =>
+                (r.ValidationFlags ?? "").Contains("PK_SECTION_QUALIFIER_APPLIED")),
+                "Sticky-qualifier attribution flag must fire");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R3.1 — Over-suppression guard: a bare single-cell row whose text
+        /// is NOT an exact canonical qualifier phrase (e.g., "Summary",
+        /// "Results") must NOT be classified as a divider. The anchored
+        /// bare pattern allows only the specific qualifier phrases through.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R3_1_BareTextWithoutQualifier_NotDivider()
+        {
+            foreach (var plainText in new[] { "Summary", "Results", "Notes", "Discussion" })
+            {
+                var row = new ReconstructedRow
+                {
+                    Classification = RowClassification.DataBody,
+                    Cells = new List<ProcessedCell>
+                    {
+                        new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0,
+                                            CleanedText = plainText }
+                    }
+                };
+
+                var result = PkTableParser.detectSectionDivider(row);
+
+                Assert.IsFalse(result.IsDivider,
+                    $"Bare text '{plainText}' (no asterisks, no colon, not a qualifier) must NOT be a divider");
+            }
+        }
+
         #endregion PK R3 Section-Divider Suppression
+
+        #region PK R1.2.1 Food-State Sub-Header Suppression
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — A row shaped <c>Food | Fasted | Fed | Fasted | Fed | Fasted | Fed</c>
+        /// (TID 3239/29134/33314 shape) must be classified as a food-state sub-header
+        /// and suppressed. Pre-R1.2.1 the compound-layout path treated col 0 = "Food"
+        /// as a drug-name TreatmentArm and produced one `Arm=Food, Raw=Fasted/Fed`
+        /// text_descriptive observation per non-col-0 cell.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_1_FoodWithFastedFedCells_DetectedAsSubHeader()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "Food" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "Fasted" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "Fed" },
+                    new ProcessedCell { SequenceNumber = 4, ResolvedColumnStart = 3, CleanedText = "Fasted" },
+                    new ProcessedCell { SequenceNumber = 5, ResolvedColumnStart = 4, CleanedText = "Fed" }
+                }
+            };
+
+            Assert.IsTrue(PkTableParser.detectFoodStateSubHeader(row),
+                "A Food sub-header row with only Fasted/Fed qualifier cells must be recognized");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Additional col 0 labels recognized as food descriptors
+        /// (Food Effect, Food State, Food Condition, Food Intake, Prandial State,
+        /// Fed State). All variants should match when the data cells are food-state
+        /// qualifiers.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_1_AlternateFoodLabels_AllDetected()
+        {
+            foreach (var label in new[] { "Food Effect", "Food State", "Food Condition", "Food Intake", "Prandial State", "Fed State" })
+            {
+                var row = new ReconstructedRow
+                {
+                    Classification = RowClassification.DataBody,
+                    Cells = new List<ProcessedCell>
+                    {
+                        new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = label },
+                        new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "Fasted" },
+                        new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "Fed" }
+                    }
+                };
+
+                Assert.IsTrue(PkTableParser.detectFoodStateSubHeader(row),
+                    $"Col 0 label '{label}' with food-state cells must be recognized as a sub-header");
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Food-state cell-pattern coverage: Light Breakfast, High-Fat Meal,
+        /// With Food, After Meal variants all match. Anchored pattern means partial
+        /// matches (e.g., "Fasted conditions were") should NOT match.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_1_VariousFoodStateCells_AllRecognized()
+        {
+            foreach (var cell in new[] { "Light Breakfast", "High-Fat Meal", "High Fat Breakfast", "Low-Fat Meal", "With Food", "After Meal", "Fasting", "Fed state" })
+            {
+                var row = new ReconstructedRow
+                {
+                    Classification = RowClassification.DataBody,
+                    Cells = new List<ProcessedCell>
+                    {
+                        new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "Food" },
+                        new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = cell }
+                    }
+                };
+
+                Assert.IsTrue(PkTableParser.detectFoodStateSubHeader(row),
+                    $"Food-state cell '{cell}' must be recognized as a qualifier");
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Guard against over-suppression: a row where col 0 is "Food" but
+        /// cols 1..N carry numeric PK values (e.g., from an aberrantly-labeled data
+        /// row, not a sub-header) must NOT be detected.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_1_FoodColZeroWithNumericValues_NotDetected()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "Food" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "5.5 ± 1.1" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "7.0 ± 1.6" }
+                }
+            };
+
+            Assert.IsFalse(PkTableParser.detectFoodStateSubHeader(row),
+                "Numeric PK values in data cells must prevent detection even when col 0 is 'Food'");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Guard against over-suppression: a row where col 0 is a drug name
+        /// (not a food descriptor) but cells happen to contain food-state words
+        /// must NOT be detected. Col 0 allowlist is the gate.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_1_DrugNameColZero_NotDetected()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "Atorvastatin" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "Fasted" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "Fed" }
+                }
+            };
+
+            Assert.IsFalse(PkTableParser.detectFoodStateSubHeader(row),
+                "Drug-name col 0 must not be treated as a food-state sub-header");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — Guard: a lone "Food" col 0 with no food-state qualifier cells
+        /// (all value cells empty) is NOT a sub-header — prevents suppressing
+        /// legitimate-but-empty rows.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_1_FoodColZeroAllEmptyCells_NotDetected()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "Food" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = null },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "" }
+                }
+            };
+
+            Assert.IsFalse(PkTableParser.detectFoodStateSubHeader(row),
+                "At least one non-empty food-state qualifier cell is required");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R1.2.1 — End-to-end: a compound-layout PK table shaped like TID 3239
+        /// with a `Food | Fasted | Fed | Fasted | Fed` sub-header must suppress
+        /// the sub-header row's observations entirely. Data rows (Cmax, Tmax)
+        /// are emitted as normal.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R1_2_1_EndToEnd_CompoundLayoutFoodSubHeader_Suppressed()
+        {
+            // Compound layout: row-1 is sub-header (Col 0 | cols 1..4 are "Younger"/"Older"),
+            // subsequent rows have col 0 as a metadata label. The `Food | Fasted | Fed`
+            // row should be suppressed.
+            var table = createTestTable(
+                new[] { "", "Younger", "Younger", "Older", "Older" },
+                new List<string?[]>
+                {
+                    // Row 0: compound sub-header — column labels
+                    new[] { "Parameter", "Cmax", "Tmax", "Cmax", "Tmax" },
+                    // Row 1: food-state sub-header — MUST be suppressed
+                    new[] { "Food", "Fasted", "Fed", "Fasted", "Fed" },
+                    // Row 2: actual PK data
+                    new[] { "Cmax (ng/mL)", "1816", "3510", "2719", "2915" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.IsFalse(results.Any(r =>
+                (r.TreatmentArm ?? "") == "Food" ||
+                (r.RawValue ?? "") == "Fasted" ||
+                (r.RawValue ?? "") == "Fed"),
+                "No observation should carry 'Food' as Arm or 'Fasted'/'Fed' as RawValue after R1.2.1 suppresses the sub-header");
+        }
+
+        #endregion PK R1.2.1 Food-State Sub-Header Suppression
     }
 }

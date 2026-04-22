@@ -1818,9 +1818,10 @@ namespace MedRecProConsole.Helpers
                     "[dodgerblue1]Enable Claude AI correction (Stage 3.5)?[/]", defaultValue: true);
 
                 await using var singleSink = await promptForMarkdownLogAsync();
+                await using var singleJsonSink = await promptForJsonLogAsync();
 
                 await service.ExecuteParseSingleAsync(connectionString, tableId, verboseMode,
-                    useClaude: singleUseClaude, reportSink: singleSink);
+                    useClaude: singleUseClaude, reportSink: singleSink, jsonSink: singleJsonSink);
                 return;
             }
 
@@ -1861,6 +1862,11 @@ namespace MedRecProConsole.Helpers
             // Step 4.7: Markdown log prompt (opened before confirmation so its path can appear in the summary)
             await using var batchSink = await promptForMarkdownLogAsync();
 
+            // Step 4.8: JSON (NDJSON) companion log prompt — one JSON line per observation,
+            // ideal for jq-based diffing and column-level audits (ParameterSubtype, Timepoint,
+            // Population, DoseRegimen, Unit, ValidationFlags — fields the markdown omits).
+            await using var batchJsonSink = await promptForJsonLogAsync();
+
             // Step 5: Confirmation summary
             AnsiConsole.WriteLine();
             var confirmTable = new Table()
@@ -1884,6 +1890,12 @@ namespace MedRecProConsole.Helpers
                 batchSink == null
                     ? "[grey]-[/]"
                     : (batchSink.SelectedCategory?.ToString() ?? "ALL"));
+            confirmTable.AddRow("JSON Log",
+                batchJsonSink != null ? $"[green]{Markup.Escape(batchJsonSink.Path)}[/]" : "[grey](disabled)[/]");
+            confirmTable.AddRow("JSON Filter",
+                batchJsonSink == null
+                    ? "[grey]-[/]"
+                    : (batchJsonSink.SelectedCategory?.ToString() ?? "ALL"));
 
             AnsiConsole.Write(confirmTable);
             AnsiConsole.WriteLine();
@@ -1899,7 +1911,8 @@ namespace MedRecProConsole.Helpers
                 connectionString, batchSize, verboseMode, quiet: false,
                 disableClaude: !useClaude, maxBatches: maxBatches, detailLevel: detailLevel,
                 dropRowsMissingArmNOrPrimaryValue: dropIncompleteRows,
-                reportSink: batchSink);
+                reportSink: batchSink,
+                jsonSink: batchJsonSink);
 
             #endregion
         }
@@ -1980,6 +1993,105 @@ namespace MedRecProConsole.Helpers
             var categoryFilter = promptForMarkdownLogCategoryFilter();
 
             return await MarkdownReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: true, categoryFilter);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prompts the user to optionally enable a JSON (NDJSON) companion log for the
+        /// current standardization run. Emits one JSON line per observation — the
+        /// structured-data sibling to the markdown log. Returns the opened
+        /// <see cref="JsonReportSink"/> when the user opts in, otherwise null.
+        /// </summary>
+        /// <remarks>
+        /// Independent from the markdown prompt — users can pick either, both, or neither.
+        /// When accepted and the target file exists, the sink prompts a second time asking
+        /// whether to append or overwrite. Default path uses a timestamp to avoid collisions.
+        /// Category filtering mirrors the markdown prompt so users can focus the audit
+        /// (e.g., PK-only) without editing the file after the fact.
+        ///
+        /// Use cases surfaced by the JSON log (and blocked without it):
+        /// <list type="bullet">
+        /// <item><description>R6/R7 routing verification — ParameterSubtype, Timepoint,
+        /// Population are absent from the markdown 7-column table.</description></item>
+        /// <item><description>Flag audits — counting ValidationFlags occurrences via <c>jq</c>.</description></item>
+        /// <item><description>Column-level diffing across standardization runs.</description></item>
+        /// </list>
+        /// </remarks>
+        /// <returns>Open sink ready to be passed to a standardization service method, or null.</returns>
+        /// <seealso cref="JsonReportSink"/>
+        /// <seealso cref="promptForMarkdownLogAsync"/>
+        /// <seealso cref="promptForJsonLogCategoryFilter"/>
+        private static async Task<JsonReportSink?> promptForJsonLogAsync()
+        {
+            #region implementation
+
+            var enable = AnsiConsole.Confirm(
+                "[dodgerblue1]Write per-observation JSON (NDJSON) log?[/] [grey](one JSON line per observation — ideal for jq-based audits)[/]",
+                defaultValue: false);
+
+            if (!enable)
+                return null;
+
+            var defaultPath = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                $"standardization-report-{DateTime.Now:yyyyMMdd-HHmmss}.jsonl");
+
+            var path = AnsiConsole.Prompt(
+                new TextPrompt<string>("[dodgerblue1]JSON file path:[/]")
+                    .PromptStyle("white")
+                    .DefaultValue(defaultPath)
+                    .Validate(p => !string.IsNullOrWhiteSpace(p)
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error("[red]Path cannot be empty[/]")));
+
+            // Narrow the log to a single table category (or ALL) — same rationale as the
+            // markdown prompt: a focused JSON file is faster to jq-query and smaller.
+            var categoryFilter = promptForJsonLogCategoryFilter();
+
+            return await JsonReportSink.CreateOrNullAsync(path, interactiveAppendPrompt: true, categoryFilter);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Prompts the user to pick a <see cref="TableCategory"/> to log for the JSON
+        /// sink, or <c>ALL</c> for no filtering. Returns <c>null</c> for the <c>ALL</c>
+        /// choice (which <see cref="JsonReportSink.CreateOrNullAsync"/> interprets as
+        /// "no filter").
+        /// </summary>
+        /// <returns>A single-element set for a specific category, or null for ALL.</returns>
+        /// <remarks>
+        /// Functionally identical to <see cref="promptForMarkdownLogCategoryFilter"/> —
+        /// kept separate so future behavior can diverge (e.g., allowing multi-select
+        /// categories for the JSON sink without affecting the markdown prompt UX).
+        /// </remarks>
+        /// <seealso cref="TableCategory"/>
+        /// <seealso cref="promptForMarkdownLogCategoryFilter"/>
+        private static IReadOnlySet<TableCategory>? promptForJsonLogCategoryFilter()
+        {
+            #region implementation
+
+            const string all = "ALL";
+
+            var choices = new[] { all }
+                .Concat(Enum.GetNames<TableCategory>().OrderBy(n => n, StringComparer.Ordinal))
+                .ToArray();
+
+            var selection = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[dodgerblue1]Filter JSON log by category:[/] [grey](ALL = log every table)[/]")
+                    .HighlightStyle("dodgerblue1")
+                    .PageSize(choices.Length)
+                    .AddChoices(choices));
+
+            if (selection == all)
+                return null;
+
+            // SelectionPrompt only hands back values from `choices`, so Parse is safe here.
+            return new HashSet<TableCategory> { Enum.Parse<TableCategory>(selection) };
 
             #endregion
         }

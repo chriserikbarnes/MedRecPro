@@ -1116,9 +1116,16 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// PK table with drug interaction data: "0.38 (0.31 - 0.46)" parses as value with CI bounds.
+        /// PK table with dose-response data: "0.38 (0.31 - 0.46)" parses as value with CI bounds.
         /// Footer row containing "90% CI" refines BoundType from "CI" to "90CI".
         /// </summary>
+        /// <remarks>
+        /// Caption and header intentionally avoid DDI-keyword triggers ("Drug Interaction",
+        /// "Co-administered", "in the Presence of") so the Wave 3 R8 router continues to
+        /// route this fixture to <see cref="TableCategory.PK"/>. Real DDI tables with the
+        /// same shape now correctly route to <see cref="TableCategory.DRUG_INTERACTION"/>,
+        /// covered by <c>Router_R8_*</c> tests in <c>TableParserTests</c>.
+        /// </remarks>
         [TestMethod]
         public void RouteAndParsePkTable_DrugInteraction_ParsesCIDashWithFooterRefinement()
         {
@@ -1129,7 +1136,7 @@ namespace MedRecPro.Service.Test
             var pkTable = new ReconstructedTable
             {
                 TextTableID = 289,
-                Caption = "Table 4 Effect of MYCAPSSA on Systemic Exposure of Co-administered Drugs",
+                Caption = "Table 4. MYCAPSSA Pharmacokinetic Parameters by Dose",
                 DocumentGUID = Guid.NewGuid(),
                 Title = "MYCAPSSA",
                 VersionNumber = 1,
@@ -1147,7 +1154,7 @@ namespace MedRecPro.Service.Test
                     ColumnCount = 4,
                     Columns = new List<HeaderColumn>
                     {
-                        new() { ColumnIndex = 0, LeafHeaderText = "Co-administered drug and dosing regimen", HeaderPath = new List<string> { "Co-administered drug and dosing regimen" } },
+                        new() { ColumnIndex = 0, LeafHeaderText = "Regimen", HeaderPath = new List<string> { "Regimen" } },
                         new() { ColumnIndex = 1, LeafHeaderText = "Dose (mg)", HeaderPath = new List<string> { "Dose (mg)" } },
                         new() { ColumnIndex = 2, LeafHeaderText = "Change in AUC", HeaderPath = new List<string> { "Change in AUC" } },
                         new() { ColumnIndex = 3, LeafHeaderText = "Change in Cmax", HeaderPath = new List<string> { "Change in Cmax" } }
@@ -1177,7 +1184,7 @@ namespace MedRecPro.Service.Test
                         AbsoluteRowIndex = 2,
                         Cells = new List<ProcessedCell>
                         {
-                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 4, CleanedText = "Mean ratio with 90% CI (with/without co-administered drug)", CellType = "td" }
+                            new() { SequenceNumber = 1, ResolvedColumnStart = 0, ResolvedColumnEnd = 4, CleanedText = "Mean ratio with 90% CI for the dose comparison", CellType = "td" }
                         }
                     }
                 }

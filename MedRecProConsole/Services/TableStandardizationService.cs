@@ -144,13 +144,18 @@ namespace MedRecProConsole.Services
         /// <param name="useClaude">Whether to apply Claude AI enhancement (Stage 3.5).</param>
         /// <param name="reportSink">Optional markdown report sink. When non-null, a
         /// per-table markdown section mirroring the console output is appended.</param>
+        /// <param name="jsonSink">Optional NDJSON companion sink. When non-null, one
+        /// JSON line per observation (plus one meta line per zero-obs table) is appended
+        /// alongside the markdown log — enabling programmatic diffing and column-level
+        /// audits.</param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ReconstructSingleTableAsync"/>
         /// <seealso cref="ITableParsingOrchestrator.RouteAndParseSingleTable"/>
         /// <seealso cref="ITableParsingOrchestrator.CorrectObservationsAsync"/>
         /// <seealso cref="MarkdownReportSink"/>
+        /// <seealso cref="JsonReportSink"/>
         public async Task<int> ExecuteParseSingleAsync(string connectionString, int textTableId, bool verbose,
-            bool useClaude = true, MarkdownReportSink? reportSink = null)
+            bool useClaude = true, MarkdownReportSink? reportSink = null, JsonReportSink? jsonSink = null)
         {
             #region implementation
 
@@ -194,11 +199,16 @@ namespace MedRecProConsole.Services
                     AnsiConsole.MarkupLine(
                         $"[yellow]No observations produced. Table was {(parserName == null ? "skipped" : "parsed but returned empty results")}.[/]");
 
-                    // Still emit a markdown section so the diagnostic log captures empty/skipped tables.
-                    if (reportSink != null)
+                    // Still emit a markdown / JSON section so the diagnostic log captures
+                    // empty/skipped tables and their routing decisions.
+                    if (reportSink != null || jsonSink != null)
                     {
-                        await reportSink.AppendAsync(BuildReportEntry(
-                            table, category, parserName, observations, beforeFlags, claudeSkipped: true));
+                        var emptyEntry = BuildReportEntry(
+                            table, category, parserName, observations, beforeFlags, claudeSkipped: true);
+                        if (reportSink != null)
+                            await reportSink.AppendAsync(emptyEntry);
+                        if (jsonSink != null)
+                            await jsonSink.AppendAsync(emptyEntry);
                     }
                     return 0;
                 }
@@ -227,10 +237,14 @@ namespace MedRecProConsole.Services
                     AnsiConsole.WriteLine();
                 }
 
-                if (reportSink != null)
+                if (reportSink != null || jsonSink != null)
                 {
-                    await reportSink.AppendAsync(BuildReportEntry(
-                        table, category, parserName, observations, beforeFlags, claudeSkipped: !useClaude));
+                    var finalEntry = BuildReportEntry(
+                        table, category, parserName, observations, beforeFlags, claudeSkipped: !useClaude);
+                    if (reportSink != null)
+                        await reportSink.AppendAsync(finalEntry);
+                    if (jsonSink != null)
+                        await jsonSink.AppendAsync(finalEntry);
                 }
 
                 return 0;
@@ -271,11 +285,14 @@ namespace MedRecProConsole.Services
         /// non-null a one-line warning is shown and no markdown is written. Use
         /// <see cref="ExecuteParseWithStagesAsync"/> or <see cref="ExecuteParseSingleAsync"/>
         /// for markdown logging.</param>
+        /// <param name="jsonSink">Optional NDJSON companion sink. Same semantics as
+        /// <paramref name="reportSink"/> — accepted for signature symmetry but not
+        /// written to in Stage 3 batch mode.</param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllAsync"/>
         public async Task<int> ExecuteParseAsync(string connectionString, int batchSize, bool verbose, bool quiet,
             bool disableClaude = false, bool dropRowsMissingArmNOrPrimaryValue = false,
-            MarkdownReportSink? reportSink = null)
+            MarkdownReportSink? reportSink = null, JsonReportSink? jsonSink = null)
         {
             #region implementation
 
@@ -284,6 +301,13 @@ namespace MedRecProConsole.Services
                 AnsiConsole.MarkupLine(
                     "[yellow]Warning:[/] [grey]--markdown-log is not supported in Stage 3 batch mode " +
                     "(no per-table pivot data). Use parse-single or parse-stages instead.[/]");
+            }
+
+            if (jsonSink != null && !quiet)
+            {
+                AnsiConsole.MarkupLine(
+                    "[yellow]Warning:[/] [grey]--json-log is not supported in Stage 3 batch mode " +
+                    "(no per-table observation data). Use parse-single or parse-stages instead.[/]");
             }
 
             using var ctx = await initializeRunAsync(connectionString, "parse", batchSize, verbose, quiet,
@@ -392,7 +416,8 @@ namespace MedRecProConsole.Services
             bool disableClaude = false, int? maxBatches = null,
             StageDetailLevel detailLevel = StageDetailLevel.None,
             bool dropRowsMissingArmNOrPrimaryValue = false,
-            MarkdownReportSink? reportSink = null)
+            MarkdownReportSink? reportSink = null,
+            JsonReportSink? jsonSink = null)
         {
             #region implementation
 
@@ -465,10 +490,11 @@ namespace MedRecProConsole.Services
                             var stageResult = await ctx.Orchestrator.ProcessBatchWithStagesAsync(filter, rowProgress, ctx.Cts.Token);
                             totalObservations += stageResult.ObservationsWritten;
 
-                            // Emit per-table markdown sections from this batch's intermediate data
-                            if (reportSink != null)
+                            // Emit per-table markdown / JSON sections from this batch's intermediate data
+                            if (reportSink != null || jsonSink != null)
                             {
-                                await appendBatchToReportAsync(reportSink, stageResult, disableClaude, ctx.Cts.Token);
+                                await appendBatchToReportAsync(
+                                    reportSink, jsonSink, stageResult, disableClaude, ctx.Cts.Token);
                             }
 
                             // Update progress bar after batch completes
@@ -539,13 +565,17 @@ namespace MedRecProConsole.Services
         /// <param name="reportSink">Optional markdown report sink. Accepted for signature
         /// symmetry; this pipeline does not surface per-table intermediate data, so if
         /// non-null a one-line warning is shown and no markdown is written.</param>
+        /// <param name="jsonSink">Optional NDJSON companion sink. Same semantics as
+        /// <paramref name="reportSink"/> — accepted for signature symmetry but not
+        /// written to in validate mode.</param>
         /// <returns>Exit code: 0 for success, 1 for failure.</returns>
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllWithValidationAsync"/>
         /// <seealso cref="BatchValidationReport"/>
         public async Task<int> ExecuteValidateAsync(string connectionString, int batchSize, bool verbose, bool quiet,
             int? maxBatches = null, bool disableClaude = false,
             bool dropRowsMissingArmNOrPrimaryValue = false,
-            MarkdownReportSink? reportSink = null)
+            MarkdownReportSink? reportSink = null,
+            JsonReportSink? jsonSink = null)
         {
             #region implementation
 
@@ -554,6 +584,13 @@ namespace MedRecProConsole.Services
                 AnsiConsole.MarkupLine(
                     "[yellow]Warning:[/] [grey]--markdown-log is not supported in validate mode " +
                     "(no per-table pivot data). Use parse-single or parse-stages instead.[/]");
+            }
+
+            if (jsonSink != null && !quiet)
+            {
+                AnsiConsole.MarkupLine(
+                    "[yellow]Warning:[/] [grey]--json-log is not supported in validate mode " +
+                    "(no per-table observation data). Use parse-single or parse-stages instead.[/]");
             }
 
             using var ctx = await initializeRunAsync(connectionString, "validate", batchSize, verbose, quiet,
@@ -1566,18 +1603,25 @@ namespace MedRecProConsole.Services
         /// and enqueues it on the sink. Skipped tables are still emitted so the diagnostic log
         /// captures routing decisions for every input table.
         /// </summary>
-        /// <param name="sink">Target sink.</param>
+        /// <param name="markdownSink">Target markdown sink, or null when markdown output is disabled.</param>
+        /// <param name="jsonSink">Target JSON (NDJSON) sink, or null when JSON output is disabled.</param>
         /// <param name="stageResult">Batch result carrying per-table intermediate data.</param>
         /// <param name="claudeDisabled">True when Stage 3.5 was suppressed for this run.</param>
-        /// <param name="ct">Cancellation token propagated to the sink's enqueue.</param>
+        /// <param name="ct">Cancellation token propagated to each sink's enqueue.</param>
         /// <seealso cref="BatchStageResult"/>
         private static async Task appendBatchToReportAsync(
-            MarkdownReportSink sink,
+            MarkdownReportSink? markdownSink,
+            JsonReportSink? jsonSink,
             BatchStageResult stageResult,
             bool claudeDisabled,
             CancellationToken ct)
         {
             #region implementation
+
+            // Nothing to do when both sinks are disabled — the caller is expected to gate
+            // this call, but a redundant check keeps the method safe under future refactors.
+            if (markdownSink == null && jsonSink == null)
+                return;
 
             // Group observations by TextTableID so we can match them back to their source table.
             // Use dictionary lookups rather than repeated LINQ filters for O(tables + obs) total work.
@@ -1610,7 +1654,7 @@ namespace MedRecProConsole.Services
                 postObs ??= new List<ParsedObservation>();
 
                 // Reconstruct the before-Stage-3.5 ValidationFlags snapshot from the pre-correction
-                // observations so the markdown diff matches what displayClaudeCorrections would show.
+                // observations so the markdown/JSON diff matches what displayClaudeCorrections would show.
                 IReadOnlyDictionary<int, string?>? beforeFlags = null;
                 if (!claudeDisabled && preByTable.TryGetValue(tableId, out var preObs))
                 {
@@ -1622,7 +1666,10 @@ namespace MedRecProConsole.Services
                 var entry = BuildReportEntry(
                     table, category, parserName, postObs, beforeFlags, claudeSkipped: claudeDisabled);
 
-                await sink.AppendAsync(entry, ct);
+                if (markdownSink != null)
+                    await markdownSink.AppendAsync(entry, ct);
+                if (jsonSink != null)
+                    await jsonSink.AppendAsync(entry, ct);
             }
 
             #endregion
