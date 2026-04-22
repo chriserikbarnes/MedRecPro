@@ -4053,5 +4053,340 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion PK R1.2.1 Food-State Sub-Header Suppression
+
+        #region PK Wave 3 R10 — Unit Extraction Gap
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Sub-header unit row detection: a row whose col 0 is empty and
+        /// whose data cells are all recognized unit strings qualifies as a
+        /// sub-header unit row. The detector returns a column→canonical-unit
+        /// map that callers use to augment <c>paramDefs</c>.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SubHeaderUnitRow_EmptyCol0_UnitCellsDetected()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "(ng/mL)" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "(mcg·h/mL)" },
+                    new ProcessedCell { SequenceNumber = 4, ResolvedColumnStart = 3, CleanedText = "hr" }
+                }
+            };
+
+            var result = PkTableParser.detectSubHeaderUnitRow(row);
+            Assert.IsNotNull(result, "Row with pure-unit data cells and empty col 0 must be detected");
+            Assert.AreEqual(3, result!.Count, "All three unit columns must be captured");
+            Assert.AreEqual("ng/mL", result[1]);
+            Assert.AreEqual("mcg·h/mL", result[2]);
+            Assert.AreEqual("h", result[3], "'hr' must normalize to 'h'");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — The conservative two-unit guard: a row with only one unit cell
+        /// is too ambiguous (could be a footer, figure annotation, or spillover)
+        /// and must NOT be detected as a sub-header unit row.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SubHeaderUnitRow_SingleUnitCell_NotDetected()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "(ng/mL)" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "" },
+                    new ProcessedCell { SequenceNumber = 4, ResolvedColumnStart = 3, CleanedText = "" }
+                }
+            };
+
+            Assert.IsNull(PkTableParser.detectSubHeaderUnitRow(row),
+                "A single unit cell in otherwise-empty row is too ambiguous to suppress");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — A row with mixed content (one unit cell + one data cell) must
+        /// NOT be detected as a sub-header unit row. The detector requires every
+        /// non-empty cell at col &gt; 0 to be a recognized unit.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SubHeaderUnitRow_MixedContent_NotDetected()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "(ng/mL)" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "13.9 ± 2.9" }
+                }
+            };
+
+            Assert.IsNull(PkTableParser.detectSubHeaderUnitRow(row),
+                "Mixed unit + data cells must not be treated as a sub-header unit row");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Col 0 carrying a recognized label ("Unit", "Units", etc.) is
+        /// allowed and does not disqualify the row.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SubHeaderUnitRow_UnitLabelCol0_Detected()
+        {
+            foreach (var label in new[] { "Unit", "Units", "Parameter", "Dose", "Regimen" })
+            {
+                var row = new ReconstructedRow
+                {
+                    Classification = RowClassification.DataBody,
+                    Cells = new List<ProcessedCell>
+                    {
+                        new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = label },
+                        new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "ng/mL" },
+                        new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "mcg/mL" }
+                    }
+                };
+
+                Assert.IsNotNull(PkTableParser.detectSubHeaderUnitRow(row),
+                    $"Col 0 label '{label}' with unit cells must be detected");
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — A drug-name or narrative in col 0 disqualifies the row, even
+        /// when cells happen to be unit-shaped.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SubHeaderUnitRow_DrugNameCol0_NotDetected()
+        {
+            var row = new ReconstructedRow
+            {
+                Classification = RowClassification.DataBody,
+                Cells = new List<ProcessedCell>
+                {
+                    new ProcessedCell { SequenceNumber = 1, ResolvedColumnStart = 0, CleanedText = "Fluconazole" },
+                    new ProcessedCell { SequenceNumber = 2, ResolvedColumnStart = 1, CleanedText = "ng/mL" },
+                    new ProcessedCell { SequenceNumber = 3, ResolvedColumnStart = 2, CleanedText = "hr" }
+                }
+            };
+
+            Assert.IsNull(PkTableParser.detectSubHeaderUnitRow(row),
+                "A drug-name col 0 must prevent sub-header unit detection");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — <c>applySubHeaderUnitAugmentation</c> fills null-unit entries
+        /// in paramDefs but preserves non-null units extracted from the primary
+        /// header. Returns the count of entries augmented.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_ApplySubHeaderUnitAugmentation_PreservesHeaderUnits()
+        {
+            var paramDefs = new List<(int columnIndex, string name, string? unit, bool isTimeMeasure, bool isSampleSize)>
+            {
+                (1, "Cmax", null, false, false),       // No header unit → augmented
+                (2, "AUC0-24", "mcg·h/mL", false, false), // Has header unit → preserved
+                (3, "Tmax", null, false, false)         // No header unit → augmented
+            };
+
+            var unitsByColumn = new Dictionary<int, string>
+            {
+                [1] = "ng/mL",
+                [2] = "ng·h/mL",   // Different unit — must be ignored (header wins)
+                [3] = "h"
+            };
+
+            int augmented = PkTableParser.applySubHeaderUnitAugmentation(paramDefs, unitsByColumn);
+
+            Assert.AreEqual(2, augmented, "Two null-unit entries must be augmented");
+            Assert.AreEqual("ng/mL", paramDefs[0].unit, "Cmax null unit filled");
+            Assert.AreEqual("mcg·h/mL", paramDefs[1].unit, "AUC0-24 header unit preserved (not overwritten)");
+            Assert.AreEqual("h", paramDefs[2].unit, "Tmax null unit filled");
+            Assert.IsTrue(paramDefs[2].isTimeMeasure, "Tmax with unit 'h' must be flagged as time-measure");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Sibling-unit majority vote: when most observations sharing the
+        /// same ParameterName have the same Unit, null-unit siblings are
+        /// backfilled with that majority value and flagged
+        /// <c>PK_UNIT_SIBLING_VOTED</c>.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SiblingUnitVote_MajorityBackfillsOrphans()
+        {
+            var observations = new List<ParsedObservation>
+            {
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = null },   // orphan
+                new ParsedObservation { ParameterName = "AUC", Unit = "mcg·h/mL" },
+                new ParsedObservation { ParameterName = "AUC", Unit = null }     // orphan
+            };
+
+            int backfilled = PkTableParser.applySiblingUnitVote(observations);
+
+            Assert.AreEqual(2, backfilled, "Both orphan observations must be backfilled");
+            Assert.AreEqual("ng/mL", observations[3].Unit);
+            Assert.AreEqual("mcg·h/mL", observations[5].Unit);
+            StringAssert.Contains(observations[3].ValidationFlags ?? "", "PK_UNIT_SIBLING_VOTED");
+            StringAssert.Contains(observations[5].ValidationFlags ?? "", "PK_UNIT_SIBLING_VOTED");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Sibling-vote guard: when siblings exhibit mixed units with no
+        /// strict majority, orphan rows are left null (conservative — mixed
+        /// groups are ambiguous).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SiblingUnitVote_MixedUnitsNoMajority_LeavesOrphanNull()
+        {
+            var observations = new List<ParsedObservation>
+            {
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "mcg/mL" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = null }
+            };
+
+            int backfilled = PkTableParser.applySiblingUnitVote(observations);
+
+            Assert.AreEqual(0, backfilled, "No majority means no backfill");
+            Assert.IsNull(observations[2].Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Sibling-vote guard: a parameter group of size 1 does not
+        /// qualify — cannot vote from a single sibling.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_SiblingUnitVote_SingleObservation_NoOp()
+        {
+            var observations = new List<ParsedObservation>
+            {
+                new ParsedObservation { ParameterName = "Cmax", Unit = null }
+            };
+
+            int backfilled = PkTableParser.applySiblingUnitVote(observations);
+
+            Assert.AreEqual(0, backfilled);
+            Assert.IsNull(observations[0].Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — End-to-end: a PK table whose column headers carry param names
+        /// without units AND whose second row is a sub-header unit row must
+        /// produce observations with Unit populated from the sub-header.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_EndToEnd_SubHeaderUnitRow_AugmentsParamDefs()
+        {
+            // Primary header has no parenthesized units — just bare "Cmax", "Tmax", "AUC".
+            // First data row is a sub-header unit row "(ng/mL) | hr | (ng·h/mL)".
+            // Second data row carries actual PK values.
+            var table = createTestTable(
+                new[] { "Regimen", "Cmax", "Tmax", "AUC" },
+                new List<string?[]>
+                {
+                    new[] { "", "(ng/mL)", "hr", "(ng·h/mL)" },      // sub-header unit row
+                    new[] { "100 mg single oral", "5.5", "2.0", "45.2" } // data
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            // Expect 3 observations (one per param column of the data row);
+            // the sub-header unit row must produce no observations.
+            Assert.AreEqual(3, results.Count, "Only the single data row should emit observations");
+
+            var cmax = results.FirstOrDefault(r => r.ParameterName == "Cmax");
+            var tmax = results.FirstOrDefault(r => r.ParameterName == "Tmax");
+            var auc = results.FirstOrDefault(r => r.ParameterName == "AUC");
+
+            Assert.IsNotNull(cmax, "Cmax observation missing");
+            Assert.IsNotNull(tmax, "Tmax observation missing");
+            Assert.IsNotNull(auc, "AUC observation missing");
+
+            Assert.AreEqual("ng/mL", cmax!.Unit, "Cmax unit should flow from sub-header");
+            Assert.AreEqual("h", tmax!.Unit, "Tmax unit should flow from sub-header (hr → h)");
+            Assert.AreEqual("ng·h/mL", auc!.Unit, "AUC unit should flow from sub-header");
+
+            // Sub-header unit row's own cells must not appear as raw values
+            Assert.IsFalse(results.Any(r => (r.RawValue ?? "") == "(ng/mL)"),
+                "Unit cells must not leak as data observations");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — End-to-end: inline cell-text unit scan picks up units embedded
+        /// in data cells when the header does not provide one. E.g., the cell
+        /// <c>"13.8 hr (6.4)"</c> must yield <c>Unit = "h"</c> with flag
+        /// <c>PK_UNIT_FROM_CELL</c>.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_EndToEnd_CellInlineUnit_FlagsAppended()
+        {
+            // Header has bare "t½" with no unit, data cell has inline "hr".
+            var table = createTestTable(
+                new[] { "Regimen", "t½" },
+                new List<string?[]>
+                {
+                    new[] { "100 mg single oral", "13.8 hr (6.4)" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            var obs = results[0];
+            Assert.AreEqual("h", obs.Unit, "Cell-inline 'hr' should be extracted and normalized");
+            StringAssert.Contains(obs.ValidationFlags ?? "", "PK_UNIT_FROM_CELL");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Precedence guard: header-carried units (via <c>Name (unit)</c>
+        /// pattern) must continue to win over cell-inline and sub-header scans.
+        /// A cell like <c>"13.8 hr"</c> under header <c>"t½ (h)"</c> should get
+        /// Unit = "h" without the <c>PK_UNIT_FROM_CELL</c> flag (header wins).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R10_HeaderUnitTakesPrecedence_OverCellInline()
+        {
+            var table = createTestTable(
+                new[] { "Regimen", "t½ (h)" },
+                new List<string?[]>
+                {
+                    new[] { "100 mg single oral", "13.8 hr" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            var obs = results[0];
+            Assert.AreEqual("h", obs.Unit, "Header unit should populate Unit");
+            Assert.IsFalse((obs.ValidationFlags ?? "").Contains("PK_UNIT_FROM_CELL"),
+                "Header unit precedence means cell-inline scan must not fire");
+        }
+
+        #endregion PK Wave 3 R10 — Unit Extraction Gap
     }
 }

@@ -2708,3 +2708,87 @@ Note: DRUG_INTERACTION-category tables currently have no dedicated parser, so re
 **Ready for smoke test**: the user will run `MedRecProConsole` against the production corpus and diff the resulting markdown/JSON reports to confirm (a) 17 Arm=Food rows eliminated (R1.2.1), (b) ~7+ DDI tables re-route from PK to DRUG_INTERACTION (R8), (c) no drug-name routing regressions. After that, the remaining Wave 3 items are R10 (unit extraction gap — 45.3% MISSING_R_Unit) and R9 (ML.NET diagnosis).
 
 ---
+
+### 2026-04-22 4:26 PM EST — PK Table Parsing R10: Unit Extraction Gap + DRY Consolidation
+
+Implemented Wave 3 R10 (unit extraction gap — the penultimate Wave 3 item in the master plan). Four complementary extraction surfaces added, plus a DRY consolidation of unit data into a single dictionary shared across the parser and the standardization service.
+
+**Data-sampling first** — before coding, streamed the post-Iter7 production JSONL (`standardization-report-20260422-144702.jsonl`) via PowerShell to pin down actual `MISSING_R_Unit` pathology. No `jq` available on the Windows machine, so wrote a small `ConvertFrom-Json` loop over `[System.IO.File]::ReadLines`. Findings:
+
+- Post-Iter7 baseline: **20.79% MISSING Unit** among PK observations (3,858 of 18,555) — meaningfully better than the 45.3% pre-plan figure but still above the <15% contract.
+- The top 20 parameters with missing unit overlap completely with the top 20 with unit populated (Cmax, CL, AUC, t½, …) — confirms sibling-vote can recover orphans without polluting unrelated rows.
+- Raw-value pattern mix among missing-unit rows: 38.5% OTHER (ranges, narrative), 37.0% NUMERIC_ONLY (header-unit needed), 24.4% HAS_ALPHA (inline-cell scan recovers these).
+- Sibling-recoverable (same TID + ParameterName has at least one unit sibling): **218 of 3,858 (5.6%)** — smaller than anticipated, so the main leverage is the inline-cell scan + sub-header row augmentation, not sibling-vote.
+- 13 rows across TIDs 40113 / 41259 / 46033 / 31885 currently emit pure unit strings as `rawValue` (`(ng/mL)`, `hr`, `mcg/mL`, etc.) — confirms sub-header unit rows leak through as observations in the existing pipeline. R10 suppresses them AND harvests their units into paramDefs.
+
+**Implementation — four surfaces**:
+
+1. **NEW `MedRecProImportClass/Service/TransformationServices/Dictionaries/UnitDictionary.cs`** — single source of truth for PK unit recognition and extraction. Public static: `KnownUnits` (`HashSet<string>`), `NormalizationMap` (`Dictionary<string, string>`), `PkUnitStructurePattern` (`Regex`). Helpers:
+   - `IsRecognized(candidate)` — Unicode fold then hash / map / structural match.
+   - `TryNormalize(candidate)` — **NormalizationMap checked FIRST**, then KnownUnits, then structural. This precedence ensures `hr → h`, `mcg⋅hr/mL → mcg·h/mL` even when the short form is also a legacy `KnownUnits` entry. Matches the canonical form observed in the corpus produced by Phase-2d's existing `extractUnitFromParameterSubtype`.
+   - `TryExtractFromCellText(cellText)` — longest-first alternation anchored to `(?<=\d[\d\.,]*\s{0,3})(unit)(?!\w)`. Deliberately omits long-form date words (`days/weeks/months/years`) from the candidate set — they appear frequently in narrative age-range cells like `(6 years to less than 18 years)` and would produce false-positive unit assignments.
+   - `TryExtractFromHeaderLikeText(cellText)` — strips one paren pair and checks whole-string unit match. Used by sub-header unit row detection.
+
+2. **`PkTableParser.detectSubHeaderUnitRow` + `applySubHeaderUnitAugmentation`** — detector fires on rows whose col 0 is empty OR a recognized label (`Unit`, `Units`, `Parameter`, `Dose`, `Regimen`, `Dose Regimen`) AND every non-empty cell at col > 0 is a recognized unit string. Conservative: requires ≥ 2 unit cells (single-cell rows are too ambiguous — could be a footer or figure annotation). Wired into both `Parse()` (standard / two-column path) AND `parseCompoundLayout()` BEFORE the section-divider and food-state checks so unit-only rows never mis-classify. `applySubHeaderUnitAugmentation` only fills paramDefs entries where `unit` is currently null — primary header units from `extractParameterDefinitions` always win.
+
+3. **Cell-inline unit scan** — added inside `parseAndApplyPkValue` after the existing header-unit override. Fires only when `o.Unit` is still null after header + ValueParser. Uses `UnitDictionary.TryExtractFromCellText`. Flags `PK_UNIT_FROM_CELL`. Catches cases like `13.8 hr (6.4) (terminal)` → `h`, `391 ng/mL at 3.2 hr` → `ng/mL` (first-match wins via longest-first alternation).
+
+4. **`PkTableParser.applySiblingUnitVote`** — post-pass called at the tail of both `Parse()` and `parseCompoundLayout()`, after transposed-layout swap, CI refinement, and ArmN fallback. Groups observations by ParameterName within the same table (never cross-table). Requires strict majority (> 50% of non-null siblings agree) to backfill; mixed-unit groups leave orphans untouched. Flags `PK_UNIT_SIBLING_VOTED`.
+
+**DRY consolidation (follow-up request from the user during implementation)** — after noticing the new `UnitDictionary` duplicated the data in `ColumnStandardizationService._knownUnits` / `_unitNormalizationMap` / `_pkUnitStructurePattern`, consolidated:
+- Deleted the three private fields from `ColumnStandardizationService.cs` (≈60 lines of duplicated definitions).
+- Deleted the private `isRecognizedUnit(candidate)` method. Callers (both in `extractUnitFromParameterSubtype`) now call `UnitDictionary.IsRecognized` directly. Semantics strictly an improvement — UnitDictionary also folds Unicode, which is consistent with what `normalizeUnit` already does via `PkParameterDictionary.NormalizeUnicode` upstream.
+- Redirected 5 call-sites: `extractUnitFromParameterSubtype` (3: two `isRecognizedUnit` calls + one `_unitNormalizationMap` TryGetValue) and `normalizeUnit` (2 `_knownUnits.Contains` + 1 `_unitNormalizationMap.TryGetValue`). Identical semantics — same collection types (`HashSet<string>` / `Dictionary<string, string>`), same methods (`Contains` / `TryGetValue`), just a different namespace.
+- Updated stale comment references in `PkParameterDictionary.cs` (two spots that referenced `_unitNormalizationMap` now point to `UnitDictionary.NormalizationMap`).
+- `UnitDictionary` is now the single source of truth for unit data. `ColumnStandardizationService` retains only unit-specific *scrubbing* logic (header-leak detection, drug-name filter, extractable-from-parens) that is genuinely separate from *recognition*.
+
+**Tests** — +76 across two files, all passing.
+- **NEW `MedRecProTest/UnitDictionaryTests.cs`** (64 DataRow expansions across 10 methods): `IsRecognized` for known units / variants / non-units; `TryNormalize` with map-first precedence (the key fix ensuring `hr → h`); `TryExtractFromCellText` for inline units / longest-match-wins / null-on-non-unit; `TryExtractFromHeaderLikeText` for paren-wrapped units / null-on-non-unit.
+- **`MedRecProTest/TableParserTests.cs`** new region `PK Wave 3 R10 — Unit Extraction Gap` (12 tests): sub-header detection (empty / labeled col 0, two-cell minimum, mixed-content guard, drug-name col 0 guard), `applySubHeaderUnitAugmentation` (null-fill + preserve-header-units), sibling-vote (majority backfill, mixed-no-majority guard, singleton no-op), end-to-end (sub-header augments paramDefs & suppresses row, cell-inline populates Unit + flag, header unit precedence over cell-inline).
+
+**Issues during development, resolved**:
+- First test run had 7 failures from `hr` not normalizing to `h`: both `KnownUnits` and `NormalizationMap` contain "hr"-related entries and `TryNormalize` was checking `KnownUnits` first — returned `hr` unchanged. Fix: inverted the lookup order so `NormalizationMap` precedence always wins for overlapping entries. This matches the canonical shape the corpus already produces via Phase-2d's `extractUnitFromParameterSubtype`.
+- One test expected the cell `(6 years to less than 18 years)` to yield null from inline scan, but `years` matched after the digit `6`. Root cause: date-range narrative cells embed the word after a digit often enough that long-form date words in the inline alternation cause false positives. Fix: removed `days`, `weeks`, `months`, `years` from the inline alternation. PK value cells rarely carry these inline; the narrative false-positive risk dominates.
+
+**Verification**:
+- `dotnet build MedRecProImportClass.csproj` — 0 errors.
+- `dotnet test MedRecProTest.csproj` — **1,608 passing / 0 failed / 0 skipped** (1,532 baseline + 76 new; 0 regressions). Ran twice: once after R10 implementation, again after the DRY refactor — both times 1,608/0/0.
+
+**Files created/modified**:
+- **NEW** `MedRecProImportClass/Service/TransformationServices/Dictionaries/UnitDictionary.cs` — single source of truth for unit data + extraction helpers (~310 lines).
+- **NEW** `MedRecProTest/UnitDictionaryTests.cs` — dictionary helper tests.
+- `MedRecProImportClass/Service/TransformationServices/PkTableParser.cs` — new flags/fields (`_subHeaderUnitCol0Labels`), methods (`detectSubHeaderUnitRow`, `applySubHeaderUnitAugmentation`, `applySiblingUnitVote`); wired into `Parse()` + `parseCompoundLayout()`; cell-inline scan added to `parseAndApplyPkValue`; sibling-vote called at both return paths.
+- `MedRecProImportClass/Service/TransformationServices/ColumnStandardizationService.cs` — removed `_knownUnits`, `_unitNormalizationMap`, `_pkUnitStructurePattern`, `isRecognizedUnit`; redirected 5 call-sites to `Dictionaries.UnitDictionary.*`.
+- `MedRecProImportClass/Service/TransformationServices/Dictionaries/PkParameterDictionary.cs` — refreshed two stale comment references (`_unitNormalizationMap` → `UnitDictionary.NormalizationMap`).
+- `MedRecProTest/TableParserTests.cs` — new `PK Wave 3 R10 — Unit Extraction Gap` region (12 tests).
+- `C:\Users\chris\.claude\plans\PK Table Parsing Compliance Master Remediation Plan.md` — handoff updated: Iter8 added to Complete table, R10 moved out of Outstanding, Current Compliance State row updated (20.79% pre-Iter8 baseline, post-R10 pending corpus recompute), Historical Test Counts 1,532 → 1,608.
+
+**Ready for corpus recompute**: user to run `MedRecProConsole` against production corpus with `--json-log` and diff the resulting JSONL's `MISSING_R_Unit` counts against `standardization-report-20260422-144702.jsonl` (the Iter7 baseline). Projected target: 20.79% → <15% (contract). After that, the only remaining Wave 3 item is R9 (ML.NET loader diagnosis + categorical classifier audit).
+
+**Corpus validation (later same day, post-5 PM recompute run)**: user produced `standardization-report-20260422-162708.jsonl`. Diffed against the pre-Iter8 baseline:
+
+- **MISSING_R_Unit: 20.79% → 14.03%** (3,858 → 2,604 out of 18,555 PK obs; −6.76 pp, −1,254 rows recovered). **Contract target <15% MET ✅.** Projection exceeded by ~1 pp.
+- **R10 flag attribution**: `PK_UNIT_FROM_CELL` fired on 399 observations (cell-inline scan); `PK_UNIT_SIBLING_VOTED` fired on 1,348 observations (sibling-vote post-pass). The 1,348 sibling-vote count is ~6× the pre-coding estimate of 218 because after sub-header augmentation + cell-inline scan filled earlier orphans, many more parameter groups crossed the > 50% majority threshold that sibling-vote requires.
+- **Sub-header suppression**: pre-Iter8 had 13 observations whose `rawValue` was a pure unit string (`(ng/mL)`, `hr`, `mcg·h/mL`, …); post-Iter8, 3 of 13 were suppressed. The remaining 10 are in transposed-layout tables (TID 40113 / 41259 / 46033) where col 0 is a drug-name `TreatmentArm` — my detector's allowlist intentionally excludes Arm-labeled col 0 to avoid over-suppressing legitimate drug data rows. Adding Arm to the allowlist would trade 10 gained observations against potentially dozens of lost legitimate ones, so leaving as-is.
+- **Zero regressions**:
+  - Total observation count: 24,533 → 24,533 (Δ=0).
+  - Unique TID count: 1,326 → 1,326 (Δ=0).
+  - Top-15 `TreatmentArm` values **all identical pre/post**: Levothyroxine 144→144, Buprenorphine 138→138, Rabeprazole 140→140, Darifenacin 100→100, Amoxicillin 62→62, naproxen 60→60, Placebo 55→55, etc. No drug-name routing regressions.
+- **Per-parameter drops** (top MISSING_R_Unit offenders, pre → post):
+  - Cmax: 801 → 386 (−52%)
+  - Cmin: 174 → 47 (−73%)
+  - Cavg: 144 → 24 (−83%)
+  - t½: 333 → 183 (−45%)
+  - AUC0-inf: 210 → 125 (−40%)
+  - CL/F: 62 → 20 (−68%)
+  - CL: 482 → 460 (−5%, smaller — CL column often lacks unit context entirely and has wider per-row unit variance that disqualifies sibling-vote).
+  - Every single top-20 parameter improved; none regressed.
+- **Spot-checked target TIDs from pre-coding data-sampling**:
+  - TID 23350 (Cmin/Cmax/AUC0-12 table): **9 → 0 MISSING_R_Unit** ✅ (full recovery).
+  - TID 35709: 8 → 4 (partial; the remaining 4 rows carry cells like `181 ng/mL at 4.3 hr` but upstream `PK_NAME_CLEANED_NONCANON` cleared ParameterName so they can't be sibling-voted).
+  - TID 42461: 4 → 4 (unchanged; those rows have `--` dash raw values — no numeric value to extract unit from).
+  - TID 41259: 24 → 24 (documented edge case — transposed layout with drug-name col 0; not covered by R10's conservative allowlist).
+
+Wave 3 R10 shipped + validated. Wave 3 R9 (ML.NET) is the only remaining remediation plan item.
+
+---

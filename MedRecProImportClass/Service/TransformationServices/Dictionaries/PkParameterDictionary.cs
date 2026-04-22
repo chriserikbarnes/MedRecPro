@@ -62,7 +62,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         // U+22C5 DOT OPERATOR — appears in SPL tables as "mcg⋅hr/mL"
         private const char DOT_OPERATOR = '\u22C5';
 
-        // U+00B7 MIDDLE DOT — canonical form matching _unitNormalizationMap
+        // U+00B7 MIDDLE DOT — canonical form matching UnitDictionary.NormalizationMap
         private const char MIDDLE_DOT = '\u00B7';
 
         // U+221E INFINITY SIGN
@@ -104,7 +104,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /// <remarks>
         /// Real SPL tables use:
         /// - `⋅` (U+22C5) in unit expressions like `mcg⋅hr/mL` — folded to `·`
-        ///   (U+00B7) so the `_unitNormalizationMap` keys match.
+        ///   (U+00B7) so the <see cref="UnitDictionary.NormalizationMap"/> keys match.
         /// - `⁄` (U+2044 FRACTION SLASH) in `t1⁄2` variants — folded to `/` so
         ///   `t1/2` resolves to the canonical `t½` entry.
         /// - `∕` (U+2215 DIVISION SLASH) in rare compound units — folded to `/`

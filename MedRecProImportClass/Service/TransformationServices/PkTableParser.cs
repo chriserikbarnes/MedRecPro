@@ -669,6 +669,223 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// R10 — Col 0 labels allowed on a candidate sub-header unit row. The row
+        /// must either (a) carry one of these labels OR (b) have an empty col 0;
+        /// combined with the requirement that every non-empty cell at col &gt; 0
+        /// be a recognized unit string, this prevents false-positive suppression
+        /// of legitimate data rows.
+        /// </summary>
+        /// <remarks>
+        /// These labels correspond to the shapes seen in the post-Iter7 corpus
+        /// for rows where column-unit information is carried on a sub-header
+        /// row rather than inside the primary header. See
+        /// <see cref="detectSubHeaderUnitRow"/>.
+        /// </remarks>
+        private static readonly HashSet<string> _subHeaderUnitCol0Labels = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Unit", "Units", "(Unit)", "(Units)",
+            "Parameter", "Parameters",
+            "Dose", "Regimen", "Dose Regimen"
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Detects a sub-header unit row: one whose col 0 is empty or a
+        /// recognized unit-label (<see cref="_subHeaderUnitCol0Labels"/>), and
+        /// whose non-empty cells at col &gt; 0 are all recognized unit strings
+        /// (<c>"(ng/mL)"</c>, <c>"hr"</c>, <c>"mcg·h/mL"</c>, …). Returns a
+        /// column→canonical-unit map when the row qualifies, or null otherwise.
+        /// Caller is expected to augment paramDefs (only where their existing
+        /// unit is null) and skip the row from observation emission.
+        /// </summary>
+        /// <remarks>
+        /// ## Conservative guard
+        /// Requires at least two columns to contribute recognized unit cells.
+        /// A single unit cell on an otherwise-empty row could be a footer, a
+        /// figure caption fragment, or row-label spillover — too risky to
+        /// suppress or augment from.
+        /// </remarks>
+        /// <param name="row">The row under consideration.</param>
+        /// <returns>
+        /// Dictionary mapping column index → canonical unit, or null when the
+        /// row is not a sub-header unit row.
+        /// </returns>
+        /// <seealso cref="Dictionaries.UnitDictionary.TryExtractFromHeaderLikeText"/>
+        /// <seealso cref="_subHeaderUnitCol0Labels"/>
+        internal static Dictionary<int, string>? detectSubHeaderUnitRow(ReconstructedRow row)
+        {
+            #region implementation
+
+            if (row?.Cells == null)
+                return null;
+
+            string? col0Text = null;
+            var unitsByColumn = new Dictionary<int, string>();
+            int nonEmptyNonCol0Cells = 0;
+
+            foreach (var c in row.Cells)
+            {
+                var colStart = c.ResolvedColumnStart ?? 0;
+                var text = c.CleanedText;
+
+                if (colStart == 0)
+                {
+                    if (!string.IsNullOrWhiteSpace(text))
+                        col0Text = text.Trim();
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                nonEmptyNonCol0Cells++;
+
+                // Every non-empty cell must resolve to a recognized unit. A single
+                // non-unit cell disqualifies the row — it's probably a data row,
+                // footer, or mixed-content sub-header.
+                var canonical = Dictionaries.UnitDictionary.TryExtractFromHeaderLikeText(text);
+                if (string.IsNullOrEmpty(canonical))
+                    return null;
+
+                unitsByColumn[colStart] = canonical;
+            }
+
+            // Col 0 must be empty or a recognized label
+            if (col0Text != null && !_subHeaderUnitCol0Labels.Contains(col0Text))
+                return null;
+
+            // Require at least two unit cells — one-cell rows are too ambiguous
+            if (nonEmptyNonCol0Cells < 2)
+                return null;
+
+            return unitsByColumn;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — In-place augmentation of <paramref name="paramDefs"/> with
+        /// units captured from a sub-header unit row. Only overwrites entries
+        /// whose current unit is null/empty — any unit already extracted by
+        /// <see cref="extractParameterDefinitions"/> (parenthesized header
+        /// form) wins.
+        /// </summary>
+        /// <param name="paramDefs">Parameter definitions built from the primary header.</param>
+        /// <param name="unitsByColumn">Column → canonical unit map from a sub-header row.</param>
+        /// <returns>Number of entries augmented.</returns>
+        /// <seealso cref="detectSubHeaderUnitRow"/>
+        internal static int applySubHeaderUnitAugmentation(
+            List<(int columnIndex, string name, string? unit, bool isTimeMeasure, bool isSampleSize)> paramDefs,
+            Dictionary<int, string> unitsByColumn)
+        {
+            #region implementation
+
+            if (paramDefs == null || unitsByColumn == null || unitsByColumn.Count == 0)
+                return 0;
+
+            int augmented = 0;
+            for (int i = 0; i < paramDefs.Count; i++)
+            {
+                var p = paramDefs[i];
+                if (!string.IsNullOrWhiteSpace(p.unit))
+                    continue;
+
+                if (!unitsByColumn.TryGetValue(p.columnIndex, out var newUnit))
+                    continue;
+
+                var isTime = _timeUnitStrings.Contains(newUnit);
+                paramDefs[i] = (p.columnIndex, p.name, newUnit, isTime, p.isSampleSize);
+                augmented++;
+            }
+
+            return augmented;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R10 — Post-pass sibling-unit majority vote. For observations whose
+        /// <see cref="ParsedObservation.Unit"/> is null, scans the other
+        /// observations in <paramref name="observations"/> sharing the same
+        /// <see cref="ParsedObservation.ParameterName"/> and backfills from the
+        /// most common non-null unit among siblings. Appends
+        /// <c>PK_UNIT_SIBLING_VOTED</c> to ValidationFlags on each backfill.
+        /// </summary>
+        /// <remarks>
+        /// ## When this helps
+        /// Tables where the primary header carries the unit (e.g.,
+        /// <c>"Cmax (ng/mL)"</c>) but a subset of rows fail header-lookup — for
+        /// instance, after <c>applyTransposedPkLayoutSwap</c> or when the unit
+        /// was parked into ParameterSubtype and stripped by the Phase-2d scrub.
+        /// Sibling-vote catches the orphans without polluting unrelated rows.
+        ///
+        /// ## Conservative guard
+        /// Only fires when siblings exhibit a dominant unit (≥ 50% of non-null
+        /// sibling units share the winning value). Mixed-unit groups are
+        /// preserved as-is — ambiguous, safer to leave null.
+        /// </remarks>
+        /// <param name="observations">Observations produced by <see cref="Parse"/>.</param>
+        /// <returns>Number of observations whose Unit was backfilled.</returns>
+        internal static int applySiblingUnitVote(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (observations == null || observations.Count == 0)
+                return 0;
+
+            // Group by ParameterName — case-sensitive because canonical names
+            // (Cmax, AUC0-inf, t½) are the authoritative key.
+            var groups = observations
+                .Where(o => !string.IsNullOrWhiteSpace(o.ParameterName))
+                .GroupBy(o => o.ParameterName!, StringComparer.Ordinal);
+
+            int backfilled = 0;
+
+            foreach (var group in groups)
+            {
+                var siblings = group.ToList();
+                if (siblings.Count < 2)
+                    continue;
+
+                // Tally non-null units
+                var unitCounts = siblings
+                    .Where(o => !string.IsNullOrWhiteSpace(o.Unit))
+                    .GroupBy(o => o.Unit!, StringComparer.Ordinal)
+                    .Select(g => new { Unit = g.Key, Count = g.Count() })
+                    .OrderByDescending(x => x.Count)
+                    .ToList();
+
+                if (unitCounts.Count == 0)
+                    continue;
+
+                var nonNullTotal = unitCounts.Sum(x => x.Count);
+                var winner = unitCounts[0];
+
+                // Require strict majority (> 50%) of the non-null siblings to
+                // agree — ties leave null observations untouched
+                if (winner.Count * 2 <= nonNullTotal)
+                    continue;
+
+                foreach (var o in siblings)
+                {
+                    if (!string.IsNullOrWhiteSpace(o.Unit))
+                        continue;
+
+                    o.Unit = winner.Unit;
+                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_UNIT_SIBLING_VOTED");
+                    backfilled++;
+                }
+            }
+
+            return backfilled;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Classification for the leading (col 0) row-label text in a PK data row.
         /// Drives which context column(s) the label populates: Population / TreatmentArm /
         /// DoseRegimen / Timepoint / compound TreatmentArm+DoseRegimen. Returns
@@ -899,6 +1116,18 @@ namespace MedRecProImportClass.Service.TransformationServices
             var dataRows = getDataBodyRows(table);
             foreach (var row in dataRows)
             {
+                // R10 — Sub-header unit row detection. Fires BEFORE divider/food-state
+                // checks so unit-only rows (e.g., "(ng/mL) | (mcg·h/mL) | (hr)") never
+                // get mis-classified as data. When it fires, it augments paramDefs
+                // with any column units discovered (only where header unit was null)
+                // and skips the row from observation emission.
+                var subHeaderUnits = detectSubHeaderUnitRow(row);
+                if (subHeaderUnits != null)
+                {
+                    applySubHeaderUnitAugmentation(paramDefs, subHeaderUnits);
+                    continue;
+                }
+
                 // R3 — Detect section-divider rows BEFORE any other processing.
                 // These rows carry a single cell with text like "**Single dose**"
                 // that both (a) carries a qualifier state to apply to following
@@ -1215,6 +1444,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Sanity check: populate ArmN from caption "(N=X)" when parser did not set it
             applyCaptionArmNFallback(table, observations);
 
+            // R10 — Sibling-unit majority vote. Must run after transposed-layout
+            // swap, CI refinement, and ArmN fallback so it sees the final
+            // ParameterName / Unit state. Backfills null units from same-name
+            // sibling observations within this table only (never cross-table).
+            applySiblingUnitVote(observations);
+
             return observations;
 
             #endregion
@@ -1285,6 +1520,24 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Unit from header takes precedence over parsed unit
             if (!string.IsNullOrEmpty(param.unit))
                 o.Unit = param.unit;
+
+            // R10 — Cell-inline unit scan. When no unit flowed from header or
+            // parsed value, look for a unit token immediately after a numeric
+            // literal inside the cell (e.g., "13.8 hr (6.4)" → "h",
+            // "5.5 mcg/mL" → "mcg/mL"). Longest-match alternation in
+            // UnitDictionary.TryExtractFromCellText ensures "mcg·h/mL" wins over
+            // "mcg". Only fires when Unit is still empty to preserve header
+            // precedence. See PK Table Parsing Compliance Master Remediation Plan
+            // §R10.
+            if (string.IsNullOrWhiteSpace(o.Unit) && !string.IsNullOrWhiteSpace(cell.CleanedText))
+            {
+                var cellUnit = Dictionaries.UnitDictionary.TryExtractFromCellText(cell.CleanedText);
+                if (!string.IsNullOrEmpty(cellUnit))
+                {
+                    o.Unit = cellUnit;
+                    o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_UNIT_FROM_CELL");
+                }
+            }
 
             // Column-derived time: when the parameter IS a time measurement
             // (e.g., Half-life, Tmax), override Time/TimeUnit with the measured value
@@ -1807,6 +2060,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
                 }
 
+                // R10 — Sub-header unit row detection (compound-layout mirror).
+                // Fires before food-state / row-label classification. Augments
+                // the current paramDefs in place and skips the row.
+                var subHeaderUnits = detectSubHeaderUnitRow(row);
+                if (subHeaderUnits != null)
+                {
+                    applySubHeaderUnitAugmentation(paramDefs, subHeaderUnits);
+                    continue;
+                }
+
                 // Regular data row
                 var col0Cell = getCellAtColumn(row, 0);
                 var col0Text = col0Cell?.CleanedText?.Trim();
@@ -1945,6 +2208,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Sanity check: populate ArmN from caption "(N=X)" when parser did not set it
             // (compound layout already derives ArmN from "(n=X)" in row labels when present)
             applyCaptionArmNFallback(table, observations);
+
+            // R10 — Sibling-unit majority vote (compound path mirror). Same
+            // guarantees as the standard-path call: same-table only, > 50%
+            // majority required, flag PK_UNIT_SIBLING_VOTED on backfilled rows.
+            applySiblingUnitVote(observations);
 
             return observations;
 

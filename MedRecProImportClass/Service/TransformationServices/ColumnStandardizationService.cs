@@ -172,60 +172,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"(\d+\.?\d*\s*(?:mg|mcg|µg|g|mL|IU|units?)(?:\s*/\s*(?:day|d|kg|m²))?)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        /**************************************************************/
-        /// <summary>
-        /// Known canonical units — values that are legitimate Unit field content.
-        /// </summary>
-        private static readonly HashSet<string> _knownUnits = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "%", "%CV", "h", "hr", "min", "days", "weeks", "months", "years",
-            "mg", "mcg", "µg", "g", "kg",
-            "mcg/mL", "ng/mL", "pg/mL", "µg/mL", "mg/L", "ng/dL", "mg/dL",
-            "mcg·h/mL", "ng·h/mL", "µg·h/mL", "pg·h/mL",
-            "mL/min", "mL/min/kg", "L/h", "L/h/kg", "mL/h/kg",
-            "L", "mL", "L/kg",
-            "mcg/kg/min", "mg/h", "IU/mL",
-            "mg/kg", "mcg/kg", "mg/m²", "mg/kg/day",
-            "ratio", "g/cm²", "beats/min", "mmHg", "mEq/L", "mOsm/kg",
-            "percentage points", "subjects", "events", "patients",
-            "ng/g", "mcg/g",
-            "mg/day", "mg/d", "mcg/day"
-        };
-
-        /**************************************************************/
-        /// <summary>Unit variant normalization map — non-canonical spelling → canonical form.</summary>
-        private static readonly Dictionary<string, string> _unitNormalizationMap = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["mcg h/mL"] = "mcg·h/mL",
-            ["mcgh/mL"] = "mcg·h/mL",
-            ["ng h/mL"] = "ng·h/mL",
-            ["ngh/mL"] = "ng·h/mL",
-            ["nghr/mL"] = "ng·h/mL",
-            ["ug/mL"] = "mcg/mL",
-            ["ug/mL"] = "mcg/mL",
-            ["L/kghr"] = "L/kg/h",
-            ["hrs"] = "h",
-            ["hr"] = "h",
-            ["pp"] = "percentage points",
-            ["percent"] = "%",
-            ["pct"] = "%",
-            ["pg·hr/mL"] = "pg·h/mL",
-            ["mcg·hr/mL"] = "mcg·h/mL",
-            ["ng·hr/mL"] = "ng·h/mL",
-            ["ug·hr/mL"] = "mcg·h/mL",
-            // Unicode U+22C5 DOT OPERATOR variants observed in SPL source tables.
-            // PkParameterDictionary.NormalizeUnicode folds these to U+00B7 before lookup,
-            // so duplicate keys exist here only as a safety net for any path that skips
-            // the unicode fold.
-            ["mcg⋅hr/mL"] = "mcg·h/mL",
-            ["ng⋅hr/mL"] = "ng·h/mL",
-            ["pg⋅hr/mL"] = "pg·h/mL",
-            ["µg⋅hr/mL"] = "µg·h/mL",
-            ["mcg⋅h/mL"] = "mcg·h/mL",
-            ["ng⋅h/mL"] = "ng·h/mL",
-            ["pg⋅h/mL"] = "pg·h/mL",
-            ["µg⋅h/mL"] = "µg·h/mL"
-        };
+        // R10 DRY — canonical unit token set and variant normalization map moved
+        // to Dictionaries.UnitDictionary (single source of truth shared with
+        // PkTableParser's parser-time unit extraction). Access as
+        // UnitDictionary.KnownUnits.Contains(x) /
+        // UnitDictionary.NormalizationMap.TryGetValue(k, out v) — identical
+        // semantics to the prior private fields, minus duplication.
 
         /**************************************************************/
         /// <summary>Keywords indicating a Unit value is actually a leaked column header.</summary>
@@ -707,15 +659,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"\(([^)]+)\)\s*$",
             RegexOptions.Compiled);
 
-        /**************************************************************/
-        /// <summary>
-        /// Structural fallback regex for novel PK unit patterns not in the known-units hash set.
-        /// Matches patterns like "pg/mL", "mcg·h/mL", "ng·hr/mL", "mg/kg", "IU/mL".
-        /// </summary>
-        /// <seealso cref="extractUnitFromParameterSubtype"/>
-        private static readonly Regex _pkUnitStructurePattern = new(
-            @"^(?:(?:mc?g|ng|pg|µg|mg|IU)(?:·(?:h|hr))?/(?:mL|L|kg|m²))$",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        // R10 DRY — structural PK unit regex moved to
+        // Dictionaries.UnitDictionary.PkUnitStructurePattern (same pattern,
+        // shared with PkTableParser). Callers previously using
+        // _pkUnitStructurePattern.IsMatch(x) now call
+        // UnitDictionary.PkUnitStructurePattern.IsMatch(x) directly.
 
         /**************************************************************/
         /// <summary>
@@ -2563,7 +2511,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="obs">The observation to process.</param>
         /// <returns>True if a unit was extracted.</returns>
         /// <seealso cref="_subtypeTrailingParenPattern"/>
-        /// <seealso cref="_pkUnitStructurePattern"/>
+        /// <seealso cref="Dictionaries.UnitDictionary.PkUnitStructurePattern"/>
         /// <seealso cref="normalizeUnit"/>
         private bool extractUnitFromParameterSubtype(ParsedObservation obs)
         {
@@ -2595,7 +2543,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (lastCommaIdx > 0)
             {
                 var candidateUnit = innerText.Substring(lastCommaIdx + 1).Trim();
-                if (isRecognizedUnit(candidateUnit))
+                if (Dictionaries.UnitDictionary.IsRecognized(candidateUnit))
                 {
                     extractedUnit = candidateUnit;
                     qualifier = innerText.Substring(0, lastCommaIdx).Trim();
@@ -2605,7 +2553,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             // If no qualifier+unit match, check if the whole inner text is a unit
             if (extractedUnit == null)
             {
-                if (isRecognizedUnit(innerText))
+                if (Dictionaries.UnitDictionary.IsRecognized(innerText))
                 {
                     extractedUnit = innerText;
                 }
@@ -2615,7 +2563,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return false;
 
             // Normalize the extracted unit
-            if (_unitNormalizationMap.TryGetValue(extractedUnit, out var canonical))
+            if (Dictionaries.UnitDictionary.NormalizationMap.TryGetValue(extractedUnit, out var canonical))
                 extractedUnit = canonical;
 
             // Only set Unit if it's currently empty
@@ -2651,26 +2599,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
-        /**************************************************************/
-        /// <summary>
-        /// Checks if a candidate string is a recognized unit — either in the known-units
-        /// hash set, the normalization map, or matching the structural PK unit pattern.
-        /// </summary>
-        /// <param name="candidate">The candidate unit string to check.</param>
-        /// <returns>True if recognized as a valid unit.</returns>
-        /// <seealso cref="_knownUnits"/>
-        /// <seealso cref="_unitNormalizationMap"/>
-        /// <seealso cref="_pkUnitStructurePattern"/>
-        private bool isRecognizedUnit(string candidate)
-        {
-            #region implementation
-
-            return _knownUnits.Contains(candidate)
-                || _unitNormalizationMap.ContainsKey(candidate)
-                || _pkUnitStructurePattern.IsMatch(candidate);
-
-            #endregion
-        }
+        // R10 DRY — private isRecognizedUnit method removed. Callers now invoke
+        // UnitDictionary.IsRecognized directly (identical semantics; also folds
+        // Unicode variants, matching what PkParameterDictionary.NormalizeUnicode
+        // already applies upstream in extractUnitFromParameterSubtype).
 
         /**************************************************************/
         /// <summary>
@@ -2686,11 +2618,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return false;
 
             // Fold Unicode dot operator (U+22C5) to middle dot (U+00B7) so the
-            // _unitNormalizationMap keyed on "·" matches cells like "mcg⋅h/mL".
+            // NormalizationMap keyed on "·" matches cells like "mcg⋅h/mL".
             var val = PkParameterDictionary.NormalizeUnicode(obs.Unit).Trim();
 
             // Rule 1: Exact match in known units → keep
-            if (_knownUnits.Contains(val))
+            if (Dictionaries.UnitDictionary.KnownUnits.Contains(val))
                 return false;
 
             // Rule 2: len > 30 → likely a leaked column header
@@ -2725,7 +2657,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (extractMatch.Success)
             {
                 var extracted = extractMatch.Groups[1].Value.Trim();
-                if (_knownUnits.Contains(extracted))
+                if (Dictionaries.UnitDictionary.KnownUnits.Contains(extracted))
                 {
                     obs.Unit = extracted;
                     appendFlag(obs, "COL_STD:UNIT_NORMALIZED");
@@ -2734,7 +2666,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             // Rule 6: Variant spelling normalization
-            if (_unitNormalizationMap.TryGetValue(val, out var canonical))
+            if (Dictionaries.UnitDictionary.NormalizationMap.TryGetValue(val, out var canonical))
             {
                 obs.Unit = canonical;
                 appendFlag(obs, "COL_STD:UNIT_NORMALIZED");
