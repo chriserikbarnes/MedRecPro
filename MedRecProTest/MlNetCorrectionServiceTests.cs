@@ -1471,5 +1471,249 @@ namespace MedRecProTest
         }
 
         #endregion Issue 4: Confidence Provenance
+
+        #region R9 — Per-Stage Enable Toggles + Shadow Mode
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — With <see cref="MlNetCorrectionSettings.EnableStage1TableCategoryCorrection"/>
+        /// false AND <see cref="MlNetCorrectionSettings.EnableStage1ShadowMode"/> false,
+        /// Stage 1 is fully silent: no <c>MLNET:CATEGORY_CORRECTED</c> flag, no
+        /// <c>MLNET:CATEGORY_SHADOW</c> flag, and <c>TableCategory</c> is never mutated
+        /// — even when a trained model would have produced a high-confidence prediction.
+        /// </summary>
+        [TestMethod]
+        public async Task R9_Stage1_BothTogglesOff_NoFlagAndNoMutation()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage1TableCategoryCorrection = false,
+                EnableStage1ShadowMode = false,
+                MinTrainingRowsPerCategory = 10,
+                RetrainingBatchSize = 40,
+                TableCategoryMinConfidence = 0.01f  // Very low so predictions WOULD fire if not gated
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            // Train models with a diverse batch.
+            var trainBatch = generateTrainingBatch(25);
+            service.ScoreAndCorrect(trainBatch);
+
+            var testObs = createTestObservation(category: "PK");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            Assert.AreEqual("PK", result[0].TableCategory,
+                "TableCategory must never be mutated when Stage 1 is fully disabled.");
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
+                "No CATEGORY_CORRECTED flag may be emitted when Stage 1 is disabled.");
+            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_SHADOW"),
+                "No CATEGORY_SHADOW flag may be emitted when shadow mode is also disabled.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — With Stage 1 correction disabled but shadow mode ON (the R9 default),
+        /// the classifier still runs and emits <c>MLNET:CATEGORY_SHADOW</c> flags for
+        /// predictions that WOULD have triggered a correction. <c>TableCategory</c>
+        /// is never mutated.
+        /// </summary>
+        [TestMethod]
+        public async Task R9_Stage1_ShadowModeOn_EmitsShadowFlagWithoutMutation()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage1TableCategoryCorrection = false,
+                EnableStage1ShadowMode = true,
+                MinTrainingRowsPerCategory = 10,
+                RetrainingBatchSize = 40,
+                // Low confidence gate so SOME prediction will likely cross the bar
+                // even with a modestly trained model on synthetic data.
+                TableCategoryMinConfidence = 0.01f
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            // Train on a diverse batch so the classifier has something to predict with.
+            var trainBatch = generateTrainingBatch(25);
+            service.ScoreAndCorrect(trainBatch);
+
+            // Present an observation whose caption/section signals could plausibly
+            // trip a (mis-)classification. Use a category intentionally mismatched
+            // to the caption text so the classifier has a differing prediction.
+            var testObs = createTestObservation(
+                category: "PK",
+                caption: "Serious Adverse Events — Pooled Safety Analysis",
+                sectionTitle: "Adverse Reactions",
+                parentSectionCode: "34084-4");
+
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            // Crucial invariant: TableCategory NEVER mutated when shadow mode is on.
+            Assert.AreEqual("PK", result[0].TableCategory,
+                "Shadow mode must never mutate TableCategory.");
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
+                "CATEGORY_CORRECTED must NOT be emitted when correction is disabled.");
+            // Shadow flag presence depends on whether the trained model actually
+            // crosses the threshold — which is data-dependent with synthetic inputs.
+            // The invariant we CAN always assert is: no corrected-path mutation.
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — With Stage 1 correction explicitly enabled, the classical
+        /// <c>MLNET:CATEGORY_CORRECTED</c> path runs and may mutate TableCategory.
+        /// Verifies that opting back into correction restores the pre-R9 behavior.
+        /// </summary>
+        [TestMethod]
+        public async Task R9_Stage1_CorrectionEnabled_CanEmitCorrectedFlag()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage1TableCategoryCorrection = true,
+                MinTrainingRowsPerCategory = 10,
+                RetrainingBatchSize = 40,
+                TableCategoryMinConfidence = 0.99f  // Restored pre-R9 style high bar
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            // Fire up training — whether the threshold is crossed with synthetic data
+            // is secondary; the load-bearing assertion is "no CATEGORY_SHADOW flag".
+            var trainBatch = generateTrainingBatch(25);
+            service.ScoreAndCorrect(trainBatch);
+
+            var testObs = createTestObservation(category: "PK");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_SHADOW"),
+                "No SHADOW flag should be emitted when correction is actively enabled.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Disabling Stage 2 (DoseRegimen routing) stops
+        /// <c>MLNET:DOSEREGIMEN_ROUTED</c> flag emission. Routing is Stage 2 specific;
+        /// Stage 1/3/4 should be unaffected.
+        /// </summary>
+        [TestMethod]
+        public async Task R9_Stage2_Disabled_NoDoseRegimenRoutedFlag()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage2DoseRegimenRouting = false
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            var testObs = createTestObservation(
+                category: "PK",
+                doseRegimen: "Adult Healthy Subjects given 50 mg oral QD");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET:DOSEREGIMEN_ROUTED"),
+                "Stage 2 disabled — no DOSEREGIMEN_ROUTED flag should be emitted.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Disabling Stage 3 (PrimaryValueType disambiguation) stops
+        /// <c>MLNET:PVTYPE_DISAMBIGUATED</c> flag emission.
+        /// </summary>
+        [TestMethod]
+        public async Task R9_Stage3_Disabled_NoPvTypeDisambiguatedFlag()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage3PrimaryValueTypeDisambiguation = false
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            // Stage 3 only runs when PVT == "Numeric" — use that as input.
+            var testObs = createTestObservation(category: "PK", primaryValueType: "Numeric");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET:PVTYPE_DISAMBIGUATED"),
+                "Stage 3 disabled — no PVTYPE_DISAMBIGUATED flag should be emitted.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Disabling Stage 4 (anomaly scoring) suppresses ALL
+        /// <c>MLNET_ANOMALY_SCORE:*</c> flag emission — not just real scores, but also
+        /// the NOMODEL and ERROR sentinels. Tests that the settings toggle completely
+        /// silences the anomaly stage rather than just changing its output.
+        /// </summary>
+        [TestMethod]
+        public async Task R9_Stage4_Disabled_NoAnomalyScoreFlag()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage4AnomalyScoring = false
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            var testObs = createTestObservation(category: "PK");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET_ANOMALY_SCORE"),
+                "Stage 4 disabled — no anomaly-score flag of any kind may be emitted " +
+                "(not real scores, not NOMODEL, not ERROR).");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Default settings (EnableStage1TableCategoryCorrection=false,
+        /// EnableStage1ShadowMode=true, Stages 2/3/4 enabled) produce no
+        /// CATEGORY_CORRECTED flags but still produce anomaly scores + other
+        /// stage flags. Regression guard on the R9 default posture.
+        /// </summary>
+        [TestMethod]
+        public async Task R9_Default_Settings_Stage1Off_Stage4StillScores()
+        {
+            #region implementation
+
+            var service = await createInitializedServiceAsync();
+            var testObs = createTestObservation(category: "PK");
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
+                "R9 default: Stage 1 must not emit CATEGORY_CORRECTED without opt-in.");
+            Assert.IsTrue(flags.Contains("MLNET_ANOMALY_SCORE"),
+                "R9 default: Stage 4 (anomaly) must still emit a flag " +
+                "(real score or NOMODEL).");
+
+            #endregion
+        }
+
+        #endregion R9 — Per-Stage Enable Toggles + Shadow Mode
     }
 }

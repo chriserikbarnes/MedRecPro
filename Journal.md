@@ -2965,3 +2965,69 @@ Added a pre-parse filter that collapses multiple ANDA labels (and their repackag
 **Expected operational impact**: For Losartan (no NDA in DB, all ANDAs), the filter collapses ~40+ rows for PrimaryValue=1685 to exactly 1 row — the DocumentGUID with the most recent `LabelEffectiveDate` in the bioequivalent group. Truncate + re-parse required for the filter to take effect on existing data (no back-migration). For drugs where the innovator NDA is present, all ANDA and repackager labels for that ingredient/dosage-form/route are skipped entirely.
 
 ---
+
+### 2026-04-23 2:57 PM EST — PK Table Parsing: Wave 3 R9 ML.NET Classifier Gating + Shadow Mode + NOMODEL Diagnostics
+Shipped R9 as the final Wave 3 remediation item. This completes the entire Wave 1 + Wave 2 + Wave 3 plan — only corpus validation remains. Build clean, test suite 1,695 → **1,702 / 1,702 passing** (+7 new R9 tests; zero regressions).
+
+**Root causes identified from the Iter9 corpus recompute** (`standardization-report-20260423-101457.jsonl`):
+
+**Bug A — Stage 1 TableCategory classifier mis-direction**: the `applyTableCategoryCorrection` method was flipping correctly-routed rows in the wrong direction. Example failures: TID 28853 HSV mutation tables (genuinely non-PK virology resistance data) corrected TO PK with 0.99 confidence; correctly-routed PK rows corrected AWAY to ADVERSE_EVENT at 0.98 confidence. 959 `MLNET:CATEGORY_CORRECTED` flags total in the Iter9 JSONL, many of them contradicting the router's R8 DDI-downgrade work. The `TableCategoryMinConfidence = 0.90` threshold isn't strict enough for the classifier's feature set (Caption + SectionTitle + ParentSectionCode + ParseRule featurized as text). The training labels come from high-confidence accumulator rows whose `TableCategory` values reflect whatever the router decided at parse time — so the model learns the router's biases and reinforces them at the margins while also over-generalizing on edge cases where captions overlap between categories.
+
+**Bug B — Stage 4 per-UNII anomaly model coverage gap**: the PCA model key is `{UNII}|{TableCategory}|{PrimaryValueType}|{SecondaryValueType}`. Most drugs never accumulate 10+ rows for the same composite key in a single corpus run, so the training threshold (`MinTrainingRowsPerCategory = 10`) is rarely met per key. Result: **9,177 of 13,894 PK rows (66%) received `MLNET_ANOMALY_SCORE:NOMODEL`** on the 2026-04-23 run.
+
+**Decision — ship R9 as a defensive gating, not a model rewrite.** The master remediation plan explicitly permitted this posture ("gate the classifier behind a config flag (default off) until it's retrained"). Model retraining with ground-truth labels, Stage 1 feature-engineering, and anomaly-model key redesign are all larger efforts best scheduled separately. R9 ships the minimum that stops the wrong-direction corrections from corrupting downstream categories while preserving a signal trail for future audits.
+
+**Implementation**:
+
+`MlNetCorrectionSettings.cs` gained 5 new properties. Defaults are chosen to stop the observed bad behavior without silencing the whole service:
+- `EnableStage1TableCategoryCorrection` — default `false`. Gates Stage 1's active correction path so it never mutates `TableCategory` and never emits `MLNET:CATEGORY_CORRECTED` flags. The 959 wrong-direction corrections in the Iter9 JSONL → should drop to 0 on the next recompute.
+- `EnableStage1ShadowMode` — default `true`. When Stage 1 correction is disabled, the classifier still runs and emits `MLNET:CATEGORY_SHADOW:{label}:{score}` flags on the same confidence + label-differs gates. Preserves the classifier's audit signal without affecting routing. Gives the user direct visibility into what the classifier WOULD correct, so re-enablement decisions can be made from data instead of guesswork.
+- `EnableStage2DoseRegimenRouting` / `EnableStage3PrimaryValueTypeDisambiguation` / `EnableStage4AnomalyScoring` — all default `true`. Added for symmetry / test isolation / defensive fallback. If future corpus analyses show mis-routing from Stages 2 or 3, the same toggle pattern is ready. Disabling Stage 4 entirely stops all `MLNET_ANOMALY_SCORE:*` flag emission (real scores, NOMODEL, and ERROR sentinels alike).
+
+`MlNetCorrectionService.cs` behavioral changes:
+- `applyTableCategoryCorrection` split into three paths: (a) both toggles off → fast-path return (no prediction call); (b) correction enabled → original active path (mutate + `CATEGORY_CORRECTED` flag); (c) shadow mode → prediction runs, `CATEGORY_SHADOW` flag emitted on the same gates, no mutation. Same `TableCategoryMinConfidence` threshold applies to (b) and (c).
+- `ScoreAndCorrect` main loop now gates Stages 2, 3, 4 individually with their toggles. Stage 1 handled inside its method because of the shadow-mode branching.
+- Post-accumulation NOMODEL rescore pass gated on `EnableStage4AnomalyScoring`.
+- New `logAnomalyCoverageDiagnostics` method emits per-batch stats:
+  ```
+  R9 anomaly coverage — batch=N: scored=X, NOMODEL=Y, ERROR=Z; distinct keys=K, with models=M (P%)
+  ```
+  Makes the per-UNII gap visible in production logs without requiring offline JSONL analysis. Coverage ratio (M/K) is the primary signal for whether the key strategy needs redesign or whether new data will close the gap organically.
+- `TableCategoryMinConfidence` left at its 0.90 default. Changing the global default while Stage 1 is gated off would be misleading; operators can raise it when they re-enable Stage 1.
+
+**Tests — 7 new R9 tests in `MlNetCorrectionServiceTests.cs` new region `R9 — Per-Stage Enable Toggles + Shadow Mode`**:
+1. Both Stage 1 toggles off → no CATEGORY_CORRECTED, no CATEGORY_SHADOW, TableCategory untouched.
+2. Stage 1 off + shadow on (R9 default) → no CATEGORY_CORRECTED emitted under any prediction; TableCategory never mutated. (Shadow-flag emission itself is data-dependent with synthetic training; the load-bearing assertion is "no mutation".)
+3. Stage 1 explicitly enabled → no CATEGORY_SHADOW flag (regression guard on the path-routing logic).
+4. Stage 2 disabled → no DOSEREGIMEN_ROUTED flag.
+5. Stage 3 disabled → no PVTYPE_DISAMBIGUATED flag.
+6. Stage 4 disabled → no MLNET_ANOMALY_SCORE flag of any kind (not real scores, not NOMODEL, not ERROR).
+7. R9 default posture → no CATEGORY_CORRECTED (Stage 1 off), anomaly flag still emitted (Stage 4 on).
+
+Pre-existing Stage 1 tests (`ScoreAndCorrect_Stage1_ModelNull_NoEffect`, `ScoreAndCorrect_Stage1_LowConfidence_NoCorrection`) continue to pass unchanged. Their assertions ("no CATEGORY_CORRECTED flag") are exactly what the R9 default posture produces, so no backfilling was needed.
+
+**Test-suite delta**: 1,695 → **1,702 / 1,702 passing** (+7 R9-specific tests; zero regressions).
+
+**No issues encountered during development** — the split-path refactor of `applyTableCategoryCorrection` was clean, the new toggles slotted into the existing settings class without conflict, and the `logAnomalyCoverageDiagnostics` method runs harmlessly on empty batches.
+
+**Expected final-recompute outcomes** (R14 + R15 + R9 combined):
+- `MLNET:CATEGORY_CORRECTED` flag count: 959 → **0** (Stage 1 gated off by default).
+- `MLNET:CATEGORY_SHADOW` flag appears on the same subset. Every SHADOW flag represents a correction that would have fired on the pre-R9 pipeline — direct before/after comparison.
+- TID 28853 HSV mutation rows: no longer corrupted to PK inner category. They stay in whatever category the router assigned; R15.3 Stage 3.45 post-ML filter no longer has ML-corrupted PK rows to clean up (but continues running as defense-in-depth).
+- Anomaly coverage: still ~66% NOMODEL — the coverage ratio now visible in production logs per batch. Closing the gap is future work; R9 documents it rather than fixing it.
+- Total PK observation count: similar to post-R15 (R9 is classifier-only; doesn't add or remove rows). Deltas from this session come from R15 + the companion bioequivalent dedup filter.
+
+**What R9 does NOT fix (explicitly out of scope, documented in plan file)**:
+- 66% NOMODEL rate remains. Closing it needs either lowering `MinTrainingRowsPerCategory`, broadening the key (e.g., dropping UNII for certain categories), adding a cross-UNII fallback model, or shared component models. None are trivial — require data-science work with held-out validation.
+- Stage 1 classifier itself is not retrained. R9 only gates the output; re-enabling requires retraining on ground-truth labels OR fixing the feature set so it stops learning the wrong signal.
+- Stage 2/3 classifiers not audited. Assumed correct by default; if future JSONL analysis surfaces issues, the same toggle + shadow pattern can be applied.
+
+**Files modified**:
+- `MedRecProImportClass/Models/MlNetCorrectionSettings.cs` — +5 toggle properties with XML docs
+- `MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs` — split `applyTableCategoryCorrection` into three paths; gated Stages 2/3/4 in the main loop + post-accumulation rescore; added `logAnomalyCoverageDiagnostics` method
+- `MedRecProTest/MlNetCorrectionServiceTests.cs` — +1 test region (7 R9 tests)
+- `C:/Users/chris/.claude/plans/PK Table Parsing Compliance Master Remediation Plan.md` — Iteration 10 section added; handoff header updated to reflect "ALL Wave 1–3 items shipped"; shipped-items table + compliance state + test counts + execution order all updated
+
+**Wave 1 + Wave 2 + Wave 3 remediation plan is now complete.** The only remaining work is a final corpus recompute to confirm the combined effect. Future enhancements (ML retraining, anomaly-key redesign, Stage 2/3 audits) are separate from the current plan.
+
+---

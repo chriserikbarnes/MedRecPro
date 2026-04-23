@@ -291,22 +291,29 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Attempt retrain if accumulator has grown enough
             tryRetrain();
 
-            // Apply 4-stage pipeline to each observation
+            // Apply 4-stage pipeline to each observation. R9 — each stage is gated by
+            // its own enable toggle so the classifier stages can be disabled (or run in
+            // shadow mode for Stage 1) without silencing the whole service.
             foreach (var obs in observations)
             {
                 var preMlFlags = obs.ValidationFlags;
 
-                // Stage 1: TableCategory validation
+                // Stage 1: TableCategory validation (R9 gated — default-off until retrained).
+                // Always calls applyTableCategoryCorrection; the method itself honors the
+                // EnableStage1TableCategoryCorrection + EnableStage1ShadowMode toggles.
                 applyTableCategoryCorrection(obs);
 
                 // Stage 2: DoseRegimen routing (skip if already routed by rules)
-                applyDoseRegimenRouting(obs);
+                if (_settings.EnableStage2DoseRegimenRouting)
+                    applyDoseRegimenRouting(obs);
 
                 // Stage 3: PrimaryValueType disambiguation (only if "Numeric")
-                applyPrimaryValueTypeDisambiguation(obs);
+                if (_settings.EnableStage3PrimaryValueTypeDisambiguation)
+                    applyPrimaryValueTypeDisambiguation(obs);
 
-                // Stage 4: Anomaly score — ALWAYS executes, ALWAYS emits flag
-                applyAnomalyScore(obs);
+                // Stage 4: Anomaly score — when enabled, ALWAYS emits flag (score or NOMODEL)
+                if (_settings.EnableStage4AnomalyScoring)
+                    applyAnomalyScore(obs);
 
                 // Confidence provenance: summarize highest-confidence ML correction applied
                 var correctionLabel = determineMlCorrectionLabel(preMlFlags, obs.ValidationFlags);
@@ -321,28 +328,38 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Retrain once more and rescore any NOMODEL observations. With UNII-ordered
             // batching, adjacent documents share active ingredients, so most keys qualify
             // for training by the end of the first batch.
-            var noModelObs = observations
-                .Where(o => o.ValidationFlags != null
-                          && o.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
-                .ToList();
-
-            if (noModelObs.Count > 0)
+            if (_settings.EnableStage4AnomalyScoring)
             {
-                tryRetrain();
+                var noModelObs = observations
+                    .Where(o => o.ValidationFlags != null
+                              && o.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
+                    .ToList();
 
-                var rescored = 0;
-                foreach (var obs in noModelObs)
+                if (noModelObs.Count > 0)
                 {
-                    stripAnomalyScoreFlag(obs);
-                    applyAnomalyScore(obs);
-                    if (obs.ValidationFlags != null
-                        && !obs.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
-                        rescored++;
+                    tryRetrain();
+
+                    var rescored = 0;
+                    foreach (var obs in noModelObs)
+                    {
+                        stripAnomalyScoreFlag(obs);
+                        applyAnomalyScore(obs);
+                        if (obs.ValidationFlags != null
+                            && !obs.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
+                            rescored++;
+                    }
+
+                    _logger.LogInformation(
+                        "Post-accumulation rescore: {Rescored}/{Total} NOMODEL observations now have scores",
+                        rescored, noModelObs.Count);
                 }
 
-                _logger.LogInformation(
-                    "Post-accumulation rescore: {Rescored}/{Total} NOMODEL observations now have scores",
-                    rescored, noModelObs.Count);
+                // R9 — NOMODEL coverage diagnostic: log aggregate stats per batch so
+                // operators can quantify how often UNII-specific keys lack models. The
+                // 66% NOMODEL rate observed on the 2026-04-23 corpus recompute was
+                // diagnosed via this kind of aggregate — logging it inline makes the
+                // signal visible on every production run without requiring JSONL mining.
+                logAnomalyCoverageDiagnostics(observations);
             }
 
             return observations;
@@ -360,10 +377,31 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Only overrides when the model's max score exceeds <see cref="MlNetCorrectionSettings.TableCategoryMinConfidence"/>
         /// and the predicted category differs from the current one.
         /// </summary>
+        /// <remarks>
+        /// ## R9 — Default-off + shadow mode
+        /// When <see cref="MlNetCorrectionSettings.EnableStage1TableCategoryCorrection"/>
+        /// is false (the R9 default), the classifier does NOT mutate
+        /// <see cref="ParsedObservation.TableCategory"/> and does NOT emit a
+        /// <c>MLNET:CATEGORY_CORRECTED</c> flag. If
+        /// <see cref="MlNetCorrectionSettings.EnableStage1ShadowMode"/> is also true
+        /// (the default), the same prediction pipeline runs and emits a
+        /// <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> flag when the prediction WOULD
+        /// have triggered a correction — same confidence + label-differs gates.
+        /// This lets the classifier's behavior be audited from JSONL without affecting
+        /// downstream routing, category filtering, or compliance metrics.
+        /// </remarks>
         /// <param name="obs">Observation to evaluate.</param>
         private void applyTableCategoryCorrection(ParsedObservation obs)
         {
             #region implementation
+
+            // Fast-path: if Stage 1 correction AND shadow mode are both disabled,
+            // there's nothing to do at all — skip the prediction call entirely.
+            if (!_settings.EnableStage1TableCategoryCorrection &&
+                !_settings.EnableStage1ShadowMode)
+            {
+                return;
+            }
 
             var input = new TableCategoryInput
             {
@@ -373,23 +411,50 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ParseRule = obs.ParseRule ?? string.Empty
             };
 
-            executePredictionStage(
-                obs,
-                _tableCategoryEngine,
-                input,
-                p => p.PredictedLabel,
-                p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
-                _settings.TableCategoryMinConfidence,
-                obs.TableCategory,
-                (prediction, maxScore) =>
-                {
-                    var oldCategory = obs.TableCategory;
-                    obs.TableCategory = prediction.PredictedLabel;
-                    appendFlag(obs, $"MLNET:CATEGORY_CORRECTED:{prediction.PredictedLabel}:{maxScore:F2}");
-                    _logger.LogDebug("Stage 1: TableCategory corrected '{Old}' → '{New}' (score={Score:F2})",
-                        oldCategory, prediction.PredictedLabel, maxScore);
-                },
-                stageNumber: 1);
+            if (_settings.EnableStage1TableCategoryCorrection)
+            {
+                // Active correction path: mutate tableCategory, emit CATEGORY_CORRECTED.
+                executePredictionStage(
+                    obs,
+                    _tableCategoryEngine,
+                    input,
+                    p => p.PredictedLabel,
+                    p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
+                    _settings.TableCategoryMinConfidence,
+                    obs.TableCategory,
+                    (prediction, maxScore) =>
+                    {
+                        var oldCategory = obs.TableCategory;
+                        obs.TableCategory = prediction.PredictedLabel;
+                        appendFlag(obs, $"MLNET:CATEGORY_CORRECTED:{prediction.PredictedLabel}:{maxScore:F2}");
+                        _logger.LogDebug("Stage 1: TableCategory corrected '{Old}' → '{New}' (score={Score:F2})",
+                            oldCategory, prediction.PredictedLabel, maxScore);
+                    },
+                    stageNumber: 1);
+            }
+            else
+            {
+                // Shadow-only path: run prediction, emit CATEGORY_SHADOW flag, do NOT
+                // mutate tableCategory. Same gates as the active path — only emits when
+                // the prediction meets the confidence threshold AND differs from the
+                // current category.
+                executePredictionStage(
+                    obs,
+                    _tableCategoryEngine,
+                    input,
+                    p => p.PredictedLabel,
+                    p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
+                    _settings.TableCategoryMinConfidence,
+                    obs.TableCategory,
+                    (prediction, maxScore) =>
+                    {
+                        // Shadow emission only — no mutation.
+                        appendFlag(obs, $"MLNET:CATEGORY_SHADOW:{prediction.PredictedLabel}:{maxScore:F2}");
+                        _logger.LogDebug("Stage 1 [SHADOW]: would have corrected '{Old}' → '{New}' (score={Score:F2})",
+                            obs.TableCategory, prediction.PredictedLabel, maxScore);
+                    },
+                    stageNumber: 1);
+            }
 
             #endregion
         }
@@ -553,6 +618,65 @@ namespace MedRecProImportClass.Service.TransformationServices
                 _logger.LogDebug(ex, "Stage 4 anomaly prediction failed for SourceRowSeq={Row}", obs.SourceRowSeq);
                 appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 diagnostic — after a batch's anomaly scoring + post-accumulation rescore,
+        /// logs aggregate coverage stats so operators can quantify how often UNII-specific
+        /// models were missing. The 66% NOMODEL rate observed on the 2026-04-23 corpus
+        /// recompute was first identified via JSONL mining; logging it inline surfaces
+        /// the signal on every production run without requiring offline analysis.
+        /// </summary>
+        /// <remarks>
+        /// ## Emitted fields (log message)
+        /// - Total observations scored in the batch.
+        /// - Count with real scores (excludes NOMODEL and ERROR sentinels).
+        /// - Count with NOMODEL.
+        /// - Count with ERROR.
+        /// - Distinct UNII-specific model keys present in the batch.
+        /// - Distinct keys that had a trained anomaly engine.
+        /// - Coverage ratio (keys-with-models / total-keys).
+        /// </remarks>
+        /// <param name="observations">Observations from the current batch.</param>
+        private void logAnomalyCoverageDiagnostics(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (observations.Count == 0)
+                return;
+
+            var total = observations.Count;
+            var noModelCount = 0;
+            var errorCount = 0;
+            var scoredCount = 0;
+            var distinctKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var obs in observations)
+            {
+                var flags = obs.ValidationFlags ?? string.Empty;
+                if (flags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
+                    noModelCount++;
+                else if (flags.Contains("MLNET_ANOMALY_SCORE:ERROR"))
+                    errorCount++;
+                else if (flags.Contains("MLNET_ANOMALY_SCORE:"))
+                    scoredCount++;
+
+                distinctKeys.Add(buildAnomalyModelKey(obs.UNII, obs.TableCategory, obs.PrimaryValueType, obs.SecondaryValueType));
+            }
+
+            var keysWithModels = distinctKeys.Count(k => _anomalyEngines.ContainsKey(k));
+            var keyCoverage = distinctKeys.Count > 0
+                ? (double)keysWithModels / distinctKeys.Count
+                : 0.0;
+
+            _logger.LogInformation(
+                "R9 anomaly coverage — batch={Total}: scored={Scored}, NOMODEL={NoModel}, ERROR={Errors}; " +
+                "distinct keys={Keys}, with models={WithModels} ({Coverage:P1})",
+                total, scoredCount, noModelCount, errorCount,
+                distinctKeys.Count, keysWithModels, keyCoverage);
 
             #endregion
         }

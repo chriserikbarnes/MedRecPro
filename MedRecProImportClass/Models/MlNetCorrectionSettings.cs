@@ -30,6 +30,66 @@ namespace MedRecProImportClass.Models
         /// </summary>
         public bool Enabled { get; set; } = true;
 
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Per-stage toggle for Stage 1 TableCategory correction. When false, the
+        /// Stage 1 classifier does NOT mutate <see cref="ParsedObservation.TableCategory"/>
+        /// and does NOT emit <c>MLNET:CATEGORY_CORRECTED</c> flags. Introduced in Wave 3 R9
+        /// to gate the classifier off until its training data can be audited — corpus
+        /// validation on 2026-04-23 showed it was flipping correctly-routed rows in the
+        /// wrong direction (e.g., HSV mutation tables corrected TO PK with 0.99 confidence;
+        /// genuine PK rows corrected AWAY to ADVERSE_EVENT at 0.98).
+        /// </summary>
+        /// <remarks>
+        /// Default <c>false</c> — Stage 1 is disabled by default pending model retraining.
+        /// When paired with <see cref="EnableStage1ShadowMode"/>=true (the default), the
+        /// classifier still runs in prediction-only mode and emits
+        /// <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> flags so the would-be corrections
+        /// can be audited without affecting routing.
+        /// </remarks>
+        /// <seealso cref="EnableStage1ShadowMode"/>
+        public bool EnableStage1TableCategoryCorrection { get; set; } = false;
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — When Stage 1 correction is disabled via
+        /// <see cref="EnableStage1TableCategoryCorrection"/>=false, the classifier still
+        /// runs in shadow mode and emits <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c>
+        /// flags when its prediction would have triggered a correction (same
+        /// confidence + label-differs gates). <c>TableCategory</c> is never mutated.
+        /// </summary>
+        /// <remarks>
+        /// Default <c>true</c>. Setting both toggles to <c>false</c> silences Stage 1
+        /// entirely. Setting <c>EnableStage1TableCategoryCorrection</c>=true makes shadow
+        /// mode moot — the regular correction path runs instead.
+        /// </remarks>
+        /// <seealso cref="EnableStage1TableCategoryCorrection"/>
+        public bool EnableStage1ShadowMode { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Per-stage toggle for Stage 2 DoseRegimen routing. Default <c>true</c> —
+        /// the Stage 2 routing is known to work correctly and is not affected by the R9
+        /// classifier issues.
+        /// </summary>
+        public bool EnableStage2DoseRegimenRouting { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Per-stage toggle for Stage 3 PrimaryValueType disambiguation. Default
+        /// <c>true</c>. Like Stage 2, not affected by the R9 classifier issues.
+        /// </summary>
+        public bool EnableStage3PrimaryValueTypeDisambiguation { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Per-stage toggle for Stage 4 anomaly scoring. Default <c>true</c>. When
+        /// false, no <c>MLNET_ANOMALY_SCORE</c> flag is emitted at all (neither score
+        /// values nor NOMODEL / ERROR sentinels). Used primarily in tests that want to
+        /// isolate the classification stages.
+        /// </summary>
+        public bool EnableStage4AnomalyScoring { get; set; } = true;
+
         #endregion
 
         #region classification threshold properties

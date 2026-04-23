@@ -25,7 +25,7 @@ SELECT  [TextTableID]
 	,[ParseRule]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where TableCategory = 'PK' --and PrimaryValue = 1685 -- and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
+where TableCategory = 'PK' --and PrimaryValue is null -- and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
 order by TableCategory
 --Where PValue is not null
 --where ArmN is not null and PrimaryValue is not null
@@ -34,6 +34,14 @@ order by TableCategory
 --where ParameterSubtype is not null
 --where [TextTableID] = 203
 
+
+SELECT distinct [DocumentGUID]
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+where TableCategory = 'PK' 
+
+SELECT distinct [DocumentGUID]
+FROM [dbo].[tmp_FlattenedStandardizedTable]
+where TableCategory = 'ADVERSE_EVENT'
 
 -- Json output
 DECLARE @header NVARCHAR(MAX) = '================================================================================';
