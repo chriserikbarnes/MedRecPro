@@ -558,6 +558,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             // detectFoodStateSubHeader below, but the negative-list entry provides
             // belt-and-braces defense for any path that checks the classifier.
             "Food", "Food Effect", "Food State", "Food Condition", "Food Intake",
+            // R14 — Spanning-header / column-group labels observed leaking to
+            // TreatmentArm in TID 2574 (Rivaroxaban, CLr-stratified table). These
+            // are meta-headings for a group of exposure columns, never genuine
+            // treatment arms. Adding "Exposures" defensively for plural forms.
+            "Exposure", "Exposures", "Exposure Data", "Mean Exposure",
         };
 
         /**************************************************************/

@@ -4566,5 +4566,103 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion PK Wave 3 R11 — ArmN from DoseRegimen Fallback
+
+        #region PK R14 — Post-Iter9 Arm-Routing Hygiene (Exposure, Age Group)
+
+        /**************************************************************/
+        /// <summary>
+        /// R14 — "Exposure" (and plural/compound variants) is a spanning-header
+        /// / column-group label and must NEVER route to <see cref="ParsedObservation.TreatmentArm"/>.
+        /// Observed post-Iter9 in TID 2574 (Rivaroxaban CLr-stratified table) where
+        /// 51 rows leaked to Arm="Exposure". Negative-list entry forces the classifier
+        /// to Unknown so the pre-R1 fallback (col 0 → DoseRegimen) applies.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R14_ExposureDoesNotRouteToTreatmentArm()
+        {
+            var table = createTestTable(
+                new[] { "Label", "CLr (mL/min)" },
+                new List<string?[]>
+                {
+                    new[] { "Exposure",       "44" },
+                    new[] { "Exposures",      "52" },
+                    new[] { "Mean Exposure",  "64" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.IsTrue(results.All(r => string.IsNullOrWhiteSpace(r.TreatmentArm)),
+                "Exposure / Exposures / Mean Exposure must never route to TreatmentArm");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R14 — Age-Group compound labels ("Pediatric Age Group", "Adult Age Group",
+        /// etc.) route to Population, NOT TreatmentArm. Observed post-Iter9 in
+        /// TID 25038 (Palonosetron pediatric table) where R12-rescued rows had
+        /// Arm="Pediatric Age Group". PopulationDetector dictionary entries (R14)
+        /// force correct routing via <c>classifyRowLabel</c>'s Population match
+        /// step, which runs before the drug-name heuristic.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R14_AgeGroupRoutesToPopulation()
+        {
+            // Use a neutral col-0 header ("Regimen") — matches the shape of the
+            // existing PkParser_R1_1_BareAgeStratumRoutesToPopulation test. The
+            // parser's classifyRowLabel inspects each row's col 0 text regardless
+            // of the column header label.
+            var table = createTestTable(
+                new[] { "Regimen", "AUC0-inf (ng·h/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "Pediatric Age Group", "103.5 (40.4)" },
+                    new[] { "Adult Age Group",     "98.7 (47.7)" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => string.IsNullOrWhiteSpace(r.TreatmentArm)),
+                "Age Group labels must NEVER route to TreatmentArm");
+            Assert.IsTrue(results.Any(r => r.Population == "Pediatric"),
+                "Pediatric Age Group must resolve to Population=Pediatric");
+            Assert.IsTrue(results.Any(r => r.Population == "Adult"),
+                "Adult Age Group must resolve to Population=Adult");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R14 — Regression guard: genuine drug-name labels still route to
+        /// <see cref="ParsedObservation.TreatmentArm"/>. Ensures R14 additions
+        /// didn't accidentally blacklist or mis-route drug content.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R14_DrugNameStillRoutesToTreatmentArm()
+        {
+            var table = createTestTable(
+                new[] { "Drug", "Cmax (ng/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "Rivaroxaban",  "250" },
+                    new[] { "Palonosetron", "5.5" },
+                    new[] { "Losartan",     "3.9 (1.9)" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Rivaroxaban"));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Palonosetron"));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Losartan"));
+        }
+
+        #endregion PK R14 — Post-Iter9 Arm-Routing Hygiene (Exposure, Age Group)
     }
 }

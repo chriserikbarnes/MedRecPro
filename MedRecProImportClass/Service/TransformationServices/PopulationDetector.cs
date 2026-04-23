@@ -449,6 +449,19 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["Pediatric Subjects"] = "Pediatric",
             ["Adult Subjects"] = "Adult",
             ["Healthy"] = "Healthy Volunteers",
+            // R14 — Age-group compound forms. Surfaced post-Iter9 by R12's rescue
+            // of decimal-paren-dispersion rows in TID 25038 (Palonosetron pediatric
+            // table): col 0 carried "Pediatric Age Group" and was routing to
+            // TreatmentArm via the drug-name heuristic. These belong in Population.
+            // Sibling forms added defensively — same shape, same contract.
+            ["Pediatric Age Group"] = "Pediatric",
+            ["Adult Age Group"] = "Adult",
+            ["Adolescent Age Group"] = "Adolescents",
+            ["Geriatric Age Group"] = "Geriatric",
+            ["Elderly Age Group"] = "Elderly",
+            ["Neonatal Age Group"] = "Neonatal",
+            ["Infant Age Group"] = "Infants",
+            ["Young Age Group"] = "Young Adults",
             // HIV-specific populations appearing in antiretroviral labels
             ["HIV-1-Infected Pediatric Subjects"] = "HIV-1-Infected Pediatric Subjects",
             ["HIV-Infected Pediatric Subjects"] = "HIV-1-Infected Pediatric Subjects",

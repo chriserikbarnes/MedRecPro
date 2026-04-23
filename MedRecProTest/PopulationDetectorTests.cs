@@ -444,5 +444,45 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion TryMatchLabel — Regex Second Pass
+
+        #region R14 — Age Group Compound Forms
+
+        /**************************************************************/
+        /// <summary>
+        /// R14 — "{AgeStratum} Age Group" compound forms (surfaced post-Iter9 in
+        /// TID 25038 Palonosetron pediatric table) route to canonical Population
+        /// via <see cref="PopulationDetector.TryMatchLabel"/>, preventing the
+        /// drug-name heuristic from claiming them for TreatmentArm.
+        /// </summary>
+        [TestMethod]
+        [DataRow("Pediatric Age Group", "Pediatric")]
+        [DataRow("Adult Age Group", "Adult")]
+        [DataRow("Adolescent Age Group", "Adolescents")]
+        [DataRow("Geriatric Age Group", "Geriatric")]
+        [DataRow("Elderly Age Group", "Elderly")]
+        [DataRow("Neonatal Age Group", "Neonatal")]
+        [DataRow("Infant Age Group", "Infants")]
+        [DataRow("Young Age Group", "Young Adults")]
+        public void TryMatchLabel_AgeGroupCompound_ReturnsCanonicalPopulation(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical);
+            Assert.IsTrue(hit, $"'{input}' must resolve as a population (not fall through to drug-name heuristic)");
+            Assert.AreEqual(expected, canonical);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R14 — Age-Group lookups are dictionary hits (exact string match in
+        /// <c>_labelToCanonical</c>), not regex-second-pass matches.
+        /// </summary>
+        [TestMethod]
+        public void TryMatchLabel_AgeGroup_DictionaryMatch_NotViaRegex()
+        {
+            var hit = PopulationDetector.TryMatchLabel("Pediatric Age Group", out _, out var viaRegex);
+            Assert.IsTrue(hit);
+            Assert.IsFalse(viaRegex, "'Pediatric Age Group' should match via dictionary, not regex");
+        }
+
+        #endregion R14 — Age Group Compound Forms
     }
 }
