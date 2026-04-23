@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -87,6 +88,18 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^([\d.]+)\s*\((\d+)\s*%\s*\)\s*(.*)$",
             RegexOptions.Compiled);
 
+        // Pattern 4b (R12): Decimal with parenthesized SD + optional footnote —
+        // 3.9 (1.9), 17.4 (6.2)*, 0.44 (0.22)
+        //
+        // Differs from Pattern 4 (n_pct) by requiring a DECIMAL leading value (dot
+        // required) — n_pct requires integer leading (\d+ only).
+        // Differs from Pattern 6d (value_plusminus_sample) by NOT requiring the ± marker.
+        // Differs from Pattern 7 (value_cv) by NOT allowing % inside the parentheses.
+        // SecondaryValueType is left null — resolved downstream from caption/header/footnote.
+        private static readonly Regex _valueParenDispersionPattern = new(
+            @"^(-?\d+\.\d+)\s*\(\s*(-?\d+\.?\d*)\s*\)\s*[*†‡§¶#]?\s*$",
+            RegexOptions.Compiled);
+
         // Pattern 8: Range — 10.7 to 273
         private static readonly Regex _rangePattern = new(
             @"^([\d.]+)\s+to\s+([\d.]+)",
@@ -111,6 +124,68 @@ namespace MedRecProImportClass.Service.TransformationServices
         private static readonly Regex _plainNumberPattern = new(
             @"^-?[\d,]+\.?\d*$",
             RegexOptions.Compiled);
+
+        // Pattern 12b (R12): Decimal / integer leading value followed by whitespace
+        // and a recognized unit word — 71.8 hr, 5.5 mcg/mL, 1800 ng·h/mL.
+        //
+        // Built from a curated longest-first alternation of compound/time units
+        // (minimum length 2) to avoid false-positive matches on narrative cells.
+        // Single-letter units (h, L, g) are excluded — too easily matched against
+        // drug suffixes or isolated characters. Only fires AFTER all other
+        // numeric-literal patterns have failed, so "71.8" alone still falls through
+        // to Pattern 12 (plain_number), not here.
+        private static readonly Regex _valueTrailingUnitPattern = buildValueTrailingUnitPattern();
+
+        /// <summary>
+        /// Builds the trailing-unit regex from the curated PK unit alternation. Shares
+        /// the candidate list with <see cref="UnitDictionary"/>'s inline scan but uses
+        /// a stricter anchor: whole-cell match with exactly one leading number and one
+        /// trailing unit, optional whitespace in between.
+        /// </summary>
+        private static Regex buildValueTrailingUnitPattern()
+        {
+            #region implementation
+
+            // Curated longest-first. Mirrors UnitDictionary._inlineUnitPattern candidates
+            // minus bare single-letter units. Order matters: "mcg·h/mL" must precede
+            // "mcg" so the longer match wins.
+            var units = new[]
+            {
+                // Composite AUC-style concentration units
+                "mcg·h/mL", "ng·h/mL", "pg·h/mL", "µg·h/mL",
+                "mcg·hr/mL", "ng·hr/mL", "pg·hr/mL", "µg·hr/mL",
+                // Clearance + body-weight-normalized
+                "mL/min/kg", "mg/kg/day", "mcg/kg/min",
+                "L/h/kg", "mL/h/kg",
+                // Concentrations
+                "mcg/mL", "ng/mL", "pg/mL", "µg/mL",
+                "mg/dL", "ng/dL", "mg/L",
+                // Body-weight-normalized dose / volume
+                "mg/kg", "mcg/kg", "mg/day", "mcg/day", "mg/m²",
+                "mL/min", "L/kg", "L/h", "mg/h", "IU/mL", "mg/d",
+                "ng/g", "mcg/g",
+                // Time tokens — PK-specific (hours / minutes)
+                "hrs", "hr", "min",
+                // Percentage spellings
+                "%CV", "%",
+                // Pressure / physiology
+                "beats/min", "mmHg", "mEq/L", "mOsm/kg"
+            };
+
+            var ordered = units
+                .Distinct(StringComparer.Ordinal)
+                .OrderByDescending(u => u.Length)
+                .ThenBy(u => u, StringComparer.Ordinal);
+            var alt = string.Join("|", ordered.Select(Regex.Escape));
+
+            // Anchored whole-cell match: leading optional minus, decimal/integer,
+            // at least one whitespace, recognized unit, optional trailing whitespace.
+            return new Regex(
+                @"^(-?\d+\.?\d*)\s+(" + alt + @")\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+            #endregion
+        }
 
         // Arm header pattern (parenthesized): DrugName(N=188)n(%) or Drug (n = 5,310) %
         // Supports uppercase/lowercase N, optional spaces around =, and comma-formatted numbers
@@ -214,6 +289,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (tryParseValueCV(text, out var cvResult))
                 return cvResult;
 
+            // Pattern 4b (R12): Decimal with parenthesized SD — 3.9 (1.9), 17.4 (6.2)*
+            // Runs AFTER n_pct / value_plusminus / value_cv so their guards win on
+            // integer-leading / ± / % shapes; only fires on decimal-paren-no-% cells.
+            if (tryParseValueParenDispersion(text, out var parenDispResult))
+                return parenDispResult;
+
             // Pattern 8: Range — 10.7 to 273
             if (tryParseRange(text, out var rangeResult))
                 return rangeResult;
@@ -229,6 +310,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Pattern 11: P-value — p<0.05
             if (tryParsePValue(text, out var pvResult))
                 return pvResult;
+
+            // Pattern 12b (R12): Decimal + trailing unit word — 71.8 hr, 5.5 mcg/mL
+            // Must run BEFORE plain_number so that "71.8 hr" produces a unit-bearing
+            // result. Plain_number is whole-cell-anchored so it wouldn't match cells
+            // with trailing content anyway, but this ordering makes the intent
+            // explicit and supports future plain-number relaxations.
+            if (tryParseValueTrailingUnit(text, out var trailUnitResult))
+                return trailUnitResult;
 
             // Pattern 12: Plain number — 12.5
             if (tryParsePlainNumber(text, out var numResult))
@@ -710,6 +799,133 @@ namespace MedRecProImportClass.Service.TransformationServices
                 SampleSize = sampleSize,
                 ParseConfidence = ParsedValue.ConfidenceTier.ValidatedMatch,
                 ParseRule = "value_plusminus_sample"
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 — Parses decimal leading value with parenthesized SD (and optional
+        /// trailing footnote marker): <c>3.9 (1.9)</c>, <c>17.4 (6.2)*</c>,
+        /// <c>0.44 (0.22)</c>, <c>-2.5 (0.8)</c>.
+        /// </summary>
+        /// <remarks>
+        /// ## Priority placement
+        /// Runs AFTER Pattern 4 (n_pct), Pattern 6c (value_plusminus), Pattern 6d
+        /// (value_plusminus_sample), and Pattern 7 (value_cv) so their
+        /// integer-leading / ± / % guards fire first. Runs BEFORE Pattern 8
+        /// (range) and later patterns.
+        ///
+        /// ## Why PrimaryValueType="Numeric" (not "Mean")
+        /// The PK parser promotes Numeric → Mean via its PK context fallback
+        /// (<c>parseAndApplyPkValue</c>). Leaving it Numeric here preserves
+        /// semantic correctness for non-PK contexts where the same shape could
+        /// appear.
+        ///
+        /// ## Why SecondaryValueType=null
+        /// The value inside the parentheses may represent SD, SE, CI half-width,
+        /// range, or other dispersion. Resolution happens downstream in
+        /// <c>resolveDispersionType</c> using caption / header / footnote context
+        /// (mirrors the pattern in <see cref="tryParseValuePlusMinusSample"/>).
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// tryParseValueParenDispersion("3.9 (1.9)", out var r)     → true, Primary=3.9, Secondary=1.9
+        /// tryParseValueParenDispersion("17.4 (6.2)*", out var r)   → true, Primary=17.4, Secondary=6.2
+        /// tryParseValueParenDispersion("33 (17.6%)", out var r)    → false (integer leading + %)
+        /// </code>
+        /// </example>
+        /// <seealso cref="tryParseNPercent"/>
+        /// <seealso cref="tryParseValuePlusMinusSample"/>
+        /// <seealso cref="tryParseValueCV"/>
+        internal static bool tryParseValueParenDispersion(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _valueParenDispersionPattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            if (!double.TryParse(match.Groups[1].Value, out var primary))
+                return false;
+            if (!double.TryParse(match.Groups[2].Value, out var secondary))
+                return false;
+
+            result = new ParsedValue
+            {
+                PrimaryValue = primary,
+                PrimaryValueType = "Numeric",         // PK fallback promotes to Mean
+                SecondaryValue = secondary,
+                SecondaryValueType = null,             // Resolved downstream
+                LowerBound = primary - secondary,
+                UpperBound = primary + secondary,
+                BoundType = null,                      // Resolved downstream alongside SecondaryValueType
+                ParseConfidence = ParsedValue.ConfidenceTier.ValidatedMatch,
+                ParseRule = "value_paren_dispersion"
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 — Parses a decimal or integer value followed by a trailing unit word:
+        /// <c>71.8 hr</c>, <c>5.5 mcg/mL</c>, <c>1800 ng·h/mL</c>. Unit is normalized
+        /// via <see cref="UnitDictionary.TryNormalize"/> so variant spellings
+        /// (<c>hr</c> → <c>h</c>) collapse to canonical form.
+        /// </summary>
+        /// <remarks>
+        /// ## Priority placement
+        /// Runs AFTER all existing numeric patterns (including CV%, range, p-value,
+        /// n=) and BEFORE Pattern 12 (plain_number). Plain number is
+        /// whole-cell-anchored and would not match cells with trailing content
+        /// anyway, so ordering is primarily about correctness, not conflict.
+        ///
+        /// ## Unit recognition
+        /// Only fires when the trailing token is a recognized PK unit. The regex
+        /// itself enforces the alternation; no post-match dictionary lookup is
+        /// required for membership. <c>TryNormalize</c> is called to canonicalize
+        /// variants (e.g., <c>hr</c> → <c>h</c>); falls back to the raw matched
+        /// token if somehow the normalization map misses.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// tryParseValueTrailingUnit("71.8 hr", out var r)     → true, Primary=71.8, Unit="h"
+        /// tryParseValueTrailingUnit("5.5 mcg/mL", out var r)  → true, Primary=5.5, Unit="mcg/mL"
+        /// tryParseValueTrailingUnit("71.8 hello", out var r)  → false (unknown word)
+        /// tryParseValueTrailingUnit("71.8", out var r)        → false (no trailing token)
+        /// </code>
+        /// </example>
+        /// <seealso cref="UnitDictionary.TryNormalize"/>
+        /// <seealso cref="tryParsePlainNumber"/>
+        internal static bool tryParseValueTrailingUnit(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _valueTrailingUnitPattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            if (!double.TryParse(match.Groups[1].Value, out var primary))
+                return false;
+
+            var rawUnit = match.Groups[2].Value;
+            var normalized = UnitDictionary.TryNormalize(rawUnit) ?? rawUnit;
+
+            result = new ParsedValue
+            {
+                PrimaryValue = primary,
+                PrimaryValueType = "Numeric",          // PK fallback promotes to Mean
+                Unit = normalized,
+                ParseConfidence = ParsedValue.ConfidenceTier.ValidatedMatch,
+                ParseRule = "value_trailing_unit"
             };
             return true;
 

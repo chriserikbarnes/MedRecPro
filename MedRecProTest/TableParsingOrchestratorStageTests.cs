@@ -749,6 +749,303 @@ namespace MedRecPro.Service.Test
 
         #endregion ProcessBatchWithStagesAsync Tests
 
+        #region R13 — Pre-ML PK Filter Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// R13 — A PK observation with a canonical <see cref="ParsedObservation.ParameterName"/>
+        /// and a non-Text <see cref="ParsedObservation.PrimaryValueType"/> survives the
+        /// pre-ML filter.
+        /// </summary>
+        [TestMethod]
+        public async Task R13_PkRow_WithNameAndMeanType_Kept()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "PK",
+                ParameterName = "Cmax",
+                PrimaryValueType = "Mean",
+                PrimaryValue = 42.0
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(1, result.PostCorrectionObservations.Count,
+                "Analyzable PK row must survive the Stage 3.35 filter.");
+            Assert.AreEqual("Cmax", result.PostCorrectionObservations[0].ParameterName);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R13 — A PK observation with a null ParameterName is dropped regardless
+        /// of PrimaryValueType.
+        /// </summary>
+        [TestMethod]
+        public async Task R13_PkRow_NullParameterName_Dropped()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "PK",
+                ParameterName = null,
+                PrimaryValueType = "Mean",
+                PrimaryValue = 42.0
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(0, result.PostCorrectionObservations.Count,
+                "PK row without ParameterName must be dropped at Stage 3.35.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R13 — A PK observation with <see cref="ParsedObservation.PrimaryValueType"/>
+        /// equal to "Text" is dropped even when ParameterName is populated. Text-typed
+        /// rows have no analyzable numeric value and would otherwise bias the ML
+        /// training set.
+        /// </summary>
+        [TestMethod]
+        public async Task R13_PkRow_TextPrimaryValueType_Dropped()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "PK",
+                ParameterName = "Cmax",
+                PrimaryValueType = "Text",
+                RawValue = "data not reported"
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(0, result.PostCorrectionObservations.Count,
+                "PK row with Text PrimaryValueType must be dropped at Stage 3.35.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R13 — A PK observation missing BOTH ParameterName and with a Text value
+        /// type is dropped (either condition alone is sufficient).
+        /// </summary>
+        [TestMethod]
+        public async Task R13_PkRow_BothMissing_Dropped()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "PK",
+                ParameterName = null,
+                PrimaryValueType = "Text"
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(0, result.PostCorrectionObservations.Count);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R13 — An ADVERSE_EVENT observation with null ParameterName and
+        /// PrimaryValueType=Text is PRESERVED. The filter is PK-only; other
+        /// categories retain troubleshooting data pending their own audits.
+        /// </summary>
+        [TestMethod]
+        public async Task R13_NonPkRow_AdverseEvent_NullName_TextType_Kept()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "ADVERSE_EVENT",
+                ParameterName = null,
+                PrimaryValueType = "Text"
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(1, result.PostCorrectionObservations.Count,
+                "Non-PK category must pass through the PK-scoped filter unchanged.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R13 — A DRUG_INTERACTION observation with null ParameterName is
+        /// PRESERVED. Same non-PK passthrough contract as ADVERSE_EVENT.
+        /// </summary>
+        [TestMethod]
+        public async Task R13_NonPkRow_DrugInteraction_NullName_Kept()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "DRUG_INTERACTION",
+                ParameterName = null,
+                PrimaryValueType = "Mean",
+                PrimaryValue = 1.0
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(1, result.PostCorrectionObservations.Count);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R13 — Mixed batch integration: 10 PK rows (3 non-analyzable) +
+        /// 5 ADVERSE_EVENT rows → 7 PK + 5 AE = 12 surviving rows.
+        /// </summary>
+        [TestMethod]
+        public async Task R13_MixedBatch_PkFilteredAeRetained()
+        {
+            var rows = new List<ParsedObservation>();
+
+            // 7 analyzable PK rows
+            for (int i = 0; i < 7; i++)
+            {
+                rows.Add(new ParsedObservation
+                {
+                    SourceRowSeq = i + 1,
+                    SourceCellSeq = 1,
+                    TableCategory = "PK",
+                    ParameterName = "Cmax",
+                    PrimaryValueType = "Mean",
+                    PrimaryValue = 10.0 + i
+                });
+            }
+
+            // 3 non-analyzable PK rows (to be dropped)
+            rows.Add(new ParsedObservation
+            {
+                SourceRowSeq = 8, SourceCellSeq = 1,
+                TableCategory = "PK", ParameterName = null, PrimaryValueType = "Mean", PrimaryValue = 1.0
+            });
+            rows.Add(new ParsedObservation
+            {
+                SourceRowSeq = 9, SourceCellSeq = 1,
+                TableCategory = "PK", ParameterName = "AUC", PrimaryValueType = "Text"
+            });
+            rows.Add(new ParsedObservation
+            {
+                SourceRowSeq = 10, SourceCellSeq = 1,
+                TableCategory = "PK", ParameterName = null, PrimaryValueType = "Text"
+            });
+
+            // 5 AE rows (all retained — PK-only filter)
+            for (int i = 0; i < 5; i++)
+            {
+                rows.Add(new ParsedObservation
+                {
+                    SourceRowSeq = 11 + i,
+                    SourceCellSeq = 1,
+                    TableCategory = "ADVERSE_EVENT",
+                    ParameterName = i % 2 == 0 ? null : "Headache",
+                    PrimaryValueType = i % 2 == 0 ? "Text" : "Percentage",
+                    PrimaryValue = i
+                });
+            }
+
+            var (orchestrator, _) = createR13TestOrchestrator(rows);
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            var surviving = result.PostCorrectionObservations;
+            Assert.AreEqual(12, surviving.Count,
+                "Expected 7 surviving PK + 5 surviving AE = 12; got counts did not match.");
+            Assert.AreEqual(7, surviving.Count(o => o.TableCategory == "PK"),
+                "All 7 analyzable PK rows must survive; all 3 non-analyzable must be dropped.");
+            Assert.AreEqual(5, surviving.Count(o => o.TableCategory == "ADVERSE_EVENT"),
+                "All AE rows must pass through (PK-only filter).");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a test orchestrator with a controlled observation list returned by
+        /// the parser mock. Mirrors <c>createDropIncompleteTestOrchestrator</c> but
+        /// accepts arbitrary observation lists for R13 filter scenarios. Leaves
+        /// <c>dropRowsMissingArmNOrPrimaryValue</c> disabled so only the Stage 3.35
+        /// (R13) filter contributes to the surviving-row count.
+        /// </summary>
+        /// <param name="controlledObservations">The parser mock's return value — the
+        /// set of observations that enters Stage 3.25 (column standardization).</param>
+        /// <returns>Orchestrator and DbContext. DbContext is returned for disposal;
+        /// callers typically ignore it.</returns>
+        private static (TableParsingOrchestrator orchestrator, ApplicationDbContext dbContext)
+            createR13TestOrchestrator(List<ParsedObservation> controlledObservations)
+        {
+            #region implementation
+
+            var mockRecon = new Mock<ITableReconstructionService>();
+            var mockCellContext = new Mock<ITableCellContextService>();
+            var mockLogger = new Mock<ILogger<TableParsingOrchestrator>>();
+
+            var dummyTable = new ReconstructedTable
+            {
+                TextTableID = 2000,
+                ParentSectionCode = "34090-1",
+                TotalColumnCount = 2,
+                TotalRowCount = 2,
+                Header = new ResolvedHeader { HeaderRowCount = 1, ColumnCount = 2 },
+                Rows = new List<ReconstructedRow>()
+            };
+
+            mockRecon
+                .Setup(r => r.ReconstructTablesAsync(It.IsAny<TableCellContextFilter>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<ReconstructedTable> { dummyTable });
+
+            var mockParser = new Mock<ITableParser>();
+            mockParser.SetupGet(p => p.SupportedCategory).Returns(TableCategory.PK);
+            mockParser.SetupGet(p => p.Priority).Returns(0);
+            mockParser.Setup(p => p.CanParse(It.IsAny<ReconstructedTable>())).Returns(true);
+            mockParser.Setup(p => p.Parse(It.IsAny<ReconstructedTable>())).Returns(controlledObservations);
+
+            var mockRouter = new Mock<ITableParserRouter>();
+            mockRouter
+                .Setup(r => r.Route(It.IsAny<ReconstructedTable>()))
+                .Returns((TableCategory.PK, (ITableParser?)mockParser.Object));
+
+            var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseInMemoryDatabase($"R13_PreMlPkFilter_{Guid.NewGuid()}")
+                .Options;
+            var dbContext = new ApplicationDbContext(dbOptions);
+
+            var orchestrator = new TableParsingOrchestrator(
+                mockRecon.Object,
+                mockCellContext.Object,
+                mockRouter.Object,
+                dbContext,
+                mockLogger.Object,
+                batchValidator: null,
+                columnStandardizer: null,
+                mlNetCorrectionService: null,
+                correctionService: null,
+                dropRowsMissingArmNOrPrimaryValue: false);
+
+            return (orchestrator, dbContext);
+
+            #endregion
+        }
+
+        #endregion R13 — Pre-ML PK Filter Tests
+
         #region PK Time Extraction Tests
 
         /**************************************************************/

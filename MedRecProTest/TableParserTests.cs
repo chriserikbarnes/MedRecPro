@@ -4388,5 +4388,183 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion PK Wave 3 R10 — Unit Extraction Gap
+
+        #region PK Wave 3 R11 — ArmN from DoseRegimen Fallback
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — <c>applyDoseRegimenArmNFallback</c> extracts the sample size
+        /// from a DoseRegimen string containing a trailing "N=X" token and
+        /// populates the observation's ArmN accordingly. Flag is appended for
+        /// audit.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_TrailingUppercaseN_Populates()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation
+                {
+                    DoseRegimen = "Age 6-16 given 0.7 mg/kg once daily for 7 days N=25",
+                    ArmN = null
+                }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.AreEqual(25, obs[0].ArmN);
+            Assert.IsTrue((obs[0].ValidationFlags ?? "").Contains("PK_DOSE_REGIMEN_ARMN_FALLBACK:25"),
+                $"Expected PK_DOSE_REGIMEN_ARMN_FALLBACK:25 flag, got '{obs[0].ValidationFlags}'");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Lowercase "n=" is equally acceptable. Regex is explicitly
+        /// case-folded via the <c>[Nn]</c> class so it matches both forms
+        /// without <c>RegexOptions.IgnoreCase</c>.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_LowercaseN_Populates()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation
+                {
+                    DoseRegimen = "Adults given 50 mg once daily for 7 days n=12",
+                    ArmN = null
+                }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.AreEqual(12, obs[0].ArmN);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Whitespace around the equals sign is tolerated: "N = 188",
+        /// "N =188", "N= 188" must all match.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_WhitespaceAroundEquals_Populates()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation { DoseRegimen = "Placebo N = 188", ArmN = null },
+                new ParsedObservation { DoseRegimen = "Active N= 42", ArmN = null },
+                new ParsedObservation { DoseRegimen = "Comparator N =17", ArmN = null }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.AreEqual(188, obs[0].ArmN);
+            Assert.AreEqual(42, obs[1].ArmN);
+            Assert.AreEqual(17, obs[2].ArmN);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Comma-formatted integers and parenthesized N tokens are
+        /// handled. <c>\b</c> word boundaries consume at the digit boundary;
+        /// commas inside the number are stripped before parsing.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_CommaFormattedParenthesized_Populates()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation { DoseRegimen = "Dose: 100 mg (n=1,234)", ArmN = null }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.AreEqual(1234, obs[0].ArmN);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Caption or row-label precedence: an ArmN already set MUST
+        /// NOT be overridden by a DoseRegimen-derived value, even when the
+        /// DoseRegimen contains a different N= token.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_ExistingArmN_NotOverridden()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation
+                {
+                    DoseRegimen = "Subjects given 100 mg N=99",
+                    ArmN = 36 // pre-set by caption or row label
+                }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.AreEqual(36, obs[0].ArmN, "Caption/row-label ArmN must be preserved");
+            Assert.IsFalse((obs[0].ValidationFlags ?? "").Contains("PK_DOSE_REGIMEN_ARMN_FALLBACK"),
+                "Fallback flag must not be appended when ArmN was already set");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Guard: a DoseRegimen with no N= token leaves ArmN untouched
+        /// and emits no flag.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_NoNToken_NoMutation()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation { DoseRegimen = "50 mg once daily for 7 days", ArmN = null }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.IsNull(obs[0].ArmN);
+            Assert.IsFalse((obs[0].ValidationFlags ?? "").Contains("PK_DOSE_REGIMEN_ARMN_FALLBACK"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Guard: a malformed N= token ("N=abc", pure alpha after the
+        /// equals) must not crash and must not mutate. Because <c>\b...\b</c>
+        /// anchors the match on digit characters, this actually fails to
+        /// match at all — the regex never fires on non-numeric targets.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_NonNumericValue_NoMutation()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation { DoseRegimen = "iron N = abc", ArmN = null }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.IsNull(obs[0].ArmN, "Non-numeric N= value must not be parsed as ArmN");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Guard: null or whitespace DoseRegimen is a no-op (no NREs).
+        /// </summary>
+        [TestMethod]
+        public void PkParser_R11_DoseRegimenArmN_NullOrEmpty_NoMutation()
+        {
+            var obs = new List<ParsedObservation>
+            {
+                new ParsedObservation { DoseRegimen = null, ArmN = null },
+                new ParsedObservation { DoseRegimen = "", ArmN = null },
+                new ParsedObservation { DoseRegimen = "   ", ArmN = null }
+            };
+
+            PkTableParser.applyDoseRegimenArmNFallback(obs);
+
+            Assert.IsTrue(obs.All(o => o.ArmN == null));
+            Assert.IsTrue(obs.All(o => string.IsNullOrEmpty(o.ValidationFlags)));
+        }
+
+        #endregion PK Wave 3 R11 — ArmN from DoseRegimen Fallback
     }
 }

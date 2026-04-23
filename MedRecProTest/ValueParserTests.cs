@@ -811,5 +811,203 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Parameter Name Cleaning Tests
+
+        #region R12 — Value Paren Dispersion + Trailing Unit
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 Pattern 4b — decimal leading value with parenthesized SD, no
+        /// footnote. PrimaryValueType=Numeric (PK promotes to Mean), SecondaryValueType=null
+        /// (resolved downstream from context).
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueParenDispersion_DecimalBasic()
+        {
+            var r = ValueParser.Parse("3.9 (1.9)");
+            Assert.AreEqual("value_paren_dispersion", r.ParseRule);
+            Assert.AreEqual(3.9, r.PrimaryValue);
+            Assert.AreEqual("Numeric", r.PrimaryValueType);
+            Assert.AreEqual(1.9, r.SecondaryValue);
+            Assert.IsNull(r.SecondaryValueType);
+            Assert.AreEqual(ParsedValue.ConfidenceTier.ValidatedMatch, r.ParseConfidence);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 Pattern 4b — trailing footnote markers are stripped from the
+        /// secondary value without affecting the parse.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueParenDispersion_TrailingFootnote()
+        {
+            var r = ValueParser.Parse("17.4 (6.2)*");
+            Assert.AreEqual("value_paren_dispersion", r.ParseRule);
+            Assert.AreEqual(17.4, r.PrimaryValue);
+            Assert.AreEqual(6.2, r.SecondaryValue);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 Pattern 4b — small decimal values like 0.44 (0.22) parse correctly.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueParenDispersion_SmallDecimal()
+        {
+            var r = ValueParser.Parse("0.44 (0.22)");
+            Assert.AreEqual("value_paren_dispersion", r.ParseRule);
+            Assert.AreEqual(0.44, r.PrimaryValue);
+            Assert.AreEqual(0.22, r.SecondaryValue);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 Pattern 4b — negative leading value is supported for diff / change
+        /// columns.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueParenDispersion_NegativeLeading()
+        {
+            var r = ValueParser.Parse("-2.5 (0.8)");
+            Assert.AreEqual("value_paren_dispersion", r.ParseRule);
+            Assert.AreEqual(-2.5, r.PrimaryValue);
+            Assert.AreEqual(0.8, r.SecondaryValue);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 guard — integer leading + % inside parens must route to Pattern 4
+        /// (n_pct), NOT value_paren_dispersion. Pattern 4 wins because it runs
+        /// earlier in the chain and 4b requires a decimal leading value.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_Guard_IntegerLeadingPercent_RoutesToNPct()
+        {
+            var r = ValueParser.Parse("33 (17.6%)");
+            Assert.AreEqual("n_pct", r.ParseRule,
+                "Integer leading + % must still route to n_pct, not value_paren_dispersion");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 guard — explicit ± must still route to Pattern 6c (value_plusminus),
+        /// NOT value_paren_dispersion. 6c runs earlier in the chain and has no
+        /// paren wrapping.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_Guard_PlusMinus_RoutesToValuePlusMinus()
+        {
+            var r = ValueParser.Parse("1.1 ± 0.5");
+            Assert.AreEqual("value_plusminus", r.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 guard — CV% shape (%, inside parens) must still route to Pattern 7
+        /// (value_cv), NOT value_paren_dispersion.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_Guard_ValueCvPercent_RoutesToValueCv()
+        {
+            var r = ValueParser.Parse("0.29 (35%)");
+            Assert.AreEqual("value_cv", r.ParseRule);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 Pattern 12b — decimal with trailing time unit. "hr" normalizes to
+        /// canonical "h" via <see cref="UnitDictionary.TryNormalize"/>.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueTrailingUnit_DecimalHour()
+        {
+            var r = ValueParser.Parse("71.8 hr");
+            Assert.AreEqual("value_trailing_unit", r.ParseRule);
+            Assert.AreEqual(71.8, r.PrimaryValue);
+            Assert.AreEqual("Numeric", r.PrimaryValueType);
+            Assert.AreEqual("h", r.Unit, "'hr' must normalize to canonical 'h'");
+            Assert.AreEqual(ParsedValue.ConfidenceTier.ValidatedMatch, r.ParseConfidence);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 Pattern 12b — decimal with trailing concentration unit mcg/mL.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueTrailingUnit_DecimalConcentration()
+        {
+            var r = ValueParser.Parse("5.5 mcg/mL");
+            Assert.AreEqual("value_trailing_unit", r.ParseRule);
+            Assert.AreEqual(5.5, r.PrimaryValue);
+            Assert.AreEqual("mcg/mL", r.Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 Pattern 12b — integer leading with compound AUC-style unit.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueTrailingUnit_IntegerCompoundAuc()
+        {
+            var r = ValueParser.Parse("1800 ng·h/mL");
+            Assert.AreEqual("value_trailing_unit", r.ParseRule);
+            Assert.AreEqual(1800, r.PrimaryValue);
+            Assert.AreEqual("ng·h/mL", r.Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 guard — unknown trailing word ("hello") must NOT match. Falls
+        /// through to text_descriptive fallback.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_Guard_UnknownTrailingWord_FallsThroughToText()
+        {
+            var r = ValueParser.Parse("71.8 hello");
+            Assert.AreEqual("text_descriptive", r.ParseRule,
+                "Unknown unit words must fall through to text, not be parsed as a unit");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 guard — decimal-only value with no trailing token must route to
+        /// Pattern 12 (plain_number), NOT value_trailing_unit.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_Guard_PlainDecimal_RoutesToPlainNumber()
+        {
+            var r = ValueParser.Parse("71.8");
+            Assert.AreEqual("plain_number", r.ParseRule);
+            Assert.AreEqual(71.8, r.PrimaryValue);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 direct call — tryParseValueParenDispersion returns false on
+        /// non-matching inputs so callers can fall through.
+        /// </summary>
+        [TestMethod]
+        public void TryParseValueParenDispersion_NonMatching_ReturnsFalse()
+        {
+            Assert.IsFalse(ValueParser.tryParseValueParenDispersion("33 (17.6%)", out _));
+            Assert.IsFalse(ValueParser.tryParseValueParenDispersion("1.1 ± 0.5", out _));
+            Assert.IsFalse(ValueParser.tryParseValueParenDispersion("71.8", out _));
+            Assert.IsFalse(ValueParser.tryParseValueParenDispersion("narrative text", out _));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R12 direct call — tryParseValueTrailingUnit returns false on
+        /// non-matching inputs and unknown units.
+        /// </summary>
+        [TestMethod]
+        public void TryParseValueTrailingUnit_NonMatching_ReturnsFalse()
+        {
+            Assert.IsFalse(ValueParser.tryParseValueTrailingUnit("71.8 hello", out _));
+            Assert.IsFalse(ValueParser.tryParseValueTrailingUnit("71.8", out _));
+            Assert.IsFalse(ValueParser.tryParseValueTrailingUnit("hr", out _));
+            Assert.IsFalse(ValueParser.tryParseValueTrailingUnit("narrative", out _));
+        }
+
+        #endregion R12 — Value Paren Dispersion + Trailing Unit
     }
 }

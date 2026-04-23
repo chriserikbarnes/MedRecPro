@@ -425,6 +425,22 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// R11 — Pattern for extracting sample size from embedded N=/n= tokens inside
+        /// a <see cref="ParsedObservation.DoseRegimen"/> string. Unlike the caption /
+        /// row-label form (<see cref="_armNFromLabelPattern"/>), this matches bare
+        /// "N=X" without requiring parentheses, since DoseRegimen strings produced by
+        /// section-divider inheritance commonly embed the value inline (e.g.,
+        /// "Adults given 50 mg once daily for 7 days N=12"). Case-insensitive and
+        /// tolerant of optional whitespace around the equals sign and comma-formatted
+        /// integers.
+        /// </summary>
+        /// <seealso cref="applyDoseRegimenArmNFallback"/>
+        private static readonly Regex _doseRegimenArmNPattern = new(
+            @"\b[Nn]\s*=\s*(\d[\d,]*)\b",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
         /// Column 0 header keywords that signal a transposed PK layout where rows carry
         /// PK metric names and columns carry dose levels. These headers are generic
         /// "parameter"-style labels with no unit or dose qualifier.
@@ -1444,6 +1460,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Sanity check: populate ArmN from caption "(N=X)" when parser did not set it
             applyCaptionArmNFallback(table, observations);
 
+            // R11 — Secondary ArmN fallback from DoseRegimen-embedded N= token.
+            // Runs AFTER applyCaptionArmNFallback so caption-level values win.
+            // Per-row null guard also preserves parser-derived ArmN from row labels.
+            applyDoseRegimenArmNFallback(observations);
+
             // R10 — Sibling-unit majority vote. Must run after transposed-layout
             // swap, CI refinement, and ArmN fallback so it sees the final
             // ParameterName / Unit state. Backfills null units from same-name
@@ -2209,6 +2230,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             // (compound layout already derives ArmN from "(n=X)" in row labels when present)
             applyCaptionArmNFallback(table, observations);
 
+            // R11 — Secondary ArmN fallback from DoseRegimen-embedded N= token
+            // (compound path mirror). Runs after caption fallback so caption wins.
+            applyDoseRegimenArmNFallback(observations);
+
             // R10 — Sibling-unit majority vote (compound path mirror). Same
             // guarantees as the standard-path call: same-table only, > 50%
             // majority required, flag PK_UNIT_SIBLING_VOTED on backfilled rows.
@@ -2379,6 +2404,74 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 o.ArmN = captionN;
                 o.ValidationFlags = appendFlag(o.ValidationFlags, $"PK_CAPTION_ARMN_FALLBACK:{captionN}");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Secondary ArmN fallback: when observations have null
+        /// <see cref="ParsedObservation.ArmN"/> and their
+        /// <see cref="ParsedObservation.DoseRegimen"/> string embeds an inline
+        /// "N=X" or "n=X" token, populate ArmN from that value.
+        /// </summary>
+        /// <remarks>
+        /// ## Why this exists
+        /// DoseRegimen values inherited via <c>PK_SECTION_DOSE_APPLIED</c> (R3) and
+        /// similar qualifier-propagation paths commonly carry the study population
+        /// size inline — e.g., *"Age 6-16 given 0.7 mg/kg once daily for 7 days
+        /// N=25"* or *"Adults given 50 mg once daily for 7 days N=12"*. The
+        /// caption-level fallback (<see cref="applyCaptionArmNFallback"/>) does
+        /// not cover these because the N-value appears in the row label, not the
+        /// table title.
+        ///
+        /// ## Ordering guarantee
+        /// This method MUST run AFTER <see cref="applyCaptionArmNFallback"/> so
+        /// caption-derived values win when both sources are present. Per-row null
+        /// guard ensures the parser's own ArmN (from row label <c>(n=X)</c>) is
+        /// also preserved.
+        ///
+        /// ## Safeguards
+        /// - Never overrides an existing ArmN (per-observation null guard).
+        /// - Requires successful <c>int.TryParse</c> after comma strip — malformed
+        ///   values like "N=abc" leave the observation untouched.
+        /// - Appends "PK_DOSE_REGIMEN_ARMN_FALLBACK:{n}" to ValidationFlags for
+        ///   audit trail.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// o.DoseRegimen = "Adults given 50 mg once daily for 7 days N=12";
+        /// applyDoseRegimenArmNFallback(observations);
+        /// // → o.ArmN = 12, ValidationFlags contains "PK_DOSE_REGIMEN_ARMN_FALLBACK:12"
+        /// </code>
+        /// </example>
+        /// <param name="observations">Observations to update in place.</param>
+        /// <seealso cref="applyCaptionArmNFallback"/>
+        /// <seealso cref="_doseRegimenArmNPattern"/>
+        internal static void applyDoseRegimenArmNFallback(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            foreach (var o in observations)
+            {
+                // Only populate when ArmN is currently null — caption + row-label
+                // precedence preserved (both set ArmN before this runs).
+                if (o.ArmN.HasValue)
+                    continue;
+                if (string.IsNullOrWhiteSpace(o.DoseRegimen))
+                    continue;
+
+                var m = _doseRegimenArmNPattern.Match(o.DoseRegimen);
+                if (!m.Success)
+                    continue;
+
+                var raw = m.Groups[1].Value.Replace(",", "");
+                if (!int.TryParse(raw, out var n))
+                    continue;
+
+                o.ArmN = n;
+                o.ValidationFlags = appendFlag(o.ValidationFlags, $"PK_DOSE_REGIMEN_ARMN_FALLBACK:{n}");
             }
 
             #endregion

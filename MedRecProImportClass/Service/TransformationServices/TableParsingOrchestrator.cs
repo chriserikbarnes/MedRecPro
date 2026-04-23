@@ -530,6 +530,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Stage 3.25 quality gate (opt-in): drop rows missing both ArmN and PrimaryValue
             allObservations = dropIncompleteRows(allObservations);
 
+            // Stage 3.35 (R13): Pre-ML PK filter — drop non-analyzable PK rows
+            // before ML scoring / Claude correction / DB write. Other categories
+            // pass through unchanged (troubleshooting data retained until each
+            // category's filter contract is audited individually).
+            reportProgress("Pre-ML PK filter...", 22, tablesProcessed, tableCount);
+            allObservations = dropNonAnalyzablePkRows(allObservations);
+
             // Stage 3.4: ML.NET correction and anomaly scoring
             reportProgress("ML.NET scoring...", 23, tablesProcessed, tableCount);
             allObservations = runMlCorrection(allObservations);
@@ -775,6 +782,79 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return surviving;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 3.35 (R13): Drops PK observations that cannot be analyzed because
+        /// they lack a canonical <see cref="ParsedObservation.ParameterName"/> OR
+        /// carry a text-typed <see cref="ParsedObservation.PrimaryValueType"/>. PK
+        /// analysis requires both a named parameter AND a numeric primary value;
+        /// rows missing either pollute ML training data and downstream compliance
+        /// metrics.
+        /// </summary>
+        /// <remarks>
+        /// ## Scope
+        /// PK-only. Observations with <c>TableCategory != "PK"</c> pass through
+        /// unchanged. Other categories (ADVERSE_EVENT, EFFICACY, DRUG_INTERACTION,
+        /// BMD, TissueRatio, Dosing) retain their rows for troubleshooting until
+        /// each category's filter contract is audited individually.
+        ///
+        /// ## Ordering
+        /// Runs AFTER R11 (ArmN from DoseRegimen) and R12 (ValueParser rescue of
+        /// decimal-paren-SD + trailing-unit-word), so any row those passes
+        /// rescued survives the filter. Runs BEFORE ML correction so the ML
+        /// training set is not biased by Text-typed PK rows.
+        ///
+        /// ## Unconditional
+        /// Unlike <see cref="dropIncompleteRows"/>, this filter is not gated by a
+        /// config flag — it is a hard contract: PK without a parameter name or
+        /// numeric value has no analytical value in any downstream consumer.
+        /// </remarks>
+        /// <param name="observations">Observations to filter.</param>
+        /// <returns>
+        /// A new list containing the surviving observations. Non-PK observations
+        /// are always retained; PK observations are retained only when
+        /// <c>ParameterName</c> is non-empty AND <c>PrimaryValueType</c> is not
+        /// <c>"Text"</c>.
+        /// </returns>
+        /// <seealso cref="dropIncompleteRows"/>
+        /// <seealso cref="runMlCorrection"/>
+        /// <seealso cref="ProcessBatchWithStagesAsync"/>
+        private List<ParsedObservation> dropNonAnalyzablePkRows(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (observations.Count == 0)
+            {
+                return observations;
+            }
+
+            var before = observations.Count;
+
+            // Keep rule: non-PK rows always pass; PK rows require a ParameterName
+            // AND a non-Text PrimaryValueType. Case-insensitive category match to
+            // tolerate any caller variance (e.g., "pk" vs "PK").
+            var kept = observations
+                .Where(o =>
+                    !string.Equals(o.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) ||
+                    (
+                        !string.IsNullOrWhiteSpace(o.ParameterName) &&
+                        !string.Equals(o.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase)
+                    ))
+                .ToList();
+
+            var dropped = before - kept.Count;
+            if (dropped > 0)
+            {
+                _logger.LogInformation(
+                    "Stage 3.35 (R13) pre-ML PK filter dropped {Dropped} non-analyzable rows ({Before} → {After})",
+                    dropped, before, kept.Count);
+            }
+
+            return kept;
 
             #endregion
         }
