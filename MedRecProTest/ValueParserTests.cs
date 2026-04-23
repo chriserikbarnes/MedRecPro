@@ -536,6 +536,52 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("range_to", result.ParseRule);
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// R15.1 — Range now synthesizes <see cref="ParsedValue.PrimaryValue"/> as
+        /// the arithmetic midpoint of the two bounds. Historically this was null,
+        /// causing R13's PK analyzability filter and downstream analyses to treat
+        /// range rows as unusable. The midpoint is a reasonable central-tendency
+        /// proxy; consumers can still inspect LowerBound/UpperBound for the
+        /// actual interval.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R15_1_Range_SynthesizesMidpointAsPrimaryValue()
+        {
+            var result = ValueParser.Parse("10.7 to 273");
+            Assert.AreEqual((10.7 + 273.0) / 2.0, result.PrimaryValue,
+                "PrimaryValue must equal the arithmetic midpoint of the range");
+            Assert.AreEqual("Range", result.PrimaryValueType,
+                "PrimaryValueType must signal that this is a synthesized range midpoint");
+            // Bounds still populated for downstream consumers that want the interval
+            Assert.AreEqual(10.7, result.LowerBound);
+            Assert.AreEqual(273.0, result.UpperBound);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R15.1 — Small tight range (5 to 6) — midpoint = 5.5.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R15_1_Range_TightRange_MidpointCorrect()
+        {
+            var result = ValueParser.Parse("5 to 6");
+            Assert.AreEqual(5.5, result.PrimaryValue);
+            Assert.AreEqual("Range", result.PrimaryValueType);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R15.1 — Decimal bounds (0.58 to 1.45) — midpoint = 1.015.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R15_1_Range_DecimalBounds_MidpointCorrect()
+        {
+            var result = ValueParser.Parse("0.58 to 1.45");
+            Assert.AreEqual(1.015, result.PrimaryValue!.Value, 1e-9);
+            Assert.AreEqual("Range", result.PrimaryValueType);
+        }
+
         #endregion Range Tests
 
         #region Standalone Percent Tests

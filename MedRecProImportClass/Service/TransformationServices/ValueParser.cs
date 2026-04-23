@@ -964,6 +964,18 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Parses range pattern: 10.7 to 273.
         /// </summary>
+        /// <remarks>
+        /// ## R15.1 — PrimaryValue midpoint synthesis
+        /// Ranges carry legitimate numeric bounds but historically left
+        /// <see cref="ParsedValue.PrimaryValue"/> null. Downstream analyses (and
+        /// R13's PK analyzability filter) rely on <c>PrimaryValue</c> as a point
+        /// estimate. The arithmetic midpoint <c>(lower + upper) / 2</c> is used
+        /// as a reasonable central-tendency proxy, paired with
+        /// <c>PrimaryValueType="Range"</c> so downstream consumers can
+        /// distinguish midpoint-synthesized values from true point estimates
+        /// and consult <c>LowerBound</c>/<c>UpperBound</c> when they need the
+        /// actual interval.
+        /// </remarks>
         internal static bool tryParseRange(string text, out ParsedValue result)
         {
             #region implementation
@@ -974,10 +986,19 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (!match.Success)
                 return false;
 
+            var lower = double.Parse(match.Groups[1].Value);
+            var upper = double.Parse(match.Groups[2].Value);
+
             result = new ParsedValue
             {
-                LowerBound = double.Parse(match.Groups[1].Value),
-                UpperBound = double.Parse(match.Groups[2].Value),
+                // R15.1 — synthesize a PrimaryValue as the arithmetic midpoint so
+                // range rows are analyzable downstream (previously PrimaryValue was
+                // always null for ParseRule="range_to", causing the R13 filter and
+                // cross-product analyses to treat them as unusable).
+                PrimaryValue = (lower + upper) / 2.0,
+                PrimaryValueType = "Range",
+                LowerBound = lower,
+                UpperBound = upper,
                 BoundType = "Range",
                 ParseConfidence = ParsedValue.ConfidenceTier.AmbiguousMatch,
                 ParseRule = "range_to"

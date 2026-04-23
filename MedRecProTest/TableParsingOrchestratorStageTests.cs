@@ -561,10 +561,18 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// With the Stage 3.25 quality gate disabled (default), observations missing
-        /// ArmN, missing PrimaryValue, or missing both MUST all survive into
-        /// PostCorrectionObservations. Verifies legacy / backward-compatible behavior.
+        /// With the Stage 3.25 quality gate disabled, observations with populated
+        /// PrimaryValue survive (irrespective of ArmN) but PK rows with null
+        /// PrimaryValue are dropped by the R13+R15.2 hard contract (which is
+        /// independent of the opt-in drop gate).
         /// </summary>
+        /// <remarks>
+        /// ## Semantic evolution
+        /// Pre-R13: all 4 fixture rows survived when the gate was disabled.
+        /// Post-R15.2: PK rows with null PrimaryValue are dropped unconditionally
+        /// (they have no analyzable numeric content). The opt-in gate adds a
+        /// stricter filter on top (requires both ArmN and PrimaryValue populated).
+        /// </remarks>
         /// <seealso cref="TableParsingOrchestrator"/>
         [TestMethod]
         public async Task ProcessBatchWithStagesAsync_DropIncompleteRowsDisabled_KeepsRowsMissingArmNOrPrimaryValue()
@@ -577,21 +585,23 @@ namespace MedRecPro.Service.Test
             var filter = new TableCellContextFilter { TextTableIdRangeStart = 1000, TextTableIdRangeEnd = 1000 };
             var result = await orchestrator.ProcessBatchWithStagesAsync(filter);
 
-            // All four rows survive: null/null, null/value, value/null, and value/value.
-            Assert.AreEqual(4, result.PostCorrectionObservations.Count,
-                "Legacy behavior: all rows must survive when the drop gate is disabled.");
-            Assert.IsTrue(
-                result.PostCorrectionObservations.Any(o => o.ArmN == null && o.PrimaryValue == null),
-                "The null/null row must still be present.");
+            // Fixture has 4 PK rows covering every (ArmN, PrimaryValue) null/value combo.
+            // R15.2's hard contract drops PK rows with null PrimaryValue regardless of
+            // the opt-in drop gate. So only rows with PrimaryValue populated survive:
+            //   - Row 2 (ArmN=null, PrimaryValue=42.0): kept (null PrimaryValue contract
+            //     is not tripped; null ArmN is only enforced by the opt-in gate).
+            //   - Row 4 (ArmN=7, PrimaryValue=42.0): kept (fully populated).
+            Assert.AreEqual(2, result.PostCorrectionObservations.Count,
+                "R15.2 hard contract drops PK rows with null PrimaryValue regardless of the drop gate.");
             Assert.IsTrue(
                 result.PostCorrectionObservations.Any(o => o.ArmN == null && o.PrimaryValue != null),
-                "The null-ArmN / populated-PrimaryValue row must still be present.");
-            Assert.IsTrue(
-                result.PostCorrectionObservations.Any(o => o.ArmN != null && o.PrimaryValue == null),
-                "The populated-ArmN / null-PrimaryValue row must still be present.");
+                "The null-ArmN / populated-PrimaryValue row must survive (opt-in gate is off).");
             Assert.IsTrue(
                 result.PostCorrectionObservations.Any(o => o.ArmN != null && o.PrimaryValue != null),
-                "The fully-populated row must still be present.");
+                "The fully-populated row must survive.");
+            Assert.IsFalse(
+                result.PostCorrectionObservations.Any(o => o.PrimaryValue == null),
+                "No PK row with null PrimaryValue should survive — R15.2 hard contract.");
 
             #endregion
         }
@@ -1045,6 +1055,100 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion R13 — Pre-ML PK Filter Tests
+
+        #region R15 — Null-PrimaryValue Drop + Post-ML Re-run
+
+        /**************************************************************/
+        /// <summary>
+        /// R15.2 — A PK observation with <see cref="ParsedObservation.PrimaryValue"/>
+        /// null must be dropped even when ParameterName is populated and
+        /// PrimaryValueType is not "Text". Covers the ND/NA/dash/empty_or_na rows
+        /// observed in the 2026-04-23 corpus recompute where rows slipped through
+        /// R13's original contract (non-Text type, named param, but no actual
+        /// extractable numeric value).
+        /// </summary>
+        [TestMethod]
+        public async Task R15_2_PkRow_NullPrimaryValue_Dropped()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "PK",
+                ParameterName = "Cmax",
+                PrimaryValueType = "Mean",  // Not Text
+                PrimaryValue = null,         // but no numeric value
+                RawValue = "ND"
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(0, result.PostCorrectionObservations.Count,
+                "PK row with null PrimaryValue must be dropped — no analyzable numeric content.");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R15.2 — A PK row parsed as <c>range_to</c> now has
+        /// <see cref="ParsedValue.PrimaryValue"/> populated (midpoint synthesized
+        /// by R15.1) and survives the extended R13 filter. This is the key
+        /// interaction: R15.1 makes range rows analyzable, so R15.2's null-drop
+        /// contract doesn't accidentally remove legitimate range data.
+        /// </summary>
+        [TestMethod]
+        public async Task R15_2_PkRow_RangeWithSynthesizedMidpoint_Kept()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "PK",
+                ParameterName = "t½",
+                PrimaryValueType = "Range",      // Set by R15.1
+                PrimaryValue = 141.85,            // Midpoint of 10.7 and 273 (R15.1)
+                LowerBound = 10.7,
+                UpperBound = 273.0,
+                BoundType = "Range"
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(1, result.PostCorrectionObservations.Count,
+                "Range row with synthesized midpoint PrimaryValue must survive the filter.");
+            Assert.AreEqual(141.85, result.PostCorrectionObservations[0].PrimaryValue);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R15.2 — Non-PK rows still pass through even when PrimaryValue is null.
+        /// Regression guard on the PK-only scope of the filter.
+        /// </summary>
+        [TestMethod]
+        public async Task R15_2_NonPkRow_NullPrimaryValue_Kept()
+        {
+            var obs = new ParsedObservation
+            {
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+                TableCategory = "ADVERSE_EVENT",
+                ParameterName = "Headache",
+                PrimaryValueType = "Percentage",
+                PrimaryValue = null
+            };
+
+            var (orchestrator, _) = createR13TestOrchestrator(new List<ParsedObservation> { obs });
+            var result = await orchestrator.ProcessBatchWithStagesAsync(
+                new TableCellContextFilter { TextTableIdRangeStart = 2000, TextTableIdRangeEnd = 2000 });
+
+            Assert.AreEqual(1, result.PostCorrectionObservations.Count,
+                "Non-PK categories pass the filter unchanged — null PrimaryValue is only a PK contract.");
+        }
+
+        #endregion R15 — Null-PrimaryValue Drop + Post-ML Re-run
 
         #region PK Time Extraction Tests
 

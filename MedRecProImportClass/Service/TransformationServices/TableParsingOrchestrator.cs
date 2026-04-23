@@ -565,6 +565,17 @@ namespace MedRecProImportClass.Service.TransformationServices
             reportProgress("ML.NET scoring...", 23, tablesProcessed, tableCount);
             allObservations = runMlCorrection(allObservations);
 
+            // Stage 3.45 (R15.3): Post-ML PK filter re-run. Defense-in-depth against
+            // the known R9 ML.NET classifier bug where non-PK rows (e.g., HSV
+            // mutation tables) are erroneously CATEGORY_CORRECTED to PK. Those rows
+            // pass through Stage 3.35 untouched (their pre-ML tableCategory was
+            // non-PK), then ML flips their inner tableCategory to PK. Re-applying
+            // the same analyzability contract here catches them before Claude
+            // correction or DB write. Pre-ML 3.35 stays in place so the ML training
+            // input is clean.
+            reportProgress("Post-ML PK filter re-run...", 24, tablesProcessed, tableCount);
+            allObservations = dropNonAnalyzablePkRows(allObservations);
+
             // Stage 3.5: Claude AI Correction (25% → 95%)
             reportProgress("Claude AI correction...", 25, tablesProcessed, tableCount);
             allObservations = await runClaudeCorrectionAsync(allObservations, tables, reportProgress, tablesProcessed, tableCount, result, ct);
@@ -859,12 +870,14 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Stage 3.35 (R13): Drops PK observations that cannot be analyzed because
-        /// they lack a canonical <see cref="ParsedObservation.ParameterName"/> OR
-        /// carry a text-typed <see cref="ParsedObservation.PrimaryValueType"/>. PK
-        /// analysis requires both a named parameter AND a numeric primary value;
-        /// rows missing either pollute ML training data and downstream compliance
-        /// metrics.
+        /// R13 (Stage 3.35) + R15.3 (Stage 3.45): Drops PK observations that cannot
+        /// be analyzed — either because they lack a canonical
+        /// <see cref="ParsedObservation.ParameterName"/>, carry a text-typed
+        /// <see cref="ParsedObservation.PrimaryValueType"/>, or have no populated
+        /// <see cref="ParsedObservation.PrimaryValue"/>. PK analysis requires all
+        /// three: a named parameter AND a numeric value type AND an extractable
+        /// primary value. Rows missing any of the three pollute ML training data
+        /// and downstream compliance metrics.
         /// </summary>
         /// <remarks>
         /// ## Scope
@@ -873,23 +886,33 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// BMD, TissueRatio, Dosing) retain their rows for troubleshooting until
         /// each category's filter contract is audited individually.
         ///
-        /// ## Ordering
-        /// Runs AFTER R11 (ArmN from DoseRegimen) and R12 (ValueParser rescue of
-        /// decimal-paren-SD + trailing-unit-word), so any row those passes
-        /// rescued survives the filter. Runs BEFORE ML correction so the ML
-        /// training set is not biased by Text-typed PK rows.
+        /// ## Ordering — called TWICE
+        /// - **Stage 3.35 (pre-ML)**: runs after R11/R12/R15.1 parser rescues so
+        ///   rescued rows survive; runs before ML correction so the ML training
+        ///   input is clean of Text-typed / null-PrimaryValue PK rows.
+        /// - **Stage 3.45 (post-ML, R15.3)**: defense-in-depth against the known
+        ///   R9 ML.NET classifier bug where non-PK rows (HSV mutation tables,
+        ///   AE observations, etc.) are erroneously CATEGORY_CORRECTED to PK.
+        ///   The pre-ML pass cannot catch these because their pre-ML
+        ///   <c>TableCategory</c> was non-PK.
+        ///
+        /// ## Filter condition (R13 + R15.2)
+        /// Drop if: <c>TableCategory == "PK"</c> AND (<c>ParameterName IS NULL</c>
+        /// OR <c>PrimaryValueType == "Text"</c> OR <c>PrimaryValue IS NULL</c>).
+        /// The <c>PrimaryValue</c> null check catches ND/NA/dash rows parsed as
+        /// <c>ParseRule="empty_or_na"</c> that have a non-Text PrimaryValueType
+        /// but no actual numeric content.
         ///
         /// ## Unconditional
         /// Unlike <see cref="dropIncompleteRows"/>, this filter is not gated by a
-        /// config flag — it is a hard contract: PK without a parameter name or
-        /// numeric value has no analytical value in any downstream consumer.
+        /// config flag — it is a hard contract: PK without a parameter name,
+        /// numeric value type, and extractable value has no analytical utility.
         /// </remarks>
         /// <param name="observations">Observations to filter.</param>
         /// <returns>
         /// A new list containing the surviving observations. Non-PK observations
-        /// are always retained; PK observations are retained only when
-        /// <c>ParameterName</c> is non-empty AND <c>PrimaryValueType</c> is not
-        /// <c>"Text"</c>.
+        /// are always retained; PK observations are retained only when all three
+        /// analyzability criteria are met.
         /// </returns>
         /// <seealso cref="dropIncompleteRows"/>
         /// <seealso cref="runMlCorrection"/>
@@ -905,15 +928,19 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var before = observations.Count;
 
-            // Keep rule: non-PK rows always pass; PK rows require a ParameterName
-            // AND a non-Text PrimaryValueType. Case-insensitive category match to
-            // tolerate any caller variance (e.g., "pk" vs "PK").
+            // Keep rule: non-PK rows always pass; PK rows require:
+            //   - ParameterName populated
+            //   - PrimaryValueType != "Text"
+            //   - PrimaryValue populated (R15.2 — catches ND/NA/dash/empty_or_na rows
+            //     that have non-Text PrimaryValueType but no analyzable value)
+            // Case-insensitive category match to tolerate caller variance ("pk" / "PK").
             var kept = observations
                 .Where(o =>
                     !string.Equals(o.TableCategory, "PK", StringComparison.OrdinalIgnoreCase) ||
                     (
                         !string.IsNullOrWhiteSpace(o.ParameterName) &&
-                        !string.Equals(o.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase)
+                        !string.Equals(o.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase) &&
+                        o.PrimaryValue.HasValue
                     ))
                 .ToList();
 
@@ -921,7 +948,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (dropped > 0)
             {
                 _logger.LogInformation(
-                    "Stage 3.35 (R13) pre-ML PK filter dropped {Dropped} non-analyzable rows ({Before} → {After})",
+                    "R13/R15 PK analyzability filter dropped {Dropped} non-analyzable rows ({Before} → {After})",
                     dropped, before, kept.Count);
             }
 

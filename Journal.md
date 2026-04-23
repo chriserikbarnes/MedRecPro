@@ -2885,6 +2885,54 @@ After the second recompute validates R14, only Wave 3 R9 (ML.NET loader diagnosi
 
 ---
 
+### 2026-04-23 1:58 PM EST — PK Table Parsing: Iter9.75 R15 Null-PrimaryValue Resolution
+Second corpus recompute (`standardization-report-20260423-125637.jsonl`) surfaced a distinct class of issue not previously caught: PK rows still being emitted with `PrimaryValue=NULL`. User-provided example audit showed three clear shapes requiring three targeted fixes. Shipped R15 as a bundle. Build clean, test suite 1,649 → **1,695 / 1,695 passing** (+46; zero regressions).
+
+**Problem analysis from the example rows**:
+
+Three distinct null-PrimaryValue patterns:
+
+1. **~30 rows with `ParseRule="range_to"`** — RawValue like `"10.7 to 273"`, `"5.8 to 8.7"`, `"0.58 to 1.45"`. The existing `ValueParser.tryParseRange` method populated `LowerBound`/`UpperBound`/`BoundType="Range"` but never `PrimaryValue`. These rows carry genuine numeric interval data from the source tables (e.g., TID 43 t½ CV range, TID 33853 CL range for Amlodipine, TID 6581 AUC ranges for various DDI probes). R13's filter let them through (non-Text PrimaryValueType) but downstream point-estimate analyses couldn't use them.
+
+2. **~100+ rows with `ParseRule="empty_or_na"`** — RawValue in the dash/NA/ND family: `ND`, `NA`, `NC`, `NR`, `N/A`, `-`, `--`, `–`, `—`, `n/a`. These are source cells where the drug label literally wrote "not determined" or equivalent. The parser correctly classified them as excluded, but R13's original contract only checked `ParameterName` and `PrimaryValueType` — it didn't explicitly check `PrimaryValue IS NULL`. These rows had non-Text PrimaryValueType (null actually), so they slipped through. Massive number of TIDs affected: 588, 3563-3566, 4249, 12688, 12887, 16953, 17940, 19240, 27711, 29978 (many rows), 31672, 31673, 31674, 35336, 35700, 35832, 37482, 37485, 39591, 39618, 40136, 40670, 41082, 41259, 42068, 42145, 42421, 42461, 43110, 43224 (many rows), 43409, 44781, 45222, 45539 (many rows), 46103, 46277, 46351.
+
+3. **~8 rows in TID 28853 (HSV mutation table)** with `PrimaryValueType="Text"` and `MLNET:CATEGORY_CORRECTED:PK:0.99`. Diagnosis: this table was originally NOT categorized as PK (it's a viral resistance-mutation table for Valacyclovir). ML.NET's broken classifier (R9 bug) category-corrected it TO PK with 99% confidence AFTER the pre-ML Stage 3.35 R13 filter had already run. The post-ML rows show up as PK in the inner `observation.tableCategory` but nothing re-checked the analyzability contract after ML corrupted the tag.
+
+**R15.1 implementation (range midpoint synthesis)**: In `ValueParser.cs`'s `tryParseRange`, also populate `PrimaryValue = (lower + upper) / 2.0` and set `PrimaryValueType = "Range"`. The midpoint is a defensible central-tendency proxy for most PK ranges — it lets cross-product analyses include range rows as point estimates without losing the interval data (`LowerBound`/`UpperBound` unchanged). `PrimaryValueType="Range"` explicitly signals this is synthesized so consumers that need strict point estimates can filter it out. Example: `"10.7 to 273"` → `PrimaryValue=141.85, LowerBound=10.7, UpperBound=273.0, BoundType="Range", PrimaryValueType="Range"`.
+
+**R15.2 implementation (PK null-PrimaryValue drop)**: Extended `dropNonAnalyzablePkRows` filter in `TableParsingOrchestrator.cs`. Added a third condition: PK rows must also have `PrimaryValue.HasValue`. Keep-rule is now: NOT-PK, OR (ParameterName populated AND PrimaryValueType ≠ "Text" AND PrimaryValue.HasValue). Crucially, R15.1 runs before R15.2 in the pipeline, so range rows now have PrimaryValue populated and survive the new null-drop. Empty/NA rows (all three fields null or non-extractable) get dropped.
+
+**R15.3 implementation (post-ML defense-in-depth)**: Added Stage 3.45 as a second invocation of `dropNonAnalyzablePkRows`, inserted immediately AFTER `runMlCorrection` (Stage 3.4) and before Claude correction (Stage 3.5). Same method, same filter, just called twice. Rationale: the pre-ML Stage 3.35 run cannot catch rows like the HSV mutation table — their pre-ML `TableCategory` was non-PK, so R13 passed them through, then ML.NET flipped the inner tag to PK. The post-ML re-run reapplies the analyzability contract to the updated tableCategory labels. Log message generalized from "Stage 3.35 (R13) pre-ML PK filter..." to "R13/R15 PK analyzability filter..." since the method now runs at two stages. Docstring updated to document both invocations.
+
+**Tests — +6 explicit + 1 test updated**:
+- `ValueParserTests.cs` Range region: 3 new tests for R15.1 midpoint synthesis (basic 10.7→273→141.85, tight 5→6→5.5, decimal 0.58→1.45→1.015). The existing `Parse_Range_ReturnsBounds` continued to pass unchanged (no asserts on PrimaryValue).
+- `TableParsingOrchestratorStageTests.cs` new region `R15 — Null-PrimaryValue Drop + Post-ML Re-run`: 3 new tests — PK null-PrimaryValue dropped, range with synthesized midpoint kept (the critical interaction between R15.1 and R15.2), non-PK null-PrimaryValue kept (regression guard on PK-only scope).
+- `TableParsingOrchestratorStageTests.cs` `ProcessBatchWithStagesAsync_DropIncompleteRowsDisabled_KeepsRowsMissingArmNOrPrimaryValue` was updated. The existing fixture has 4 rows covering every (ArmN, PrimaryValue) null/value combination. Pre-R15.2, all 4 survived when the opt-in drop gate was disabled. Post-R15.2, the 2 rows with null PrimaryValue are dropped unconditionally by the hard contract, so only 2 rows survive. Updated test assertions and docstring to reflect the new semantic (R15.2 is unconditional; the gate adds stricter filtering on top).
+
+**Test-suite delta**: 1,649 → **1,695 / 1,695 passing** (+46; zero regressions). The +46 is larger than the 6 explicit new tests because DataRow-based parameterized tests expand to multiple test cases in the runner; the absolute baseline shifted proportionally.
+
+**Issue encountered + resolved during development**: First full test run had 1 failure in the pre-existing `ProcessBatchWithStagesAsync_DropIncompleteRowsDisabled_KeepsRowsMissingArmNOrPrimaryValue`. Expected 4 survivors, got 2. Root cause: R15.2's new null-PrimaryValue filter drops 2 of the 4 fixture rows (the ones with null PrimaryValue) regardless of the opt-in drop gate setting. This is intended semantics — the test's contract needed updating. Revised assertions + docstring to document the new behavior: the hard contract (R13/R15.2) supersedes the opt-in drop gate for PK rows.
+
+**Companion change noted**: the user mentioned that a dedupe-by-innovator filter was added upstream ahead of this session to eliminate bioequivalent-ANDA duplicates where multiple labels reference the same innovator drug. The file-modification system reminder showed `IBioequivalentLabelDedupService? _bioequivalentDedup` field added to `TableParsingOrchestrator`'s constructor. Not part of R15; orthogonal change co-shipping. Will further reduce duplicated PK observations in the third recompute independently of R15's null-PrimaryValue work.
+
+**Expected third-recompute outcomes**:
+- Range rows (TIDs 43, 6581, 33853, 8197, 12261, 15346, 18610, 31869, 40162, 40163, 43422, 45483, etc.): `PrimaryValue` now populated with midpoint. `PrimaryValueType="Range"`. Row count unchanged — these become analyzable instead of being ignored.
+- Empty/NA rows (TIDs 588, 12887, 16953, 17940, 27711, 29978, 35832, 43224, 45539, etc. — the full list is ~100+ rows): dropped from PK output.
+- HSV mutation rows in TID 28853: dropped via the new Stage 3.45 post-ML filter.
+- Top-line metric: **zero PK rows with `PrimaryValue=NULL` in output** (the definitive contract alignment the user asked for).
+- Bioequivalent dedup may independently reduce the total row count by collapsing ANDA duplicates to their innovator.
+
+**Files modified**:
+- `MedRecProImportClass/Service/TransformationServices/ValueParser.cs` — modified `tryParseRange` (R15.1)
+- `MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs` — extended `dropNonAnalyzablePkRows` filter (R15.2); added Stage 3.45 call site + updated log message + updated docstring (R15.3)
+- `MedRecProTest/ValueParserTests.cs` — +3 R15.1 tests
+- `MedRecProTest/TableParsingOrchestratorStageTests.cs` — +3 R15 tests, 1 existing test updated
+- `C:/Users/chris/.claude/plans/PK Table Parsing Compliance Master Remediation Plan.md` — Iteration 9.75 section added; shipped-items table + test counts + handoff header updated
+
+After the third recompute confirms R14+R15 outcomes (expected zero PK rows with null PrimaryValue), only Wave 3 R9 (ML.NET loader diagnosis) remains on the master remediation plan. R15.3's post-ML re-run masks the most visible symptom of R9 (category-corrupted Text rows reaching output) but doesn't fix the underlying classifier — R9 work will still be needed to stop the wrong-direction CATEGORY_CORRECTED flips at their source.
+
+---
+
 ### 2026-04-23 12:54 PM EST — Bioequivalent ANDA Label Dedup Filter (Stage 0)
 
 Added a pre-parse filter that collapses multiple ANDA labels (and their repackager relabelings) referencing the same innovator down to one canonical DocumentGUID per bioequivalent group. Root issue: a single published PK value like Losartan AUC0-24 = 1685 ± 452 was appearing 40+ times in `tmp_FlattenedStandardizedTable` across ~10 ANDAs × multiple repackagers (Bryant Ranch, A-S Medication Solutions, REMEDYREPACK, PD-Rx, QPharma, Cardinal, Major, Novadoz, Aurobindo, Lupin, Macleods, Zydus, …), inflating aggregate signal by pure duplication.
