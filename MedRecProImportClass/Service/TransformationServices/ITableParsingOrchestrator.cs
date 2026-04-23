@@ -41,6 +41,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="rowProgress">Optional per-table progress callback for UI updates within each batch.</param>
+        /// <param name="disableBioequivalentDedup">When true, skip the bioequivalent-ANDA dedup filter and
+        /// process every discovered DocumentGUID. Default false — dedup is on when an
+        /// <see cref="IBioequivalentLabelDedupService"/> is registered.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Total number of observations written.</returns>
         Task<int> ProcessAllAsync(
@@ -49,6 +52,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             int? resumeFromId = null,
             int? maxBatches = null,
             IProgress<TransformBatchProgress>? rowProgress = null,
+            bool disableBioequivalentDedup = false,
             CancellationToken ct = default);
 
         /**************************************************************/
@@ -79,6 +83,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="rowProgress">Optional per-table progress callback for UI updates within each batch.</param>
+        /// <param name="disableBioequivalentDedup">When true, skip the bioequivalent-ANDA dedup filter and
+        /// process every discovered DocumentGUID. Default false — dedup is on when an
+        /// <see cref="IBioequivalentLabelDedupService"/> is registered.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Validation report with coverage metrics, row/table issues, and concordance checks.</returns>
         Task<BatchValidationReport> ProcessAllWithValidationAsync(
@@ -87,6 +94,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             int? resumeFromId = null,
             int? maxBatches = null,
             IProgress<TransformBatchProgress>? rowProgress = null,
+            bool disableBioequivalentDedup = false,
             CancellationToken ct = default);
 
         /**************************************************************/

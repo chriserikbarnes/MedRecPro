@@ -104,6 +104,15 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private readonly bool _dropRowsMissingArmNOrPrimaryValue;
 
+        /**************************************************************/
+        /// <summary>
+        /// Optional Stage 0 bioequivalent-label dedup filter. When non-null and
+        /// <c>disableBioequivalentDedup</c> is false, the UNII-ordered document list
+        /// is pruned to one canonical label per (Ingredient, DosageForm, Route) group
+        /// before batching begins.
+        /// </summary>
+        private readonly IBioequivalentLabelDedupService? _bioequivalentDedup;
+
         #endregion Fields
 
         #region Constructor
@@ -126,6 +135,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <see cref="ParsedObservation.ArmN"/> and <see cref="ParsedObservation.PrimaryValue"/>
         /// null are dropped at the end of Stage 3.25. Default false preserves legacy behavior.
         /// </param>
+        /// <param name="bioequivalentDedup">
+        /// Optional Stage 0 filter that prunes bioequivalent-ANDA duplicates from the
+        /// UNII-ordered document list before Stage 1 begins. When null, no dedup is
+        /// applied (legacy behavior). When non-null, used by
+        /// <see cref="ProcessAllAsync"/> and <see cref="ProcessAllWithValidationAsync"/>
+        /// unless the caller passes <c>disableBioequivalentDedup: true</c>.
+        /// </param>
         public TableParsingOrchestrator(
             ITableReconstructionService reconstructionService,
             ITableCellContextService cellContextService,
@@ -136,7 +152,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             IColumnStandardizationService? columnStandardizer = null,
             IMlNetCorrectionService? mlNetCorrectionService = null,
             IClaudeApiCorrectionService? correctionService = null,
-            bool dropRowsMissingArmNOrPrimaryValue = false)
+            bool dropRowsMissingArmNOrPrimaryValue = false,
+            IBioequivalentLabelDedupService? bioequivalentDedup = null)
         {
             #region implementation
 
@@ -150,6 +167,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _mlNetCorrectionService = mlNetCorrectionService;
             _correctionService = correctionService;
             _dropRowsMissingArmNOrPrimaryValue = dropRowsMissingArmNOrPrimaryValue;
+            _bioequivalentDedup = bioequivalentDedup;
 
             // Bulk-insert only — no read-modify-write — so change detection is pure overhead.
             // Paired with explicit Clear() after SaveChanges so the tracker never grows.
@@ -202,6 +220,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             int? resumeFromId = null,
             int? maxBatches = null,
             IProgress<TransformBatchProgress>? rowProgress = null,
+            bool disableBioequivalentDedup = false,
             CancellationToken ct = default)
         {
             #region implementation
@@ -219,8 +238,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // UNII-ordered document batching: process documents grouped by active ingredient
             // so the ML training accumulator gets concentrated product data per batch
-            var orderedGuids = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
-            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuids.Count);
+            var orderedGuidsRaw = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
+            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuidsRaw.Count);
+
+            var orderedGuids = await applyBioequivalentDedupAsync(orderedGuidsRaw, disableBioequivalentDedup, ct);
 
             var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
             if (maxBatches.HasValue)
@@ -356,6 +377,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             int? resumeFromId = null,
             int? maxBatches = null,
             IProgress<TransformBatchProgress>? rowProgress = null,
+            bool disableBioequivalentDedup = false,
             CancellationToken ct = default)
         {
             #region implementation
@@ -379,8 +401,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // UNII-ordered document batching: process documents grouped by active ingredient
             // so the ML training accumulator gets concentrated product data per batch
-            var orderedGuids = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
-            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuids.Count);
+            var orderedGuidsRaw = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
+            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuidsRaw.Count);
+
+            var orderedGuids = await applyBioequivalentDedupAsync(orderedGuidsRaw, disableBioequivalentDedup, ct);
 
             var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
             if (maxBatches.HasValue)
@@ -589,6 +613,53 @@ namespace MedRecProImportClass.Service.TransformationServices
                 await _mlNetCorrectionService.InitializeAsync(ct);
                 _mlNetInitialized = true;
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Runs the Stage 0 bioequivalent-label dedup filter over the UNII-ordered
+        /// document list. Returns the input unchanged when the service is not
+        /// registered or when <paramref name="disable"/> is true.
+        /// </summary>
+        /// <param name="orderedGuids">Documents in UNII walk order from Stage 0.</param>
+        /// <param name="disable">When true, bypass dedup and return the input list
+        /// (preserving materialized-List semantics expected by the downstream batch loop).</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>The filtered or unfiltered list, always materialized as a <see cref="List{Guid}"/>
+        /// so the caller can safely index into it.</returns>
+        /// <seealso cref="IBioequivalentLabelDedupService"/>
+        private async Task<List<Guid>> applyBioequivalentDedupAsync(
+            List<Guid> orderedGuids,
+            bool disable,
+            CancellationToken ct)
+        {
+            #region implementation
+
+            if (_bioequivalentDedup == null)
+            {
+                _logger.LogDebug("Bioequivalent dedup service not registered — skipping filter");
+                return orderedGuids;
+            }
+            if (disable)
+            {
+                _logger.LogInformation("Bioequivalent dedup disabled by caller — processing {Count} documents unfiltered", orderedGuids.Count);
+                return orderedGuids;
+            }
+
+            var result = await _bioequivalentDedup.DeduplicateAsync(orderedGuids, options: null, ct);
+
+            _logger.LogInformation(
+                "Bioequivalent dedup: kept {Kept}/{Input} documents ({Groups} groups, {Unclass} unclassifiable dropped)",
+                result.KeptDocumentGuids.Count,
+                orderedGuids.Count,
+                result.GroupCount,
+                result.UnclassifiableCount);
+
+            // The dedup service already preserves input order; materialize to a List
+            // so the batch loop can Skip/Take efficiently.
+            return result.KeptDocumentGuids.ToList();
 
             #endregion
         }

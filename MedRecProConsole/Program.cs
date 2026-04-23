@@ -396,13 +396,15 @@ namespace MedRecProConsole
                     disableClaude: cmdArgs.NoClaude,
                     dropRowsMissingArmNOrPrimaryValue: dropIncomplete,
                     reportSink: reportSink,
-                    jsonSink: jsonSink),
+                    jsonSink: jsonSink,
+                    disableBioequivalentDedup: cmdArgs.NoDedupBioequivalent),
                 "validate" => await service.ExecuteValidateAsync(
                     connectionString, batchSize, cmdArgs.VerboseMode, cmdArgs.QuietMode,
                     disableClaude: cmdArgs.NoClaude,
                     dropRowsMissingArmNOrPrimaryValue: dropIncomplete,
                     reportSink: reportSink,
-                    jsonSink: jsonSink),
+                    jsonSink: jsonSink,
+                    disableBioequivalentDedup: cmdArgs.NoDedupBioequivalent),
                 "truncate" => await service.ExecuteTruncateAsync(
                     connectionString, cmdArgs.QuietMode),
                 "parse-single" => await service.ExecuteParseSingleAsync(

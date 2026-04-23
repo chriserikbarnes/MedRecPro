@@ -2884,3 +2884,36 @@ In `PkTableParser._nonDrugNegativeList`, added 4 new entries: `"Exposure"`, `"Ex
 After the second recompute validates R14, only Wave 3 R9 (ML.NET loader diagnosis) remains on the master remediation plan.
 
 ---
+
+### 2026-04-23 12:54 PM EST — Bioequivalent ANDA Label Dedup Filter (Stage 0)
+
+Added a pre-parse filter that collapses multiple ANDA labels (and their repackager relabelings) referencing the same innovator down to one canonical DocumentGUID per bioequivalent group. Root issue: a single published PK value like Losartan AUC0-24 = 1685 ± 452 was appearing 40+ times in `tmp_FlattenedStandardizedTable` across ~10 ANDAs × multiple repackagers (Bryant Ranch, A-S Medication Solutions, REMEDYREPACK, PD-Rx, QPharma, Cardinal, Major, Novadoz, Aurobindo, Lupin, Macleods, Zydus, …), inflating aggregate signal by pure duplication.
+
+**Design decisions (captured via AskUserQuestion during planning)**:
+- Group key: `Ingredient + DosageForm + Route` from Orange Book (all strengths collapse — one ANDA label typically covers all strengths of a drug product).
+- Selection priority: NDA preferred over ANDA; within the chosen tier pick the DocumentGUID with the most recent `LabelEffectiveDate`, tie-breaking on higher `VersionNumber` then lower DocumentGUID (ordinal).
+- Unclassifiable handling: drop DocumentGUIDs that can't be resolved to an Orange Book (ApplType, ApplNo) pair. Three distinct reason codes: `no_application_number`, `unrecognized_prefix`, `no_orange_book_match`.
+- Default: on. Bypass via `--no-dedup-bioequivalent` on the CLI (applies to `parse` and `validate` modes).
+
+**Where the filter lives**: `TableParsingOrchestrator.ProcessAllAsync` and `ProcessAllWithValidationAsync` invoke the new service between `GetDocumentGuidsOrderedByUniiAsync` and the batch loop. `ExecuteParseWithStagesAsync` has its own batch loop so it resolves the service from `ctx.Scope.ServiceProvider` and applies dedup inline. UNII walk-order is preserved in the kept subset — important because the ML anomaly-model key accumulator relies on UNII locality for training data.
+
+**New files**:
+- `MedRecProImportClass/Helpers/ApplicationNumberParser.cs` — centralized NDA/ANDA prefix strip + normalize (`TryParse` for classification, `ExtractNumeric` for the existing Tier-2 fallback behavior). The OrangeBookProductParsingService still uses its own inline version; refactoring that matcher was deferred to avoid regression risk.
+- `MedRecProImportClass/Service/TransformationServices/IBioequivalentLabelDedupService.cs` — interface, `BioequivalentDedupOptions`, `BioequivalentDedupResult`, `DroppedDocument` record, `AndaSelectionStrategy` enum.
+- `MedRecProImportClass/Service/TransformationServices/BioequivalentLabelDedupService.cs` — implementation. Two DB round-trips: one against `vw_ProductsByLabeler` keyed on DocumentGUID, one against `OrangeBookProduct` keyed on the candidate (ApplType, ApplNo) set. In-memory grouping + tier-selection after that.
+
+**Files modified**:
+- `MedRecProImportClass/Service/TransformationServices/ITableParsingOrchestrator.cs` — added `disableBioequivalentDedup` parameter to both `ProcessAllAsync` and `ProcessAllWithValidationAsync`.
+- `MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs` — new optional `IBioequivalentLabelDedupService` constructor parameter, new `applyBioequivalentDedupAsync` helper, both `ProcessAll*` methods call it.
+- `MedRecProConsole/Services/TableStandardizationService.cs` — `ExecuteParseAsync` / `ExecuteValidateAsync` / `ExecuteParseWithStagesAsync` each gained `disableBioequivalentDedup` parameter; `buildServiceProvider` registers `IBioequivalentLabelDedupService` and wires it into the orchestrator factory.
+- `MedRecProConsole/Models/CommandLineArgs.cs` — `NoDedupBioequivalent` property, `--no-dedup-bioequivalent` parse branch, validation requiring `--standardize-tables parse` or `validate`.
+- `MedRecProConsole/Program.cs` — `runStandardizeTablesModeAsync` flows `cmdArgs.NoDedupBioequivalent` to the service.
+
+**Test coverage** — 40 new MSTest cases, all pass; all 1689 tests in the solution still green:
+- `ApplicationNumberParserTests` (19 tests) — NDA/ANDA recognition, whitespace trimming, case normalization, prefix-only failures, Tier-2 `ExtractNumeric` fallback.
+- `BioequivalentLabelDedupServiceTests` (14 tests, SQLite in-memory with manual `CREATE TABLE vw_ProductsByLabeler` since the entity is `ToView`-registered and excluded from `GenerateCreateScript` output) — NDA-over-ANDA preference, most-recent-label selection, repackager collapse, tie-breakers, three unclassifiable reasons, `DropUnclassifiable=false` opt-out, input-order preservation, combination products, dosage-form boundaries, whitespace normalization in both ApplicationNumber and Orange Book strings, result-metric population, null/empty input.
+- `TableParsingOrchestratorDedupIntegrationTests` (4 tests with Moq) — filter applied before batching, `disableBioequivalentDedup: true` skips the service entirely, null-service backward compatibility, order preservation across batches.
+
+**Expected operational impact**: For Losartan (no NDA in DB, all ANDAs), the filter collapses ~40+ rows for PrimaryValue=1685 to exactly 1 row — the DocumentGUID with the most recent `LabelEffectiveDate` in the bioequivalent group. Truncate + re-parse required for the filter to take effect on existing data (no back-migration). For drugs where the innovator NDA is present, all ANDA and repackager labels for that ingredient/dosage-form/route are skipped entirely.
+
+---

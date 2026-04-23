@@ -1,6 +1,7 @@
 ﻿USE MedRecLocal
 
 SELECT  [TextTableID]
+    ,[DocumentGUID]
     ,[TableCategory]
 	,[ParameterName]
 	,[ParameterCategory]
@@ -24,7 +25,7 @@ SELECT  [TextTableID]
 	,[ParseRule]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where TableCategory = 'PK'-- and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
+where TableCategory = 'PK' --and PrimaryValue = 1685 -- and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
 order by TableCategory
 --Where PValue is not null
 --where ArmN is not null and PrimaryValue is not null
@@ -69,7 +70,7 @@ SELECT
         [ValidationFlags]
     FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS JsonLine
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-WHERE TableCategory = 'PK' and TextTableID < 18000
+WHERE TableCategory = 'PK' and  PrimaryValue is null
 ORDER BY [TextTableID];
 
 PRINT @header;

@@ -292,7 +292,8 @@ namespace MedRecProConsole.Services
         /// <seealso cref="ITableParsingOrchestrator.ProcessAllAsync"/>
         public async Task<int> ExecuteParseAsync(string connectionString, int batchSize, bool verbose, bool quiet,
             bool disableClaude = false, bool dropRowsMissingArmNOrPrimaryValue = false,
-            MarkdownReportSink? reportSink = null, JsonReportSink? jsonSink = null)
+            MarkdownReportSink? reportSink = null, JsonReportSink? jsonSink = null,
+            bool disableBioequivalentDedup = false)
         {
             #region implementation
 
@@ -367,7 +368,9 @@ namespace MedRecProConsole.Services
 
                         totalObs = await ctx.Orchestrator.ProcessAllAsync(
                             batchSize, batchProgress, ctx.ResumeFromId,
-                            rowProgress: rowProgress, ct: ctx.Cts.Token);
+                            rowProgress: rowProgress,
+                            disableBioequivalentDedup: disableBioequivalentDedup,
+                            ct: ctx.Cts.Token);
 
                         task.Value = 100;
                         task.Description = $"Complete: {totalObs:N0} observations";
@@ -417,7 +420,8 @@ namespace MedRecProConsole.Services
             StageDetailLevel detailLevel = StageDetailLevel.None,
             bool dropRowsMissingArmNOrPrimaryValue = false,
             MarkdownReportSink? reportSink = null,
-            JsonReportSink? jsonSink = null)
+            JsonReportSink? jsonSink = null,
+            bool disableBioequivalentDedup = false)
         {
             #region implementation
 
@@ -449,7 +453,23 @@ namespace MedRecProConsole.Services
 
                         // UNII-ordered document batching: process documents grouped by active ingredient
                         // so the ML training accumulator gets concentrated product data per batch
-                        var orderedGuids = await ctx.CellContextService.GetDocumentGuidsOrderedByUniiAsync(ctx.Cts.Token);
+                        var orderedGuidsRaw = await ctx.CellContextService.GetDocumentGuidsOrderedByUniiAsync(ctx.Cts.Token);
+
+                        // Stage 0: bioequivalent-ANDA dedup. This method drives its own batch loop,
+                        // so the dedup service is resolved from DI here rather than relying on the
+                        // orchestrator's internal filter.
+                        var orderedGuids = orderedGuidsRaw;
+                        if (!disableBioequivalentDedup)
+                        {
+                            var dedupService = ctx.Scope.ServiceProvider.GetService<IBioequivalentLabelDedupService>();
+                            if (dedupService != null)
+                            {
+                                var dedupResult = await dedupService.DeduplicateAsync(
+                                    orderedGuidsRaw, options: null, ctx.Cts.Token);
+                                orderedGuids = dedupResult.KeptDocumentGuids.ToList();
+                            }
+                        }
+
                         var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
                         if (maxBatches.HasValue)
                             totalBatches = Math.Min(totalBatches, maxBatches.Value);
@@ -575,7 +595,8 @@ namespace MedRecProConsole.Services
             int? maxBatches = null, bool disableClaude = false,
             bool dropRowsMissingArmNOrPrimaryValue = false,
             MarkdownReportSink? reportSink = null,
-            JsonReportSink? jsonSink = null)
+            JsonReportSink? jsonSink = null,
+            bool disableBioequivalentDedup = false)
         {
             #region implementation
 
@@ -651,7 +672,9 @@ namespace MedRecProConsole.Services
 
                         report = await ctx.Orchestrator.ProcessAllWithValidationAsync(
                             batchSize, batchProgress, ctx.ResumeFromId, maxBatches,
-                            rowProgress: rowProgress, ct: ctx.Cts.Token);
+                            rowProgress: rowProgress,
+                            disableBioequivalentDedup: disableBioequivalentDedup,
+                            ct: ctx.Cts.Token);
 
                         task.Value = 100;
                         task.Description = $"Complete: {report.TotalObservations:N0} observations validated";
@@ -947,6 +970,11 @@ namespace MedRecProConsole.Services
                     trainingStore: sp.GetRequiredService<IMlTrainingStore>(),
                     claudeSettings: sp.GetRequiredService<IOptions<ClaudeApiCorrectionSettings>>().Value));
 
+            // Stage 0: Bioequivalent-ANDA label dedup (prunes the document set before Stage 1).
+            // Registered unconditionally — callers can disable at call time via the
+            // disableBioequivalentDedup parameter on Execute*/ProcessAll* methods.
+            services.AddScoped<IBioequivalentLabelDedupService, BioequivalentLabelDedupService>();
+
             // Orchestrator — IBatchValidationService and IClaudeApiCorrectionService are optional (nullable constructor params).
             // Use an explicit factory so we can forward the Stage 3.25 quality gate flag
             // to the orchestrator's constructor. sp.GetService<T>() returns null for services
@@ -962,7 +990,8 @@ namespace MedRecProConsole.Services
                 columnStandardizer: sp.GetService<IColumnStandardizationService>(),
                 mlNetCorrectionService: sp.GetService<IMlNetCorrectionService>(),
                 correctionService: sp.GetService<IClaudeApiCorrectionService>(),
-                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue));
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue,
+                bioequivalentDedup: sp.GetService<IBioequivalentLabelDedupService>()));
 
             return services.BuildServiceProvider();
 

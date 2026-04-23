@@ -164,6 +164,24 @@ namespace MedRecProConsole.Models
 
         /**************************************************************/
         /// <summary>
+        /// Gets or sets whether the bioequivalent-ANDA label dedup filter is disabled
+        /// (--no-dedup-bioequivalent). Only valid with --standardize-tables parse or validate.
+        /// </summary>
+        /// <remarks>
+        /// By default, the pipeline groups labels by (Ingredient + DosageForm + Route)
+        /// from Orange Book and keeps only one canonical label per group (NDA preferred
+        /// over ANDA; within a tier the most recent LabelEffectiveDate wins). This
+        /// prevents multiple ANDAs and their repackager relabelings — all of which
+        /// reference the same innovator label — from inflating aggregate signal.
+        ///
+        /// Pass this flag to bypass the filter and process every discovered DocumentGUID,
+        /// which mirrors the legacy pre-dedup behavior.
+        /// </remarks>
+        /// <seealso cref="StandardizeTablesOperation"/>
+        public bool NoDedupBioequivalent { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets or sets the path to a markdown report file (--markdown-log).
         /// When set, per-table standardization output mirroring the console is appended to the file.
         /// Only valid with --standardize-tables parse-single (batch Stage 3 / validate pipelines
@@ -413,6 +431,13 @@ namespace MedRecProConsole.Models
                     continue;
                 }
 
+                // Handle no-dedup-bioequivalent flag (Stage 0 bioequivalent-ANDA dedup bypass)
+                if (lowerArg is "--no-dedup-bioequivalent")
+                {
+                    result.NoDedupBioequivalent = true;
+                    continue;
+                }
+
                 // Handle markdown-log argument (per-table diagnostic markdown file)
                 if (lowerArg.StartsWith("--markdown-log"))
                 {
@@ -517,6 +542,18 @@ namespace MedRecProConsole.Models
                 && result.StandardizeTablesOperation is not ("parse" or "validate"))
             {
                 result.Errors.Add("--drop-incomplete-rows can only be used with --standardize-tables parse or validate.");
+            }
+
+            // Validate --no-dedup-bioequivalent requires --standardize-tables (parse or validate only).
+            // parse-single and truncate do not drive the document-discovery pipeline.
+            if (result.NoDedupBioequivalent && !result.IsStandardizeTablesMode)
+            {
+                result.Errors.Add("--no-dedup-bioequivalent can only be used with --standardize-tables.");
+            }
+            else if (result.NoDedupBioequivalent
+                && result.StandardizeTablesOperation is not ("parse" or "validate"))
+            {
+                result.Errors.Add("--no-dedup-bioequivalent can only be used with --standardize-tables parse or validate.");
             }
 
             // Validate --markdown-log requires --standardize-tables
