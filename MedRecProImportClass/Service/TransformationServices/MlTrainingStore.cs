@@ -27,9 +27,10 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// 1. Evict oldest bootstrap records first (<c>IsClaudeGroundTruth == false</c>)
     /// 2. If still over capacity, evict oldest ground-truth records
     ///
-    /// ## Adaptive Threshold Logic
-    /// <see cref="RecordClaudeFeedbackAsync"/> evaluates the lifetime correction rate
-    /// (corrected / sent) and raises the threshold when it drops below the configured floor.
+    /// ## Stage 4 Retirement Note
+    /// The adaptive-threshold path (<c>GetAdaptiveThreshold</c> / <c>RecordClaudeFeedbackAsync</c>)
+    /// was removed on 2026-04-24 along with Stage 4 anomaly scoring. Claude forwarding is
+    /// now driven by the deterministic parse-quality gate, not a ratcheted ML threshold.
     /// </remarks>
     /// <seealso cref="IMlTrainingStore"/>
     /// <seealso cref="MlTrainingStoreState"/>
@@ -132,10 +133,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     }
 
                     _logger.LogInformation(
-                        "ML training store loaded: {Count} records, adaptive threshold={Threshold:F4}, " +
-                        "lifetime sent={Sent}, corrected={Corrected}",
-                        _state.Records.Count, _state.AdaptiveThreshold,
-                        _state.TotalSentToClaude, _state.TotalCorrectedByClaude);
+                        "ML training store loaded: {Count} records",
+                        _state.Records.Count);
                 }
                 else
                 {
@@ -182,73 +181,6 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             return _state.Records.AsReadOnly();
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <inheritdoc/>
-        public float GetAdaptiveThreshold()
-        {
-            #region implementation
-
-            return _state.AdaptiveThreshold;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <inheritdoc/>
-        public async Task<float?> RecordClaudeFeedbackAsync(int totalObservations, int correctedCount, CancellationToken ct = default)
-        {
-            #region implementation
-
-            await _lock.WaitAsync(ct);
-            try
-            {
-                _state.TotalSentToClaude += totalObservations;
-                _state.TotalCorrectedByClaude += correctedCount;
-
-                // Guard: not enough lifetime observations yet
-                if (_state.TotalSentToClaude < _settings.AdaptiveThresholdMinObservations)
-                {
-                    await saveInternalAsync(ct);
-                    return null;
-                }
-
-                // Guard: not enough new observations since last evaluation
-                if (_state.TotalSentToClaude - _state.LastThresholdEvaluatedAt < _settings.AdaptiveThresholdEvaluationInterval)
-                {
-                    await saveInternalAsync(ct);
-                    return null;
-                }
-
-                _state.LastThresholdEvaluatedAt = _state.TotalSentToClaude;
-                var correctionRate = _state.TotalCorrectedByClaude / (double)_state.TotalSentToClaude;
-
-                if (correctionRate < _settings.AdaptiveThresholdCorrectionRateFloor)
-                {
-                    _state.AdaptiveThreshold = Math.Min(
-                        _state.AdaptiveThreshold + _settings.AdaptiveThresholdStep,
-                        _settings.AdaptiveThresholdCeiling);
-                    _state.ThresholdAdjustmentCount++;
-
-                    _logger.LogInformation(
-                        "Adaptive threshold raised to {Threshold:F4} (correction rate={Rate:P2}, " +
-                        "adjustments={Count})",
-                        _state.AdaptiveThreshold, correctionRate, _state.ThresholdAdjustmentCount);
-
-                    await saveInternalAsync(ct);
-                    return _state.AdaptiveThreshold;
-                }
-
-                await saveInternalAsync(ct);
-                return null;
-            }
-            finally
-            {
-                _lock.Release();
-            }
 
             #endregion
         }

@@ -4,15 +4,14 @@ namespace MedRecProImportClass.Service.TransformationServices
 {
     /**************************************************************/
     /// <summary>
-    /// File-backed persistence layer for ML training records and adaptive threshold state.
-    /// Enables the Claude-to-ML feedback loop by persisting ground-truth corrections and
+    /// File-backed persistence layer for ML training records. Enables the
+    /// Claude-to-ML feedback loop by persisting ground-truth corrections and
     /// bootstrap training data across process restarts.
     /// </summary>
     /// <remarks>
     /// ## Thread Safety
     /// All mutating operations are serialized via <c>SemaphoreSlim(1, 1)</c>.
-    /// Reads of <see cref="GetRecords"/> and <see cref="GetAdaptiveThreshold"/> return
-    /// snapshot values and do not require locking.
+    /// Reads of <see cref="GetRecords"/> return a snapshot and do not require locking.
     ///
     /// ## Persistence Strategy
     /// Uses atomic write (tmp + rename) to prevent corruption on crash.
@@ -20,10 +19,16 @@ namespace MedRecProImportClass.Service.TransformationServices
     ///
     /// ## Lifecycle
     /// 1. Call <see cref="LoadAsync"/> at startup (loads existing state or initializes empty).
-    /// 2. Call <see cref="AddRecordsAsync"/> after each ML scoring pass (bootstrap records).
-    /// 3. Call <see cref="RecordClaudeFeedbackAsync"/> after each Claude correction pass.
-    /// 4. Call <see cref="RecordRetrainAsync"/> after each ML retrain completes.
-    /// 5. Call <see cref="SaveAsync"/> to force a flush (also called internally by mutating methods).
+    /// 2. Call <see cref="AddRecordsAsync"/> after each ML scoring pass (bootstrap records)
+    ///    or after each Claude correction pass (ground-truth records).
+    /// 3. Call <see cref="RecordRetrainAsync"/> after each ML retrain completes.
+    /// 4. Call <see cref="SaveAsync"/> to force a flush (also called internally by mutating methods).
+    ///
+    /// ## Stage 4 Retirement Note
+    /// The adaptive-threshold API (<c>GetAdaptiveThreshold</c>,
+    /// <c>RecordClaudeFeedbackAsync</c>) was removed along with Stage 4 anomaly scoring on
+    /// 2026-04-24. Claude forwarding is now driven by the deterministic parse-quality gate
+    /// in <see cref="IParseQualityService"/>, not a ratcheted ML threshold.
     /// </remarks>
     /// <seealso cref="MlTrainingRecord"/>
     /// <seealso cref="MlTrainingStoreState"/>
@@ -56,27 +61,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <returns>Read-only list of training records.</returns>
         IReadOnlyList<MlTrainingRecord> GetRecords();
-
-        /**************************************************************/
-        /// <summary>
-        /// Returns the current adaptive anomaly score threshold.
-        /// </summary>
-        /// <returns>Current threshold value (0.0 to 1.0).</returns>
-        float GetAdaptiveThreshold();
-
-        /**************************************************************/
-        /// <summary>
-        /// Records batch metrics from a Claude correction pass and evaluates whether the
-        /// adaptive threshold should be raised. The threshold increases when the correction
-        /// rate drops below <see cref="MlNetCorrectionSettings.AdaptiveThresholdCorrectionRateFloor"/>.
-        /// </summary>
-        /// <param name="totalObservations">Total observations sent to Claude in this batch.</param>
-        /// <param name="correctedCount">Number of observations Claude actually corrected.</param>
-        /// <param name="ct">Cancellation token.</param>
-        /// <returns>
-        /// The new threshold value if it was raised; null if no change occurred.
-        /// </returns>
-        Task<float?> RecordClaudeFeedbackAsync(int totalObservations, int correctedCount, CancellationToken ct = default);
 
         /**************************************************************/
         /// <summary>

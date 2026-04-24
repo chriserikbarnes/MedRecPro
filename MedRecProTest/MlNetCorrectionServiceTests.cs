@@ -9,22 +9,22 @@ namespace MedRecProTest
     /**************************************************************/
     /// <summary>
     /// Tests for <see cref="MlNetCorrectionService"/> — the Stage 3.4 ML.NET-based correction
-    /// and anomaly scoring service that applies trained classification and PCA anomaly detection
-    /// models to parsed observations.
+    /// service that applies trained Stage 1/2/3 classifiers to parsed observations and
+    /// delegates downstream Claude forwarding to <see cref="IParseQualityService"/>.
     /// </summary>
     /// <remarks>
     /// ## Test Strategy
     /// No database or SQLite dependency — the ML service uses in-memory accumulation only.
-    /// Tests exercise the 4-stage pipeline, training triggers, accumulator behavior, and
-    /// flag formatting. Integration tests feed enough synthetic rows to trigger model training
-    /// and verify that subsequent batches receive real anomaly scores.
+    /// Tests exercise the three-stage classifier pipeline, training triggers, accumulator
+    /// behavior, and flag formatting. Parse-quality behaviour itself is covered in
+    /// <c>ParseQualityServiceTests</c>; these tests only verify that a registered
+    /// <see cref="IParseQualityService"/> is invoked and emits an
+    /// <c>MLNET_PARSE_QUALITY</c> flag.
     ///
-    /// ## Test Organization
-    /// - **InitializeAsync**: Idempotency and ready state
-    /// - **Accumulator/Training**: Row collection and retrain triggers
-    /// - **Stage 1–4**: Per-stage correction behavior
-    /// - **Integration**: Full pipeline and edge cases
-    /// - **ClaudeApiCorrectionService Gate**: Anomaly threshold filtering
+    /// ## Stage 4 Retirement
+    /// The former Stage 4 anomaly-scoring test regions (per-key, UnifiedGlobal, adaptive
+    /// threshold, validation-guard, degrade-fallback) were deleted on 2026-04-24 along with
+    /// the anomaly pipeline itself.
     /// </remarks>
     /// <seealso cref="IMlNetCorrectionService"/>
     /// <seealso cref="MlNetCorrectionSettings"/>
@@ -38,19 +38,44 @@ namespace MedRecProTest
         /// Creates a <see cref="MlNetCorrectionService"/> with default settings and mock logger.
         /// </summary>
         /// <param name="settings">Optional settings override.</param>
+        /// <param name="includeQualityService">When true (default), injects a stub
+        /// <see cref="IParseQualityService"/> so tests can assert on
+        /// <c>MLNET_PARSE_QUALITY</c> emission without depending on the full rule engine.</param>
         /// <returns>Initialized service ready for testing.</returns>
         private static async Task<MlNetCorrectionService> createInitializedServiceAsync(
-            MlNetCorrectionSettings? settings = null)
+            MlNetCorrectionSettings? settings = null,
+            bool includeQualityService = true)
         {
             #region implementation
 
             settings ??= new MlNetCorrectionSettings();
             var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
-            var service = new MlNetCorrectionService(mockLogger.Object, settings);
+            IParseQualityService? qualityService = includeQualityService
+                ? new StubParseQualityService()
+                : null;
+            var service = new MlNetCorrectionService(
+                mockLogger.Object,
+                settings,
+                trainingStore: null,
+                parseQualityService: qualityService);
             await service.InitializeAsync();
             return service;
 
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Deterministic stub <see cref="IParseQualityService"/> used by tests — returns a
+        /// constant score and an empty reason list regardless of input. Allows tests to assert
+        /// that the service is wired without depending on the real rule engine's behavior.
+        /// </summary>
+        private sealed class StubParseQualityService : IParseQualityService
+        {
+            public ParseQualityScore Evaluate(ParsedObservation obs)
+            {
+                return new ParseQualityScore(Score: 0.9f, Reasons: new List<string>());
+            }
         }
 
         /**************************************************************/
@@ -176,21 +201,21 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that InitializeAsync sets the service to a ready state
-        /// so ScoreAndCorrect processes observations instead of passing through.
+        /// Verifies that InitializeAsync sets the service to a ready state so ScoreAndCorrect
+        /// emits a parse-quality flag on each observation rather than passing through.
         /// </summary>
         [TestMethod]
-        public async Task InitializeAsync_SetsInitialized_LogsReady()
+        public async Task InitializeAsync_SetsInitialized_EmitsParseQuality()
         {
             #region implementation
 
             var service = await createInitializedServiceAsync();
             var obs = new List<ParsedObservation> { createTestObservation() };
 
-            // Should process (emit NOMODEL flag) rather than pass through silently
             var result = service.ScoreAndCorrect(obs);
             Assert.IsNotNull(result[0].ValidationFlags);
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE"));
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"),
+                $"Expected MLNET_PARSE_QUALITY flag after initialization but got: {result[0].ValidationFlags}");
 
             #endregion
         }
@@ -206,14 +231,17 @@ namespace MedRecProTest
 
             var settings = new MlNetCorrectionSettings();
             var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
-            var service = new MlNetCorrectionService(mockLogger.Object, settings);
+            var service = new MlNetCorrectionService(
+                mockLogger.Object, settings,
+                trainingStore: null,
+                parseQualityService: new StubParseQualityService());
 
             await service.InitializeAsync();
             await service.InitializeAsync(); // Should not throw
 
             var obs = new List<ParsedObservation> { createTestObservation() };
             var result = service.ScoreAndCorrect(obs);
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE"));
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
 
             #endregion
         }
@@ -224,11 +252,13 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that high-confidence rows are accumulated after ScoreAndCorrect.
-        /// Confirmed by: a second batch large enough to trigger training produces trained-model scores.
+        /// Verifies that high-confidence rows are accumulated after ScoreAndCorrect and that
+        /// subsequent batches do not crash the pipeline. With Stage 4 retired, we no longer
+        /// have a cheap "model trained?" visible signal; the parse-quality flag emits regardless
+        /// so we assert only that processing continues across batches without error.
         /// </summary>
         [TestMethod]
-        public async Task ScoreAndCorrect_AccumulatesHighConfidenceRows()
+        public async Task ScoreAndCorrect_AccumulatesHighConfidenceRows_AndContinuesAcrossBatches()
         {
             #region implementation
 
@@ -239,37 +269,31 @@ namespace MedRecProTest
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Feed a batch of high-confidence rows (above BootstrapMinParseConfidence=0.85)
-            var batch1 = generateTrainingBatch(25); // 4 categories × 25 = 100 rows, 5 per composite key
-            service.ScoreAndCorrect(batch1);
+            var batch1 = generateTrainingBatch(25); // 100 high-confidence rows
+            var result1 = service.ScoreAndCorrect(batch1);
+            Assert.AreEqual(100, result1.Count);
 
-            // Batch 1 all get NOMODEL (no models trained yet before batch 1 accumulates)
-            // But after batch 1, accumulator should have rows.
-            // Feed batch 2 — tryRetrain fires because 100 new rows > RetrainingBatchSize=50
+            // Second batch should accept new observations without crashing, and each should
+            // still get a parse-quality flag.
             var batch2 = new List<ParsedObservation>
             {
                 createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 100.0, unii: "ABC123")
             };
-            var result = service.ScoreAndCorrect(batch2);
-
-            // After retrain, PK should have an anomaly engine — expect a numeric score, not NOMODEL
-            Assert.IsNotNull(result[0].ValidationFlags);
-            // The score should be a number (the model was trained on PK data)
-            Assert.IsTrue(
-                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
-                !result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected numeric anomaly score but got: {result[0].ValidationFlags}");
+            var result2 = service.ScoreAndCorrect(batch2);
+            Assert.IsTrue(result2[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that rows with ParseConfidence below BootstrapMinParseConfidence
-        /// are excluded from the training accumulator.
+        /// Verifies that observations with low ParseConfidence still receive a
+        /// parse-quality flag (the gate is independent of the training-accumulator filter).
+        /// The BootstrapMinParseConfidence threshold only governs accumulator admission, not
+        /// pipeline output.
         /// </summary>
         [TestMethod]
-        public async Task ScoreAndCorrect_DoesNotAccumulateLowConfidenceRows()
+        public async Task ScoreAndCorrect_LowConfidence_StillEmitsParseQualityFlag()
         {
             #region implementation
 
@@ -281,7 +305,6 @@ namespace MedRecProTest
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Feed 20 low-confidence rows (below 0.85 threshold)
             var lowConfBatch = Enumerable.Range(1, 20)
                 .Select(i => createTestObservation(
                     category: "PK",
@@ -289,30 +312,25 @@ namespace MedRecProTest
                     primaryValue: i * 1.0,
                     sourceRowSeq: i))
                 .ToList();
-            service.ScoreAndCorrect(lowConfBatch);
+            var result = service.ScoreAndCorrect(lowConfBatch);
 
-            // Feed a test batch — should still get NOMODEL because low-confidence rows weren't accumulated
-            var testBatch = new List<ParsedObservation>
+            foreach (var obs in result)
             {
-                createTestObservation(category: "PK", primaryValue: 50.0)
-            };
-            var result = service.ScoreAndCorrect(testBatch);
-
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected NOMODEL but got: {result[0].ValidationFlags}");
+                Assert.IsTrue(obs.ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"),
+                    $"Expected MLNET_PARSE_QUALITY on every observation regardless of confidence.");
+            }
 
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that a retrain is triggered when the accumulator grows past RetrainingBatchSize.
-        /// With post-accumulation rescore, Batch 1 itself can produce real scores — the initial
-        /// pass emits NOMODEL, then the batch is accumulated, retrain fires, and NOMODEL
-        /// observations are rescored with the freshly-trained models.
+        /// Verifies that the service survives repeated invocations with accumulator growth
+        /// past the RetrainingBatchSize trigger. Former test asserted Stage 4 numeric-score
+        /// emergence after training; parse-quality gate removes the need for that signal.
         /// </summary>
         [TestMethod]
-        public async Task ScoreAndCorrect_TriggersRetrain_WhenThresholdMet()
+        public async Task ScoreAndCorrect_RetrainTrigger_DoesNotThrow()
         {
             #region implementation
 
@@ -323,63 +341,21 @@ namespace MedRecProTest
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Batch 1: 100 high-confidence rows across 4 categories, 5 per composite key.
-            // Post-accumulation rescore should convert some NOMODEL → real scores.
             var batch1 = generateTrainingBatch(25);
             var result1 = service.ScoreAndCorrect(batch1);
+            Assert.AreEqual(100, result1.Count);
 
-            // After accumulation + rescore, at least some observations should have real scores
-            Assert.IsTrue(result1.Any(o =>
-                o.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
-                !o.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL")),
-                "Batch 1 post-rescore should have at least one trained anomaly score");
-
-            // Batch 2: models are already trained from Batch 1 accumulation
             var batch2 = new List<ParsedObservation>
             {
                 createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 55.0, unii: "ABC123"),
                 createTestObservation(category: "ADVERSE_EVENT", primaryValueType: "GeometricMean", primaryValue: 12.0, sourceRowSeq: 2, unii: "DEF456")
             };
             var result2 = service.ScoreAndCorrect(batch2);
-
-            // At least one should have a real score
-            Assert.IsTrue(result2.Any(o =>
-                o.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
-                !o.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL")),
-                "Batch 2 should have at least one trained anomaly score");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that no retrain occurs when the accumulator is below RetrainingBatchSize.
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_NoRetrain_WhenBelowThreshold()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
+            Assert.AreEqual(2, result2.Count);
+            foreach (var obs in result2)
             {
-                MinTrainingRowsPerCategory = 10,
-                RetrainingBatchSize = 500 // Very high threshold
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            // Feed a small batch
-            var batch = generateTrainingBatch(15); // 60 rows, below 500
-            service.ScoreAndCorrect(batch);
-
-            // Second batch should still get NOMODEL
-            var testBatch = new List<ParsedObservation>
-            {
-                createTestObservation(category: "PK", primaryValue: 100.0)
-            };
-            var result = service.ScoreAndCorrect(testBatch);
-
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected NOMODEL but got: {result[0].ValidationFlags}");
+                Assert.IsTrue(obs.ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
+            }
 
             #endregion
         }
@@ -416,7 +392,6 @@ namespace MedRecProTest
         {
             #region implementation
 
-            // Train models with a batch
             var settings = new MlNetCorrectionSettings
             {
                 TableCategoryMinConfidence = 0.99f, // Very high bar — nothing should pass
@@ -428,11 +403,9 @@ namespace MedRecProTest
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Now test with a new observation
             var testObs = createTestObservation(category: "PK");
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
-            // With 0.99 confidence threshold, the model likely won't correct
             Assert.AreEqual("PK", result[0].TableCategory);
 
             #endregion
@@ -458,7 +431,6 @@ namespace MedRecProTest
 
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
-            // DoseRegimen should remain as-is (not re-routed)
             Assert.AreEqual("Cmax", result[0].DoseRegimen);
             Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET:DOSEREGIMEN_ROUTED_TO"));
 
@@ -531,356 +503,6 @@ namespace MedRecProTest
         }
 
         #endregion Stage 3
-
-        #region Stage 4 — Anomaly Score Tests
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that Stage 4 ALWAYS emits an anomaly score flag, even when no model is trained.
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_Stage4_AlwaysEmitsAnomalyScore()
-        {
-            #region implementation
-
-            var service = await createInitializedServiceAsync();
-            var obs = createTestObservation();
-
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
-
-            Assert.IsNotNull(result[0].ValidationFlags);
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:"));
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that Stage 4 emits NOMODEL for categories without a trained anomaly engine.
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_Stage4_UnknownCategory_EmitsNoModel()
-        {
-            #region implementation
-
-            var service = await createInitializedServiceAsync();
-            var obs = createTestObservation(category: "UNKNOWN_CATEGORY_XYZ");
-
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
-
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"));
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that after training, Stage 4 emits numeric scores for known categories.
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_Stage4_TrainedModel_EmitsNumericScore()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
-            {
-                MinTrainingRowsPerCategory = 5,
-                RetrainingBatchSize = 40
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            // Train
-            var trainBatch = generateTrainingBatch(25);
-            service.ScoreAndCorrect(trainBatch);
-
-            // Score — composite key must match a trained model (UNII + PVT)
-            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 999.99, unii: "ABC123");
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
-
-            Assert.IsTrue(
-                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
-                !result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected numeric score but got: {result[0].ValidationFlags}");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies buildAnomalyModelKey produces three-segment key when SVT is defined.
-        /// </summary>
-        [TestMethod]
-        public void BuildAnomalyModelKey_WithSvt_ThreeSegments()
-        {
-            #region implementation
-
-            var key = MlNetCorrectionService.buildAnomalyModelKey("ABC123", "PK", "ArithmeticMean", "SD");
-            Assert.AreEqual("ABC123|PK|ArithmeticMean|SD", key);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies buildAnomalyModelKey produces two-segment key when SVT is null.
-        /// </summary>
-        [TestMethod]
-        public void BuildAnomalyModelKey_NoSvt_TwoSegments()
-        {
-            #region implementation
-
-            var key = MlNetCorrectionService.buildAnomalyModelKey("ABC123", "PK", "ArithmeticMean", null);
-            Assert.AreEqual("ABC123|PK|ArithmeticMean", key);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies buildAnomalyModelKey treats empty SVT same as null (two-segment key).
-        /// </summary>
-        [TestMethod]
-        public void BuildAnomalyModelKey_EmptySvt_TwoSegments()
-        {
-            #region implementation
-
-            var key = MlNetCorrectionService.buildAnomalyModelKey("ABC123", "PK", "ArithmeticMean", "");
-            Assert.AreEqual("ABC123|PK|ArithmeticMean", key);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies buildAnomalyModelKey normalizes null category to empty string.
-        /// </summary>
-        [TestMethod]
-        public void BuildAnomalyModelKey_NullCategory_UsesEmpty()
-        {
-            #region implementation
-
-            var key = MlNetCorrectionService.buildAnomalyModelKey(null, null, "ArithmeticMean", null);
-            Assert.AreEqual("||ArithmeticMean", key);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies buildAnomalyModelKey normalizes null PVT to empty string.
-        /// </summary>
-        [TestMethod]
-        public void BuildAnomalyModelKey_NullPvt_UsesEmpty()
-        {
-            #region implementation
-
-            var key = MlNetCorrectionService.buildAnomalyModelKey(null, "PK", null, null);
-            Assert.AreEqual("|PK|", key);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies buildAnomalyModelKey handles all-null inputs gracefully.
-        /// </summary>
-        [TestMethod]
-        public void BuildAnomalyModelKey_AllNull_ReturnsDelimitedEmpty()
-        {
-            #region implementation
-
-            var key = MlNetCorrectionService.buildAnomalyModelKey(null, null, null, null);
-            Assert.AreEqual("||", key);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that a scoring observation with a composite key matching a trained model
-        /// receives a numeric anomaly score (not NOMODEL).
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_Stage4_CompositeKey_MatchesModel()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
-            {
-                MinTrainingRowsPerCategory = 5,
-                RetrainingBatchSize = 40
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            // Train — generates composite keys like "ABC123|PK|ArithmeticMean|SD", "ABC123|PK|GeometricMean", etc.
-            var trainBatch = generateTrainingBatch(25);
-            service.ScoreAndCorrect(trainBatch);
-
-            // Score with matching composite key: ABC123|PK|ArithmeticMean|SD
-            var testObs = createTestObservation(
-                category: "PK",
-                primaryValueType: "ArithmeticMean",
-                primaryValue: 75.0,
-                secondaryValue: 5.0,
-                secondaryValueType: "SD",
-                unii: "ABC123");
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
-
-            Assert.IsTrue(
-                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
-                !result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected numeric score for matching composite key but got: {result[0].ValidationFlags}");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that a scoring observation whose composite key was not trained
-        /// receives NOMODEL (composite key mismatch).
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_Stage4_CompositeKey_Mismatch_EmitsNoModel()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
-            {
-                MinTrainingRowsPerCategory = 5,
-                RetrainingBatchSize = 40
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            // Train — generates composite keys for GeometricMean, ArithmeticMean|SD, Proportion|Count, Count, Median|CV
-            var trainBatch = generateTrainingBatch(25);
-            service.ScoreAndCorrect(trainBatch);
-
-            // Score with a composite key NOT in the training data: ABC123|PK|Percentage
-            var testObs = createTestObservation(
-                category: "PK",
-                primaryValueType: "Percentage",
-                primaryValue: 42.0,
-                unii: "ABC123");
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
-
-            Assert.IsTrue(
-                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected NOMODEL for untrained composite key but got: {result[0].ValidationFlags}");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that sparse composite keys (below MinTrainingRowsPerCategory) are skipped
-        /// gracefully, emitting NOMODEL, while well-populated keys emit numeric scores.
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_Stage4_SparseComposite_SkippedGracefully()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
-            {
-                MinTrainingRowsPerCategory = 8,
-                RetrainingBatchSize = 40
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            // Train: 25 per category, 5 per composite key — below threshold of 8
-            var trainBatch = generateTrainingBatch(25);
-            service.ScoreAndCorrect(trainBatch);
-
-            // All composite keys have 5 rows, below MinTrainingRowsPerCategory=8 → NOMODEL
-            var testObs = createTestObservation(
-                category: "PK",
-                primaryValueType: "GeometricMean",
-                primaryValue: 50.0,
-                unii: "ABC123");
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
-
-            Assert.IsTrue(
-                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected NOMODEL for sparse composite key but got: {result[0].ValidationFlags}");
-
-            // Now use enough rows per composite key (40 per category = 8 per key)
-            var settings2 = new MlNetCorrectionSettings
-            {
-                MinTrainingRowsPerCategory = 8,
-                RetrainingBatchSize = 40
-            };
-            var service2 = await createInitializedServiceAsync(settings2);
-
-            var trainBatch2 = generateTrainingBatch(40);
-            service2.ScoreAndCorrect(trainBatch2);
-
-            var testObs2 = createTestObservation(
-                category: "PK",
-                primaryValueType: "GeometricMean",
-                primaryValue: 50.0,
-                unii: "ABC123");
-            var result2 = service2.ScoreAndCorrect(new List<ParsedObservation> { testObs2 });
-
-            Assert.IsTrue(
-                result2[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:") &&
-                !result2[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected numeric score for well-populated composite key but got: {result2[0].ValidationFlags}");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies buildAnomalyModelKey normalizes null UNII to empty string.
-        /// </summary>
-        [TestMethod]
-        public void BuildAnomalyModelKey_NullUnii_UsesEmpty()
-        {
-            #region implementation
-
-            var key = MlNetCorrectionService.buildAnomalyModelKey(null, "PK", "ArithmeticMean", "SD");
-            Assert.AreEqual("|PK|ArithmeticMean|SD", key);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that a UNII mismatch produces NOMODEL even when category/PVT/SVT match.
-        /// </summary>
-        [TestMethod]
-        public async Task ScoreAndCorrect_Stage4_UniiMismatch_EmitsNoModel()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
-            {
-                MinTrainingRowsPerCategory = 5,
-                RetrainingBatchSize = 40
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            var trainBatch = generateTrainingBatch(25);
-            service.ScoreAndCorrect(trainBatch);
-
-            // Score with UNII not in training data — category/PVT/SVT all match but UNII differs
-            var testObs = createTestObservation(
-                category: "PK",
-                primaryValueType: "ArithmeticMean",
-                primaryValue: 75.0,
-                secondaryValue: 5.0,
-                secondaryValueType: "SD",
-                unii: "ZZZZZZZ");
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
-
-            Assert.IsTrue(
-                result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"),
-                $"Expected NOMODEL for UNII mismatch but got: {result[0].ValidationFlags}");
-
-            #endregion
-        }
-
-        #endregion Stage 4
 
         #region Integration Tests
 
@@ -962,179 +584,242 @@ namespace MedRecProTest
             Assert.IsNotNull(result[0].ValidationFlags);
             Assert.IsTrue(result[0].ValidationFlags!.StartsWith("COL_STD:EXISTING_FLAG; "),
                 $"Expected semicolon-space delimiter but got: {result[0].ValidationFlags}");
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:"));
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
 
             #endregion
         }
 
         #endregion Integration Tests
 
-        #region ClaudeApiCorrectionService Gate Tests
+        #region Parse-Quality Gate Integration
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that with MlAnomalyScoreThreshold=0, all observations pass to Claude
-        /// (backward-compatible behavior).
+        /// Verifies that the registered <see cref="IParseQualityService"/> is invoked during
+        /// <c>ScoreAndCorrect</c> and emits the primary <c>MLNET_PARSE_QUALITY:{score}</c>
+        /// flag on every observation.
         /// </summary>
         [TestMethod]
-        public void ExceedsAnomalyThreshold_ThresholdZero_SendsAllObservations()
+        public async Task ParseQualityService_Registered_EmitsFlagOnEveryObservation()
         {
             #region implementation
 
-            var settings = new ClaudeApiCorrectionSettings
+            var service = await createInitializedServiceAsync();
+            var batch = generateTrainingBatch(5);
+
+            var result = service.ScoreAndCorrect(batch);
+
+            foreach (var obs in result)
             {
-                MlAnomalyScoreThreshold = 0.0f,
-                Enabled = false // Don't actually call API
-            };
-
-            // With threshold 0.0, the service should not filter any observations
-            // This is tested indirectly through the settings value
-            Assert.AreEqual(0.0f, settings.MlAnomalyScoreThreshold);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that observations without an ML anomaly score flag pass through
-        /// the threshold check (conservative behavior — send to Claude when unknown).
-        /// </summary>
-        [TestMethod]
-        public void MlAnomalyScoreThreshold_NoFlag_ObservationPassesThreshold()
-        {
-            #region implementation
-
-            var settings = new ClaudeApiCorrectionSettings
-            {
-                MlAnomalyScoreThreshold = 0.75f
-            };
-
-            // An observation with no MLNET_ANOMALY_SCORE flag should pass through
-            // (conservative: send to Claude when score is unknown)
-            var obs = createTestObservation(validationFlags: "COL_STD:SOME_FLAG");
-
-            // Verify the flag format — no MLNET_ANOMALY_SCORE present
-            Assert.IsFalse(obs.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE"));
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that NOMODEL observations pass through the threshold check.
-        /// </summary>
-        [TestMethod]
-        public void MlAnomalyScoreThreshold_NoModel_ObservationPassesThreshold()
-        {
-            #region implementation
-
-            var obs = createTestObservation(validationFlags: "MLNET_ANOMALY_SCORE:NOMODEL");
-
-            // NOMODEL should be treated as "unknown" → conservative: pass to Claude
-            Assert.IsTrue(obs.ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:NOMODEL"));
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies the anomaly score flag format: MLNET_ANOMALY_SCORE:{4-decimal float}.
-        /// </summary>
-        [TestMethod]
-        public async Task AnomalyScoreFlag_HasCorrectFormat()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
-            {
-                MinTrainingRowsPerCategory = 5,
-                RetrainingBatchSize = 40
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            // Train models
-            var trainBatch = generateTrainingBatch(25);
-            service.ScoreAndCorrect(trainBatch);
-
-            // Score a new observation — composite key must match a trained model
-            var testObs = createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 50.0, unii: "ABC123");
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
-
-            var flags = result[0].ValidationFlags!;
-            var scoreIdx = flags.IndexOf("MLNET_ANOMALY_SCORE:");
-            Assert.IsTrue(scoreIdx >= 0, "Expected MLNET_ANOMALY_SCORE flag");
-
-            // Extract score value
-            var valueStart = scoreIdx + "MLNET_ANOMALY_SCORE:".Length;
-            var valueEnd = flags.IndexOf(';', valueStart);
-            var scoreStr = valueEnd >= 0
-                ? flags.Substring(valueStart, valueEnd - valueStart).Trim()
-                : flags.Substring(valueStart).Trim();
-
-            // Should be a parseable float (not NOMODEL)
-            Assert.IsTrue(float.TryParse(scoreStr, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out _),
-                $"Expected parseable float but got: '{scoreStr}'");
-
-            #endregion
-        }
-
-        #endregion ClaudeApiCorrectionService Gate Tests
-
-        #region MlTrainingStore Persistence Tests
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that the training store round-trips: save state, reload, assert records
-        /// and threshold are preserved.
-        /// </summary>
-        [TestMethod]
-        public async Task MlTrainingStore_RoundTrip_PreservesState()
-        {
-            #region implementation
-
-            var tempPath = Path.Combine(Path.GetTempPath(), $"ml-store-test-{Guid.NewGuid()}.json");
-            try
-            {
-                var settings = new MlNetCorrectionSettings
-                {
-                    TrainingStoreFilePath = tempPath,
-                    MaxAccumulatorRows = 1000
-                };
-                var mockLogger = new Mock<ILogger<MlTrainingStore>>();
-
-                // Save some records
-                var store1 = new MlTrainingStore(mockLogger.Object, settings);
-                await store1.LoadAsync();
-
-                var records = new List<MlTrainingRecord>
-                {
-                    MlTrainingRecord.FromObservation(createTestObservation(category: "PK"), isGroundTruth: true),
-                    MlTrainingRecord.FromObservation(createTestObservation(category: "ADVERSE_EVENT"), isGroundTruth: false)
-                };
-                await store1.AddRecordsAsync(records);
-                await store1.RecordClaudeFeedbackAsync(100, 5); // won't raise threshold (< 2000 min)
-
-                // Reload in a new instance
-                var store2 = new MlTrainingStore(mockLogger.Object, settings);
-                await store2.LoadAsync();
-
-                Assert.AreEqual(2, store2.GetRecords().Count);
-                Assert.AreEqual("PK", store2.GetRecords()[0].TableCategory);
-                Assert.IsTrue(store2.GetRecords()[0].IsClaudeGroundTruth);
-                Assert.IsFalse(store2.GetRecords()[1].IsClaudeGroundTruth);
-            }
-            finally
-            {
-                if (File.Exists(tempPath)) File.Delete(tempPath);
+                var flags = obs.ValidationFlags ?? string.Empty;
+                Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:"),
+                    $"row={obs.SourceRowSeq}: expected MLNET_PARSE_QUALITY on every observation");
             }
 
             #endregion
         }
 
-        #endregion MlTrainingStore Persistence Tests
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that when no quality service is registered, the service still processes
+        /// observations without crashing — no parse-quality flag is emitted, but the rest of
+        /// the pipeline (classifier stages, CONFIDENCE flag) runs as normal.
+        /// </summary>
+        [TestMethod]
+        public async Task ParseQualityService_NotRegistered_PipelineStillRuns()
+        {
+            #region implementation
 
-        #region Eviction Tests
+            var service = await createInitializedServiceAsync(includeQualityService: false);
+            var obs = createTestObservation();
+
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
+
+            Assert.IsNotNull(result[0].ValidationFlags);
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"),
+                "No parse-quality service registered — flag should not appear");
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("CONFIDENCE:ML:"),
+                "Pipeline should still emit the CONFIDENCE:ML provenance flag");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that when the quality service reports penalty reasons, the companion
+        /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}</c> flag is emitted alongside the
+        /// numeric score flag.
+        /// </summary>
+        [TestMethod]
+        public async Task ParseQualityService_ReasonsPopulated_EmitsReviewReasonsFlag()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings();
+            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            IParseQualityService qualityService = new ReasonReturningStubQualityService();
+            var service = new MlNetCorrectionService(
+                mockLogger.Object, settings,
+                trainingStore: null,
+                parseQualityService: qualityService);
+            await service.InitializeAsync();
+
+            var obs = createTestObservation();
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:0.5000"),
+                $"Expected numeric score flag but got: {flags}");
+            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS:PrimaryValueNull|ParameterNameNull"),
+                $"Expected REVIEW_REASONS flag but got: {flags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stub that returns a non-empty reasons list so the REVIEW_REASONS flag emission
+        /// can be asserted.
+        /// </summary>
+        private sealed class ReasonReturningStubQualityService : IParseQualityService
+        {
+            public ParseQualityScore Evaluate(ParsedObservation obs)
+            {
+                return new ParseQualityScore(
+                    Score: 0.5f,
+                    Reasons: new List<string> { "PrimaryValueNull", "ParameterNameNull" });
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the threshold gate: when the quality service reports penalty reasons
+        /// but the score is AT OR ABOVE <see cref="ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold"/>,
+        /// the REVIEW_REASONS flag is suppressed. The numeric score still emits for audit.
+        /// Rationale: rows above threshold are not forwarded to Claude, so the reason list
+        /// has no operational effect and would only pollute aggregate reason breakdowns.
+        /// </summary>
+        [TestMethod]
+        public async Task ParseQualityService_ScoreAboveThreshold_ReviewReasonsSuppressed()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings();
+            var claudeSettings = new ClaudeApiCorrectionSettings { ClaudeReviewQualityThreshold = 0.75f };
+            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            // Stub returns score 0.9 (above 0.75 threshold) with a non-empty reasons list.
+            IParseQualityService qualityService = new AboveThresholdReasonStubQualityService();
+            var service = new MlNetCorrectionService(
+                mockLogger.Object, settings,
+                trainingStore: null,
+                parseQualityService: qualityService,
+                claudeSettings: claudeSettings);
+            await service.InitializeAsync();
+
+            var obs = createTestObservation();
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:0.9000"),
+                $"Numeric score flag must still emit; got: {flags}");
+            Assert.IsFalse(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS"),
+                $"REVIEW_REASONS must be suppressed when score >= threshold; got: {flags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the threshold gate boundary: when the score exactly matches
+        /// <see cref="ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold"/>, the
+        /// REVIEW_REASONS flag is suppressed (the gate is <c>score &lt; threshold</c>,
+        /// strictly less).
+        /// </summary>
+        [TestMethod]
+        public async Task ParseQualityService_ScoreExactlyAtThreshold_ReviewReasonsSuppressed()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings();
+            var claudeSettings = new ClaudeApiCorrectionSettings { ClaudeReviewQualityThreshold = 0.75f };
+            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            IParseQualityService qualityService = new ExactThresholdReasonStubQualityService();
+            var service = new MlNetCorrectionService(
+                mockLogger.Object, settings,
+                trainingStore: null,
+                parseQualityService: qualityService,
+                claudeSettings: claudeSettings);
+            await service.InitializeAsync();
+
+            var obs = createTestObservation();
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS"),
+                $"REVIEW_REASONS must be suppressed when score == threshold; got: {flags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that a custom Claude threshold is honored for reason emission. Raising
+        /// the threshold to 0.90 means a score of 0.8 (which skipped Claude under the 0.75
+        /// default) now emits REVIEW_REASONS because it IS below 0.90.
+        /// </summary>
+        [TestMethod]
+        public async Task ParseQualityService_CustomThreshold_GatesReasonEmission()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings();
+            var claudeSettings = new ClaudeApiCorrectionSettings { ClaudeReviewQualityThreshold = 0.90f };
+            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            IParseQualityService qualityService = new AboveDefaultThresholdReasonStubQualityService();
+            var service = new MlNetCorrectionService(
+                mockLogger.Object, settings,
+                trainingStore: null,
+                parseQualityService: qualityService,
+                claudeSettings: claudeSettings);
+            await service.InitializeAsync();
+
+            var obs = createTestObservation();
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS"),
+                $"REVIEW_REASONS must emit when score < custom threshold (0.8 < 0.9); got: {flags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Stub: score 0.9 (above default 0.75 threshold) with non-empty reasons.</summary>
+        private sealed class AboveThresholdReasonStubQualityService : IParseQualityService
+        {
+            public ParseQualityScore Evaluate(ParsedObservation obs)
+                => new(Score: 0.9f, Reasons: new List<string> { "SoftRepair:PVT_MIGRATED" });
+        }
+
+        /**************************************************************/
+        /// <summary>Stub: score exactly 0.75 (boundary) with non-empty reasons.</summary>
+        private sealed class ExactThresholdReasonStubQualityService : IParseQualityService
+        {
+            public ParseQualityScore Evaluate(ParsedObservation obs)
+                => new(Score: 0.75f, Reasons: new List<string> { "SoftRepair:PVT_MIGRATED" });
+        }
+
+        /**************************************************************/
+        /// <summary>Stub: score 0.8 (above default 0.75 threshold, below 0.9 custom threshold).</summary>
+        private sealed class AboveDefaultThresholdReasonStubQualityService : IParseQualityService
+        {
+            public ParseQualityScore Evaluate(ParsedObservation obs)
+                => new(Score: 0.8f, Reasons: new List<string> { "SoftRepair:PVT_MIGRATED" });
+        }
+
+        #endregion Parse-Quality Gate Integration
+
+        #region MlTrainingStore Eviction Tests
 
         /**************************************************************/
         /// <summary>
@@ -1199,98 +884,7 @@ namespace MedRecProTest
             #endregion
         }
 
-        #endregion Eviction Tests
-
-        #region Adaptive Threshold Tests
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that when the correction rate is low (below floor), the adaptive threshold
-        /// is raised.
-        /// </summary>
-        [TestMethod]
-        public async Task AdaptiveThreshold_LowCorrectionRate_ThresholdRises()
-        {
-            #region implementation
-
-            var tempPath = Path.Combine(Path.GetTempPath(), $"ml-store-adapt-{Guid.NewGuid()}.json");
-            try
-            {
-                var settings = new MlNetCorrectionSettings
-                {
-                    TrainingStoreFilePath = tempPath,
-                    AdaptiveThresholdMinObservations = 2000,
-                    AdaptiveThresholdCorrectionRateFloor = 0.10f,
-                    AdaptiveThresholdStep = 0.05f,
-                    AdaptiveThresholdCeiling = 0.95f,
-                    AdaptiveThresholdEvaluationInterval = 1000
-                };
-                var mockLogger = new Mock<ILogger<MlTrainingStore>>();
-                var store = new MlTrainingStore(mockLogger.Object, settings);
-                await store.LoadAsync();
-
-                Assert.AreEqual(0.0f, store.GetAdaptiveThreshold(), "Initial threshold should be 0.0");
-
-                // Feed 3000 sent, 100 corrected (3.3% rate — below 10% floor)
-                // First batch won't trigger (below 2000 min)
-                var result1 = await store.RecordClaudeFeedbackAsync(1500, 50);
-                Assert.IsNull(result1, "Should not trigger before min observations");
-
-                // Second batch crosses 2000 threshold + 1000 interval
-                var result2 = await store.RecordClaudeFeedbackAsync(1500, 50);
-                Assert.IsNotNull(result2, "Should trigger threshold increase");
-                Assert.AreEqual(0.05f, result2!.Value, 0.001f, "Threshold should rise by step size");
-                Assert.AreEqual(0.05f, store.GetAdaptiveThreshold(), 0.001f);
-            }
-            finally
-            {
-                if (File.Exists(tempPath)) File.Delete(tempPath);
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that when the correction rate is high (above floor), the adaptive threshold
-        /// does not change.
-        /// </summary>
-        [TestMethod]
-        public async Task AdaptiveThreshold_HighCorrectionRate_ThresholdUnchanged()
-        {
-            #region implementation
-
-            var tempPath = Path.Combine(Path.GetTempPath(), $"ml-store-noadapt-{Guid.NewGuid()}.json");
-            try
-            {
-                var settings = new MlNetCorrectionSettings
-                {
-                    TrainingStoreFilePath = tempPath,
-                    AdaptiveThresholdMinObservations = 2000,
-                    AdaptiveThresholdCorrectionRateFloor = 0.10f,
-                    AdaptiveThresholdStep = 0.05f,
-                    AdaptiveThresholdEvaluationInterval = 1000
-                };
-                var mockLogger = new Mock<ILogger<MlTrainingStore>>();
-                var store = new MlTrainingStore(mockLogger.Object, settings);
-                await store.LoadAsync();
-
-                // Feed 3000 sent, 600 corrected (20% rate — above 10% floor)
-                await store.RecordClaudeFeedbackAsync(1500, 300);
-                var result = await store.RecordClaudeFeedbackAsync(1500, 300);
-
-                Assert.IsNull(result, "Threshold should not change when correction rate is high");
-                Assert.AreEqual(0.0f, store.GetAdaptiveThreshold(), "Threshold should remain at 0.0");
-            }
-            finally
-            {
-                if (File.Exists(tempPath)) File.Delete(tempPath);
-            }
-
-            #endregion
-        }
-
-        #endregion Adaptive Threshold Tests
+        #endregion MlTrainingStore Eviction Tests
 
         #region FeedClaudeCorrectedBatchAsync Tests
 
@@ -1306,37 +900,38 @@ namespace MedRecProTest
 
             var settings = new MlNetCorrectionSettings();
             var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
-            var service = new MlNetCorrectionService(mockLogger.Object, settings);
+            var service = new MlNetCorrectionService(
+                mockLogger.Object, settings,
+                trainingStore: null,
+                parseQualityService: new StubParseQualityService());
             await service.InitializeAsync();
 
-            // Create 10 observations, 4 with AI_CORRECTED flag
             var observations = Enumerable.Range(1, 10)
                 .Select(i => createTestObservation(
                     category: "PK",
                     primaryValue: i * 10.0,
                     sourceRowSeq: i,
                     validationFlags: i <= 4
-                        ? $"MLNET_ANOMALY_SCORE:0.8500; AI_CORRECTED:PrimaryValueType"
-                        : "MLNET_ANOMALY_SCORE:0.5000"))
+                        ? $"MLNET_PARSE_QUALITY:0.5000; AI_CORRECTED:PrimaryValueType"
+                        : "MLNET_PARSE_QUALITY:0.9000"))
                 .ToList();
 
             await service.FeedClaudeCorrectedBatchAsync(observations);
 
             // Feed a large training batch to trigger retrain — this verifies the
-            // ground-truth records were added to the accumulator
+            // ground-truth records were added to the accumulator.
             var trainBatch = generateTrainingBatch(50);
             service.ScoreAndCorrect(trainBatch);
 
-            // A second ScoreAndCorrect should work with the mixed accumulator
+            // A second ScoreAndCorrect should work with the mixed accumulator.
             var testBatch = new List<ParsedObservation>
             {
                 createTestObservation(category: "PK", primaryValue: 999.0)
             };
             var result = service.ScoreAndCorrect(testBatch);
 
-            // Should not crash and should produce a score
             Assert.IsNotNull(result[0].ValidationFlags);
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_ANOMALY_SCORE:"));
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
 
             #endregion
         }
@@ -1361,81 +956,11 @@ namespace MedRecProTest
                     category: "PK",
                     primaryValue: i * 10.0,
                     sourceRowSeq: i,
-                    validationFlags: "MLNET_ANOMALY_SCORE:0.5000"))
+                    validationFlags: "MLNET_PARSE_QUALITY:0.9000"))
                 .ToList();
 
             // Should not throw
             await service.FeedClaudeCorrectedBatchAsync(observations);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Verifies that FeedClaudeCorrectedBatchAsync with a training store persists
-        /// ground-truth records and propagates adaptive threshold changes.
-        /// </summary>
-        [TestMethod]
-        public async Task FeedClaudeCorrectedBatch_WithStore_PersistsAndAdapts()
-        {
-            #region implementation
-
-            var tempPath = Path.Combine(Path.GetTempPath(), $"ml-store-feed-{Guid.NewGuid()}.json");
-            try
-            {
-                var mlSettings = new MlNetCorrectionSettings
-                {
-                    TrainingStoreFilePath = tempPath,
-                    AdaptiveThresholdMinObservations = 100,
-                    AdaptiveThresholdCorrectionRateFloor = 0.10f,
-                    AdaptiveThresholdStep = 0.05f,
-                    AdaptiveThresholdEvaluationInterval = 50
-                };
-                var claudeSettings = new ClaudeApiCorrectionSettings
-                {
-                    MlAnomalyScoreThreshold = 0.0f
-                };
-
-                var storeLogger = new Mock<ILogger<MlTrainingStore>>();
-                var store = new MlTrainingStore(storeLogger.Object, mlSettings);
-
-                var serviceLogger = new Mock<ILogger<MlNetCorrectionService>>();
-                var service = new MlNetCorrectionService(
-                    serviceLogger.Object, mlSettings, store, claudeSettings);
-
-                await service.InitializeAsync();
-
-                // Feed enough low-correction-rate batches to trigger threshold raise
-                // 200 observations, 5 corrected = 2.5% rate (below 10% floor)
-                for (int batch = 0; batch < 4; batch++)
-                {
-                    var obs = Enumerable.Range(1, 50)
-                        .Select(i => createTestObservation(
-                            category: "PK",
-                            primaryValue: i,
-                            sourceRowSeq: i,
-                            validationFlags: i == 1
-                                ? "AI_CORRECTED:PrimaryValueType"
-                                : "MLNET_ANOMALY_SCORE:0.5000"))
-                        .ToList();
-
-                    await service.FeedClaudeCorrectedBatchAsync(obs);
-                }
-
-                // Threshold should have been raised
-                Assert.IsTrue(claudeSettings.MlAnomalyScoreThreshold > 0.0f,
-                    $"Expected threshold > 0 but got {claudeSettings.MlAnomalyScoreThreshold}");
-
-                // Verify persistence — reload store
-                var store2 = new MlTrainingStore(storeLogger.Object, mlSettings);
-                await store2.LoadAsync();
-                Assert.IsTrue(store2.GetRecords().Count > 0, "Records should be persisted");
-                Assert.IsTrue(store2.GetAdaptiveThreshold() > 0.0f, "Threshold should be persisted");
-            }
-            finally
-            {
-                if (File.Exists(tempPath)) File.Delete(tempPath);
-            }
 
             #endregion
         }
@@ -1497,7 +1022,6 @@ namespace MedRecProTest
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Train models with a diverse batch.
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
@@ -1533,19 +1057,13 @@ namespace MedRecProTest
                 EnableStage1ShadowMode = true,
                 MinTrainingRowsPerCategory = 10,
                 RetrainingBatchSize = 40,
-                // Low confidence gate so SOME prediction will likely cross the bar
-                // even with a modestly trained model on synthetic data.
                 TableCategoryMinConfidence = 0.01f
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Train on a diverse batch so the classifier has something to predict with.
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
-            // Present an observation whose caption/section signals could plausibly
-            // trip a (mis-)classification. Use a category intentionally mismatched
-            // to the caption text so the classifier has a differing prediction.
             var testObs = createTestObservation(
                 category: "PK",
                 caption: "Serious Adverse Events — Pooled Safety Analysis",
@@ -1554,16 +1072,12 @@ namespace MedRecProTest
 
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
-            // Crucial invariant: TableCategory NEVER mutated when shadow mode is on.
             Assert.AreEqual("PK", result[0].TableCategory,
                 "Shadow mode must never mutate TableCategory.");
 
             var flags = result[0].ValidationFlags ?? string.Empty;
             Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
                 "CATEGORY_CORRECTED must NOT be emitted when correction is disabled.");
-            // Shadow flag presence depends on whether the trained model actually
-            // crosses the threshold — which is data-dependent with synthetic inputs.
-            // The invariant we CAN always assert is: no corrected-path mutation.
 
             #endregion
         }
@@ -1572,7 +1086,6 @@ namespace MedRecProTest
         /// <summary>
         /// R9 — With Stage 1 correction explicitly enabled, the classical
         /// <c>MLNET:CATEGORY_CORRECTED</c> path runs and may mutate TableCategory.
-        /// Verifies that opting back into correction restores the pre-R9 behavior.
         /// </summary>
         [TestMethod]
         public async Task R9_Stage1_CorrectionEnabled_CanEmitCorrectedFlag()
@@ -1584,12 +1097,10 @@ namespace MedRecProTest
                 EnableStage1TableCategoryCorrection = true,
                 MinTrainingRowsPerCategory = 10,
                 RetrainingBatchSize = 40,
-                TableCategoryMinConfidence = 0.99f  // Restored pre-R9 style high bar
+                TableCategoryMinConfidence = 0.99f
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Fire up training — whether the threshold is crossed with synthetic data
-            // is secondary; the load-bearing assertion is "no CATEGORY_SHADOW flag".
             var trainBatch = generateTrainingBatch(25);
             service.ScoreAndCorrect(trainBatch);
 
@@ -1606,8 +1117,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// R9 — Disabling Stage 2 (DoseRegimen routing) stops
-        /// <c>MLNET:DOSEREGIMEN_ROUTED</c> flag emission. Routing is Stage 2 specific;
-        /// Stage 1/3/4 should be unaffected.
+        /// <c>MLNET:DOSEREGIMEN_ROUTED</c> flag emission.
         /// </summary>
         [TestMethod]
         public async Task R9_Stage2_Disabled_NoDoseRegimenRoutedFlag()
@@ -1648,7 +1158,6 @@ namespace MedRecProTest
             };
             var service = await createInitializedServiceAsync(settings);
 
-            // Stage 3 only runs when PVT == "Numeric" — use that as input.
             var testObs = createTestObservation(category: "PK", primaryValueType: "Numeric");
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
@@ -1661,42 +1170,12 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// R9 — Disabling Stage 4 (anomaly scoring) suppresses ALL
-        /// <c>MLNET_ANOMALY_SCORE:*</c> flag emission — not just real scores, but also
-        /// the NOMODEL and ERROR sentinels. Tests that the settings toggle completely
-        /// silences the anomaly stage rather than just changing its output.
+        /// R9 — Default settings (Stage 1 off with shadow on, Stages 2/3 on) produce no
+        /// CATEGORY_CORRECTED flags but still produce the parse-quality flag. Regression
+        /// guard on the R9 default posture after the 2026-04-24 Stage 4 retirement.
         /// </summary>
         [TestMethod]
-        public async Task R9_Stage4_Disabled_NoAnomalyScoreFlag()
-        {
-            #region implementation
-
-            var settings = new MlNetCorrectionSettings
-            {
-                EnableStage4AnomalyScoring = false
-            };
-            var service = await createInitializedServiceAsync(settings);
-
-            var testObs = createTestObservation(category: "PK");
-            var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
-
-            var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET_ANOMALY_SCORE"),
-                "Stage 4 disabled — no anomaly-score flag of any kind may be emitted " +
-                "(not real scores, not NOMODEL, not ERROR).");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// R9 — Default settings (EnableStage1TableCategoryCorrection=false,
-        /// EnableStage1ShadowMode=true, Stages 2/3/4 enabled) produce no
-        /// CATEGORY_CORRECTED flags but still produce anomaly scores + other
-        /// stage flags. Regression guard on the R9 default posture.
-        /// </summary>
-        [TestMethod]
-        public async Task R9_Default_Settings_Stage1Off_Stage4StillScores()
+        public async Task R9_DefaultSettings_Stage1Off_ParseQualityStillEmits()
         {
             #region implementation
 
@@ -1707,13 +1186,136 @@ namespace MedRecProTest
             var flags = result[0].ValidationFlags ?? string.Empty;
             Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
                 "R9 default: Stage 1 must not emit CATEGORY_CORRECTED without opt-in.");
-            Assert.IsTrue(flags.Contains("MLNET_ANOMALY_SCORE"),
-                "R9 default: Stage 4 (anomaly) must still emit a flag " +
-                "(real score or NOMODEL).");
+            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:"),
+                "R9 default: parse-quality gate must still emit a flag on every observation.");
 
             #endregion
         }
 
         #endregion R9 — Per-Stage Enable Toggles + Shadow Mode
+
+        #region PR #4 — Stage 2 shadow mode
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #4 — default settings keep Stage 2 in active-correction mode (shadow off).
+        /// </summary>
+        [TestMethod]
+        public void Stage2_DefaultSettings_CorrectionOnShadowOff()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings();
+            Assert.IsTrue(settings.EnableStage2DoseRegimenRouting,
+                "Master toggle must default to on (pre-existing behavior).");
+            Assert.IsTrue(settings.EnableStage2DoseRegimenRoutingCorrection,
+                "Correction must default to on.");
+            Assert.IsFalse(settings.EnableStage2ShadowMode,
+                "Shadow mode must default to off so operators only opt in deliberately.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #4 — when correction is disabled and shadow is off, Stage 2
+        /// is a no-op. No flags are emitted, no mutation.
+        /// </summary>
+        [TestMethod]
+        public async Task Stage2_BothOff_NoFlagsAndNoMutation()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage2DoseRegimenRouting = true,
+                EnableStage2DoseRegimenRoutingCorrection = false,
+                EnableStage2ShadowMode = false,
+            };
+            var service = await createInitializedServiceAsync(settings);
+
+            var obs = createTestObservation(doseRegimen: "500 mg daily");
+            var originalRegimen = obs.DoseRegimen;
+
+            var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
+
+            var flags = result[0].ValidationFlags ?? string.Empty;
+            Assert.IsFalse(flags.Contains("MLNET:DOSEREGIMEN_ROUTED_TO"),
+                "No active routing when correction is disabled.");
+            Assert.IsFalse(flags.Contains("MLNET:DOSEREGIMEN_SHADOW"),
+                "No shadow emission when shadow is disabled.");
+            Assert.AreEqual(originalRegimen, result[0].DoseRegimen,
+                "DoseRegimen must not be mutated.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #4 — settings round-trip — flipping shadow on while correction is still on
+        /// is allowed (shadow is only consulted when correction is off).
+        /// </summary>
+        [TestMethod]
+        public void Stage2_ShadowOnWithCorrectionOn_SettingsCoexistWithoutError()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage2DoseRegimenRoutingCorrection = true,
+                EnableStage2ShadowMode = true,
+            };
+            Assert.IsTrue(settings.EnableStage2DoseRegimenRoutingCorrection);
+            Assert.IsTrue(settings.EnableStage2ShadowMode);
+
+            #endregion
+        }
+
+        #endregion PR #4 — Stage 2 shadow mode
+
+        #region PR #6 infrastructure — Stage 1 dual-write audit
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #6 — the dual-write audit flag defaults to off so no behavior
+        /// changes until operators deliberately opt in during the re-enable window.
+        /// </summary>
+        [TestMethod]
+        public void Stage1DualWriteAudit_DefaultsToOff()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings();
+            Assert.IsFalse(settings.EnableStage1DualWriteAudit,
+                "Dual-write audit should default to off — it's an opt-in verbosity knob.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #6 — the dual-write audit flag is meaningful only when BOTH
+        /// correction and shadow are enabled.
+        /// </summary>
+        [TestMethod]
+        public void Stage1DualWriteAudit_CoexistsWithShadowAndCorrectionFlags()
+        {
+            #region implementation
+
+            var settings = new MlNetCorrectionSettings
+            {
+                EnableStage1TableCategoryCorrection = true,
+                EnableStage1ShadowMode = true,
+                EnableStage1DualWriteAudit = true,
+            };
+
+            Assert.IsTrue(settings.EnableStage1TableCategoryCorrection);
+            Assert.IsTrue(settings.EnableStage1ShadowMode);
+            Assert.IsTrue(settings.EnableStage1DualWriteAudit);
+
+            #endregion
+        }
+
+        #endregion PR #6 infrastructure — Stage 1 dual-write audit
     }
 }

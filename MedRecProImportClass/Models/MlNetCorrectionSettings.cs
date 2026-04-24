@@ -3,19 +3,25 @@ namespace MedRecProImportClass.Models
     /**************************************************************/
     /// <summary>
     /// Configuration settings for the ML.NET correction service (Stage 3.4).
-    /// Controls model training thresholds, anomaly scoring, and enablement of ML-based
+    /// Controls model training thresholds and per-stage enablement of ML-based
     /// observation correction in the SPL Table Normalization pipeline.
     /// </summary>
     /// <remarks>
     /// The ML correction service runs after Stage 3.25 (ColumnStandardization) and before
     /// Stage 3.5 (ClaudeApiCorrection). It uses in-memory accumulated high-confidence rows
-    /// to train classification and anomaly detection models, then applies corrections and
-    /// scores to each batch. The anomaly score gates which rows are forwarded to Claude.
+    /// to train three classification stages (TableCategory, DoseRegimen routing,
+    /// PrimaryValueType disambiguation) and applies corrections to each batch. Downstream
+    /// gating of Claude correction is driven by the deterministic parse-quality gate in
+    /// <see cref="MedRecProImportClass.Service.TransformationServices.IParseQualityService"/>,
+    /// not by ML.NET output.
     ///
-    /// ## Cold-Start Behavior
-    /// Batch 1 always emits <c>MLNET_ANOMALY_SCORE:NOMODEL</c> because no training data
-    /// exists yet. Models train once the accumulator reaches <see cref="MinTrainingRowsPerCategory"/>
-    /// rows per category and <see cref="RetrainingBatchSize"/> total new rows.
+    /// ## Stage 4 Retirement (2026-04-24)
+    /// The former Stage 4 anomaly-scoring pipeline (PerKey + UnifiedGlobal PCA, adaptive
+    /// threshold ratcheting) was retired because PCA reconstruction-error scores cluster
+    /// in a narrow band regardless of training-set shape, making any fixed threshold a
+    /// tuning exercise rather than a durable gate. Claude's actual job is correcting
+    /// parse-alignment errors, not flagging value extremity — the deterministic parse-quality
+    /// gate targets parse failures directly.
     /// </remarks>
     /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IMlNetCorrectionService"/>
     /// <seealso cref="ClaudeApiCorrectionSettings"/>
@@ -26,7 +32,7 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Master enable/disable switch. When false, the ML correction service is a no-op
-        /// and all observations pass through unmodified with no anomaly scores.
+        /// and all observations pass through unmodified.
         /// </summary>
         public bool Enabled { get; set; } = true;
 
@@ -68,11 +74,63 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// R9 — Per-stage toggle for Stage 2 DoseRegimen routing. Default <c>true</c> —
-        /// the Stage 2 routing is known to work correctly and is not affected by the R9
-        /// classifier issues.
+        /// PR #6 infrastructure — when <c>true</c> AND both
+        /// <see cref="EnableStage1TableCategoryCorrection"/> and
+        /// <see cref="EnableStage1ShadowMode"/> are <c>true</c>, the Stage 1 classifier
+        /// emits <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> even when the prediction
+        /// AGREES with the current <c>TableCategory</c>. Under the normal shadow rules the
+        /// flag fires only on disagreement; this dual-write mode is an audit aid so the
+        /// first production runs after Stage 1 is re-enabled can be fully reconstructed —
+        /// every row records what the model saw, not just the surprising cases.
+        /// </summary>
+        /// <remarks>
+        /// Default <c>false</c> — the existing disagreement-only shadow behaviour is
+        /// preserved. Flip to <c>true</c> temporarily after re-enabling the classifier
+        /// so the bulk of predictions are auditable end-to-end, then flip off once the
+        /// audit passes.
+        /// </remarks>
+        public bool EnableStage1DualWriteAudit { get; set; } = false;
+
+        /**************************************************************/
+        /// <summary>
+        /// R9 — Per-stage master toggle for Stage 2 DoseRegimen routing. Default <c>true</c>.
+        /// When <c>false</c>, the stage is skipped entirely and neither correction nor shadow
+        /// emission runs. For finer-grained control, see
+        /// <see cref="EnableStage2DoseRegimenRoutingCorrection"/> and
+        /// <see cref="EnableStage2ShadowMode"/>.
         /// </summary>
         public bool EnableStage2DoseRegimenRouting { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #4 — When <see cref="EnableStage2DoseRegimenRouting"/> is true, controls
+        /// whether Stage 2 actually mutates the observation (<c>true</c>, the default — current
+        /// behaviour) or runs in prediction-only shadow mode (<c>false</c>). The shadow mode
+        /// exists to audit Stage 2's decisions — on the 2026-04-24 corpus, Stage 2 was routing
+        /// semantically diverse content (dose values, food status, metabolite names) into
+        /// <c>ParameterSubtype</c>, and the shadow split lets operators quantify correctness
+        /// before re-enabling active correction.
+        /// </summary>
+        /// <remarks>
+        /// When this flag is <c>false</c> AND <see cref="EnableStage2ShadowMode"/> is true,
+        /// the stage emits a <c>MLNET:DOSEREGIMEN_SHADOW:{target}:{score}</c> flag where it
+        /// would have routed — observations are not mutated. When both flags are false, the
+        /// stage runs no prediction at all.
+        /// </remarks>
+        /// <seealso cref="EnableStage2DoseRegimenRouting"/>
+        /// <seealso cref="EnableStage2ShadowMode"/>
+        public bool EnableStage2DoseRegimenRoutingCorrection { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #4 — When <see cref="EnableStage2DoseRegimenRoutingCorrection"/> is <c>false</c>,
+        /// the Stage 2 classifier still runs in shadow mode when this flag is <c>true</c>,
+        /// emitting <c>MLNET:DOSEREGIMEN_SHADOW:{target}:{score}</c> on flags where the
+        /// prediction would have fired. Default <c>false</c> — no shadow emission unless
+        /// correction is explicitly disabled and an audit trail is wanted.
+        /// </summary>
+        /// <seealso cref="EnableStage2DoseRegimenRoutingCorrection"/>
+        public bool EnableStage2ShadowMode { get; set; } = false;
 
         /**************************************************************/
         /// <summary>
@@ -80,15 +138,6 @@ namespace MedRecProImportClass.Models
         /// <c>true</c>. Like Stage 2, not affected by the R9 classifier issues.
         /// </summary>
         public bool EnableStage3PrimaryValueTypeDisambiguation { get; set; } = true;
-
-        /**************************************************************/
-        /// <summary>
-        /// R9 — Per-stage toggle for Stage 4 anomaly scoring. Default <c>true</c>. When
-        /// false, no <c>MLNET_ANOMALY_SCORE</c> flag is emitted at all (neither score
-        /// values nor NOMODEL / ERROR sentinels). Used primarily in tests that want to
-        /// isolate the classification stages.
-        /// </summary>
-        public bool EnableStage4AnomalyScoring { get; set; } = true;
 
         #endregion
 
@@ -101,15 +150,6 @@ namespace MedRecProImportClass.Models
         /// AND disagrees with the current category. Default 0.90 (high bar to avoid false corrections).
         /// </summary>
         public float TableCategoryMinConfidence { get; set; } = 0.90f;
-
-        /**************************************************************/
-        /// <summary>
-        /// Anomaly score threshold used by <see cref="ClaudeApiCorrectionSettings"/> to gate
-        /// which observations are forwarded to the Claude API. Observations with anomaly scores
-        /// below this threshold are considered "normal" and skip the expensive AI correction pass.
-        /// Default 0.75. Set to 0.0 for backward-compatible behavior (all observations pass).
-        /// </summary>
-        public float AnomalyScoreClaudeThreshold { get; set; } = 0.75f;
 
         #endregion
 
@@ -126,8 +166,9 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// Minimum rows per TableCategory required before models can be trained.
-        /// Categories with fewer accumulated rows than this threshold are skipped during training.
+        /// Minimum rows required before Stage 1/2/3 classifiers can be trained. Applied as an
+        /// absolute row-count floor against the full accumulator — no per-category slicing,
+        /// since the classifiers train across the whole distribution.
         /// Default 10.
         /// </summary>
         public int MinTrainingRowsPerCategory { get; set; } = 10;
@@ -146,9 +187,9 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// Path to the ML training store JSON file. When set, training records and adaptive
-        /// threshold state persist across process restarts. Null = ephemeral (current behavior,
-        /// accumulator is in-memory only and lost on restart).
+        /// Path to the ML training store JSON file. When set, training records persist across
+        /// process restarts. Null = ephemeral (current behavior, accumulator is in-memory only
+        /// and lost on restart).
         /// </summary>
         /// <remarks>
         /// The file is written atomically (tmp + rename) and loaded on service initialization.
@@ -160,7 +201,7 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// Maximum records in the training accumulator. When exceeded, oldest non-ground-truth
         /// (bootstrap) records are evicted first, then oldest ground-truth records.
-        /// Default 500,000. At ~800–900 bytes/record (indented JSON) ≈ 400–450 MB on disk;
+        /// Default 60,000. At ~800–900 bytes/record (indented JSON) ≈ 50–55 MB on disk;
         /// use <see cref="MaxTrainingStoreSizeBytes"/> to cap the actual file size.
         /// </summary>
         public int MaxAccumulatorRows { get; set; } = 60_000;
@@ -171,50 +212,9 @@ namespace MedRecProImportClass.Models
         /// When the file would exceed this limit, oldest bootstrap records are evicted first,
         /// then oldest ground-truth records, until the serialized output fits within the cap.
         /// Enforced on every save and also at load time (to trim files written by older builds).
-        /// Default 209,715,200 (200 MB). With <c>WriteIndented = true</c> producing ~800–900 bytes
-        /// per record, 200 MB ≈ ~235,000 records.
+        /// Default 40 MB.
         /// </summary>
         public long MaxTrainingStoreSizeBytes { get; set; } = 40L * 1024 * 1024; // 40 MB
-
-        #endregion
-
-        #region adaptive threshold settings
-
-        /**************************************************************/
-        /// <summary>
-        /// Minimum lifetime Claude observations before adaptive threshold evaluation starts.
-        /// Prevents threshold changes based on insufficient data. Default 2,000.
-        /// </summary>
-        public int AdaptiveThresholdMinObservations { get; set; } = 2_000;
-
-        /**************************************************************/
-        /// <summary>
-        /// Correction rate (corrected / sent) below which the threshold is raised.
-        /// A low correction rate means ML is handling most cases correctly, so
-        /// fewer rows need Claude review. Default 0.10 (10%).
-        /// </summary>
-        public float AdaptiveThresholdCorrectionRateFloor { get; set; } = 0.10f;
-
-        /**************************************************************/
-        /// <summary>
-        /// Step size per threshold increase. Each time the threshold is raised,
-        /// it increases by this amount. Default 0.05.
-        /// </summary>
-        public float AdaptiveThresholdStep { get; set; } = 0.05f;
-
-        /**************************************************************/
-        /// <summary>
-        /// Hard ceiling on the adaptive threshold — prevents all rows from being gated away
-        /// from Claude entirely. Default 0.95.
-        /// </summary>
-        public float AdaptiveThresholdCeiling { get; set; } = 0.95f;
-
-        /**************************************************************/
-        /// <summary>
-        /// Minimum new Claude observations between threshold evaluations.
-        /// Prevents excessive re-evaluation. Default 1,000.
-        /// </summary>
-        public int AdaptiveThresholdEvaluationInterval { get; set; } = 1_000;
 
         #endregion
     }

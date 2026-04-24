@@ -842,10 +842,20 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// was parked into ParameterSubtype and stripped by the Phase-2d scrub.
         /// Sibling-vote catches the orphans without polluting unrelated rows.
         ///
-        /// ## Conservative guard
-        /// Only fires when siblings exhibit a dominant unit (≥ 50% of non-null
-        /// sibling units share the winning value). Mixed-unit groups are
+        /// ## Conservative guard — with paren-dispersion rescue boost (PR #1 Area B)
+        /// Default rule: fires when siblings exhibit a dominant unit (&gt; 50% of
+        /// non-null sibling units share the winning value). Mixed-unit groups are
         /// preserved as-is — ambiguous, safer to leave null.
+        ///
+        /// When the majority of siblings (≥ 50%) originate from paren-dispersion
+        /// rescue (<c>ParseRule == "value_paren_dispersion"</c> or the <c>+caption</c>
+        /// variants), the Unit column is commonly empty on those rescued rows and the
+        /// strict-majority test fails too often (189-row gap on 2026-04-24 corpus). In
+        /// that case the required threshold is lowered to plurality (≥ 33% of non-null
+        /// siblings). The winning value must still be unambiguous (strictly greater
+        /// than every other distinct unit, i.e., no tie). Rows backfilled via this
+        /// relaxed path additionally carry <c>PK_UNIT_SIBLING_VOTED:RESCUE_BOOST</c>
+        /// for audit traceability.
         /// </remarks>
         /// <param name="observations">Observations produced by <see cref="Parse"/>.</param>
         /// <returns>Number of observations whose Unit was backfilled.</returns>
@@ -884,10 +894,27 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var nonNullTotal = unitCounts.Sum(x => x.Count);
                 var winner = unitCounts[0];
 
-                // Require strict majority (> 50%) of the non-null siblings to
-                // agree — ties leave null observations untouched
-                if (winner.Count * 2 <= nonNullTotal)
+                // PR #1 Area B — rescue-aware threshold selection.
+                // If most siblings originate from the paren-dispersion rescue path,
+                // strict majority rejects too many legitimate backfills (189 rows
+                // surfaced on 2026-04-24). Relax to plurality (≥ 33%) when rescue
+                // rows dominate AND the winning unit is strictly unique (no tie).
+                var rescueRowCount = siblings.Count(o =>
+                    !string.IsNullOrEmpty(o.ParseRule) &&
+                    o.ParseRule.StartsWith("value_paren_dispersion", StringComparison.Ordinal));
+                var rescueDominant = rescueRowCount * 2 >= siblings.Count;
+
+                var strictMajorityMet = winner.Count * 2 > nonNullTotal;
+                var rescueBoostMet = rescueDominant
+                    && winner.Count * 3 >= nonNullTotal          // ≥ 33% of non-null siblings
+                    && (unitCounts.Count == 1 || winner.Count > unitCounts[1].Count); // strictly unique
+
+                if (!strictMajorityMet && !rescueBoostMet)
                     continue;
+
+                // Track whether the rescue boost was the deciding factor so the
+                // per-row audit flag records it.
+                var rescueBoostWasDecisive = !strictMajorityMet && rescueBoostMet;
 
                 foreach (var o in siblings)
                 {
@@ -896,6 +923,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     o.Unit = winner.Unit;
                     o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_UNIT_SIBLING_VOTED");
+                    if (rescueBoostWasDecisive)
+                    {
+                        o.ValidationFlags = appendFlag(o.ValidationFlags, "PK_UNIT_SIBLING_VOTED:RESCUE_BOOST");
+                    }
                     backfilled++;
                 }
             }

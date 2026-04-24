@@ -79,18 +79,27 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// ML anomaly score threshold for gating observations to Claude. Observations with
-        /// <c>MLNET_ANOMALY_SCORE</c> below this threshold are considered "normal" and skip
-        /// the API correction pass. Set to 0.0 for backward-compatible behavior (all observations
-        /// pass through to Claude). When ML is configured, recommended value is ~0.75.
+        /// Parse-quality threshold for gating observations to Claude. Observations whose
+        /// <c>MLNET_PARSE_QUALITY:{score}</c> value is strictly LESS THAN this threshold are
+        /// forwarded to Claude for semantic review; observations at or above the threshold
+        /// skip the API correction pass. Set to 0.0 to send every observation (rarely useful —
+        /// defeats the cost gate). Default 0.75 means "send anything with at least one hard
+        /// parse failure, two soft repairs, or low parser confidence".
         /// </summary>
         /// <remarks>
-        /// The threshold is evaluated by <see cref="MedRecProImportClass.Service.TransformationServices.ClaudeApiCorrectionService"/>
-        /// at the start of <c>CorrectBatchAsync</c>. Observations without an anomaly score flag
-        /// (e.g., because the ML service was not configured) always pass through (conservative).
+        /// Replaces the retired <c>MlAnomalyScoreThreshold</c>. The parse-quality signal is
+        /// deterministic and targets parse-alignment failures directly (null PrimaryValue,
+        /// Text-typed rows, null ParameterName in categories where it is Required, garbage
+        /// Unit/ParameterSubtype content, etc.) rather than using PCA reconstruction error
+        /// as a noisy proxy for parse failure. Evaluated by
+        /// <see cref="MedRecProImportClass.Service.TransformationServices.ClaudeApiCorrectionService"/>
+        /// at the start of <c>CorrectBatchAsync</c>. Observations without a parse-quality flag
+        /// (e.g., because the quality service was not registered) always pass through
+        /// (conservative — send to Claude when quality is unknown).
         /// </remarks>
         /// <seealso cref="MlNetCorrectionSettings"/>
-        public float MlAnomalyScoreThreshold { get; set; } = 0.75f;
+        /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IParseQualityService"/>
+        public float ClaudeReviewQualityThreshold { get; set; } = 0.75f;
 
         /**************************************************************/
         /// <summary>

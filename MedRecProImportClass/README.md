@@ -397,19 +397,18 @@ All corrections across all phases are flagged in `ValidationFlags` with `COL_STD
 
 ### Stage 3.4: ML.NET Correction + Anomaly Scoring
 
-`MlNetCorrectionService` applies a 4-stage ML pipeline to every observation after deterministic standardization:
+`MlNetCorrectionService` applies a 3-stage classifier pipeline plus a deterministic parse-quality gate to every observation after deterministic standardization:
 
 | Stage | Model | Purpose |
 |-------|-------|---------|
 | 1 | LightGBM multiclass | TableCategory validation -- overrides when high-confidence prediction differs |
 | 2 | LightGBM multiclass | DoseRegimen routing -- redirects misclassified content to correct column |
 | 3 | LightGBM multiclass | PrimaryValueType disambiguation -- resolves ambiguous "Numeric" values |
-| 4 | PCA anomaly detector | Per-category anomaly scoring -- flags unusual observations for review |
+| 3.4 | Rule-based (`ParseQualityService`) | Parse-quality gate -- deterministic score in [0,1] that drives Claude forwarding |
 
-The service accumulates high-confidence rows from each batch and periodically retrains its models. Training data is persisted via `MlTrainingStore` (JSON file) so models survive process restarts.
+The service accumulates high-confidence rows from each batch and periodically retrains its classifiers. Training data is persisted via `MlTrainingStore` (JSON file) so models survive process restarts.
 
-Corrections are flagged with `MLNET:` prefixed audit flags. Anomaly scores are emitted as `MLNET_ANOMALY_SCORE:{score}` on every observation.
-
+Corrections are flagged with `MLNET:` prefixed audit flags. Parse-quality scores are emitted as `MLNET_PARSE_QUALITY:{score}` on every observation, with a companion `MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}` flag listing which rule penalties fired when the score is below threshold.
 ### Stage 3.5: Claude AI Correction
 
 `ClaudeApiCorrectionService` performs AI-powered post-parse correction of `ParsedObservation` objects before database write. After Stages 3.25 and 3.4 produce observations, the correction service sends table-level batches to Claude Haiku for semantic review and correction of misclassified fields.
@@ -611,23 +610,26 @@ These flags are set by `ColumnStandardizationService` during the 4-phase determi
 
 ### Stage 3.4: ML.NET Flags (MLNET)
 
-These flags are set by `MlNetCorrectionService` during the ML correction and anomaly scoring pipeline.
+These flags are set by `MlNetCorrectionService` during the classifier pipeline and parse-quality evaluation.
 
 #### Correction Flags
 
 | Flag | Meaning |
 |------|---------|
 | `MLNET:CATEGORY_CORRECTED:{label}:{score}` | TableCategory was overridden by the ML classifier. `{label}` is the new category, `{score}` is the model's confidence (0.00-1.00). |
+| `MLNET:CATEGORY_SHADOW:{label}:{score}` | R9 shadow-mode emission — what the Stage 1 classifier WOULD have corrected the category to, without actually mutating it. Appears when `EnableStage1TableCategoryCorrection=false` + `EnableStage1ShadowMode=true` (the R9 default). |
 | `MLNET:DOSEREGIMEN_ROUTED_TO_{target}:{score}` | DoseRegimen content was rerouted by ML to a different column (e.g., `PARAMETER_SUBTYPE`). `{score}` is the confidence. |
+| `MLNET:DOSEREGIMEN_SHADOW:{target}:{score}` | PR #4 shadow-mode emission — what Stage 2 WOULD have routed DoseRegimen to, without mutation. Appears when `EnableStage2DoseRegimenRoutingCorrection=false` + `EnableStage2ShadowMode=true`. |
 | `MLNET:PVTYPE_DISAMBIGUATED:{label}:{score}` | PrimaryValueType was disambiguated from "Numeric" to a specific type by the ML classifier. `{label}` is the resolved type. |
 
-#### Anomaly Score Flags
+#### Parse-Quality Flags
 
 | Flag | Meaning |
 |------|---------|
-| `MLNET_ANOMALY_SCORE:{score}` | Per-category PCA anomaly score (4 decimal places). Higher scores indicate more anomalous observations. Emitted on every observation. |
-| `MLNET_ANOMALY_SCORE:NOMODEL` | No anomaly model is available yet for this category (cold start on first batch). Score will appear once enough training data accumulates. |
-| `MLNET_ANOMALY_SCORE:ERROR` | Anomaly prediction failed with an exception. Observation is passed through unchanged. |
+| `MLNET_PARSE_QUALITY:{score}` | Deterministic parse-quality score in [0,1] (4 decimal places). 1.0 = clean parse, no penalties; lower values = more parse-alignment failures. Emitted on every observation by `ParseQualityService`. |
+| `MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}` | Pipe-delimited list of rule names that fired when the score is below the Claude review threshold — e.g. `PrimaryValueNull\|BadUnit\|SoftRepair:PVT_MIGRATED`. Audit trail for every Claude forward. |
+
+The `ClaudeApiCorrectionService` forwards observations whose `MLNET_PARSE_QUALITY` score is below `ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold` (default 0.75). Observations without a quality flag pass through conservatively.
 
 #### Confidence Provenance
 
@@ -676,9 +678,14 @@ Flags are semicolon-delimited with spaces: `COL_STD:ARM_WAS_N; COL_STD:PVT_MIGRA
 SELECT * FROM tmp_FlattenedStandardizedTable
 WHERE ValidationFlags LIKE '%AI_CORRECTED%'
 
--- Find high-anomaly observations
+-- Find low-parse-quality observations (candidates for Claude review)
 SELECT * FROM tmp_FlattenedStandardizedTable
-WHERE ValidationFlags LIKE '%MLNET_ANOMALY_SCORE:0.9%'
+WHERE ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.2%'
+   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.3%'
+   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.4%'
+   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.5%'
+   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.6%'
+   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.7%'
 
 -- Find observations where unit was extracted from ParameterSubtype
 SELECT * FROM tmp_FlattenedStandardizedTable

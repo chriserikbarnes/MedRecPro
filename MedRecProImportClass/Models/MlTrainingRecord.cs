@@ -12,7 +12,12 @@ namespace MedRecProImportClass.Models
     /// - **Stage 1 (TableCategory)**: Caption, SectionTitle, ParentSectionCode, ParseRule, TableCategory
     /// - **Stage 2 (DoseRegimen Routing)**: DoseRegimen, Dose, DoseUnit, TableCategory, Caption, ParameterName, ValidationFlags
     /// - **Stage 3 (PrimaryValueType)**: Unit, TableCategory, ParseRule, Caption, HasLowerBound, HasUpperBound, PrimaryValueType
-    /// - **Stage 4 (Anomaly Detection)**: PrimaryValue, SecondaryValue, LowerBound, UpperBound, PValue, ParseConfidence
+    ///
+    /// ## Stage 4 Retirement (2026-04-24)
+    /// Former Stage 4 (anomaly PCA) consumed PrimaryValue, SecondaryValue, LowerBound,
+    /// UpperBound, PValue, and ParseConfidence plus now-removed context fields
+    /// (<c>BoundType</c>, <c>LogArmN</c>). Those numeric fields are retained here as
+    /// provenance for the persisted store but are no longer fed to any training pipeline.
     ///
     /// ## Ground Truth vs Bootstrap
     /// Records with <see cref="IsClaudeGroundTruth"/> = true originate from Claude-corrected observations
@@ -92,56 +97,35 @@ namespace MedRecProImportClass.Models
         public string? PrimaryValueType { get; set; }
 
         /**************************************************************/
-        /// <summary>SecondaryValueType — anomaly model composite key segment (e.g., "SD", "CV", "Count").</summary>
+        /// <summary>SecondaryValueType label (e.g., "SD", "CV", "Count"). Retained for
+        /// provenance — historically part of the Stage 4 anomaly composite key, now carried
+        /// only as a context feature.</summary>
         public string? SecondaryValueType { get; set; }
 
         #endregion Stage 3 features + label
 
-        #region Stage 4 context features
+        #region Context features (provenance / grouping)
 
         /**************************************************************/
-        /// <summary>Plus-delimited active ingredient UNIIs — outermost anomaly model composite key segment.</summary>
+        /// <summary>Plus-delimited active ingredient UNIIs. Retained for provenance; no
+        /// longer a composite-key segment after Stage 4 retirement.</summary>
         public string? UNII { get; set; }
 
         /**************************************************************/
         /// <summary>
         /// MedDRA System Organ Class grouping (e.g., "Gastrointestinal Disorders").
-        /// Used for anomaly sub-partitioning within TableCategory — tighter PCA clusters
-        /// per SOC yield more sensitive anomaly detection for ADVERSE_EVENT tables.
         /// </summary>
-        /// <remarks>
-        /// Frequently NULL for non-ADVERSE_EVENT table types. Null-safe handling at
-        /// featurization time emits an empty string for text featurization.
-        /// </remarks>
         public string? ParameterCategory { get; set; }
 
         /**************************************************************/
         /// <summary>
         /// Treatment group label (e.g., "Placebo", "Paroxetine", "High Dose").
-        /// Strong contextual signal — the same ParameterName has different expected value
-        /// distributions per arm (active drug vs placebo).
         /// </summary>
-        /// <remarks>
-        /// High cardinality across drugs; text featurization handles this naturally.
-        /// NULL for comparison/summary rows.
-        /// </remarks>
         public string? TreatmentArm { get; set; }
 
-        /**************************************************************/
-        /// <summary>
-        /// Sample size per treatment arm, log-transformed for PCA input.
-        /// Stored as <c>log(ArmN + 1)</c> to compress the range (N spans 5 to 8500+)
-        /// and handle NULL (0f sentinel when source is null).
-        /// </summary>
-        /// <remarks>
-        /// Critical denominator context: a 5% incidence rate at N=70 has very different
-        /// expected variance than at N=8000. Without this, PCA treats both identically.
-        /// </remarks>
-        public float LogArmN { get; set; }
+        #endregion Context features
 
-        #endregion Stage 4 context features
-
-        #region Stage 4 anomaly features (PCA vector)
+        #region Residual numeric fields (legacy Stage 4 PCA vector — retained for provenance)
 
         /**************************************************************/
         /// <summary>Primary numeric value (cast from double? to float).</summary>
@@ -167,7 +151,7 @@ namespace MedRecProImportClass.Models
         /// <summary>Parse confidence score (cast from double? to float).</summary>
         public float ParseConfidence { get; set; }
 
-        #endregion Stage 4 anomaly features
+        #endregion Residual numeric fields
 
         #region Metadata
 
@@ -219,10 +203,9 @@ namespace MedRecProImportClass.Models
                 ParameterName = obs.ParameterName,
                 ValidationFlags = obs.ValidationFlags,
 
-                // Stage 4 context features
+                // Context features (provenance / grouping)
                 ParameterCategory = obs.ParameterCategory,
                 TreatmentArm = obs.TreatmentArm,
-                LogArmN = obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f,
                 UNII = obs.UNII,
 
                 // Stage 3 features
@@ -232,7 +215,7 @@ namespace MedRecProImportClass.Models
                 PrimaryValueType = obs.PrimaryValueType,
                 SecondaryValueType = obs.SecondaryValueType,
 
-                // Stage 4 anomaly features (double? → float, NaN/Infinity clamped to 0f)
+                // Residual numeric fields (double? → float, NaN/Infinity clamped to 0f)
                 PrimaryValue    = toSafeFloat(obs.PrimaryValue),
                 SecondaryValue  = toSafeFloat(obs.SecondaryValue),
                 LowerBound      = toSafeFloat(obs.LowerBound),

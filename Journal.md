@@ -3031,3 +3031,58 @@ Pre-existing Stage 1 tests (`ScoreAndCorrect_Stage1_ModelNull_NoEffect`, `ScoreA
 **Wave 1 + Wave 2 + Wave 3 remediation plan is now complete.** The only remaining work is a final corpus recompute to confirm the combined effect. Future enhancements (ML retraining, anomaly-key redesign, Stage 2/3 audits) are separate from the current plan.
 
 ---
+
+### 2026-04-24 4:18 PM EST — Stage 4 Anomaly Retirement + Deterministic Parse-Quality Gate
+Ripped the entire Stage 4 PCA anomaly-scoring pipeline (PerKey dictionary, UnifiedGlobal one-hot, per-UNII z-scores, adaptive-threshold ratcheting, post-accumulation rescore) and replaced it with a deterministic rule-based `IParseQualityService` that scores parse-alignment failures directly. The retired machinery had a circular flaw — raw PCA reconstruction-error scores cluster in a narrow band regardless of training-set shape, so any fixed threshold needed re-tuning after every data shift; the journal from 2026-04-11 onward shows the same "85% of rows cross threshold" pattern recurring three times under different remedies. Claude's actual job is correcting parse-alignment errors (wrong content in the wrong column), not flagging value extremity, so an extremity-based gate was solving the wrong problem.
+
+**Phase 1 — rip**: Deleted `AnomalyFeatureRow` + `AnomalyPrediction` from `MlNetDataModels.cs`; removed `AnomalyScoringStrategy` enum and 6 anomaly-specific settings + entire adaptive-threshold region from `MlNetCorrectionSettings.cs`; pruned `BoundType` + `LogArmN` from `MlTrainingRecord.cs`; removed `GetAdaptiveThreshold` + `RecordClaudeFeedbackAsync` + associated state fields from `IMlTrainingStore.cs` / `MlTrainingStore.cs` / `MlTrainingStoreState.cs` (store version bumped 3 → 4); rewrote `MlNetCorrectionService.cs` — dropped ~1,500 lines of Stage 4 training / scoring / composite-key / validation / degrade-emission / calibration / stripping code while preserving Stage 1 (R9 shadow + PR #6 dual-write audit), Stage 2 (PR #4 shadow split), Stage 3, and the Claude feedback accumulation path. `FeedClaudeCorrectedBatchAsync` no longer propagates adaptive threshold.
+
+**Phase 2 — parse-quality gate**: New `IColumnContractRegistry` + `ColumnContractRegistry` with per-TableCategory R/E/O/N column sets transcribed directly from `TableStandards/column-contracts.md` (8 categories — AdverseEvent, PK, DrugInteraction, Efficacy, Dosing, BMD, TissueDistribution, TextDescriptive — plus uppercase-underscore alias map). New `IParseQualityService` + `ParseQualityService` implementing the penalty formula:
+- Hard failures: `× 0.2` for null PrimaryValue or PrimaryValueType, `× 0.3` for `PrimaryValueType="Text"` or null ParameterName (only when Required for the category), `× 0.4` for null TableCategory
+- Per-category Required misses: `× 0.6` per missing Required column (looked up by registry, avoids double-counting with hard-failure banner)
+- Structural garbage: `× 0.5` if Unit matches digit / length-26+ / caption-leak regex, `× 0.5` if ParameterSubtype matches stat-format / food-status / frequency / dose-phrase regex, `× 0.7` if negative LowerBound on ArithmeticMean/GeometricMean/Percentage/Count
+- Soft repairs: `× 0.9` each for PVT_MIGRATED / BOUND_TYPE_INFERRED / CAPTION_REINTERPRET / PLUSMINUS_TYPE_INFERRED / MISSING_R_Unit / PK_NAME_PARKED_CTX; `× 0.85` for `PK_UNIT_SIBLING_VOTED:RESCUE_BOOST` (subsumes the plain 0.95 multiplier so both don't stack)
+- ParseConfidence floor: `score = min(score, ParseConfidence)` — prevents low-confidence rows from skipping review even without specific flag hits
+
+Every rule that fires pushes a stable token (`PrimaryValueNull`, `BadUnit`, `SoftRepair:PVT_MIGRATED`, `MissingRequired:Unit`, etc.) into a `Reasons` list. `MlNetCorrectionService.ScoreAndCorrect` emits `MLNET_PARSE_QUALITY:{score:F4}` on every observation plus `MLNET_PARSE_QUALITY:REVIEW_REASONS:{pipe-joined list}` when any penalty fires — every Claude forward is audit-traceable.
+
+**Claude gate rewrite**: `MlAnomalyScoreThreshold` → `ClaudeReviewQualityThreshold` (default 0.75) on `ClaudeApiCorrectionSettings`. Semantic: forward to Claude when score is **strictly less than** threshold, skip otherwise. Absent / unparseable / NaN scores forward conservatively. The new `belowQualityThreshold` method in `ClaudeApiCorrectionService` scans for numeric `MLNET_PARSE_QUALITY:` tokens and skips the `REVIEW_REASONS` companion flag.
+
+**DI**: `TableStandardizationService.cs` registers `IColumnContractRegistry` + `IParseQualityService` as singletons and wires `IParseQualityService` into `MlNetCorrectionService`'s ctor in place of the old `claudeSettings` parameter. `appsettings.json` stripped of the `AnomalyScoringStrategy` flag; only the two Stage 2 shadow flags remain.
+
+**Tests**: Deleted ~50 Stage 4 / UnifiedGlobal / PerKey / adaptive-threshold / build-anomaly-model-key / degrade-emission / validation-guard tests from `MlNetCorrectionServiceTests.cs`. Rewrote the core accumulator / init / flag-format tests to assert `MLNET_PARSE_QUALITY` via a stub `IParseQualityService` injected by the test helper. New `ParseQualityServiceTests.cs` (21 tests) covers every penalty category + Reasons audit + rescue-boost subsumption + per-category contract lookup differences (e.g. ParameterName Required-miss fires on AdverseEvent but not TextDescriptive).
+
+**Kept intact**: Stage 1 R9 gating + PR #6 dual-write audit; Stage 2 PR #4 shadow split; Stage 3 disambiguation; PR #6 `CATEGORY_CLAUDE_CORRECTED` harvest flag emission in `ClaudeApiCorrectionService`; PR #1 Area B rescue-aware sibling-unit vote in `PkTableParser`; `MlTrainingStore` eviction logic + training-record persistence; `FeedClaudeCorrectedBatchAsync` ground-truth accumulation path.
+
+**README.md** updated with new Stage 3.4 section describing the 3 classifiers + parse-quality gate; old `MLNET_ANOMALY_SCORE:*` flag table replaced with `MLNET_PARSE_QUALITY:*` table; `CATEGORY_SHADOW` and `DOSEREGIMEN_SHADOW` flag docs added (they were only in XML comments before).
+
+**Verification**: `dotnet build MedRecProConsole` → 0 warnings / 0 errors. `dotnet test MedRecProTest` → 1,710 / 1,710 passing / 0 failed (down from ~1,760 pre-retirement after removing 50 Stage 4 tests, up by 21 ParseQualityServiceTests). Corpus validation next session — expected signals:
+- `MLNET_ANOMALY_SCORE:*` flags absent from JSONL (they were on every row before)
+- `MLNET_PARSE_QUALITY:{score}` present on every observation
+- `MLNET_PARSE_QUALITY:REVIEW_REASONS:...` present on rows below threshold
+- Rows with null PrimaryValue / null PrimaryValueType / PrimaryValueType=Text all score < 0.75 and forward to Claude
+
+**Files modified/created**:
+- `MedRecProImportClass/Models/MlNetDataModels.cs` — removed Stage 4 region entirely
+- `MedRecProImportClass/Models/MlNetCorrectionSettings.cs` — rewritten to drop anomaly + adaptive-threshold sections
+- `MedRecProImportClass/Models/MlTrainingRecord.cs` — removed BoundType + LogArmN + stage-4 region header renamed to "Residual numeric fields"
+- `MedRecProImportClass/Models/MlTrainingStoreState.cs` — rewritten to drop adaptive-threshold fields (Version 3 → 4)
+- `MedRecProImportClass/Models/ClaudeApiCorrectionSettings.cs` — MlAnomalyScoreThreshold → ClaudeReviewQualityThreshold
+- `MedRecProImportClass/Service/TransformationServices/IMlTrainingStore.cs` — removed 2 methods
+- `MedRecProImportClass/Service/TransformationServices/MlTrainingStore.cs` — removed adaptive-threshold implementation
+- `MedRecProImportClass/Service/TransformationServices/IMlNetCorrectionService.cs` — updated XML docs to reflect parse-quality gate
+- `MedRecProImportClass/Service/TransformationServices/MlNetCorrectionService.cs` — full rewrite, ~750 lines (down from ~2,413)
+- `MedRecProImportClass/Service/TransformationServices/ClaudeApiCorrectionService.cs` — replaced exceedsAnomalyThreshold with belowQualityThreshold
+- `MedRecProImportClass/Service/TransformationServices/IParseQualityService.cs` — NEW
+- `MedRecProImportClass/Service/TransformationServices/IColumnContractRegistry.cs` — NEW
+- `MedRecProImportClass/Service/TransformationServices/ColumnContractRegistry.cs` — NEW
+- `MedRecProImportClass/Service/TransformationServices/ParseQualityService.cs` — NEW
+- `MedRecProImportClass/README.md` — Stage 3.4 section + flag tables updated
+- `MedRecProConsole/Services/TableStandardizationService.cs` — DI registration for the two new services + updated MlNetCorrectionService ctor args
+- `MedRecProConsole/appsettings.json` — removed AnomalyScoringStrategy flag
+- `MedRecProTest/MlNetCorrectionServiceTests.cs` — full rewrite; ~50 Stage 4 tests deleted; existing Stage 1/2/3/R9/PR #4/PR #6 tests preserved and updated to assert MLNET_PARSE_QUALITY
+- `MedRecProTest/ParseQualityServiceTests.cs` — NEW (21 tests)
+
+The predecessor plan and the 2026-04-24 retirement plan both land here — the inherited PR #1 Area B rescue code is kept (it's unrelated to Stage 4); PR #4 Area E Stage 2 shadow config stays on until Stage 2 is retrained; PR #6 harvest infrastructure stays pending accumulation of `CATEGORY_CLAUDE_CORRECTED` rows. Scientific value-anomaly analytics (the thing Stage 4 was confused about) becomes a separate research concern layered on top of a standardized corpus — not Claude's problem.
+
+---

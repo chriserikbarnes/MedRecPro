@@ -10,10 +10,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 {
     /**************************************************************/
     /// <summary>
-    /// ML.NET-based Stage 3.4 correction and anomaly scoring service. Trains classification
-    /// and anomaly detection models from in-memory accumulated high-confidence rows, then
-    /// applies 4-stage corrections and emits per-row anomaly scores that gate the Claude API
-    /// correction pass (Stage 3.5).
+    /// ML.NET-based Stage 3.4 correction service. Trains three classification models from
+    /// in-memory accumulated high-confidence rows (TableCategory, DoseRegimen routing,
+    /// PrimaryValueType disambiguation), applies them to each batch, and then delegates
+    /// Claude-forwarding decisions to the deterministic
+    /// <see cref="IParseQualityService"/> which emits
+    /// <c>MLNET_PARSE_QUALITY:{score}</c> + <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}</c>
+    /// flags the downstream Claude gate reads.
     /// </summary>
     /// <remarks>
     /// ## Architecture
@@ -21,17 +24,26 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// High-confidence rows (<see cref="MlNetCorrectionSettings.BootstrapMinParseConfidence"/>)
     /// are collected after each <see cref="ScoreAndCorrect"/> call. Models train/retrain when
     /// the accumulator grows by <see cref="MlNetCorrectionSettings.RetrainingBatchSize"/> rows
-    /// and at least <see cref="MlNetCorrectionSettings.MinTrainingRowsPerCategory"/> rows exist
-    /// per active category.
+    /// and at least <see cref="MlNetCorrectionSettings.MinTrainingRowsPerCategory"/> rows have
+    /// accumulated overall.
     ///
     /// ## Cold-Start
-    /// Batch 1: No models → all rows emit <c>MLNET_ANOMALY_SCORE:NOMODEL</c>.
+    /// Batch 1: No models → classifiers are no-ops (nothing to correct). Parse-quality flags
+    /// still emit on every observation since the quality service is rule-based.
     /// Batch 2+: If accumulator meets threshold, models train before scoring.
     ///
     /// ## Thread Safety
     /// <c>PredictionEngine</c> is single-threaded — safe for current sequential batch processing.
+    ///
+    /// ## Stage 4 Retirement (2026-04-24)
+    /// The former Stage 4 PCA anomaly pipeline (PerKey + UnifiedGlobal strategies, per-UNII
+    /// z-score features, adaptive threshold ratcheting) was retired because raw reconstruction-
+    /// error scores cluster in a narrow band regardless of training-set shape, making any
+    /// fixed threshold a continual tuning exercise. The parse-quality gate replaces it:
+    /// deterministic, rule-based, targeting parse-alignment failures directly.
     /// </remarks>
     /// <seealso cref="IMlNetCorrectionService"/>
+    /// <seealso cref="IParseQualityService"/>
     /// <seealso cref="MlNetCorrectionSettings"/>
     /// <seealso cref="ColumnStandardizationService"/>
     public class MlNetCorrectionService : IMlNetCorrectionService
@@ -54,7 +66,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// In-memory training accumulator. High-confidence rows from processed batches are
         /// collected here after each <see cref="ScoreAndCorrect"/> call to build training data.
-        /// Uses <see cref="MlTrainingRecord"/> — the compact DTO with only the fields training needs.
         /// </summary>
         private List<MlTrainingRecord> _trainingAccumulator = new();
 
@@ -67,24 +78,31 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Optional reference to Claude API settings for adaptive threshold propagation.
-        /// When the adaptive threshold fires, <see cref="ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold"/>
-        /// is mutated on this shared singleton so the next Claude batch uses the updated threshold.
+        /// Optional parse-quality service. When provided, every scored observation receives
+        /// a <c>MLNET_PARSE_QUALITY:{score}</c> flag and a companion REVIEW_REASONS flag
+        /// when any rule penalty fires. The downstream Claude gate reads these flags to
+        /// decide forwarding.
         /// </summary>
-        private readonly ClaudeApiCorrectionSettings? _claudeSettings;
+        /// <seealso cref="IParseQualityService"/>
+        private readonly IParseQualityService? _parseQualityService;
 
         /**************************************************************/
         /// <summary>
-        /// Configured floor for the Claude anomaly gate, captured at construction time.
-        /// The persisted adaptive threshold may raise the effective gate value above this floor,
-        /// but must never demote it below. Without this floor, a freshly persisted training store
-        /// (whose <c>AdaptiveThreshold</c> defaults to <c>0.0f</c>) would silently overwrite a
-        /// user-configured <c>MlAnomalyScoreThreshold</c> (e.g. <c>0.75f</c>) and disable the
-        /// cost gate for every observation — the exact scenario where score-0.70 rows were
-        /// observed leaking through to Claude despite a 0.75 configuration.
+        /// Parse-quality score below which the <c>MLNET_PARSE_QUALITY:REVIEW_REASONS</c>
+        /// flag is emitted. Captured from
+        /// <see cref="ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold"/> at
+        /// construction time so the reason list only appears on rows that will actually
+        /// be forwarded to Claude — rows scoring at or above this threshold record only
+        /// the numeric score, keeping the reason breakdown as an honest Claude-burden
+        /// indicator. Defaults to 0.75 when Claude settings are not injected.
         /// </summary>
-        /// <seealso cref="ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold"/>
-        private readonly float _configuredAnomalyFloor;
+        /// <remarks>
+        /// Kept in sync with the downstream Claude gate by construction (reads the same
+        /// settings value). The numeric <c>MLNET_PARSE_QUALITY:{score}</c> flag is still
+        /// emitted on every observation regardless of threshold — only the reason list
+        /// is gated.
+        /// </remarks>
+        private readonly float _reasonEmissionThreshold;
 
         /**************************************************************/
         /// <summary>Tracks accumulator size at last training to determine when to retrain.</summary>
@@ -101,69 +119,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>Stage 3: PrimaryValueType disambiguation classifier.</summary>
         private PredictionEngine<PrimaryValueTypeInput, PrimaryValueTypePrediction>? _primaryValueTypeEngine;
-
-        /**************************************************************/
-        /// <summary>Stage 4: Per-category PCA anomaly detection engines.</summary>
-        /// <remarks>
-        /// Each engine's baked-in pipeline includes a <c>Concatenate("Features", ...)</c> step
-        /// that reads only the columns with real variance at training time. Constant-zero columns
-        /// are excluded from the model entirely — no jitter needed.
-        /// </remarks>
-        private readonly Dictionary<string, PredictionEngine<AnomalyFeatureRow, AnomalyPrediction>>
-            _anomalyEngines = new(StringComparer.OrdinalIgnoreCase);
-
-        // /**************************************************************/
-        // /// <summary>
-        // /// Per-category sorted training-time anomaly scores for percentile calibration.
-        // /// Built during <see cref="trainAnomalyModels"/> by scoring all training rows through
-        // /// the freshly-trained PCA model and sorting the results. At scoring time,
-        // /// <see cref="calibrateScore"/> uses binary search to convert a raw PCA score
-        // /// to a percentile (0.0 = typical, 1.0 = extreme outlier).
-        // /// </summary>
-        // /// <seealso cref="calibrateScore"/>
-        // /// <seealso cref="trainAnomalyModels"/>
-        // private readonly Dictionary<string, float[]> _anomalyCalibration = new(StringComparer.OrdinalIgnoreCase);
-
-        /**************************************************************/
-        /// <summary>Categories that get per-category anomaly detection models.</summary>
-        private static readonly string[] _anomalyCategories =
-        {
-            "ADVERSE_EVENT", "PK", "EFFICACY", "DRUG_INTERACTION",
-            "BMD", "DOSING", "TISSUE_DISTRIBUTION", "DEMOGRAPHIC", "LABORATORY"
-        };
-
-        /**************************************************************/
-        /// <summary>
-        /// Column names corresponding to the 7 feature slots in <see cref="AnomalyFeatureRow"/>.
-        /// Used by <see cref="trainAnomalyModels"/> to build the dynamic <c>Concatenate("Features", ...)</c>
-        /// step that includes only columns with real variance.
-        /// </summary>
-        /// <seealso cref="computeActiveFeatureIndices"/>
-        private static readonly string[] _featureColumnNames =
-        {
-            nameof(AnomalyFeatureRow.PrimaryValue),
-            nameof(AnomalyFeatureRow.SecondaryValue),
-            nameof(AnomalyFeatureRow.LowerBound),
-            nameof(AnomalyFeatureRow.UpperBound),
-            nameof(AnomalyFeatureRow.PValue),
-            nameof(AnomalyFeatureRow.ParseConfidence),
-            nameof(AnomalyFeatureRow.LogArmN)
-        };
-
-        /**************************************************************/
-        /// <summary>Recommended PCA ranks per category (from architecture spec).</summary>
-        private static readonly Dictionary<string, int> _pcaRanks = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["ADVERSE_EVENT"] = 5,
-            ["PK"] = 4,
-            ["DRUG_INTERACTION"] = 4,
-            ["EFFICACY"] = 4,
-            ["BMD"] = 2,
-            ["DOSING"] = 3,
-            ["TISSUE_DISTRIBUTION"] = 2,
-            ["DEMOGRAPHIC"] = 3,
-            ["LABORATORY"] = 3
-        };
 
         /**************************************************************/
         /// <summary>Whether <see cref="InitializeAsync"/> has been called.</summary>
@@ -207,13 +162,19 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="settings">Configuration settings.</param>
         /// <param name="trainingStore">Optional file-backed training store for persistence across restarts.
         /// Pass null to use ephemeral in-memory accumulation only.</param>
-        /// <param name="claudeSettings">Optional Claude API settings for adaptive threshold propagation.
-        /// When provided, the adaptive threshold is propagated to
-        /// <see cref="ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold"/> at runtime.</param>
+        /// <param name="parseQualityService">Optional parse-quality service. When provided,
+        /// every scored observation receives <c>MLNET_PARSE_QUALITY</c> flags that drive
+        /// the Claude forwarding gate.</param>
+        /// <param name="claudeSettings">Optional Claude correction settings. Only the
+        /// <see cref="ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold"/> value is
+        /// read, at construction time, to gate <c>MLNET_PARSE_QUALITY:REVIEW_REASONS</c>
+        /// emission so the reason list only appears on rows that will actually be
+        /// forwarded to Claude. When not provided, defaults to 0.75.</param>
         public MlNetCorrectionService(
             ILogger<MlNetCorrectionService> logger,
             MlNetCorrectionSettings settings,
             IMlTrainingStore? trainingStore = null,
+            IParseQualityService? parseQualityService = null,
             ClaudeApiCorrectionSettings? claudeSettings = null)
         {
             #region implementation
@@ -221,12 +182,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             _logger = logger;
             _settings = settings;
             _trainingStore = trainingStore;
-            _claudeSettings = claudeSettings;
-
-            // Capture the configured floor BEFORE any adaptive-threshold propagation can
-            // mutate _claudeSettings.MlAnomalyScoreThreshold. This frozen value is used as
-            // a lower bound in every subsequent write to the live settings instance.
-            _configuredAnomalyFloor = claudeSettings?.MlAnomalyScoreThreshold ?? 0f;
+            _parseQualityService = parseQualityService;
+            _reasonEmissionThreshold = claudeSettings?.ClaudeReviewQualityThreshold ?? 0.75f;
 
             #endregion
         }
@@ -246,22 +203,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                 await _trainingStore.LoadAsync(ct);
                 _trainingAccumulator = _trainingStore.GetRecords().ToList();
 
-                // Propagate the persisted adaptive threshold to the live Claude settings,
-                // but never below the configured floor captured at construction. The store's
-                // AdaptiveThreshold defaults to 0.0f on a fresh install — writing it raw
-                // would silently demote a user-configured 0.75 floor and disable the gate.
-                var persistedAdaptive = _trainingStore.GetAdaptiveThreshold();
-                var effectiveThreshold = clampAndApplyAnomalyThreshold(persistedAdaptive);
-
                 _logger.LogInformation(
-                    "Loaded {Count} training records from store. Effective anomaly threshold: {Effective:F4} " +
-                    "(floor={Floor:F4}, persisted adaptive={Persisted:F4})",
-                    _trainingAccumulator.Count, effectiveThreshold, _configuredAnomalyFloor, persistedAdaptive);
+                    "Loaded {Count} training records from store",
+                    _trainingAccumulator.Count);
             }
 
             _initialized = true;
             _logger.LogInformation(
-                "MlNetCorrectionService initialized — models train after {Min} rows/category accumulate",
+                "MlNetCorrectionService initialized — classifiers train after {Min} rows accumulate",
                 _settings.MinTrainingRowsPerCategory);
 
             #endregion
@@ -291,9 +240,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Attempt retrain if accumulator has grown enough
             tryRetrain();
 
-            // Apply 4-stage pipeline to each observation. R9 — each stage is gated by
-            // its own enable toggle so the classifier stages can be disabled (or run in
-            // shadow mode for Stage 1) without silencing the whole service.
+            // Apply 3-stage pipeline + parse-quality gate to each observation. R9 — each
+            // classifier stage is gated by its own enable toggle so stages can be disabled
+            // (or run in shadow mode for Stage 1/2) without silencing the whole service.
             foreach (var obs in observations)
             {
                 var preMlFlags = obs.ValidationFlags;
@@ -311,9 +260,27 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (_settings.EnableStage3PrimaryValueTypeDisambiguation)
                     applyPrimaryValueTypeDisambiguation(obs);
 
-                // Stage 4: Anomaly score — when enabled, ALWAYS emits flag (score or NOMODEL)
-                if (_settings.EnableStage4AnomalyScoring)
-                    applyAnomalyScore(obs);
+                // Stage 3.4 parse-quality gate — deterministic, replaces retired Stage 4
+                // anomaly scoring. Emits MLNET_PARSE_QUALITY:{score} on every observation
+                // and, when score < threshold, a MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}
+                // flag for audit. Only runs when the service is registered (null-safe to
+                // keep the old test fixtures that construct MlNetCorrectionService without
+                // the quality service still working).
+                if (_parseQualityService != null)
+                {
+                    var quality = _parseQualityService.Evaluate(obs);
+                    appendFlag(obs, $"MLNET_PARSE_QUALITY:{quality.Score:F4}");
+
+                    // Only emit REVIEW_REASONS when the observation will actually be forwarded
+                    // to Claude (score < threshold). Rows scoring at or above the threshold
+                    // still get the numeric score for audit but skip the reason list — this
+                    // keeps the aggregate reason breakdown an honest Claude-burden indicator
+                    // instead of counting penalties on rows that aren't going to the API.
+                    if (quality.Reasons.Count > 0 && quality.Score < _reasonEmissionThreshold)
+                    {
+                        appendFlag(obs, $"MLNET_PARSE_QUALITY:REVIEW_REASONS:{string.Join("|", quality.Reasons)}");
+                    }
+                }
 
                 // Confidence provenance: summarize highest-confidence ML correction applied
                 var correctionLabel = determineMlCorrectionLabel(preMlFlags, obs.ValidationFlags);
@@ -322,45 +289,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Accumulate high-confidence rows for future training
             accumulateBatch(observations);
-
-            // Post-accumulation rescore: the current batch's data is now in the accumulator,
-            // which may push UNII-specific keys past the MinTrainingRowsPerCategory threshold.
-            // Retrain once more and rescore any NOMODEL observations. With UNII-ordered
-            // batching, adjacent documents share active ingredients, so most keys qualify
-            // for training by the end of the first batch.
-            if (_settings.EnableStage4AnomalyScoring)
-            {
-                var noModelObs = observations
-                    .Where(o => o.ValidationFlags != null
-                              && o.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
-                    .ToList();
-
-                if (noModelObs.Count > 0)
-                {
-                    tryRetrain();
-
-                    var rescored = 0;
-                    foreach (var obs in noModelObs)
-                    {
-                        stripAnomalyScoreFlag(obs);
-                        applyAnomalyScore(obs);
-                        if (obs.ValidationFlags != null
-                            && !obs.ValidationFlags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
-                            rescored++;
-                    }
-
-                    _logger.LogInformation(
-                        "Post-accumulation rescore: {Rescored}/{Total} NOMODEL observations now have scores",
-                        rescored, noModelObs.Count);
-                }
-
-                // R9 — NOMODEL coverage diagnostic: log aggregate stats per batch so
-                // operators can quantify how often UNII-specific keys lack models. The
-                // 66% NOMODEL rate observed on the 2026-04-23 corpus recompute was
-                // diagnosed via this kind of aggregate — logging it inline makes the
-                // signal visible on every production run without requiring JSONL mining.
-                logAnomalyCoverageDiagnostics(observations);
-            }
 
             return observations;
 
@@ -456,6 +384,61 @@ namespace MedRecProImportClass.Service.TransformationServices
                     stageNumber: 1);
             }
 
+            // PR #6 dual-write audit — when both correction and shadow are on AND the
+            // audit flag is set, emit a CATEGORY_SHADOW flag for every confident prediction,
+            // including agreements. Lets the first few production runs after re-enable be
+            // reconstructed end-to-end, not just the surprising disagreements.
+            if (_settings.EnableStage1DualWriteAudit &&
+                _settings.EnableStage1TableCategoryCorrection &&
+                _settings.EnableStage1ShadowMode &&
+                _tableCategoryEngine != null)
+            {
+                emitDualWriteCategoryShadow(obs, input);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #6 infrastructure — emits <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> for every
+        /// Stage 1 prediction whose confidence clears
+        /// <see cref="MlNetCorrectionSettings.TableCategoryMinConfidence"/>, regardless of
+        /// whether the predicted label matches the current <c>TableCategory</c>. Used when
+        /// <see cref="MlNetCorrectionSettings.EnableStage1DualWriteAudit"/> is enabled.
+        /// </summary>
+        /// <remarks>
+        /// Already-emitted <c>CATEGORY_CORRECTED</c> / <c>CATEGORY_SHADOW</c> flags are left
+        /// in place; the dual-write emission is additive. The intent is a complete audit trail
+        /// for the first production runs after re-enabling the Stage 1 classifier — every
+        /// confident prediction becomes inspectable in the resulting JSONL.
+        /// </remarks>
+        /// <param name="obs">Observation being audited.</param>
+        /// <param name="input">Stage 1 input vector (already constructed by caller).</param>
+        /// <seealso cref="MlNetCorrectionSettings.EnableStage1DualWriteAudit"/>
+        private void emitDualWriteCategoryShadow(ParsedObservation obs, TableCategoryInput input)
+        {
+            #region implementation
+
+            try
+            {
+                var prediction = _tableCategoryEngine!.Predict(input);
+                var label = prediction.PredictedLabel;
+                var maxScore = prediction.Score?.Length > 0 ? prediction.Score.Max() : 0f;
+
+                if (string.IsNullOrEmpty(label) || maxScore < _settings.TableCategoryMinConfidence)
+                    return;
+
+                appendFlag(obs, $"MLNET:CATEGORY_SHADOW:{label}:{maxScore:F2}");
+                _logger.LogDebug("Stage 1 [DUAL_WRITE]: predicted '{Label}' for current '{Cat}' (score={Score:F2})",
+                    label, obs.TableCategory, maxScore);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Stage 1 dual-write audit prediction failed for SourceRowSeq={Row}",
+                    obs.SourceRowSeq);
+            }
+
             #endregion
         }
 
@@ -469,6 +452,16 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// routing classifier. Skips if the observation was already routed by Stage 3.25 rules
         /// (indicated by <c>COL_STD:DOSEREGIMEN_ROUTED_TO</c> in ValidationFlags).
         /// </summary>
+        /// <remarks>
+        /// ## PR #4 — Correction vs. shadow mode
+        /// When <see cref="MlNetCorrectionSettings.EnableStage2DoseRegimenRoutingCorrection"/>
+        /// is <c>true</c> (the default), the stage mutates the observation and emits
+        /// <c>MLNET:DOSEREGIMEN_ROUTED_TO_*</c> — the original behaviour. When that flag is
+        /// <c>false</c> but <see cref="MlNetCorrectionSettings.EnableStage2ShadowMode"/> is
+        /// <c>true</c>, the stage emits <c>MLNET:DOSEREGIMEN_SHADOW:{target}:{score}</c> for
+        /// audit without touching the observation. When both are off, the stage short-circuits
+        /// without running a prediction.
+        /// </remarks>
         /// <param name="obs">Observation to evaluate.</param>
         private void applyDoseRegimenRouting(ParsedObservation obs)
         {
@@ -481,6 +474,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (DoseRegimenRoutingPolicy.IsAlreadyRouted(obs.ValidationFlags))
                 return;
 
+            // Fast-path: both correction and shadow are off → no prediction work at all.
+            if (!_settings.EnableStage2DoseRegimenRoutingCorrection && !_settings.EnableStage2ShadowMode)
+                return;
+
             var input = new DoseRegimenRoutingInput
             {
                 DoseRegimen = obs.DoseRegimen ?? string.Empty,
@@ -490,23 +487,46 @@ namespace MedRecProImportClass.Service.TransformationServices
                 HasDose = obs.Dose.HasValue ? 1f : 0f
             };
 
-            executePredictionStage(
-                obs,
-                _doseRegimenEngine,
-                input,
-                p => p.PredictedLabel,
-                p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
-                0.80f,
-                DoseRegimenRoutingPolicy.TargetLabelKeep,
-                (prediction, maxScore) =>
-                {
-                    var target = DoseRegimenRoutingPolicy.ParseTarget(prediction.PredictedLabel);
-                    DoseRegimenRoutingPolicy.ApplyRoute(obs, target);
-                    appendFlag(obs, $"MLNET:DOSEREGIMEN_ROUTED_TO_{prediction.PredictedLabel!.ToUpperInvariant()}:{maxScore:F2}");
-                    _logger.LogDebug("Stage 2: DoseRegimen routed to {Target} (score={Score:F2})",
-                        prediction.PredictedLabel, maxScore);
-                },
-                stageNumber: 2);
+            if (_settings.EnableStage2DoseRegimenRoutingCorrection)
+            {
+                executePredictionStage(
+                    obs,
+                    _doseRegimenEngine,
+                    input,
+                    p => p.PredictedLabel,
+                    p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
+                    0.80f,
+                    DoseRegimenRoutingPolicy.TargetLabelKeep,
+                    (prediction, maxScore) =>
+                    {
+                        var target = DoseRegimenRoutingPolicy.ParseTarget(prediction.PredictedLabel);
+                        DoseRegimenRoutingPolicy.ApplyRoute(obs, target);
+                        appendFlag(obs, $"MLNET:DOSEREGIMEN_ROUTED_TO_{prediction.PredictedLabel!.ToUpperInvariant()}:{maxScore:F2}");
+                        _logger.LogDebug("Stage 2: DoseRegimen routed to {Target} (score={Score:F2})",
+                            prediction.PredictedLabel, maxScore);
+                    },
+                    stageNumber: 2);
+            }
+            else
+            {
+                // Shadow-only path: prediction runs, flag emits, observation stays untouched.
+                // Mirrors the Stage 1 shadow-mode pattern for consistency.
+                executePredictionStage(
+                    obs,
+                    _doseRegimenEngine,
+                    input,
+                    p => p.PredictedLabel,
+                    p => p.Score?.Length > 0 ? p.Score.Max() : 0f,
+                    0.80f,
+                    DoseRegimenRoutingPolicy.TargetLabelKeep,
+                    (prediction, maxScore) =>
+                    {
+                        appendFlag(obs, $"MLNET:DOSEREGIMEN_SHADOW:{prediction.PredictedLabel}:{maxScore:F2}");
+                        _logger.LogDebug("Stage 2 [SHADOW]: would have routed DoseRegimen to {Target} (score={Score:F2})",
+                            prediction.PredictedLabel, maxScore);
+                    },
+                    stageNumber: 2);
+            }
 
             #endregion
         }
@@ -562,127 +582,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion Stage 3
 
-        #region Stage 4 — Anomaly Detection
-
-        /**************************************************************/
-        /// <summary>
-        /// Stage 4: Computes an anomaly score for the observation using the per-category PCA model.
-        /// Always emits a flag: <c>MLNET_ANOMALY_SCORE:{score:F4}</c> or <c>MLNET_ANOMALY_SCORE:NOMODEL</c>.
-        /// </summary>
-        /// <param name="obs">Observation to score.</param>
-        private void applyAnomalyScore(ParsedObservation obs)
-        {
-            #region implementation
-
-            // Look up UNII-specific model. If no model exists for this key, emit NOMODEL
-            // (which forwards the observation to Claude as the safe default). Generic
-            // cross-UNII models were intentionally removed — they mix different drugs'
-            // distributions, producing scores whose meaning differs from UNII-specific
-            // scores yet are consumed identically by the Claude threshold gate.
-            var compositeKey = buildAnomalyModelKey(obs.UNII, obs.TableCategory, obs.PrimaryValueType, obs.SecondaryValueType);
-            if (!_anomalyEngines.TryGetValue(compositeKey, out var engine))
-            {
-                appendFlag(obs, "MLNET_ANOMALY_SCORE:NOMODEL");
-                return;
-            }
-
-            // All 7 columns are populated; the prediction engine's baked-in Concatenate
-            // step reads only the columns that had real variance at training time.
-            var input = new AnomalyFeatureRow
-            {
-                PrimaryValue = MlTrainingRecord.toSafeFloat(obs.PrimaryValue),
-                SecondaryValue = MlTrainingRecord.toSafeFloat(obs.SecondaryValue),
-                LowerBound = MlTrainingRecord.toSafeFloat(obs.LowerBound),
-                UpperBound = MlTrainingRecord.toSafeFloat(obs.UpperBound),
-                PValue = MlTrainingRecord.toSafeFloat(obs.PValue),
-                ParseConfidence = MlTrainingRecord.toSafeFloat(obs.ParseConfidence),
-                LogArmN = obs.ArmN.HasValue ? (float)Math.Log(obs.ArmN.Value + 1) : 0f
-            };
-
-            try
-            {
-                var prediction = engine.Predict(input);
-                var score = prediction.Score;
-
-                if (float.IsNaN(score) || float.IsInfinity(score))
-                {
-                    appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
-                }
-                else
-                {
-                    appendFlag(obs, $"MLNET_ANOMALY_SCORE:{score:F4}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Stage 4 anomaly prediction failed for SourceRowSeq={Row}", obs.SourceRowSeq);
-                appendFlag(obs, "MLNET_ANOMALY_SCORE:ERROR");
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// R9 diagnostic — after a batch's anomaly scoring + post-accumulation rescore,
-        /// logs aggregate coverage stats so operators can quantify how often UNII-specific
-        /// models were missing. The 66% NOMODEL rate observed on the 2026-04-23 corpus
-        /// recompute was first identified via JSONL mining; logging it inline surfaces
-        /// the signal on every production run without requiring offline analysis.
-        /// </summary>
-        /// <remarks>
-        /// ## Emitted fields (log message)
-        /// - Total observations scored in the batch.
-        /// - Count with real scores (excludes NOMODEL and ERROR sentinels).
-        /// - Count with NOMODEL.
-        /// - Count with ERROR.
-        /// - Distinct UNII-specific model keys present in the batch.
-        /// - Distinct keys that had a trained anomaly engine.
-        /// - Coverage ratio (keys-with-models / total-keys).
-        /// </remarks>
-        /// <param name="observations">Observations from the current batch.</param>
-        private void logAnomalyCoverageDiagnostics(List<ParsedObservation> observations)
-        {
-            #region implementation
-
-            if (observations.Count == 0)
-                return;
-
-            var total = observations.Count;
-            var noModelCount = 0;
-            var errorCount = 0;
-            var scoredCount = 0;
-            var distinctKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var obs in observations)
-            {
-                var flags = obs.ValidationFlags ?? string.Empty;
-                if (flags.Contains("MLNET_ANOMALY_SCORE:NOMODEL"))
-                    noModelCount++;
-                else if (flags.Contains("MLNET_ANOMALY_SCORE:ERROR"))
-                    errorCount++;
-                else if (flags.Contains("MLNET_ANOMALY_SCORE:"))
-                    scoredCount++;
-
-                distinctKeys.Add(buildAnomalyModelKey(obs.UNII, obs.TableCategory, obs.PrimaryValueType, obs.SecondaryValueType));
-            }
-
-            var keysWithModels = distinctKeys.Count(k => _anomalyEngines.ContainsKey(k));
-            var keyCoverage = distinctKeys.Count > 0
-                ? (double)keysWithModels / distinctKeys.Count
-                : 0.0;
-
-            _logger.LogInformation(
-                "R9 anomaly coverage — batch={Total}: scored={Scored}, NOMODEL={NoModel}, ERROR={Errors}; " +
-                "distinct keys={Keys}, with models={WithModels} ({Coverage:P1})",
-                total, scoredCount, noModelCount, errorCount,
-                distinctKeys.Count, keysWithModels, keyCoverage);
-
-            #endregion
-        }
-
-        #endregion Stage 4
-
         #region Training — Retrain Trigger and Accumulator
 
         /**************************************************************/
@@ -698,25 +597,20 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (newRows < _settings.RetrainingBatchSize)
                 return;
 
-            // Check if any UNII-specific key qualifies for training.
-            // With UNII-ordered batching, adjacent documents share active ingredients,
-            // so keys reach MinTrainingRowsPerCategory within the first batch.
-            var hasQualified = _trainingAccumulator
-                .GroupBy(r => buildAnomalyModelKey(r.UNII, r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
-                         StringComparer.OrdinalIgnoreCase)
-                .Any(g => g.Count() >= _settings.MinTrainingRowsPerCategory);
-
-            if (!hasQualified)
+            // Simple absolute floor — the three classifiers train across the whole accumulator
+            // with text featurization and don't need per-category slicing. The former Stage 4
+            // per-key gate (requiring MinTrainingRowsPerCategory rows per composite key) was
+            // retired alongside the anomaly pipeline.
+            if (_trainingAccumulator.Count < _settings.MinTrainingRowsPerCategory)
                 return;
 
             _logger.LogInformation(
-                "ML retrain triggered: {NewRows} new rows since last train",
-                newRows);
+                "ML retrain triggered: {NewRows} new rows since last train (accumulator={Total})",
+                newRows, _trainingAccumulator.Count);
 
             trainTableCategoryModel(_trainingAccumulator);
             trainDoseRegimenModel(_trainingAccumulator);
             trainPrimaryValueTypeModel(_trainingAccumulator);
-            trainAnomalyModels(_trainingAccumulator);
 
             _accumulatorSizeAtLastTrain = _trainingAccumulator.Count;
 
@@ -727,8 +621,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             _logger.LogInformation(
-                "ML retrain complete. Accumulator size: {Size}. Anomaly models: {ModelCount}",
-                _trainingAccumulator.Count, _anomalyEngines.Count);
+                "ML retrain complete. Accumulator size: {Size}",
+                _trainingAccumulator.Count);
 
             #endregion
         }
@@ -774,16 +668,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/>, shifting the retrain cursor
         /// so the gate delta in <see cref="tryRetrain"/> stays correct after oldest-first trim.
         /// </summary>
-        /// <remarks>
-        /// Oldest-first trim is sufficient because retrains happen frequently and recent rows
-        /// dominate, so per-key categorical coverage is preserved. The retrain gate uses
-        /// <c>_trainingAccumulator.Count - _accumulatorSizeAtLastTrain</c> as an absolute cursor
-        /// into the list; removing N records from the front shrinks Count by N, so the cursor is
-        /// shifted back by N to preserve the "new rows since last retrain" delta. Without this,
-        /// the gate would become permanently false once the accumulator hit its cap, no further
-        /// retrains would ever fire, and every UNII first seen after that point would receive
-        /// NOMODEL. The method is a no-op when <paramref name="records"/> is empty.
-        /// </remarks>
         /// <param name="records">Records to append.</param>
         private void appendAndCapAccumulator(List<MlTrainingRecord> records)
         {
@@ -812,21 +696,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Generic multiclass training driver — handles filter/project, label-cardinality guard,
         /// <c>LoadFromEnumerable</c>, pipeline fit, engine disposal/replace, and standardized logging.
-        /// Caller supplies the training-DTO projection, the label accessor used for the distinct
-        /// guard, the pipeline build-and-fit step, and the engine replacement callback.
         /// </summary>
-        /// <remarks>
-        /// Shared scaffolding around the three per-stage trainers
-        /// (<see cref="trainTableCategoryModel"/>, <see cref="trainDoseRegimenModel"/>,
-        /// <see cref="trainPrimaryValueTypeModel"/>). The caller controls everything that varies
-        /// per stage — featurizers, trainer choice (SDCA vs LBFGS), which engine to dispose/assign —
-        /// while this helper owns the common skeleton: try/catch, distinct-label guard, and
-        /// success/skip/failure log messages shaped by <paramref name="stagePrefix"/>,
-        /// <paramref name="skipLabelKind"/>, and <paramref name="modelKind"/>. On training
-        /// failure (<see cref="InvalidOperationException"/> or <see cref="ArgumentOutOfRangeException"/>),
-        /// <paramref name="replaceEngine"/> is invoked with <c>null</c> so the caller nulls its
-        /// engine field without disposing the outgoing instance — matching the prior per-method behavior.
-        /// </remarks>
         /// <typeparam name="TInput">Typed training input DTO (e.g. <c>TableCategoryInput</c>).</typeparam>
         /// <param name="rows">Source training records.</param>
         /// <param name="project">Filter + project step producing the typed training rows.</param>
@@ -916,8 +786,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     if (model != null)
                     {
-                        // Release native ML.NET buffers on the outgoing engine before replacing it —
-                        // PredictionEngine<T,U> is IDisposable and would otherwise live until GC finalization.
                         (_tableCategoryEngine as IDisposable)?.Dispose();
                         _tableCategoryEngine = _mlContext.Model.CreatePredictionEngine<TableCategoryInput, TableCategoryPrediction>(model);
                     }
@@ -1049,254 +917,6 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
-        /**************************************************************/
-        /// <summary>
-        /// Stage 4 training: Per-composite-key PCA anomaly detection models.
-        /// Each unique combination of UNII, TableCategory, PrimaryValueType, and (when defined)
-        /// SecondaryValueType gets its own model trained on only the features that have real
-        /// variance for that key. Constant-zero features are excluded via a dynamic
-        /// <c>Concatenate("Features", activeColumnNames)</c> pipeline step, eliminating the
-        /// need for jitter and preventing noise dimensions from dominating scores.
-        /// </summary>
-        /// <param name="rows">Training data from accumulator.</param>
-        /// <seealso cref="buildAnomalyModelKey"/>
-        /// <seealso cref="applyAnomalyScore"/>
-        /// <seealso cref="computeActiveFeatureIndices"/>
-        /// <seealso cref="_featureColumnNames"/>
-        private void trainAnomalyModels(List<MlTrainingRecord> rows)
-        {
-            #region implementation
-
-            // Release native ML.NET buffers on outgoing engines before wiping the dictionary —
-            // each entry holds a PredictionEngine<AnomalyFeatureRow, AnomalyPrediction> which is
-            // IDisposable and would otherwise live until GC finalization.
-            foreach (var engine in _anomalyEngines.Values)
-            {
-                (engine as IDisposable)?.Dispose();
-            }
-            _anomalyEngines.Clear();
-
-            // Group by composite key discovered from the data
-            var groups = rows
-                .Where(r => !float.IsNaN(r.PrimaryValue) &&
-                             !float.IsNaN(r.SecondaryValue) &&
-                             !float.IsNaN(r.LowerBound) &&
-                             !float.IsNaN(r.UpperBound) &&
-                             !float.IsNaN(r.PValue) &&
-                             !float.IsNaN(r.ParseConfidence) &&
-                             !float.IsNaN(r.LogArmN))
-                .GroupBy(r => buildAnomalyModelKey(r.UNII, r.TableCategory, r.PrimaryValueType, r.SecondaryValueType),
-                         StringComparer.OrdinalIgnoreCase);
-
-            foreach (var group in groups)
-            {
-                var compositeKey = group.Key;
-                try
-                {
-                    // Build raw feature vectors for active-feature detection
-                    var groupList = group.ToList();
-                    var rawVectors = groupList
-                        .Select(r => new float[]
-                        {
-                            r.PrimaryValue,
-                            r.SecondaryValue,
-                            r.LowerBound,
-                            r.UpperBound,
-                            r.PValue,
-                            r.ParseConfidence,
-                            r.LogArmN
-                        })
-                        .ToList();
-
-                    if (rawVectors.Count < _settings.MinTrainingRowsPerCategory)
-                    {
-                        _logger.LogDebug("Stage 4 skipping {CompositeKey} — only {Count} rows (need {Min})",
-                            compositeKey, rawVectors.Count, _settings.MinTrainingRowsPerCategory);
-                        continue;
-                    }
-
-                    // Identify which feature slots have real variance vs constant columns.
-                    // Constant columns are excluded from the Concatenate step entirely —
-                    // no jitter needed because NormalizeMeanVariance never sees them.
-                    var activeIndices = computeActiveFeatureIndices(rawVectors);
-                    if (activeIndices.Length == 0)
-                    {
-                        _logger.LogDebug("Stage 4 skipping {CompositeKey} — no feature variance in {Count} rows",
-                            compositeKey, rawVectors.Count);
-                        continue;
-                    }
-
-                    // Map active indices to column names for dynamic Concatenate
-                    var activeColumnNames = activeIndices
-                        .Select(i => _featureColumnNames[i])
-                        .ToArray();
-
-                    // Build AnomalyFeatureRow list for ML.NET — all 7 columns populated,
-                    // but the pipeline will only read the active ones
-                    var featureRows = groupList
-                        .Select(r => new AnomalyFeatureRow
-                        {
-                            PrimaryValue = r.PrimaryValue,
-                            SecondaryValue = r.SecondaryValue,
-                            LowerBound = r.LowerBound,
-                            UpperBound = r.UpperBound,
-                            PValue = r.PValue,
-                            ParseConfidence = r.ParseConfidence,
-                            LogArmN = r.LogArmN
-                        })
-                        .ToList();
-
-                    var dataView = _mlContext.Data.LoadFromEnumerable(featureRows);
-
-                    // PCA rank: composite key → category fallback → default 3
-                    // Key format: "UNII|Category|PVT[|SVT]" — category is second segment
-                    var segments = compositeKey.Split('|');
-                    var category = segments.Length >= 2 ? segments[1] : compositeKey;
-                    var rank = _pcaRanks.TryGetValue(compositeKey, out var r1) ? r1
-                             : _pcaRanks.TryGetValue(category, out var r2) ? r2
-                             : 3;
-                    // Clamp rank to number of active features — only dimensions with
-                    // real variance participate in PCA
-                    rank = Math.Min(rank, activeIndices.Length);
-
-                    // Pipeline: Concatenate only active columns → normalize → PCA
-                    var pipeline = _mlContext.Transforms.Concatenate("Features", activeColumnNames)
-                        .Append(_mlContext.Transforms.NormalizeMeanVariance("Features"))
-                        .Append(_mlContext.AnomalyDetection.Trainers.RandomizedPca(
-                            featureColumnName: "Features",
-                            rank: rank));
-
-                    var model = pipeline.Fit(dataView);
-                    _anomalyEngines[compositeKey] = _mlContext.Model
-                        .CreatePredictionEngine<AnomalyFeatureRow, AnomalyPrediction>(model);
-
-                    _logger.LogDebug(
-                        "Stage 4 anomaly model trained for {CompositeKey}: {Count} rows, rank={Rank}, activeFeatures=[{ActiveNames}]",
-                        compositeKey, rawVectors.Count, rank, string.Join(", ", activeColumnNames));
-                }
-                catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
-                {
-                    // Swallowed — intermittent PCA edge case. RandomizedPca can produce NaN eigenvectors
-                    // on rank-deficient / collinear training subsets (varies with batch size, not reliably
-                    // reproducible). Graceful degradation: the key stays out of _anomalyEngines and its
-                    // rows receive NOMODEL. Downgraded from Warning to Debug so it does not pollute the
-                    // default output window; still captured under verbose logging.
-                    _logger.LogDebug(ex, "Stage 4 anomaly model training failed for {CompositeKey} (swallowed)", compositeKey);
-                }
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Returns the indices of feature dimensions that have non-negligible variance.
-        /// </summary>
-        /// <remarks>
-        /// Constant columns (variance ≈ 0) are excluded from the dynamic
-        /// <c>Concatenate("Features", ...)</c> step so that <c>NormalizeMeanVariance</c>
-        /// never sees zero-variance dimensions. This replaces the earlier jitter-based
-        /// approach, which amplified noise to unit scale and corrupted PCA eigenvectors.
-        /// </remarks>
-        /// <param name="rows">Raw feature vectors (one <c>float[]</c> per training row).</param>
-        /// <param name="epsilon">Minimum variance threshold for a dimension to be considered active. Default: 1e-6.</param>
-        /// <returns>Array of feature indices with variance greater than <paramref name="epsilon"/>.</returns>
-        /// <seealso cref="trainAnomalyModels"/>
-        /// <seealso cref="_featureColumnNames"/>
-        private static int[] computeActiveFeatureIndices(List<float[]> rows, float epsilon = 1e-6f)
-        {
-            #region implementation
-
-            if (rows.Count == 0)
-                return Array.Empty<int>();
-
-            int featureCount = rows[0].Length;
-            var active = new List<int>();
-
-            for (int f = 0; f < featureCount; f++)
-            {
-                // Compute mean
-                float mean = 0f;
-                foreach (var row in rows)
-                    mean += row[f];
-                mean /= rows.Count;
-
-                // Compute variance
-                float variance = 0f;
-                foreach (var row in rows)
-                {
-                    float delta = row[f] - mean;
-                    variance += delta * delta;
-                }
-                variance /= rows.Count;
-
-                if (variance > epsilon)
-                    active.Add(f);
-            }
-
-            return active.ToArray();
-
-            #endregion
-        }
-
-        // /**************************************************************/
-        // /// <summary>
-        // /// Converts a raw PCA reconstruction error to a percentile (0.0–1.0) using the
-        // /// per-category calibration array built during training. Uses binary search for
-        // /// O(log n) lookup.
-        // /// </summary>
-        // /// <remarks>
-        // /// ## Percentile Semantics
-        // /// - 0.0 = score at or below the minimum seen during training (least anomalous)
-        // /// - 1.0 = score above the maximum seen during training (most anomalous)
-        // /// - 0.75 = 75th percentile — 75% of training rows scored lower
-        // ///
-        // /// ## Edge Cases
-        // /// - Empty or missing calibration array → returns raw score unchanged (cold-start fallback)
-        // /// - Score below calibration minimum → returns 0.0 (less anomalous than anything in training)
-        // /// - Score above calibration maximum → returns 1.0 (more anomalous than anything in training)
-        // /// - Exact match with duplicates → walks forward to last duplicate, uses inclusive ranking
-        // /// - Between two values → insertion point / count
-        // /// </remarks>
-        // /// <param name="category">TableCategory for calibration lookup.</param>
-        // /// <param name="rawScore">Raw PCA reconstruction error score.</param>
-        // /// <returns>Percentile in [0.0, 1.0], or raw score if no calibration is available.</returns>
-        // /// <seealso cref="trainAnomalyModels"/>
-        // /// <seealso cref="applyAnomalyScore"/>
-        // private float calibrateScore(string category, float rawScore)
-        // {
-        //     #region implementation
-        //
-        //     if (!_anomalyCalibration.TryGetValue(category, out var sorted) || sorted.Length == 0)
-        //         return rawScore; // Cold-start fallback: no calibration data
-        //
-        //     int index = Array.BinarySearch(sorted, rawScore);
-        //
-        //     if (index >= 0)
-        //     {
-        //         // Exact match found. Walk forward past any duplicates to get the
-        //         // inclusive count (all values <= rawScore).
-        //         while (index < sorted.Length - 1 && sorted[index + 1] == rawScore)
-        //             index++;
-        //         return (index + 1) / (float)sorted.Length;
-        //     }
-        //     else
-        //     {
-        //         // Not found: ~index = insertion point (count of elements < rawScore)
-        //         int insertionPoint = ~index;
-        //
-        //         if (insertionPoint == 0)
-        //             return 0f; // Below all training scores
-        //
-        //         if (insertionPoint >= sorted.Length)
-        //             return 1f; // Above all training scores
-        //
-        //         return insertionPoint / (float)sorted.Length;
-        //     }
-        //
-        //     #endregion
-        // }
-
         #endregion Model Training Helpers
 
         #region Label Synthesis Helpers
@@ -1375,8 +995,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .Where(o => o.ValidationFlags?.Contains("AI_CORRECTED:") == true)
                 .ToList();
 
-            var correctedCount = corrected.Count;
-            var totalCount = observations.Count;
+            if (corrected.Count == 0)
+                return;
 
             // Convert corrected observations to ground-truth training records
             var records = corrected
@@ -1385,24 +1005,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (_trainingStore != null)
             {
-                if (records.Count > 0)
-                {
-                    await _trainingStore.AddRecordsAsync(records, ct);
-                }
-
-                var newThreshold = await _trainingStore.RecordClaudeFeedbackAsync(totalCount, correctedCount, ct);
-
-                if (newThreshold != null && _claudeSettings != null)
-                {
-                    // Honor the configured floor on the runtime ratchet. The store's raw
-                    // adaptive value may still be climbing from its 0.0f default and could
-                    // otherwise demote a user-configured floor (e.g. 0.75).
-                    var effectiveThreshold = clampAndApplyAnomalyThreshold(newThreshold.Value);
-                    _logger.LogInformation(
-                        "Adaptive threshold updated: effective={Effective:F4} " +
-                        "(floor={Floor:F4}, ratcheted={Ratcheted:F4})",
-                        effectiveThreshold, _configuredAnomalyFloor, newThreshold.Value);
-                }
+                await _trainingStore.AddRecordsAsync(records, ct);
             }
             else
             {
@@ -1410,12 +1013,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 appendAndCapAccumulator(records);
             }
 
-            if (correctedCount > 0)
-            {
-                _logger.LogDebug(
-                    "Fed {Corrected}/{Total} Claude-corrected observations as ground truth",
-                    correctedCount, totalCount);
-            }
+            _logger.LogDebug(
+                "Fed {Corrected}/{Total} Claude-corrected observations as ground truth",
+                corrected.Count, observations.Count);
 
             #endregion
         }
@@ -1431,18 +1031,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Caller supplies accessors and the on-accept mutation block (which writes the observation,
         /// appends the flag, and emits the success log line).
         /// </summary>
-        /// <remarks>
-        /// Shared scaffolding around <see cref="applyTableCategoryCorrection"/>,
-        /// <see cref="applyDoseRegimenRouting"/>, and <see cref="applyPrimaryValueTypeDisambiguation"/>.
-        /// Stage-specific preconditions (e.g. "skip if already routed", "skip unless PrimaryValueType
-        /// is Numeric") remain at the call site — the helper owns only the common Predict-and-gate
-        /// skeleton. The threshold gate is
-        /// <c>maxScore &gt;= minConfidence &amp;&amp; !OrdinalIgnoreCase.Equals(predictedLabel, noOpLabel)</c> —
-        /// same shape as the three pre-existing methods. Exceptions from
-        /// <c>PredictionEngine.Predict</c> (which can wrap schema or feature-shape errors) are caught
-        /// and logged at Debug level with the observation's <see cref="ParsedObservation.SourceRowSeq"/>
-        /// for traceability; the observation is left unchanged.
-        /// </remarks>
         /// <typeparam name="TInput">Typed ML.NET input DTO for the stage.</typeparam>
         /// <typeparam name="TOutput">Typed ML.NET prediction DTO for the stage.</typeparam>
         /// <param name="obs">Observation being scored (used for the failure log context only).</param>
@@ -1495,69 +1083,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Clamps a candidate anomaly threshold to <see cref="_configuredAnomalyFloor"/> and,
-        /// when <see cref="_claudeSettings"/> is present, writes the effective value to
-        /// <see cref="ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold"/>. Returns the
-        /// effective value regardless of whether the write occurred.
-        /// </summary>
-        /// <remarks>
-        /// The store's adaptive threshold starts at 0.0f on a fresh install — writing it raw
-        /// would silently demote a user-configured floor (e.g. 0.75) and disable the anomaly
-        /// gate. Centralizing the floor clamp keeps the initialization path
-        /// (<see cref="InitializeAsync"/>) and the runtime ratchet path
-        /// (<see cref="FeedClaudeCorrectedBatchAsync"/>) in sync.
-        /// </remarks>
-        /// <param name="candidate">Raw candidate threshold (e.g. persisted or newly computed).</param>
-        /// <returns>Effective threshold after clamping to the configured floor.</returns>
-        private float clampAndApplyAnomalyThreshold(float candidate)
-        {
-            #region implementation
-
-            var effective = Math.Max(_configuredAnomalyFloor, candidate);
-            if (_claudeSettings != null)
-            {
-                _claudeSettings.MlAnomalyScoreThreshold = effective;
-            }
-            return effective;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds the composite key for anomaly model lookup and storage.
-        /// Format: "Category|PrimaryValueType" when SecondaryValueType is null/empty,
-        /// or "Category|PrimaryValueType|SecondaryValueType" when defined.
-        /// </summary>
-        /// <param name="unii">Plus-delimited active ingredient UNIIs, or null.</param>
-        /// <param name="tableCategory">Table category (e.g., "PK").</param>
-        /// <param name="primaryValueType">Primary value type (e.g., "ArithmeticMean").</param>
-        /// <param name="secondaryValueType">Secondary value type (e.g., "SD"), or null.</param>
-        /// <returns>Composite key string for anomaly engine dictionary lookup.</returns>
-        /// <seealso cref="trainAnomalyModels"/>
-        /// <seealso cref="applyAnomalyScore"/>
-        internal static string buildAnomalyModelKey(
-            string? unii,
-            string? tableCategory,
-            string? primaryValueType,
-            string? secondaryValueType = null)
-        {
-            #region implementation
-
-            var u   = unii ?? string.Empty;
-            var cat = tableCategory ?? string.Empty;
-            var pvt = primaryValueType ?? string.Empty;
-            var svt = secondaryValueType ?? string.Empty;
-
-            return string.IsNullOrEmpty(svt)
-                ? $"{u}|{cat}|{pvt}"
-                : $"{u}|{cat}|{pvt}|{svt}";
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Appends a flag to the observation's ValidationFlags field. Delegates to the shared
         /// <see cref="ValidationFlagExtensions.AppendValidationFlag"/> helper so the delimiter
         /// convention (<c>"; "</c>) stays in one place across services.
@@ -1568,32 +1093,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Strips all <c>MLNET_ANOMALY_SCORE:*</c> flags from the observation's ValidationFlags.
-        /// Used by the post-accumulation rescore pass to clear NOMODEL before retrying.
-        /// </summary>
-        /// <param name="obs">Observation whose anomaly score flag should be removed.</param>
-        /// <seealso cref="applyAnomalyScore"/>
-        private static void stripAnomalyScoreFlag(ParsedObservation obs)
-        {
-            #region implementation
-
-            if (string.IsNullOrEmpty(obs.ValidationFlags))
-                return;
-
-            var flags = obs.ValidationFlags
-                .Split(new[] { "; " }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(f => !f.StartsWith("MLNET_ANOMALY_SCORE:"))
-                .ToArray();
-
-            obs.ValidationFlags = flags.Length > 0 ? string.Join("; ", flags) : string.Empty;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Determines the highest-confidence ML correction label by comparing flags before
-        /// and after the 4-stage pipeline. Returns the first correction type found
+        /// and after the 3-stage classifier pipeline. Returns the first correction type found
         /// (CATEGORY_CORRECTED > DOSEREGIMEN_ROUTED > PVTYPE_DISAMBIGUATED) or "no_correction".
         /// </summary>
         /// <param name="preMlFlags">ValidationFlags before ML pipeline.</param>

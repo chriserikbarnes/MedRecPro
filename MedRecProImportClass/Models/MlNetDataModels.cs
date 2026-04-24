@@ -13,7 +13,12 @@ namespace MedRecProImportClass.Models
     /// - **Stage 1**: <see cref="TableCategoryInput"/> / <see cref="TableCategoryPrediction"/>
     /// - **Stage 2**: <see cref="DoseRegimenRoutingInput"/> / <see cref="DoseRegimenRoutingPrediction"/>
     /// - **Stage 3**: <see cref="PrimaryValueTypeInput"/> / <see cref="PrimaryValueTypePrediction"/>
-    /// - **Stage 4**: <see cref="AnomalyInput"/> / <see cref="AnomalyPrediction"/>
+    ///
+    /// Stage 4 (anomaly scoring) was retired on 2026-04-24 in favor of the deterministic
+    /// parse-quality gate implemented by
+    /// <see cref="MedRecProImportClass.Service.TransformationServices.IParseQualityService"/>.
+    /// Anomaly scores were a poor proxy for parse-alignment errors and clustered in a narrow
+    /// band regardless of training-set shape.
     ///
     /// All classes are declared <c>internal</c> — they are consumed only within
     /// <c>MedRecProImportClass</c> and are not part of the public API.
@@ -189,70 +194,4 @@ namespace MedRecProImportClass.Models
     }
 
     #endregion Stage 3
-
-    #region Stage 4 — Anomaly Detection
-
-    /**************************************************************/
-    /// <summary>
-    /// Stage 4 input: individual named columns for PCA anomaly detection.
-    /// Each property maps to an ML.NET column. At training time, only columns with real
-    /// variance are included in the model via a dynamic <c>Concatenate("Features", ...)</c>
-    /// pipeline step — constant-zero columns are excluded entirely rather than jittered.
-    /// At scoring time, the baked-in Concatenate reads only the active columns; values in
-    /// unused properties are ignored.
-    /// </summary>
-    /// <remarks>
-    /// Nulls from <see cref="ParsedObservation"/> are mapped to 0 via
-    /// <see cref="MlTrainingRecord.toSafeFloat"/>. LogArmN is <c>log(ArmN + 1)</c>
-    /// to compress the 5–8500+ range.
-    /// </remarks>
-    /// <seealso cref="AnomalyPrediction"/>
-    internal class AnomalyFeatureRow
-    {
-        /**************************************************************/
-        /// <summary>Primary observation value (e.g., incidence rate, mean concentration).</summary>
-        public float PrimaryValue { get; set; }
-
-        /**************************************************************/
-        /// <summary>Secondary/variability measure (SD, CV, etc.). Zero when not parsed.</summary>
-        public float SecondaryValue { get; set; }
-
-        /**************************************************************/
-        /// <summary>Confidence interval lower bound. Zero when not parsed.</summary>
-        public float LowerBound { get; set; }
-
-        /**************************************************************/
-        /// <summary>Confidence interval upper bound. Zero when not parsed.</summary>
-        public float UpperBound { get; set; }
-
-        /**************************************************************/
-        /// <summary>Statistical significance (p-value). Zero when not parsed.</summary>
-        public float PValue { get; set; }
-
-        /**************************************************************/
-        /// <summary>Parser extraction confidence (0–1).</summary>
-        public float ParseConfidence { get; set; }
-
-        /**************************************************************/
-        /// <summary>Log-transformed study arm participant count: <c>log(ArmN + 1)</c>.</summary>
-        public float LogArmN { get; set; }
-    }
-
-    /**************************************************************/
-    /// <summary>Stage 4 anomaly detection output.</summary>
-    /// <seealso cref="AnomalyFeatureRow"/>
-    internal class AnomalyPrediction
-    {
-        /**************************************************************/
-        /// <summary>Whether the observation is flagged as an anomaly.</summary>
-        [ColumnName("PredictedLabel")]
-        public bool IsAnomaly { get; set; }
-
-        /**************************************************************/
-        /// <summary>Anomaly score — higher values indicate more anomalous observations.</summary>
-        [ColumnName("Score")]
-        public float Score { get; set; }
-    }
-
-    #endregion Stage 4
 }

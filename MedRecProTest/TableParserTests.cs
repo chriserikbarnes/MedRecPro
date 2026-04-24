@@ -4288,6 +4288,121 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// PR #1 Area B — when paren-dispersion–rescued rows dominate a sibling group,
+        /// the unit-vote threshold relaxes from strict majority to plurality. A single
+        /// consistent "ng/mL" on two rescued rows — insufficient under the strict rule
+        /// (2 / (2 + 2 other rescued) = 50% is not &gt; 50%) — now backfills successfully
+        /// when the winning value is strictly unique.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_SiblingUnitVote_ParenDispersionDominant_UsesLoweredThreshold()
+        {
+            #region implementation
+
+            // 4 rescue-origin rows share a ParameterName. 2 have Unit="ng/mL", 2 have
+            // Unit=null. Strict majority would reject (2 of 2 non-null = 100% sounds
+            // majority, but the empty rows don't count in denominator — still, the
+            // strict path accepts this via existing logic, so make it a harder case):
+            // 3 rescued rows with null Unit + 1 rescued row with "ng/mL" + 0 others.
+            // Under strict majority: 1 of 1 non-null = 100% meets the > 50% test,
+            // so rescue boost isn't required. To force the boost path we need multiple
+            // distinct non-null units where the winner is below strict-majority but
+            // above plurality AND rescue rows dominate.
+            var observations = new List<ParsedObservation>
+            {
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL", ParseRule = "value_paren_dispersion" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL", ParseRule = "value_paren_dispersion" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "mcg/mL", ParseRule = "value_paren_dispersion" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "pg/mL",  ParseRule = "value_paren_dispersion+caption" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = null,     ParseRule = "value_paren_dispersion+caption" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = null,     ParseRule = "value_paren_dispersion+caption" },
+            };
+            // Non-null count = 4 (ng/mL=2, mcg/mL=1, pg/mL=1). Strict majority needs winner*2 > 4,
+            // so winner needs > 2 — 2 does not qualify. Rescue-dominant (6/6 rescued → ≥ 50%),
+            // plurality threshold 4*? → winner*3 >= 4 means winner >= 1.33 (i.e. ≥ 2). Winner (2)
+            // is strictly unique (next distinct has 1). → backfill under rescue boost.
+
+            int backfilled = PkTableParser.applySiblingUnitVote(observations);
+
+            Assert.AreEqual(2, backfilled, "Both orphan rows should be backfilled via rescue boost");
+            Assert.AreEqual("ng/mL", observations[4].Unit);
+            Assert.AreEqual("ng/mL", observations[5].Unit);
+            StringAssert.Contains(observations[4].ValidationFlags ?? "",
+                "PK_UNIT_SIBLING_VOTED:RESCUE_BOOST");
+            StringAssert.Contains(observations[5].ValidationFlags ?? "",
+                "PK_UNIT_SIBLING_VOTED:RESCUE_BOOST");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #1 Area B — when rescue rows are the minority, the strict-majority rule
+        /// still applies. A 50/50 mix cannot dilute the protection that shields healthy
+        /// groups from being over-imputed.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_SiblingUnitVote_ParenDispersionMinority_KeepsMajorityThreshold()
+        {
+            #region implementation
+
+            // 5 siblings: 2 rescue rows + 3 non-rescue rows. Rescue is minority (2/5 = 40%).
+            // Units: ng/mL=2, mcg/mL=1, pg/mL=1; one orphan. Winner (ng/mL, 2) does not meet
+            // strict majority (2*2=4 is not > 4). Rescue boost should NOT activate because
+            // rescue is not dominant. Orphan must stay null.
+            var observations = new List<ParsedObservation>
+            {
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL",  ParseRule = "plain_number" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL",  ParseRule = "plain_number" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "mcg/mL", ParseRule = "plain_number" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "pg/mL",  ParseRule = "value_paren_dispersion" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = null,     ParseRule = "value_paren_dispersion" },
+            };
+
+            int backfilled = PkTableParser.applySiblingUnitVote(observations);
+
+            Assert.AreEqual(0, backfilled, "Non-rescue-dominant groups must keep the strict-majority rule");
+            Assert.IsNull(observations[4].Unit);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PR #1 Area B — a healthy group where strict majority already passes should
+        /// carry <c>PK_UNIT_SIBLING_VOTED</c> but NOT <c>:RESCUE_BOOST</c>. The secondary
+        /// flag is reserved for cases where the relaxed threshold was the decider.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_SiblingUnitVote_RescueBoost_EmitsDiagnosticFlagOnlyWhenDecisive()
+        {
+            #region implementation
+
+            // 3 rescue rows + 1 orphan: "ng/mL" on all three non-null rows → strict majority
+            // applies (3/3 = 100% > 50%) AND rescue dominates (3/4 ≥ 50%). The rescue boost
+            // exists but was not NEEDED to decide the vote, so the :RESCUE_BOOST flag must
+            // not be emitted — only the base PK_UNIT_SIBLING_VOTED.
+            var observations = new List<ParsedObservation>
+            {
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL", ParseRule = "value_paren_dispersion" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL", ParseRule = "value_paren_dispersion" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = "ng/mL", ParseRule = "value_paren_dispersion" },
+                new ParsedObservation { ParameterName = "Cmax", Unit = null,    ParseRule = "value_paren_dispersion" },
+            };
+
+            int backfilled = PkTableParser.applySiblingUnitVote(observations);
+
+            Assert.AreEqual(1, backfilled);
+            var flags = observations[3].ValidationFlags ?? string.Empty;
+            StringAssert.Contains(flags, "PK_UNIT_SIBLING_VOTED");
+            Assert.IsFalse(flags.Contains("PK_UNIT_SIBLING_VOTED:RESCUE_BOOST"),
+                "RESCUE_BOOST must only fire when it was the deciding factor");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// R10 — End-to-end: a PK table whose column headers carry param names
         /// without units AND whose second row is a sub-header unit row must
         /// produce observations with Unit populated from the sub-header.

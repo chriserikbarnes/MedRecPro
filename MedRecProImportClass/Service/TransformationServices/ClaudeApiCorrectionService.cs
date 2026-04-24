@@ -196,22 +196,26 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return observations;
             }
 
-            // Gate by ML anomaly score when threshold is configured
-            var toCorrect = _settings.MlAnomalyScoreThreshold > 0f
-                ? observations.Where(exceedsAnomalyThreshold).ToList()
+            // Gate by deterministic parse-quality score. Observations whose
+            // MLNET_PARSE_QUALITY:{score} value is < ClaudeReviewQualityThreshold are
+            // forwarded to Claude; observations at or above the threshold skip the API
+            // correction pass. Observations without a quality flag (e.g., the
+            // ParseQualityService is not registered) pass through conservatively.
+            var toCorrect = _settings.ClaudeReviewQualityThreshold > 0f
+                ? observations.Where(belowQualityThreshold).ToList()
                 : observations;
 
             if (toCorrect.Count == 0)
             {
-                _logger.LogDebug("All {Count} observations below ML anomaly threshold {Threshold} — skipping Claude correction",
-                    observations.Count, _settings.MlAnomalyScoreThreshold);
+                _logger.LogDebug("All {Count} observations at or above parse-quality threshold {Threshold} — skipping Claude correction",
+                    observations.Count, _settings.ClaudeReviewQualityThreshold);
                 return observations;
             }
 
             if (toCorrect.Count < observations.Count)
             {
-                _logger.LogInformation("ML gate: {Passed}/{Total} observations exceed anomaly threshold {Threshold} — sending to Claude",
-                    toCorrect.Count, observations.Count, _settings.MlAnomalyScoreThreshold);
+                _logger.LogInformation("Quality gate: {Passed}/{Total} observations below parse-quality threshold {Threshold} — sending to Claude",
+                    toCorrect.Count, observations.Count, _settings.ClaudeReviewQualityThreshold);
             }
 
             // Group by TextTableID for contextual correction
@@ -555,6 +559,23 @@ namespace MedRecProImportClass.Service.TransformationServices
                         ? flag
                         : $"{target.ValidationFlags};{flag}";
 
+                    // PR #6 infrastructure — when Claude flips TableCategory specifically,
+                    // emit a harvestable CATEGORY_CLAUDE_CORRECTED:{from}:{to}:{confidence}
+                    // alongside the generic AI_CORRECTED flag. Future runs can mine this
+                    // flag to build a ground-truth label corpus for Stage 1 retraining
+                    // without having to replay Claude calls. Confidence is fixed at 1.00
+                    // because Claude corrections are treated as authoritative ground truth
+                    // (matches MlTrainingRecord.IsClaudeGroundTruth semantics).
+                    if (string.Equals(correction.Field, "TableCategory", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var from = correction.OldValue ?? string.Empty;
+                        var to   = correction.NewValue ?? string.Empty;
+                        var ccFlag = $"CATEGORY_CLAUDE_CORRECTED:{from}:{to}:1.00";
+                        target.ValidationFlags = string.IsNullOrEmpty(target.ValidationFlags)
+                            ? ccFlag
+                            : $"{target.ValidationFlags};{ccFlag}";
+                    }
+
                     applied++;
 
                     _logger.LogDebug(
@@ -643,48 +664,67 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Determines whether an observation's ML anomaly score exceeds the configured threshold.
-        /// Returns true (conservative — send to Claude) when: the score is absent, the value is
-        /// "NOMODEL", the value is "ERROR", or the parsed score ≥ threshold.
-        /// Returns false only when a valid numeric score is below the threshold.
+        /// Determines whether an observation's parse-quality score is below the configured
+        /// Claude-review threshold. Returns <c>true</c> (forward to Claude) when the parsed
+        /// score is strictly less than
+        /// <see cref="ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold"/>, or when the
+        /// score is absent / unparseable / NaN / Infinity (conservative — forward when quality
+        /// is unknown). Returns <c>false</c> only when a valid numeric score meets or exceeds
+        /// the threshold, meaning the row parsed cleanly and does not need AI review.
         /// </summary>
+        /// <remarks>
+        /// The flag shape is <c>MLNET_PARSE_QUALITY:{score:F4}</c>, emitted by
+        /// <see cref="IParseQualityService"/> in Stage 3.4. A companion
+        /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{pipe-delimited list}</c> flag is emitted
+        /// alongside when the score is below threshold and records which rule penalties fired
+        /// — this method does not read the reasons, only the numeric score on the primary flag.
+        /// </remarks>
         /// <param name="obs">Observation to evaluate.</param>
-        /// <returns>True if the observation should be sent to Claude.</returns>
-        private bool exceedsAnomalyThreshold(ParsedObservation obs)
+        /// <returns><c>true</c> if the observation should be sent to Claude.</returns>
+        private bool belowQualityThreshold(ParsedObservation obs)
         {
             #region implementation
 
             if (string.IsNullOrEmpty(obs.ValidationFlags))
                 return true; // No flags at all → conservative: send to Claude
 
-            // Find the MLNET_ANOMALY_SCORE token in ValidationFlags
-            const string prefix = "MLNET_ANOMALY_SCORE:";
-            var startIdx = obs.ValidationFlags.IndexOf(prefix, StringComparison.Ordinal);
-            if (startIdx < 0)
-                return true; // No anomaly score flag → conservative: send to Claude
-
-            var valueStart = startIdx + prefix.Length;
-            var valueEnd = obs.ValidationFlags.IndexOf(';', valueStart);
-            var scoreStr = valueEnd >= 0
-                ? obs.ValidationFlags.Substring(valueStart, valueEnd - valueStart).Trim()
-                : obs.ValidationFlags.Substring(valueStart).Trim();
-
-            // NOMODEL or ERROR → conservative: send to Claude
-            if (string.Equals(scoreStr, "NOMODEL", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(scoreStr, "ERROR", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            // Parse the numeric score
-            if (float.TryParse(scoreStr, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var score))
+            // Find the MLNET_PARSE_QUALITY:{score} token. The REVIEW_REASONS variant is a
+            // separate flag with the same prefix plus ":REVIEW_REASONS:"; scan for a numeric
+            // token that is not that sentinel.
+            const string prefix = "MLNET_PARSE_QUALITY:";
+            var search = 0;
+            while (search < obs.ValidationFlags.Length)
             {
-                // NaN >= threshold is always false in IEEE 754 — treat NaN/Infinity as anomalous
-                if (float.IsNaN(score) || float.IsInfinity(score))
-                    return true;
-                return score >= _settings.MlAnomalyScoreThreshold;
+                var startIdx = obs.ValidationFlags.IndexOf(prefix, search, StringComparison.Ordinal);
+                if (startIdx < 0)
+                    return true; // No quality flag at all → conservative: send to Claude
+
+                var valueStart = startIdx + prefix.Length;
+                var valueEnd = obs.ValidationFlags.IndexOf(';', valueStart);
+                var tokenEnd = valueEnd >= 0 ? valueEnd : obs.ValidationFlags.Length;
+                var token = obs.ValidationFlags.Substring(valueStart, tokenEnd - valueStart).Trim();
+
+                // Skip the REVIEW_REASONS companion flag — keep scanning for the numeric one.
+                if (token.StartsWith("REVIEW_REASONS", StringComparison.OrdinalIgnoreCase))
+                {
+                    search = tokenEnd;
+                    continue;
+                }
+
+                if (float.TryParse(token, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var score))
+                {
+                    // NaN / Infinity → conservative: send to Claude
+                    if (float.IsNaN(score) || float.IsInfinity(score))
+                        return true;
+                    return score < _settings.ClaudeReviewQualityThreshold;
+                }
+
+                // Unparseable token → conservative: send to Claude
+                return true;
             }
 
-            // Unparseable → conservative: send to Claude
+            // Scanned past end without finding a numeric score → conservative: send to Claude
             return true;
 
             #endregion

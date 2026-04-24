@@ -2,19 +2,21 @@ namespace MedRecProImportClass.Models
 {
     /**************************************************************/
     /// <summary>
-    /// Root persisted state for the ML training store. Contains the training records list,
-    /// adaptive threshold state, and lifetime metrics for the Claude-to-ML feedback loop.
-    /// Serialized to JSON via <c>System.Text.Json</c>.
+    /// Root persisted state for the ML training store. Contains the training records list
+    /// and retrain timestamps. Serialized to JSON via <c>System.Text.Json</c>.
     /// </summary>
     /// <remarks>
     /// ## Persistence
     /// Written atomically (tmp + rename) by <see cref="MedRecProImportClass.Service.TransformationServices.MlTrainingStore"/>.
     /// Thread-safe access via <c>SemaphoreSlim(1, 1)</c>.
     ///
-    /// ## Adaptive Threshold Fields
-    /// <see cref="AdaptiveThreshold"/> tracks the current ML anomaly score threshold used to gate
-    /// observations to Claude. As ML accuracy improves (low correction rate), the threshold rises
-    /// and fewer rows are sent to Claude.
+    /// ## Schema History
+    /// The adaptive-threshold fields (<c>AdaptiveThreshold</c>, <c>TotalSentToClaude</c>,
+    /// <c>TotalCorrectedByClaude</c>, <c>LastThresholdEvaluatedAt</c>,
+    /// <c>ThresholdAdjustmentCount</c>) were removed along with the Stage 4 anomaly pipeline
+    /// on 2026-04-24 — the raw PCA scores they ratcheted against proved to have no absolute
+    /// semantic. Older persisted store files may still carry those fields; they are ignored
+    /// on load.
     ///
     /// ## Version Field
     /// <see cref="Version"/> allows future schema migrations without breaking existing stores.
@@ -28,9 +30,9 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Schema version for forward compatibility. Increment when the state shape changes.
-        /// Current version: 3 (added UNII to MlTrainingRecord for product-level anomaly key grouping).
+        /// Current version: 4 (removed Stage 4 anomaly adaptive-threshold fields).
         /// </summary>
-        public int Version { get; set; } = 3;
+        public int Version { get; set; } = 4;
 
         #endregion Schema version
 
@@ -44,37 +46,6 @@ namespace MedRecProImportClass.Models
         public List<MlTrainingRecord> Records { get; set; } = new();
 
         #endregion Training records
-
-        #region Adaptive threshold state
-
-        /**************************************************************/
-        /// <summary>
-        /// Current adaptive ML anomaly score threshold. Propagated to
-        /// <see cref="ClaudeApiCorrectionSettings.MlAnomalyScoreThreshold"/> at runtime.
-        /// Default 0.0 (all observations pass to Claude — backward-compatible).
-        /// </summary>
-        public float AdaptiveThreshold { get; set; } = 0.0f;
-
-        /**************************************************************/
-        /// <summary>Lifetime count of observations sent to Claude (denominator for correction rate).</summary>
-        public long TotalSentToClaude { get; set; }
-
-        /**************************************************************/
-        /// <summary>Lifetime count of observations actually corrected by Claude.</summary>
-        public long TotalCorrectedByClaude { get; set; }
-
-        /**************************************************************/
-        /// <summary>
-        /// Value of <see cref="TotalSentToClaude"/> at the last threshold evaluation.
-        /// Used to enforce <see cref="MlNetCorrectionSettings.AdaptiveThresholdEvaluationInterval"/>.
-        /// </summary>
-        public long LastThresholdEvaluatedAt { get; set; }
-
-        /**************************************************************/
-        /// <summary>Number of times the adaptive threshold has been raised.</summary>
-        public int ThresholdAdjustmentCount { get; set; }
-
-        #endregion Adaptive threshold state
 
         #region Timestamps
 

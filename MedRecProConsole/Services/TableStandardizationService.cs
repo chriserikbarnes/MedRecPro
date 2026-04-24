@@ -963,11 +963,18 @@ namespace MedRecProConsole.Services
                 new MlTrainingStore(
                     sp.GetRequiredService<ILogger<MlTrainingStore>>(),
                     sp.GetRequiredService<IOptions<MlNetCorrectionSettings>>().Value));
+            // Parse-quality gate (Phase 2 replacement for retired Stage 4 anomaly scoring).
+            // The registry parses column-contracts.md into per-TableCategory R/E/O/N sets
+            // and the service applies the deterministic MLNET_PARSE_QUALITY formula.
+            services.AddSingleton<IColumnContractRegistry, ColumnContractRegistry>();
+            services.AddSingleton<IParseQualityService, ParseQualityService>();
+
             services.AddScoped<IMlNetCorrectionService>(sp =>
                 new MlNetCorrectionService(
                     sp.GetRequiredService<ILogger<MlNetCorrectionService>>(),
                     sp.GetRequiredService<IOptions<MlNetCorrectionSettings>>().Value,
                     trainingStore: sp.GetRequiredService<IMlTrainingStore>(),
+                    parseQualityService: sp.GetRequiredService<IParseQualityService>(),
                     claudeSettings: sp.GetRequiredService<IOptions<ClaudeApiCorrectionSettings>>().Value));
 
             // Stage 0: Bioequivalent-ANDA label dedup (prunes the document set before Stage 1).
