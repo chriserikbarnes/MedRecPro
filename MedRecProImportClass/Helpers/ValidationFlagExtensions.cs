@@ -6,7 +6,7 @@ namespace MedRecProImportClass.Helpers
     /// <summary>
     /// Extension methods for appending semicolon-delimited validation flags onto a
     /// <see cref="ParsedObservation"/>. Centralizes the delimiter convention shared by
-    /// <c>MlNetCorrectionService</c>, <c>ColumnStandardizationService</c>, and
+    /// <c>QCNetCorrectionService</c>, <c>ColumnStandardizationService</c>, and
     /// <c>ClaudeApiCorrectionService</c>, all of which previously carried byte-identical
     /// <c>appendFlag</c> helpers.
     /// </summary>

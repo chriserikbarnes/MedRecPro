@@ -6,7 +6,7 @@ namespace MedRecProImportClass.Models
     /// <summary>
     /// ML.NET input and prediction data classes for the Stage 3.4 ML correction pipeline.
     /// Each pair of Input/Prediction classes corresponds to one stage of the
-    /// <see cref="MedRecProImportClass.Service.TransformationServices.MlNetCorrectionService"/>.
+    /// <see cref="MedRecProImportClass.Service.TransformationServices.QCNetCorrectionService"/>.
     /// </summary>
     /// <remarks>
     /// ## Class Pairs by Stage
@@ -23,9 +23,9 @@ namespace MedRecProImportClass.Models
     /// All classes are declared <c>internal</c> — they are consumed only within
     /// <c>MedRecProImportClass</c> and are not part of the public API.
     /// </remarks>
-    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.MlNetCorrectionService"/>
-    /// <seealso cref="MlNetCorrectionSettings"/>
-    internal static class MlNetDataModels { }
+    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.QCNetCorrectionService"/>
+    /// <seealso cref="QCNetCorrectionSettings"/>
+    internal static class QCNetDataModels { }
 
     #region Stage 1 — TableCategory
 

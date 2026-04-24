@@ -80,13 +80,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Optional Stage 3.4 ML.NET correction and anomaly scoring service.
         /// Null if ML correction is not configured.
         /// </summary>
-        private readonly IMlNetCorrectionService? _mlNetCorrectionService;
+        private readonly IQCNetCorrectionService? _qcNetCorrectionService;
 
         /**************************************************************/
         /// <summary>
         /// Whether the ML.NET correction service has been initialized (lazy init on first batch).
         /// </summary>
-        private bool _mlNetInitialized;
+        private bool _qcNetInitialized;
 
         /**************************************************************/
         /// <summary>
@@ -128,7 +128,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="logger">Logger.</param>
         /// <param name="batchValidator">Optional Stage 4 batch validation service. Pass null to skip validation.</param>
         /// <param name="columnStandardizer">Optional Stage 3.25 column standardization service. Pass null to skip standardization.</param>
-        /// <param name="mlNetCorrectionService">Optional Stage 3.4 ML.NET correction and anomaly scoring service. Pass null to skip ML correction.</param>
+        /// <param name="qcNetCorrectionService">Optional Stage 3.4 ML.NET correction and anomaly scoring service. Pass null to skip ML correction.</param>
         /// <param name="correctionService">Optional Stage 3.5 Claude API correction service. Pass null to skip AI correction.</param>
         /// <param name="dropRowsMissingArmNOrPrimaryValue">
         /// Optional Stage 3.25 quality gate. When true, observations with BOTH
@@ -150,7 +150,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             ILogger<TableParsingOrchestrator> logger,
             IBatchValidationService? batchValidator = null,
             IColumnStandardizationService? columnStandardizer = null,
-            IMlNetCorrectionService? mlNetCorrectionService = null,
+            IQCNetCorrectionService? qcNetCorrectionService = null,
             IClaudeApiCorrectionService? correctionService = null,
             bool dropRowsMissingArmNOrPrimaryValue = false,
             IBioequivalentLabelDedupService? bioequivalentDedup = null)
@@ -164,7 +164,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _logger = logger;
             _batchValidator = batchValidator;
             _columnStandardizer = columnStandardizer;
-            _mlNetCorrectionService = mlNetCorrectionService;
+            _qcNetCorrectionService = qcNetCorrectionService;
             _correctionService = correctionService;
             _dropRowsMissingArmNOrPrimaryValue = dropRowsMissingArmNOrPrimaryValue;
             _bioequivalentDedup = bioequivalentDedup;
@@ -619,10 +619,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                 _columnStdInitialized = true;
             }
 
-            if (_mlNetCorrectionService != null && !_mlNetInitialized)
+            if (_qcNetCorrectionService != null && !_qcNetInitialized)
             {
-                await _mlNetCorrectionService.InitializeAsync(ct);
-                _mlNetInitialized = true;
+                await _qcNetCorrectionService.InitializeAsync(ct);
+                _qcNetInitialized = true;
             }
 
             #endregion
@@ -964,14 +964,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <param name="observations">Observations to score and correct.</param>
         /// <returns>The corrected observations (same list, modified in-place).</returns>
-        /// <seealso cref="IMlNetCorrectionService.ScoreAndCorrect"/>
+        /// <seealso cref="IQCNetCorrectionService.ScoreAndCorrect"/>
         private List<ParsedObservation> runMlCorrection(List<ParsedObservation> observations)
         {
             #region implementation
 
-            if (_mlNetCorrectionService != null && observations.Count > 0)
+            if (_qcNetCorrectionService != null && observations.Count > 0)
             {
-                observations = _mlNetCorrectionService.ScoreAndCorrect(observations);
+                observations = _qcNetCorrectionService.ScoreAndCorrect(observations);
             }
 
             return observations;
@@ -1032,9 +1032,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .Sum();
 
             // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
-            if (_mlNetCorrectionService != null)
+            if (_qcNetCorrectionService != null)
             {
-                await _mlNetCorrectionService.FeedClaudeCorrectedBatchAsync(observations, ct);
+                await _qcNetCorrectionService.FeedClaudeCorrectedBatchAsync(observations, ct);
             }
 
             return observations;

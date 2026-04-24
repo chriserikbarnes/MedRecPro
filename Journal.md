@@ -3086,3 +3086,50 @@ Every rule that fires pushes a stable token (`PrimaryValueNull`, `BadUnit`, `Sof
 The predecessor plan and the 2026-04-24 retirement plan both land here — the inherited PR #1 Area B rescue code is kept (it's unrelated to Stage 4); PR #4 Area E Stage 2 shadow config stays on until Stage 2 is retrained; PR #6 harvest infrastructure stays pending accumulation of `CATEGORY_CLAUDE_CORRECTED` rows. Scientific value-anomaly analytics (the thing Stage 4 was confused about) becomes a separate research concern layered on top of a standardized corpus — not Claude's problem.
 
 ---
+
+### 2026-04-24 5:25 PM EST — Rename Ml* → QC* (Quality Check) across the Stage 3.4 correction pipeline
+
+Rebranded the Stage 3.4 service family from `Ml*` to `QC*` (Quality Check) to match its actual role after the 2026-04-24 Stage 4 anomaly-scoring retirement. ML.NET remains the underlying framework — only the project's own naming changed. The "Net" suffix was preserved on multi-word names (e.g., `MlNetCorrectionSettings` → `QCNetCorrectionSettings`) to signal the ML.NET backing.
+
+**File renames (9 via `git mv`, history preserved):**
+- `MlNetCorrectionSettings.cs` → `QCNetCorrectionSettings.cs`
+- `MlNetDataModels.cs` → `QCNetDataModels.cs`
+- `MlTrainingRecord.cs` → `QCTrainingRecord.cs`
+- `MlTrainingStoreState.cs` → `QCTrainingStoreState.cs`
+- `IMlNetCorrectionService.cs` → `IQCNetCorrectionService.cs`
+- `IMlTrainingStore.cs` → `IQCTrainingStore.cs`
+- `MlNetCorrectionService.cs` → `QCNetCorrectionService.cs`
+- `MlTrainingStore.cs` → `QCTrainingStore.cs`
+- `MlNetCorrectionServiceTests.cs` → `QCNetCorrectionServiceTests.cs`
+
+**Ripple-effect updates:**
+- `MedRecProConsole/Services/TableStandardizationService.cs` — DI registrations: `Configure<QCNetCorrectionSettings>`, `AddScoped<IQCTrainingStore>`, `AddScoped<IQCNetCorrectionService>`, `ILogger<QCTrainingStore>`, `ILogger<QCNetCorrectionService>`, and the named-arg flip to `qcNetCorrectionService:` at the orchestrator factory
+- `MedRecProImportClass/Service/TransformationServices/TableParsingOrchestrator.cs` — renamed field `_qcNetCorrectionService`, init flag `_qcNetInitialized`, constructor param `qcNetCorrectionService`
+- `MedRecProImportClass/Service/TransformationServices/ClaudeApiCorrectionService.cs` — XML cref + gating comment
+- `MedRecProImportClass/Service/TransformationServices/IParseQualityService.cs`, `ParseQualityService.cs` — XML docs + flag-format documentation
+- `MedRecProImportClass/Service/TransformationServices/DoseExtractor.cs` — XML cref
+- `MedRecProImportClass/Helpers/ValidationFlagExtensions.cs`, `DoseRegimenRoutingPolicy.cs` — XML cref comments
+- `MedRecProImportClass/Models/ClaudeApiCorrectionSettings.cs` — XML cref + `MLNET_PARSE_QUALITY` doc string
+- `MedRecProTest/TableParsingOrchestratorStageTests.cs` — named-arg `qcNetCorrectionService: null` at two call sites (was the only remaining build error)
+- `MedRecProTest/ParseQualityServiceTests.cs` — one XML doc reference
+
+**Audit flag prefixes renamed:**
+- `MLNET:CATEGORY_CORRECTED` / `MLNET:CATEGORY_SHADOW` / `MLNET:DOSEREGIMEN_ROUTED_TO_*` / `MLNET:DOSEREGIMEN_SHADOW` / `MLNET:PVTYPE_DISAMBIGUATED` → `QC:*`
+- `MLNET_PARSE_QUALITY:{score}` / `MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}` → `QC_PARSE_QUALITY:*`
+- No database migration — historical rows keep their `MLNET:` flags; only newly-emitted flags use `QC:`. Audit trail stays intact for pre-rename data.
+
+**Config changes:**
+- `appsettings.json` section `"MlNetCorrectionSettings"` → `"QCNetCorrectionSettings"`, matching comment updates, example flag example also changed to `QC:DOSEREGIMEN_SHADOW`
+
+**Docs:**
+- `MedRecProImportClass/README.md` — Stage 3.4 heading renamed to "Stage 3.4: QC Correction (ML.NET-backed)"; all class-name references updated; `MLNET:` and `MLNET_PARSE_QUALITY:` flag table examples rewritten to `QC:` / `QC_PARSE_QUALITY:`. Kept the `Microsoft.ML 4.0.2` dependency line and other references to ML.NET the framework — those still refer to Microsoft's actual product name.
+
+**Intentionally not renamed:**
+- `MlAnomalyScoreThreshold` mentioned in a historical XML doc in `ClaudeApiCorrectionSettings.cs` — that's the actual name of the retired property; rewriting it would falsify history
+- `Journal.md` historical entries — dated snapshots of past state
+- `MedRecPro/SQL/Transient/TableStandardizationChecks.sql` — references the retired `MLNET_ANOMALY_SCORE:` flag from the Stage 4 era; flagged as separately out of scope (transient/ad-hoc)
+- `_mlContext` / `MLContext` — Microsoft.ML's framework types, not our project's naming
+
+**Verification:** `dotnet build` = 0 errors. `dotnet test MedRecProTest` = 1713 passed, 0 failed, 0 skipped (2m20s). Final ripgrep sweep across `MedRecProImportClass/`, `MedRecProConsole/`, `MedRecProTest/` confirms zero remaining `\bMl[A-Z]` / `\bIMl[A-Z]` / `\bMLNET[:_]` symbols in C# source (the README is also clean).
+
+---

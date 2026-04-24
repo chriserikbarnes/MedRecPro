@@ -197,7 +197,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             // Gate by deterministic parse-quality score. Observations whose
-            // MLNET_PARSE_QUALITY:{score} value is < ClaudeReviewQualityThreshold are
+            // QC_PARSE_QUALITY:{score} value is < ClaudeReviewQualityThreshold are
             // forwarded to Claude; observations at or above the threshold skip the API
             // correction pass. Observations without a quality flag (e.g., the
             // ParseQualityService is not registered) pass through conservatively.
@@ -565,7 +565,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // flag to build a ground-truth label corpus for Stage 1 retraining
                     // without having to replay Claude calls. Confidence is fixed at 1.00
                     // because Claude corrections are treated as authoritative ground truth
-                    // (matches MlTrainingRecord.IsClaudeGroundTruth semantics).
+                    // (matches QCTrainingRecord.IsClaudeGroundTruth semantics).
                     if (string.Equals(correction.Field, "TableCategory", StringComparison.OrdinalIgnoreCase))
                     {
                         var from = correction.OldValue ?? string.Empty;
@@ -673,9 +673,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// the threshold, meaning the row parsed cleanly and does not need AI review.
         /// </summary>
         /// <remarks>
-        /// The flag shape is <c>MLNET_PARSE_QUALITY:{score:F4}</c>, emitted by
+        /// The flag shape is <c>QC_PARSE_QUALITY:{score:F4}</c>, emitted by
         /// <see cref="IParseQualityService"/> in Stage 3.4. A companion
-        /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{pipe-delimited list}</c> flag is emitted
+        /// <c>QC_PARSE_QUALITY:REVIEW_REASONS:{pipe-delimited list}</c> flag is emitted
         /// alongside when the score is below threshold and records which rule penalties fired
         /// — this method does not read the reasons, only the numeric score on the primary flag.
         /// </remarks>
@@ -688,10 +688,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrEmpty(obs.ValidationFlags))
                 return true; // No flags at all → conservative: send to Claude
 
-            // Find the MLNET_PARSE_QUALITY:{score} token. The REVIEW_REASONS variant is a
+            // Find the QC_PARSE_QUALITY:{score} token. The REVIEW_REASONS variant is a
             // separate flag with the same prefix plus ":REVIEW_REASONS:"; scan for a numeric
             // token that is not that sentinel.
-            const string prefix = "MLNET_PARSE_QUALITY:";
+            const string prefix = "QC_PARSE_QUALITY:";
             var search = 0;
             while (search < obs.ValidationFlags.Length)
             {

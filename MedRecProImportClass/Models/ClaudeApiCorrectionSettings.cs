@@ -80,7 +80,7 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Parse-quality threshold for gating observations to Claude. Observations whose
-        /// <c>MLNET_PARSE_QUALITY:{score}</c> value is strictly LESS THAN this threshold are
+        /// <c>QC_PARSE_QUALITY:{score}</c> value is strictly LESS THAN this threshold are
         /// forwarded to Claude for semantic review; observations at or above the threshold
         /// skip the API correction pass. Set to 0.0 to send every observation (rarely useful —
         /// defeats the cost gate). Default 0.75 means "send anything with at least one hard
@@ -97,7 +97,7 @@ namespace MedRecProImportClass.Models
         /// (e.g., because the quality service was not registered) always pass through
         /// (conservative — send to Claude when quality is unknown).
         /// </remarks>
-        /// <seealso cref="MlNetCorrectionSettings"/>
+        /// <seealso cref="QCNetCorrectionSettings"/>
         /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IParseQualityService"/>
         public float ClaudeReviewQualityThreshold { get; set; } = 0.75f;
 

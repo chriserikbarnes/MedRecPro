@@ -13,7 +13,7 @@ namespace MedRecProImportClass.Helpers
     /// The regex decision trees that select <em>which</em> target to route to intentionally
     /// stay in their owning services
     /// (<c>ColumnStandardizationService.normalizeDoseRegimen</c> and
-    /// <c>MlNetCorrectionService.labelDoseRegimenRoutingFromRecord</c>) because the two
+    /// <c>QCNetCorrectionService.labelDoseRegimenRoutingFromRecord</c>) because the two
     /// services use deliberately different vocabularies — rule-based normalization is
     /// broader (anchored patterns with pediatric/neonatal/kg-range content) while ML
     /// label synthesis is narrower (word-boundary matches on a canonical keyword set)

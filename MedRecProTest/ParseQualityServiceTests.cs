@@ -606,7 +606,7 @@ namespace MedRecProTest
         /// <summary>
         /// Every reason token that fires is present in the returned <see cref="ParseQualityScore.Reasons"/>
         /// list, allowing the caller to emit an audit-traceable
-        /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS</c> flag.
+        /// <c>QC_PARSE_QUALITY:REVIEW_REASONS</c> flag.
         /// </summary>
         [TestMethod]
         public void Evaluate_ReasonsListPopulated_MatchesTriggeredRules()

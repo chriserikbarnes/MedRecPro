@@ -748,7 +748,7 @@ namespace MedRecPro.Service.Test
                 mockLogger.Object,
                 batchValidator: null,
                 columnStandardizer: null,
-                mlNetCorrectionService: null,
+                qcNetCorrectionService: null,
                 correctionService: null,
                 dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue);
 
@@ -1045,7 +1045,7 @@ namespace MedRecPro.Service.Test
                 mockLogger.Object,
                 batchValidator: null,
                 columnStandardizer: null,
-                mlNetCorrectionService: null,
+                qcNetCorrectionService: null,
                 correctionService: null,
                 dropRowsMissingArmNOrPrimaryValue: false);
 

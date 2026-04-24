@@ -23,9 +23,9 @@ namespace MedRecProImportClass.Models
     /// parse-alignment errors, not flagging value extremity — the deterministic parse-quality
     /// gate targets parse failures directly.
     /// </remarks>
-    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IMlNetCorrectionService"/>
+    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IQCNetCorrectionService"/>
     /// <seealso cref="ClaudeApiCorrectionSettings"/>
-    public class MlNetCorrectionSettings
+    public class QCNetCorrectionSettings
     {
         #region enablement properties
 
@@ -40,7 +40,7 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// R9 — Per-stage toggle for Stage 1 TableCategory correction. When false, the
         /// Stage 1 classifier does NOT mutate <see cref="ParsedObservation.TableCategory"/>
-        /// and does NOT emit <c>MLNET:CATEGORY_CORRECTED</c> flags. Introduced in Wave 3 R9
+        /// and does NOT emit <c>QC:CATEGORY_CORRECTED</c> flags. Introduced in Wave 3 R9
         /// to gate the classifier off until its training data can be audited — corpus
         /// validation on 2026-04-23 showed it was flipping correctly-routed rows in the
         /// wrong direction (e.g., HSV mutation tables corrected TO PK with 0.99 confidence;
@@ -50,7 +50,7 @@ namespace MedRecProImportClass.Models
         /// Default <c>false</c> — Stage 1 is disabled by default pending model retraining.
         /// When paired with <see cref="EnableStage1ShadowMode"/>=true (the default), the
         /// classifier still runs in prediction-only mode and emits
-        /// <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> flags so the would-be corrections
+        /// <c>QC:CATEGORY_SHADOW:{label}:{score}</c> flags so the would-be corrections
         /// can be audited without affecting routing.
         /// </remarks>
         /// <seealso cref="EnableStage1ShadowMode"/>
@@ -60,7 +60,7 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// R9 — When Stage 1 correction is disabled via
         /// <see cref="EnableStage1TableCategoryCorrection"/>=false, the classifier still
-        /// runs in shadow mode and emits <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c>
+        /// runs in shadow mode and emits <c>QC:CATEGORY_SHADOW:{label}:{score}</c>
         /// flags when its prediction would have triggered a correction (same
         /// confidence + label-differs gates). <c>TableCategory</c> is never mutated.
         /// </summary>
@@ -77,7 +77,7 @@ namespace MedRecProImportClass.Models
         /// PR #6 infrastructure — when <c>true</c> AND both
         /// <see cref="EnableStage1TableCategoryCorrection"/> and
         /// <see cref="EnableStage1ShadowMode"/> are <c>true</c>, the Stage 1 classifier
-        /// emits <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> even when the prediction
+        /// emits <c>QC:CATEGORY_SHADOW:{label}:{score}</c> even when the prediction
         /// AGREES with the current <c>TableCategory</c>. Under the normal shadow rules the
         /// flag fires only on disagreement; this dual-write mode is an audit aid so the
         /// first production runs after Stage 1 is re-enabled can be fully reconstructed —
@@ -113,7 +113,7 @@ namespace MedRecProImportClass.Models
         /// </summary>
         /// <remarks>
         /// When this flag is <c>false</c> AND <see cref="EnableStage2ShadowMode"/> is true,
-        /// the stage emits a <c>MLNET:DOSEREGIMEN_SHADOW:{target}:{score}</c> flag where it
+        /// the stage emits a <c>QC:DOSEREGIMEN_SHADOW:{target}:{score}</c> flag where it
         /// would have routed — observations are not mutated. When both flags are false, the
         /// stage runs no prediction at all.
         /// </remarks>
@@ -125,7 +125,7 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// PR #4 — When <see cref="EnableStage2DoseRegimenRoutingCorrection"/> is <c>false</c>,
         /// the Stage 2 classifier still runs in shadow mode when this flag is <c>true</c>,
-        /// emitting <c>MLNET:DOSEREGIMEN_SHADOW:{target}:{score}</c> on flags where the
+        /// emitting <c>QC:DOSEREGIMEN_SHADOW:{target}:{score}</c> on flags where the
         /// prediction would have fired. Default <c>false</c> — no shadow emission unless
         /// correction is explicitly disabled and an audit trail is wanted.
         /// </summary>

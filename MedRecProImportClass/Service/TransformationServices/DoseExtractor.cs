@@ -13,7 +13,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// ## Design
     /// - Pure extraction: reads text, never modifies source columns.
     /// - Shared by <see cref="BaseTableParser"/>, <see cref="ColumnStandardizationService"/>,
-    ///   and <see cref="MlNetCorrectionService"/>.
+    ///   and <see cref="QCNetCorrectionService"/>.
     /// - All regex patterns are compiled and static for performance.
     ///
     /// ## Extraction Priority

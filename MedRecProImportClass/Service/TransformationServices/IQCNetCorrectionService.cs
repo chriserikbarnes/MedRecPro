@@ -7,7 +7,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// Stage 3.4 ML.NET-based correction service for the SPL Table Normalization pipeline.
     /// Applies three trained classification models (TableCategory, DoseRegimen routing,
     /// PrimaryValueType disambiguation) to correct parse output and emits a deterministic
-    /// parse-quality signal (<c>MLNET_PARSE_QUALITY:{score}</c> + REVIEW_REASONS) that gates
+    /// parse-quality signal (<c>QC_PARSE_QUALITY:{score}</c> + REVIEW_REASONS) that gates
     /// which observations are forwarded to the Claude API in Stage 3.5.
     /// </summary>
     /// <remarks>
@@ -30,8 +30,8 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// deterministic score from the observation's column-contract conformance (Required
     /// fields populated, PrimaryValue / PrimaryValueType present, ParameterName non-null
     /// where applicable, Unit / ParameterSubtype free of structural garbage, soft repair
-    /// flags). Score is emitted as <c>MLNET_PARSE_QUALITY:{score:F4}</c> with a companion
-    /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{pipe-delimited list}</c> when any penalty
+    /// flags). Score is emitted as <c>QC_PARSE_QUALITY:{score:F4}</c> with a companion
+    /// <c>QC_PARSE_QUALITY:REVIEW_REASONS:{pipe-delimited list}</c> when any penalty
     /// fires. Claude forwarding is driven by a simple <c>score &lt; threshold</c> check.
     ///
     /// ## Training Strategy
@@ -41,7 +41,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// since it is rule-based.
     ///
     /// All corrections are flagged in <see cref="ParsedObservation.ValidationFlags"/>
-    /// with <c>MLNET:</c> prefixed flags for audit trail.
+    /// with <c>QC:</c> prefixed flags for audit trail.
     ///
     /// ## Stage 4 Retirement (2026-04-24)
     /// The former Stage 4 PCA anomaly scoring was retired because raw reconstruction-error
@@ -52,8 +52,8 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// <seealso cref="IColumnStandardizationService"/>
     /// <seealso cref="IClaudeApiCorrectionService"/>
     /// <seealso cref="IParseQualityService"/>
-    /// <seealso cref="MlNetCorrectionSettings"/>
-    public interface IMlNetCorrectionService
+    /// <seealso cref="QCNetCorrectionSettings"/>
+    public interface IQCNetCorrectionService
     {
         /**************************************************************/
         /// <summary>
@@ -71,9 +71,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Applies the 3-stage classifier pipeline + the parse-quality gate to the given
         /// observations. Modifies observations in-place and returns the same list. When the
         /// quality service is registered, each observation receives a
-        /// <c>MLNET_PARSE_QUALITY:{score:F4}</c> flag in
+        /// <c>QC_PARSE_QUALITY:{score:F4}</c> flag in
         /// <see cref="ParsedObservation.ValidationFlags"/> plus a companion
-        /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}</c> when any penalty fires.
+        /// <c>QC_PARSE_QUALITY:REVIEW_REASONS:{list}</c> when any penalty fires.
         /// </summary>
         /// <param name="observations">Parsed observations from Stage 3.25.</param>
         /// <returns>The same list with ML corrections + parse-quality flags applied.</returns>

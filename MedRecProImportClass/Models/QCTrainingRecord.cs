@@ -3,7 +3,7 @@ namespace MedRecProImportClass.Models
     /**************************************************************/
     /// <summary>
     /// Compact 21-field serializable DTO containing only the fields consumed by the 4 ML training
-    /// methods in <see cref="MedRecProImportClass.Service.TransformationServices.MlNetCorrectionService"/>.
+    /// methods in <see cref="MedRecProImportClass.Service.TransformationServices.QCNetCorrectionService"/>.
     /// Omits all provenance, raw value, and audit fields from <see cref="ParsedObservation"/> to
     /// minimize serialized size (~100 bytes per record with <c>WhenWritingNull</c>).
     /// </summary>
@@ -26,9 +26,9 @@ namespace MedRecProImportClass.Models
     /// ## Size Estimate
     /// At 100K records ≈ 10 MB on disk with <c>System.Text.Json</c> and <c>WhenWritingNull</c>.
     /// </remarks>
-    /// <seealso cref="MlTrainingStoreState"/>
-    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IMlTrainingStore"/>
-    public class MlTrainingRecord
+    /// <seealso cref="QCTrainingStoreState"/>
+    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IQCTrainingStore"/>
+    public class QCTrainingRecord
     {
         #region Stage 1 features
 
@@ -169,7 +169,7 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// Creates an <see cref="MlTrainingRecord"/> from a <see cref="ParsedObservation"/>,
+        /// Creates an <see cref="QCTrainingRecord"/> from a <see cref="ParsedObservation"/>,
         /// truncating Caption and SectionTitle to 200 chars and casting double? fields to float.
         /// </summary>
         /// <param name="obs">Source observation.</param>
@@ -180,14 +180,14 @@ namespace MedRecProImportClass.Models
         /// <returns>A compact training record suitable for persistence and ML training.</returns>
         /// <example>
         /// <code>
-        /// var record = MlTrainingRecord.FromObservation(obs, isGroundTruth: true);
+        /// var record = QCTrainingRecord.FromObservation(obs, isGroundTruth: true);
         /// </code>
         /// </example>
-        public static MlTrainingRecord FromObservation(ParsedObservation obs, bool isGroundTruth)
+        public static QCTrainingRecord FromObservation(ParsedObservation obs, bool isGroundTruth)
         {
             #region implementation
 
-            return new MlTrainingRecord
+            return new QCTrainingRecord
             {
                 // Stage 1 features
                 TableCategory = obs.TableCategory,

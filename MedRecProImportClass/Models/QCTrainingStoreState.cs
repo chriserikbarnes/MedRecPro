@@ -7,7 +7,7 @@ namespace MedRecProImportClass.Models
     /// </summary>
     /// <remarks>
     /// ## Persistence
-    /// Written atomically (tmp + rename) by <see cref="MedRecProImportClass.Service.TransformationServices.MlTrainingStore"/>.
+    /// Written atomically (tmp + rename) by <see cref="MedRecProImportClass.Service.TransformationServices.QCTrainingStore"/>.
     /// Thread-safe access via <c>SemaphoreSlim(1, 1)</c>.
     ///
     /// ## Schema History
@@ -21,9 +21,9 @@ namespace MedRecProImportClass.Models
     /// ## Version Field
     /// <see cref="Version"/> allows future schema migrations without breaking existing stores.
     /// </remarks>
-    /// <seealso cref="MlTrainingRecord"/>
-    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IMlTrainingStore"/>
-    public class MlTrainingStoreState
+    /// <seealso cref="QCTrainingRecord"/>
+    /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IQCTrainingStore"/>
+    public class QCTrainingStoreState
     {
         #region Schema version
 
@@ -41,9 +41,9 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Training records accumulated from high-confidence bootstrap rows and Claude-corrected
-        /// ground truth. Capped at <see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/>.
+        /// ground truth. Capped at <see cref="QCNetCorrectionSettings.MaxAccumulatorRows"/>.
         /// </summary>
-        public List<MlTrainingRecord> Records { get; set; } = new();
+        public List<QCTrainingRecord> Records { get; set; } = new();
 
         #endregion Training records
 

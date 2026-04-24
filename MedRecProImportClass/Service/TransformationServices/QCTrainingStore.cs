@@ -7,7 +7,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 {
     /**************************************************************/
     /// <summary>
-    /// File-backed implementation of <see cref="IMlTrainingStore"/>. Persists ML training records
+    /// File-backed implementation of <see cref="IQCTrainingStore"/>. Persists ML training records
     /// and adaptive threshold state to a JSON file using atomic writes (tmp + rename) and
     /// <c>SemaphoreSlim(1, 1)</c> for thread safety.
     /// </summary>
@@ -20,8 +20,8 @@ namespace MedRecProImportClass.Service.TransformationServices
     ///
     /// ## Eviction Strategy
     /// Two independent caps are enforced — whichever binds first wins:
-    /// - **Row cap** (<see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/>): fires in <c>AddRecordsAsync</c>
-    /// - **Size cap** (<see cref="MlNetCorrectionSettings.MaxTrainingStoreSizeBytes"/>): fires in every <c>saveInternalAsync</c> call and on load
+    /// - **Row cap** (<see cref="QCNetCorrectionSettings.MaxAccumulatorRows"/>): fires in <c>AddRecordsAsync</c>
+    /// - **Size cap** (<see cref="QCNetCorrectionSettings.MaxTrainingStoreSizeBytes"/>): fires in every <c>saveInternalAsync</c> call and on load
     ///
     /// Both caps use the same bootstrap-first priority:
     /// 1. Evict oldest bootstrap records first (<c>IsClaudeGroundTruth == false</c>)
@@ -32,20 +32,20 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// was removed on 2026-04-24 along with Stage 4 anomaly scoring. Claude forwarding is
     /// now driven by the deterministic parse-quality gate, not a ratcheted ML threshold.
     /// </remarks>
-    /// <seealso cref="IMlTrainingStore"/>
-    /// <seealso cref="MlTrainingStoreState"/>
-    /// <seealso cref="MlNetCorrectionSettings"/>
-    public class MlTrainingStore : IMlTrainingStore
+    /// <seealso cref="IQCTrainingStore"/>
+    /// <seealso cref="QCTrainingStoreState"/>
+    /// <seealso cref="QCNetCorrectionSettings"/>
+    public class QCTrainingStore : IQCTrainingStore
     {
         #region Fields
 
         /**************************************************************/
         /// <summary>Logger for diagnostics.</summary>
-        private readonly ILogger<MlTrainingStore> _logger;
+        private readonly ILogger<QCTrainingStore> _logger;
 
         /**************************************************************/
         /// <summary>Configuration settings controlling max rows, thresholds, and file path.</summary>
-        private readonly MlNetCorrectionSettings _settings;
+        private readonly QCNetCorrectionSettings _settings;
 
         /**************************************************************/
         /// <summary>Absolute path to the JSON persistence file.</summary>
@@ -57,7 +57,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>In-memory state. Loaded from disk on <see cref="LoadAsync"/>, written back on saves.</summary>
-        private MlTrainingStoreState _state = new();
+        private QCTrainingStoreState _state = new();
 
         /**************************************************************/
         /// <summary>JSON serializer options: compact, skip nulls.</summary>
@@ -81,12 +81,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// call <see cref="LoadAsync"/> after construction.
         /// </summary>
         /// <param name="logger">Logger for diagnostics.</param>
-        /// <param name="settings">Configuration settings. <see cref="MlNetCorrectionSettings.TrainingStoreFilePath"/>
+        /// <param name="settings">Configuration settings. <see cref="QCNetCorrectionSettings.TrainingStoreFilePath"/>
         /// must be set to a valid file path.</param>
         /// <exception cref="ArgumentException">Thrown if <c>TrainingStoreFilePath</c> is null or empty.</exception>
-        public MlTrainingStore(
-            ILogger<MlTrainingStore> logger,
-            MlNetCorrectionSettings settings)
+        public QCTrainingStore(
+            ILogger<QCTrainingStore> logger,
+            QCNetCorrectionSettings settings)
         {
             #region implementation
 
@@ -95,7 +95,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (string.IsNullOrWhiteSpace(settings.TrainingStoreFilePath))
                 throw new ArgumentException(
-                    "TrainingStoreFilePath must be set when using MlTrainingStore.",
+                    "TrainingStoreFilePath must be set when using QCTrainingStore.",
                     nameof(settings));
 
             _filePath = settings.TrainingStoreFilePath;
@@ -105,7 +105,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion Constructor
 
-        #region IMlTrainingStore Implementation
+        #region IQCTrainingStore Implementation
 
         /**************************************************************/
         /// <inheritdoc/>
@@ -119,8 +119,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (File.Exists(_filePath))
                 {
                     var json = await File.ReadAllTextAsync(_filePath, ct);
-                    _state = JsonSerializer.Deserialize<MlTrainingStoreState>(json, _jsonOptions)
-                             ?? new MlTrainingStoreState();
+                    _state = JsonSerializer.Deserialize<QCTrainingStoreState>(json, _jsonOptions)
+                             ?? new QCTrainingStoreState();
 
                     // Trim oversized files written by older builds before the size cap existed
                     var fileLen = new FileInfo(_filePath).Length;
@@ -138,7 +138,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
                 else
                 {
-                    _state = new MlTrainingStoreState();
+                    _state = new QCTrainingStoreState();
                     _logger.LogInformation("ML training store initialized (no existing file at {Path})", _filePath);
                 }
             }
@@ -152,7 +152,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <inheritdoc/>
-        public async Task AddRecordsAsync(IEnumerable<MlTrainingRecord> records, CancellationToken ct = default)
+        public async Task AddRecordsAsync(IEnumerable<QCTrainingRecord> records, CancellationToken ct = default)
         {
             #region implementation
 
@@ -176,7 +176,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <inheritdoc/>
-        public IReadOnlyList<MlTrainingRecord> GetRecords()
+        public IReadOnlyList<QCTrainingRecord> GetRecords()
         {
             #region implementation
 
@@ -224,14 +224,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
-        #endregion IMlTrainingStore Implementation
+        #endregion IQCTrainingStore Implementation
 
         #region Private Helpers
 
         /**************************************************************/
         /// <summary>
         /// Writes state to disk using atomic tmp+rename pattern. Serializes to bytes first,
-        /// enforces <see cref="MlNetCorrectionSettings.MaxTrainingStoreSizeBytes"/>, then writes
+        /// enforces <see cref="QCNetCorrectionSettings.MaxTrainingStoreSizeBytes"/>, then writes
         /// the trimmed result — the on-disk file never exceeds the configured limit.
         /// Must be called within <see cref="_lock"/>.
         /// </summary>
@@ -279,7 +279,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Enforces <see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/> by evicting
+        /// Enforces <see cref="QCNetCorrectionSettings.MaxAccumulatorRows"/> by evicting
         /// oldest bootstrap records first, then oldest ground-truth records if still over capacity.
         /// Must be called within <see cref="_lock"/>.
         /// </summary>

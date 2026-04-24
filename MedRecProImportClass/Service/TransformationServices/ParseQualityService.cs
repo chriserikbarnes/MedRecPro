@@ -66,7 +66,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// <c>MissingRequired:{ColumnName}</c>, <c>BadUnit</c>, <c>BadSubtype</c>,
     /// <c>NegativeBoundOnNonNegativeType</c>, <c>SoftRepair:PVT_MIGRATED</c>, etc.
     /// The caller concatenates them pipe-delimited into
-    /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}</c>.
+    /// <c>QC_PARSE_QUALITY:REVIEW_REASONS:{list}</c>.
     /// </remarks>
     /// <seealso cref="IParseQualityService"/>
     /// <seealso cref="IColumnContractRegistry"/>

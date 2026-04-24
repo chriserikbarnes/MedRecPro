@@ -956,24 +956,24 @@ namespace MedRecProConsole.Services
             // Stage 3.25: Column standardization (deterministic, pre-AI)
             services.AddScoped<IColumnStandardizationService, ColumnStandardizationService>();
 
-            // Stage 3.4: ML.NET correction and anomaly scoring (always enabled — runs independently of Claude)
-            services.Configure<MlNetCorrectionSettings>(
-                compositeConfiguration.GetSection("MlNetCorrectionSettings"));
-            services.AddScoped<IMlTrainingStore>(sp =>
-                new MlTrainingStore(
-                    sp.GetRequiredService<ILogger<MlTrainingStore>>(),
-                    sp.GetRequiredService<IOptions<MlNetCorrectionSettings>>().Value));
+            // Stage 3.4: QC correction (ML.NET-backed, always enabled — runs independently of Claude)
+            services.Configure<QCNetCorrectionSettings>(
+                compositeConfiguration.GetSection("QCNetCorrectionSettings"));
+            services.AddScoped<IQCTrainingStore>(sp =>
+                new QCTrainingStore(
+                    sp.GetRequiredService<ILogger<QCTrainingStore>>(),
+                    sp.GetRequiredService<IOptions<QCNetCorrectionSettings>>().Value));
             // Parse-quality gate (Phase 2 replacement for retired Stage 4 anomaly scoring).
             // The registry parses column-contracts.md into per-TableCategory R/E/O/N sets
-            // and the service applies the deterministic MLNET_PARSE_QUALITY formula.
+            // and the service applies the deterministic QC_PARSE_QUALITY formula.
             services.AddSingleton<IColumnContractRegistry, ColumnContractRegistry>();
             services.AddSingleton<IParseQualityService, ParseQualityService>();
 
-            services.AddScoped<IMlNetCorrectionService>(sp =>
-                new MlNetCorrectionService(
-                    sp.GetRequiredService<ILogger<MlNetCorrectionService>>(),
-                    sp.GetRequiredService<IOptions<MlNetCorrectionSettings>>().Value,
-                    trainingStore: sp.GetRequiredService<IMlTrainingStore>(),
+            services.AddScoped<IQCNetCorrectionService>(sp =>
+                new QCNetCorrectionService(
+                    sp.GetRequiredService<ILogger<QCNetCorrectionService>>(),
+                    sp.GetRequiredService<IOptions<QCNetCorrectionSettings>>().Value,
+                    trainingStore: sp.GetRequiredService<IQCTrainingStore>(),
                     parseQualityService: sp.GetRequiredService<IParseQualityService>(),
                     claudeSettings: sp.GetRequiredService<IOptions<ClaudeApiCorrectionSettings>>().Value));
 
@@ -995,7 +995,7 @@ namespace MedRecProConsole.Services
                 sp.GetRequiredService<ILogger<TableParsingOrchestrator>>(),
                 batchValidator: sp.GetService<IBatchValidationService>(),
                 columnStandardizer: sp.GetService<IColumnStandardizationService>(),
-                mlNetCorrectionService: sp.GetService<IMlNetCorrectionService>(),
+                qcNetCorrectionService: sp.GetService<IQCNetCorrectionService>(),
                 correctionService: sp.GetService<IClaudeApiCorrectionService>(),
                 dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue,
                 bioequivalentDedup: sp.GetService<IBioequivalentLabelDedupService>()));

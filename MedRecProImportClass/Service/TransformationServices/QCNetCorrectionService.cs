@@ -15,16 +15,16 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// PrimaryValueType disambiguation), applies them to each batch, and then delegates
     /// Claude-forwarding decisions to the deterministic
     /// <see cref="IParseQualityService"/> which emits
-    /// <c>MLNET_PARSE_QUALITY:{score}</c> + <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}</c>
+    /// <c>QC_PARSE_QUALITY:{score}</c> + <c>QC_PARSE_QUALITY:REVIEW_REASONS:{list}</c>
     /// flags the downstream Claude gate reads.
     /// </summary>
     /// <remarks>
     /// ## Architecture
     /// No database dependency — training uses in-memory accumulation from processed batches.
-    /// High-confidence rows (<see cref="MlNetCorrectionSettings.BootstrapMinParseConfidence"/>)
+    /// High-confidence rows (<see cref="QCNetCorrectionSettings.BootstrapMinParseConfidence"/>)
     /// are collected after each <see cref="ScoreAndCorrect"/> call. Models train/retrain when
-    /// the accumulator grows by <see cref="MlNetCorrectionSettings.RetrainingBatchSize"/> rows
-    /// and at least <see cref="MlNetCorrectionSettings.MinTrainingRowsPerCategory"/> rows have
+    /// the accumulator grows by <see cref="QCNetCorrectionSettings.RetrainingBatchSize"/> rows
+    /// and at least <see cref="QCNetCorrectionSettings.MinTrainingRowsPerCategory"/> rows have
     /// accumulated overall.
     ///
     /// ## Cold-Start
@@ -42,21 +42,21 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// fixed threshold a continual tuning exercise. The parse-quality gate replaces it:
     /// deterministic, rule-based, targeting parse-alignment failures directly.
     /// </remarks>
-    /// <seealso cref="IMlNetCorrectionService"/>
+    /// <seealso cref="IQCNetCorrectionService"/>
     /// <seealso cref="IParseQualityService"/>
-    /// <seealso cref="MlNetCorrectionSettings"/>
+    /// <seealso cref="QCNetCorrectionSettings"/>
     /// <seealso cref="ColumnStandardizationService"/>
-    public class MlNetCorrectionService : IMlNetCorrectionService
+    public class QCNetCorrectionService : IQCNetCorrectionService
     {
         #region Fields
 
         /**************************************************************/
         /// <summary>Logger for diagnostics.</summary>
-        private readonly ILogger<MlNetCorrectionService> _logger;
+        private readonly ILogger<QCNetCorrectionService> _logger;
 
         /**************************************************************/
         /// <summary>Configuration settings.</summary>
-        private readonly MlNetCorrectionSettings _settings;
+        private readonly QCNetCorrectionSettings _settings;
 
         /**************************************************************/
         /// <summary>ML.NET context with fixed seed for reproducibility.</summary>
@@ -67,19 +67,19 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// In-memory training accumulator. High-confidence rows from processed batches are
         /// collected here after each <see cref="ScoreAndCorrect"/> call to build training data.
         /// </summary>
-        private List<MlTrainingRecord> _trainingAccumulator = new();
+        private List<QCTrainingRecord> _trainingAccumulator = new();
 
         /**************************************************************/
         /// <summary>
         /// Optional file-backed training store for persistence across restarts.
-        /// Null when <see cref="MlNetCorrectionSettings.TrainingStoreFilePath"/> is not configured.
+        /// Null when <see cref="QCNetCorrectionSettings.TrainingStoreFilePath"/> is not configured.
         /// </summary>
-        private readonly IMlTrainingStore? _trainingStore;
+        private readonly IQCTrainingStore? _trainingStore;
 
         /**************************************************************/
         /// <summary>
         /// Optional parse-quality service. When provided, every scored observation receives
-        /// a <c>MLNET_PARSE_QUALITY:{score}</c> flag and a companion REVIEW_REASONS flag
+        /// a <c>QC_PARSE_QUALITY:{score}</c> flag and a companion REVIEW_REASONS flag
         /// when any rule penalty fires. The downstream Claude gate reads these flags to
         /// decide forwarding.
         /// </summary>
@@ -88,7 +88,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Parse-quality score below which the <c>MLNET_PARSE_QUALITY:REVIEW_REASONS</c>
+        /// Parse-quality score below which the <c>QC_PARSE_QUALITY:REVIEW_REASONS</c>
         /// flag is emitted. Captured from
         /// <see cref="ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold"/> at
         /// construction time so the reason list only appears on rows that will actually
@@ -98,7 +98,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <remarks>
         /// Kept in sync with the downstream Claude gate by construction (reads the same
-        /// settings value). The numeric <c>MLNET_PARSE_QUALITY:{score}</c> flag is still
+        /// settings value). The numeric <c>QC_PARSE_QUALITY:{score}</c> flag is still
         /// emitted on every observation regardless of threshold — only the reason list
         /// is gated.
         /// </remarks>
@@ -163,17 +163,17 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="trainingStore">Optional file-backed training store for persistence across restarts.
         /// Pass null to use ephemeral in-memory accumulation only.</param>
         /// <param name="parseQualityService">Optional parse-quality service. When provided,
-        /// every scored observation receives <c>MLNET_PARSE_QUALITY</c> flags that drive
+        /// every scored observation receives <c>QC_PARSE_QUALITY</c> flags that drive
         /// the Claude forwarding gate.</param>
         /// <param name="claudeSettings">Optional Claude correction settings. Only the
         /// <see cref="ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold"/> value is
-        /// read, at construction time, to gate <c>MLNET_PARSE_QUALITY:REVIEW_REASONS</c>
+        /// read, at construction time, to gate <c>QC_PARSE_QUALITY:REVIEW_REASONS</c>
         /// emission so the reason list only appears on rows that will actually be
         /// forwarded to Claude. When not provided, defaults to 0.75.</param>
-        public MlNetCorrectionService(
-            ILogger<MlNetCorrectionService> logger,
-            MlNetCorrectionSettings settings,
-            IMlTrainingStore? trainingStore = null,
+        public QCNetCorrectionService(
+            ILogger<QCNetCorrectionService> logger,
+            QCNetCorrectionSettings settings,
+            IQCTrainingStore? trainingStore = null,
             IParseQualityService? parseQualityService = null,
             ClaudeApiCorrectionSettings? claudeSettings = null)
         {
@@ -190,7 +190,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion Constructor
 
-        #region IMlNetCorrectionService Implementation
+        #region IQCNetCorrectionService Implementation
 
         /**************************************************************/
         /// <inheritdoc/>
@@ -210,7 +210,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             _initialized = true;
             _logger.LogInformation(
-                "MlNetCorrectionService initialized — classifiers train after {Min} rows accumulate",
+                "QCNetCorrectionService initialized — classifiers train after {Min} rows accumulate",
                 _settings.MinTrainingRowsPerCategory);
 
             #endregion
@@ -227,7 +227,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (!_initialized)
             {
-                _logger.LogWarning("MlNetCorrectionService not initialized — passing {Count} observations through", observations.Count);
+                _logger.LogWarning("QCNetCorrectionService not initialized — passing {Count} observations through", observations.Count);
                 return observations;
             }
 
@@ -261,15 +261,15 @@ namespace MedRecProImportClass.Service.TransformationServices
                     applyPrimaryValueTypeDisambiguation(obs);
 
                 // Stage 3.4 parse-quality gate — deterministic, replaces retired Stage 4
-                // anomaly scoring. Emits MLNET_PARSE_QUALITY:{score} on every observation
-                // and, when score < threshold, a MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}
+                // anomaly scoring. Emits QC_PARSE_QUALITY:{score} on every observation
+                // and, when score < threshold, a QC_PARSE_QUALITY:REVIEW_REASONS:{list}
                 // flag for audit. Only runs when the service is registered (null-safe to
-                // keep the old test fixtures that construct MlNetCorrectionService without
+                // keep the old test fixtures that construct QCNetCorrectionService without
                 // the quality service still working).
                 if (_parseQualityService != null)
                 {
                     var quality = _parseQualityService.Evaluate(obs);
-                    appendFlag(obs, $"MLNET_PARSE_QUALITY:{quality.Score:F4}");
+                    appendFlag(obs, $"QC_PARSE_QUALITY:{quality.Score:F4}");
 
                     // Only emit REVIEW_REASONS when the observation will actually be forwarded
                     // to Claude (score < threshold). Rows scoring at or above the threshold
@@ -278,7 +278,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // instead of counting penalties on rows that aren't going to the API.
                     if (quality.Reasons.Count > 0 && quality.Score < _reasonEmissionThreshold)
                     {
-                        appendFlag(obs, $"MLNET_PARSE_QUALITY:REVIEW_REASONS:{string.Join("|", quality.Reasons)}");
+                        appendFlag(obs, $"QC_PARSE_QUALITY:REVIEW_REASONS:{string.Join("|", quality.Reasons)}");
                     }
                 }
 
@@ -295,25 +295,25 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
-        #endregion IMlNetCorrectionService Implementation
+        #endregion IQCNetCorrectionService Implementation
 
         #region Stage 1 — TableCategory Validation
 
         /**************************************************************/
         /// <summary>
         /// Stage 1: Validates and optionally corrects TableCategory using the multiclass classifier.
-        /// Only overrides when the model's max score exceeds <see cref="MlNetCorrectionSettings.TableCategoryMinConfidence"/>
+        /// Only overrides when the model's max score exceeds <see cref="QCNetCorrectionSettings.TableCategoryMinConfidence"/>
         /// and the predicted category differs from the current one.
         /// </summary>
         /// <remarks>
         /// ## R9 — Default-off + shadow mode
-        /// When <see cref="MlNetCorrectionSettings.EnableStage1TableCategoryCorrection"/>
+        /// When <see cref="QCNetCorrectionSettings.EnableStage1TableCategoryCorrection"/>
         /// is false (the R9 default), the classifier does NOT mutate
         /// <see cref="ParsedObservation.TableCategory"/> and does NOT emit a
-        /// <c>MLNET:CATEGORY_CORRECTED</c> flag. If
-        /// <see cref="MlNetCorrectionSettings.EnableStage1ShadowMode"/> is also true
+        /// <c>QC:CATEGORY_CORRECTED</c> flag. If
+        /// <see cref="QCNetCorrectionSettings.EnableStage1ShadowMode"/> is also true
         /// (the default), the same prediction pipeline runs and emits a
-        /// <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> flag when the prediction WOULD
+        /// <c>QC:CATEGORY_SHADOW:{label}:{score}</c> flag when the prediction WOULD
         /// have triggered a correction — same confidence + label-differs gates.
         /// This lets the classifier's behavior be audited from JSONL without affecting
         /// downstream routing, category filtering, or compliance metrics.
@@ -354,7 +354,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     {
                         var oldCategory = obs.TableCategory;
                         obs.TableCategory = prediction.PredictedLabel;
-                        appendFlag(obs, $"MLNET:CATEGORY_CORRECTED:{prediction.PredictedLabel}:{maxScore:F2}");
+                        appendFlag(obs, $"QC:CATEGORY_CORRECTED:{prediction.PredictedLabel}:{maxScore:F2}");
                         _logger.LogDebug("Stage 1: TableCategory corrected '{Old}' → '{New}' (score={Score:F2})",
                             oldCategory, prediction.PredictedLabel, maxScore);
                     },
@@ -377,7 +377,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     (prediction, maxScore) =>
                     {
                         // Shadow emission only — no mutation.
-                        appendFlag(obs, $"MLNET:CATEGORY_SHADOW:{prediction.PredictedLabel}:{maxScore:F2}");
+                        appendFlag(obs, $"QC:CATEGORY_SHADOW:{prediction.PredictedLabel}:{maxScore:F2}");
                         _logger.LogDebug("Stage 1 [SHADOW]: would have corrected '{Old}' → '{New}' (score={Score:F2})",
                             obs.TableCategory, prediction.PredictedLabel, maxScore);
                     },
@@ -401,11 +401,11 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// PR #6 infrastructure — emits <c>MLNET:CATEGORY_SHADOW:{label}:{score}</c> for every
+        /// PR #6 infrastructure — emits <c>QC:CATEGORY_SHADOW:{label}:{score}</c> for every
         /// Stage 1 prediction whose confidence clears
-        /// <see cref="MlNetCorrectionSettings.TableCategoryMinConfidence"/>, regardless of
+        /// <see cref="QCNetCorrectionSettings.TableCategoryMinConfidence"/>, regardless of
         /// whether the predicted label matches the current <c>TableCategory</c>. Used when
-        /// <see cref="MlNetCorrectionSettings.EnableStage1DualWriteAudit"/> is enabled.
+        /// <see cref="QCNetCorrectionSettings.EnableStage1DualWriteAudit"/> is enabled.
         /// </summary>
         /// <remarks>
         /// Already-emitted <c>CATEGORY_CORRECTED</c> / <c>CATEGORY_SHADOW</c> flags are left
@@ -415,7 +415,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </remarks>
         /// <param name="obs">Observation being audited.</param>
         /// <param name="input">Stage 1 input vector (already constructed by caller).</param>
-        /// <seealso cref="MlNetCorrectionSettings.EnableStage1DualWriteAudit"/>
+        /// <seealso cref="QCNetCorrectionSettings.EnableStage1DualWriteAudit"/>
         private void emitDualWriteCategoryShadow(ParsedObservation obs, TableCategoryInput input)
         {
             #region implementation
@@ -429,7 +429,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(label) || maxScore < _settings.TableCategoryMinConfidence)
                     return;
 
-                appendFlag(obs, $"MLNET:CATEGORY_SHADOW:{label}:{maxScore:F2}");
+                appendFlag(obs, $"QC:CATEGORY_SHADOW:{label}:{maxScore:F2}");
                 _logger.LogDebug("Stage 1 [DUAL_WRITE]: predicted '{Label}' for current '{Cat}' (score={Score:F2})",
                     label, obs.TableCategory, maxScore);
             }
@@ -454,11 +454,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <remarks>
         /// ## PR #4 — Correction vs. shadow mode
-        /// When <see cref="MlNetCorrectionSettings.EnableStage2DoseRegimenRoutingCorrection"/>
+        /// When <see cref="QCNetCorrectionSettings.EnableStage2DoseRegimenRoutingCorrection"/>
         /// is <c>true</c> (the default), the stage mutates the observation and emits
-        /// <c>MLNET:DOSEREGIMEN_ROUTED_TO_*</c> — the original behaviour. When that flag is
-        /// <c>false</c> but <see cref="MlNetCorrectionSettings.EnableStage2ShadowMode"/> is
-        /// <c>true</c>, the stage emits <c>MLNET:DOSEREGIMEN_SHADOW:{target}:{score}</c> for
+        /// <c>QC:DOSEREGIMEN_ROUTED_TO_*</c> — the original behaviour. When that flag is
+        /// <c>false</c> but <see cref="QCNetCorrectionSettings.EnableStage2ShadowMode"/> is
+        /// <c>true</c>, the stage emits <c>QC:DOSEREGIMEN_SHADOW:{target}:{score}</c> for
         /// audit without touching the observation. When both are off, the stage short-circuits
         /// without running a prediction.
         /// </remarks>
@@ -501,7 +501,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     {
                         var target = DoseRegimenRoutingPolicy.ParseTarget(prediction.PredictedLabel);
                         DoseRegimenRoutingPolicy.ApplyRoute(obs, target);
-                        appendFlag(obs, $"MLNET:DOSEREGIMEN_ROUTED_TO_{prediction.PredictedLabel!.ToUpperInvariant()}:{maxScore:F2}");
+                        appendFlag(obs, $"QC:DOSEREGIMEN_ROUTED_TO_{prediction.PredictedLabel!.ToUpperInvariant()}:{maxScore:F2}");
                         _logger.LogDebug("Stage 2: DoseRegimen routed to {Target} (score={Score:F2})",
                             prediction.PredictedLabel, maxScore);
                     },
@@ -521,7 +521,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     DoseRegimenRoutingPolicy.TargetLabelKeep,
                     (prediction, maxScore) =>
                     {
-                        appendFlag(obs, $"MLNET:DOSEREGIMEN_SHADOW:{prediction.PredictedLabel}:{maxScore:F2}");
+                        appendFlag(obs, $"QC:DOSEREGIMEN_SHADOW:{prediction.PredictedLabel}:{maxScore:F2}");
                         _logger.LogDebug("Stage 2 [SHADOW]: would have routed DoseRegimen to {Target} (score={Score:F2})",
                             prediction.PredictedLabel, maxScore);
                     },
@@ -571,7 +571,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     var oldType = obs.PrimaryValueType;
                     obs.PrimaryValueType = prediction.PredictedLabel;
-                    appendFlag(obs, $"MLNET:PVTYPE_DISAMBIGUATED:{prediction.PredictedLabel}:{maxScore:F2}");
+                    appendFlag(obs, $"QC:PVTYPE_DISAMBIGUATED:{prediction.PredictedLabel}:{maxScore:F2}");
                     _logger.LogDebug("Stage 3: PrimaryValueType disambiguated '{Old}' → '{New}' (score={Score:F2})",
                         oldType, prediction.PredictedLabel, maxScore);
                 },
@@ -630,7 +630,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Collects high-confidence rows from the batch into the training accumulator as
-        /// <see cref="MlTrainingRecord"/> instances (bootstrap, not ground truth).
+        /// <see cref="QCTrainingRecord"/> instances (bootstrap, not ground truth).
         /// Called at the end of each <see cref="ScoreAndCorrect"/> invocation.
         /// </summary>
         /// <param name="observations">Observations from the current batch.</param>
@@ -638,13 +638,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            var newRecords = new List<MlTrainingRecord>();
+            var newRecords = new List<QCTrainingRecord>();
 
             foreach (var obs in observations)
             {
                 if (obs.ParseConfidence >= _settings.BootstrapMinParseConfidence)
                 {
-                    newRecords.Add(MlTrainingRecord.FromObservation(obs, isGroundTruth: false));
+                    newRecords.Add(QCTrainingRecord.FromObservation(obs, isGroundTruth: false));
                 }
             }
 
@@ -665,11 +665,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Appends training records to the in-memory accumulator and enforces
-        /// <see cref="MlNetCorrectionSettings.MaxAccumulatorRows"/>, shifting the retrain cursor
+        /// <see cref="QCNetCorrectionSettings.MaxAccumulatorRows"/>, shifting the retrain cursor
         /// so the gate delta in <see cref="tryRetrain"/> stays correct after oldest-first trim.
         /// </summary>
         /// <param name="records">Records to append.</param>
-        private void appendAndCapAccumulator(List<MlTrainingRecord> records)
+        private void appendAndCapAccumulator(List<QCTrainingRecord> records)
         {
             #region implementation
 
@@ -707,8 +707,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="skipLabelKind">Label noun used in the "fewer than 2 distinct X labels" skip message.</param>
         /// <param name="modelKind">Model noun used in the success/failure messages.</param>
         private void trainMulticlassModel<TInput>(
-            List<MlTrainingRecord> rows,
-            Func<IEnumerable<MlTrainingRecord>, IEnumerable<TInput>> project,
+            List<QCTrainingRecord> rows,
+            Func<IEnumerable<QCTrainingRecord>, IEnumerable<TInput>> project,
             Func<TInput, string?> labelOf,
             Func<IDataView, ITransformer> fitPipeline,
             Action<ITransformer?> replaceEngine,
@@ -753,7 +753,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Uses text featurization of Caption, SectionTitle, ParentSectionCode, and ParseRule.
         /// </summary>
         /// <param name="rows">Training data from accumulator.</param>
-        private void trainTableCategoryModel(List<MlTrainingRecord> rows)
+        private void trainTableCategoryModel(List<QCTrainingRecord> rows)
         {
             #region implementation
 
@@ -808,7 +808,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <see cref="ColumnStandardizationService.normalizeDoseRegimen"/>.
         /// </summary>
         /// <param name="rows">Training data from accumulator.</param>
-        private void trainDoseRegimenModel(List<MlTrainingRecord> rows)
+        private void trainDoseRegimenModel(List<QCTrainingRecord> rows)
         {
             #region implementation
 
@@ -864,7 +864,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Trained only on rows where PrimaryValueType is NOT "Numeric" — those are ground truth.
         /// </summary>
         /// <param name="rows">Training data from accumulator.</param>
-        private void trainPrimaryValueTypeModel(List<MlTrainingRecord> rows)
+        private void trainPrimaryValueTypeModel(List<QCTrainingRecord> rows)
         {
             #region implementation
 
@@ -923,11 +923,11 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Checks whether a <see cref="MlTrainingRecord"/> has any DoseRegimen routing flag
-        /// from Stage 3.25 stored in its <see cref="MlTrainingRecord.ValidationFlags"/>.
+        /// Checks whether a <see cref="QCTrainingRecord"/> has any DoseRegimen routing flag
+        /// from Stage 3.25 stored in its <see cref="QCTrainingRecord.ValidationFlags"/>.
         /// Delegates to <see cref="DoseRegimenRoutingPolicy.HasRoutingFlag"/>.
         /// </summary>
-        private static bool hasRoutingFlagOnRecord(MlTrainingRecord record)
+        private static bool hasRoutingFlagOnRecord(QCTrainingRecord record)
         {
             #region implementation
 
@@ -938,13 +938,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Synthesizes a DoseRegimen routing label from a <see cref="MlTrainingRecord"/>
+        /// Synthesizes a DoseRegimen routing label from a <see cref="QCTrainingRecord"/>
         /// for Stage 2 training. When the row has already been routed by rules, infers the
         /// label from its routing flags; otherwise applies the ML-tuned regex decision tree.
         /// </summary>
         /// <param name="record">Training record to label.</param>
         /// <returns>Routing target label or null.</returns>
-        private static string? labelDoseRegimenRoutingFromRecord(MlTrainingRecord record)
+        private static string? labelDoseRegimenRoutingFromRecord(QCTrainingRecord record)
         {
             #region implementation
 
@@ -1000,7 +1000,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Convert corrected observations to ground-truth training records
             var records = corrected
-                .Select(o => MlTrainingRecord.FromObservation(o, isGroundTruth: true))
+                .Select(o => QCTrainingRecord.FromObservation(o, isGroundTruth: true))
                 .ToList();
 
             if (_trainingStore != null)
@@ -1112,11 +1112,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ? postMlFlags.Substring(preMlFlags.Length)
                 : postMlFlags;
 
-            if (newPart.Contains("MLNET:CATEGORY_CORRECTED"))
+            if (newPart.Contains("QC:CATEGORY_CORRECTED"))
                 return "CATEGORY_CORRECTED";
-            if (newPart.Contains("MLNET:DOSEREGIMEN_ROUTED"))
+            if (newPart.Contains("QC:DOSEREGIMEN_ROUTED"))
                 return "DOSEREGIMEN_ROUTED";
-            if (newPart.Contains("MLNET:PVTYPE_DISAMBIGUATED"))
+            if (newPart.Contains("QC:PVTYPE_DISAMBIGUATED"))
                 return "PVTYPE_DISAMBIGUATED";
 
             return "no_correction";

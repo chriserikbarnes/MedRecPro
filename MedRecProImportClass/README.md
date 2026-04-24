@@ -77,8 +77,8 @@ MedRecProImportClass/
         +-- DosingTableParser.cs                # Stage 3: dosing parameter grids
         +-- TableParserRouter.cs                # Stage 3: section code -> parser routing
         +-- ColumnStandardizationService.cs     # Stage 3.25: 4-phase column contracts
-        +-- MlNetCorrectionService.cs           # Stage 3.4: ML.NET scoring + correction
-        +-- MlTrainingStore.cs                  # Stage 3.4: persistent ML training data
+        +-- QCNetCorrectionService.cs           # Stage 3.4: QC scoring + correction (ML.NET-backed)
+        +-- QCTrainingStore.cs                  # Stage 3.4: persistent QC training data
         +-- ClaudeApiCorrectionService.cs       # Stage 3.5: AI-powered correction
         +-- TableParsingOrchestrator.cs         # Batch loop + stage sequencing + DB writes
         +-- RowValidationService.cs             # Stage 4: per-observation checks
@@ -239,8 +239,8 @@ Stage 3: Section-Aware Parsing
 Stage 3.25: Column Standardization (deterministic)
   ColumnStandardizationService -> 4-phase pipeline (all categories)
         |
-Stage 3.4: ML.NET Correction + Anomaly Scoring
-  MlNetCorrectionService -> category validation, PVT disambiguation, anomaly scores
+Stage 3.4: QC Correction (ML.NET-backed)
+  QCNetCorrectionService -> category validation, PVT disambiguation, parse-quality gate
         |
 Stage 3.5: Claude AI Correction (optional)
   ClaudeApiCorrectionService -> semantic review + field correction
@@ -395,9 +395,9 @@ Enforces per-TableCategory contracts defining which columns are Required (R), Ex
 
 All corrections across all phases are flagged in `ValidationFlags` with `COL_STD:` prefixed audit flags.
 
-### Stage 3.4: ML.NET Correction + Anomaly Scoring
+### Stage 3.4: QC Correction (ML.NET-backed)
 
-`MlNetCorrectionService` applies a 3-stage classifier pipeline plus a deterministic parse-quality gate to every observation after deterministic standardization:
+`QCNetCorrectionService` applies a 3-stage classifier pipeline plus a deterministic parse-quality gate to every observation after deterministic standardization:
 
 | Stage | Model | Purpose |
 |-------|-------|---------|
@@ -406,9 +406,9 @@ All corrections across all phases are flagged in `ValidationFlags` with `COL_STD
 | 3 | LightGBM multiclass | PrimaryValueType disambiguation -- resolves ambiguous "Numeric" values |
 | 3.4 | Rule-based (`ParseQualityService`) | Parse-quality gate -- deterministic score in [0,1] that drives Claude forwarding |
 
-The service accumulates high-confidence rows from each batch and periodically retrains its classifiers. Training data is persisted via `MlTrainingStore` (JSON file) so models survive process restarts.
+The service accumulates high-confidence rows from each batch and periodically retrains its classifiers. Training data is persisted via `QCTrainingStore` (JSON file) so models survive process restarts.
 
-Corrections are flagged with `MLNET:` prefixed audit flags. Parse-quality scores are emitted as `MLNET_PARSE_QUALITY:{score}` on every observation, with a companion `MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}` flag listing which rule penalties fired when the score is below threshold.
+Corrections are flagged with `QC:` prefixed audit flags. Parse-quality scores are emitted as `QC_PARSE_QUALITY:{score}` on every observation, with a companion `QC_PARSE_QUALITY:REVIEW_REASONS:{list}` flag listing which rule penalties fired when the score is below threshold.
 ### Stage 3.5: Claude AI Correction
 
 `ClaudeApiCorrectionService` performs AI-powered post-parse correction of `ParsedObservation` objects before database write. After Stages 3.25 and 3.4 produce observations, the correction service sends table-level batches to Claude Haiku for semantic review and correction of misclassified fields.
@@ -608,28 +608,28 @@ These flags are set by `ColumnStandardizationService` during the 4-phase determi
 |------|---------|
 | `CONFIDENCE:PATTERN:{score}:{reason}({count})` | Summary of deterministic standardization. `{score}` is ParseConfidence at time of standardization. `{reason}` is `clean` (0 corrections), `minor` (1-2 corrections), or `major` (3+ corrections). `{count}` is the total number of corrections applied. |
 
-### Stage 3.4: ML.NET Flags (MLNET)
+### Stage 3.4: QC Flags (QC)
 
-These flags are set by `MlNetCorrectionService` during the classifier pipeline and parse-quality evaluation.
+These flags are set by `QCNetCorrectionService` during the classifier pipeline and parse-quality evaluation.
 
 #### Correction Flags
 
 | Flag | Meaning |
 |------|---------|
-| `MLNET:CATEGORY_CORRECTED:{label}:{score}` | TableCategory was overridden by the ML classifier. `{label}` is the new category, `{score}` is the model's confidence (0.00-1.00). |
-| `MLNET:CATEGORY_SHADOW:{label}:{score}` | R9 shadow-mode emission — what the Stage 1 classifier WOULD have corrected the category to, without actually mutating it. Appears when `EnableStage1TableCategoryCorrection=false` + `EnableStage1ShadowMode=true` (the R9 default). |
-| `MLNET:DOSEREGIMEN_ROUTED_TO_{target}:{score}` | DoseRegimen content was rerouted by ML to a different column (e.g., `PARAMETER_SUBTYPE`). `{score}` is the confidence. |
-| `MLNET:DOSEREGIMEN_SHADOW:{target}:{score}` | PR #4 shadow-mode emission — what Stage 2 WOULD have routed DoseRegimen to, without mutation. Appears when `EnableStage2DoseRegimenRoutingCorrection=false` + `EnableStage2ShadowMode=true`. |
-| `MLNET:PVTYPE_DISAMBIGUATED:{label}:{score}` | PrimaryValueType was disambiguated from "Numeric" to a specific type by the ML classifier. `{label}` is the resolved type. |
+| `QC:CATEGORY_CORRECTED:{label}:{score}` | TableCategory was overridden by the ML classifier. `{label}` is the new category, `{score}` is the model's confidence (0.00-1.00). |
+| `QC:CATEGORY_SHADOW:{label}:{score}` | R9 shadow-mode emission — what the Stage 1 classifier WOULD have corrected the category to, without actually mutating it. Appears when `EnableStage1TableCategoryCorrection=false` + `EnableStage1ShadowMode=true` (the R9 default). |
+| `QC:DOSEREGIMEN_ROUTED_TO_{target}:{score}` | DoseRegimen content was rerouted by the classifier to a different column (e.g., `PARAMETER_SUBTYPE`). `{score}` is the confidence. |
+| `QC:DOSEREGIMEN_SHADOW:{target}:{score}` | PR #4 shadow-mode emission — what Stage 2 WOULD have routed DoseRegimen to, without mutation. Appears when `EnableStage2DoseRegimenRoutingCorrection=false` + `EnableStage2ShadowMode=true`. |
+| `QC:PVTYPE_DISAMBIGUATED:{label}:{score}` | PrimaryValueType was disambiguated from "Numeric" to a specific type by the classifier. `{label}` is the resolved type. |
 
 #### Parse-Quality Flags
 
 | Flag | Meaning |
 |------|---------|
-| `MLNET_PARSE_QUALITY:{score}` | Deterministic parse-quality score in [0,1] (4 decimal places). 1.0 = clean parse, no penalties; lower values = more parse-alignment failures. Emitted on every observation by `ParseQualityService`. |
-| `MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}` | Pipe-delimited list of rule names that fired when the score is below the Claude review threshold — e.g. `PrimaryValueNull\|BadUnit\|SoftRepair:PVT_MIGRATED`. Audit trail for every Claude forward. |
+| `QC_PARSE_QUALITY:{score}` | Deterministic parse-quality score in [0,1] (4 decimal places). 1.0 = clean parse, no penalties; lower values = more parse-alignment failures. Emitted on every observation by `ParseQualityService`. |
+| `QC_PARSE_QUALITY:REVIEW_REASONS:{list}` | Pipe-delimited list of rule names that fired when the score is below the Claude review threshold — e.g. `PrimaryValueNull\|BadUnit\|SoftRepair:PVT_MIGRATED`. Audit trail for every Claude forward. |
 
-The `ClaudeApiCorrectionService` forwards observations whose `MLNET_PARSE_QUALITY` score is below `ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold` (default 0.75). Observations without a quality flag pass through conservatively.
+The `ClaudeApiCorrectionService` forwards observations whose `QC_PARSE_QUALITY` score is below `ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold` (default 0.75). Observations without a quality flag pass through conservatively.
 
 #### Confidence Provenance
 
@@ -680,12 +680,12 @@ WHERE ValidationFlags LIKE '%AI_CORRECTED%'
 
 -- Find low-parse-quality observations (candidates for Claude review)
 SELECT * FROM tmp_FlattenedStandardizedTable
-WHERE ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.2%'
-   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.3%'
-   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.4%'
-   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.5%'
-   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.6%'
-   OR ValidationFlags LIKE '%MLNET_PARSE_QUALITY:0.7%'
+WHERE ValidationFlags LIKE '%QC_PARSE_QUALITY:0.2%'
+   OR ValidationFlags LIKE '%QC_PARSE_QUALITY:0.3%'
+   OR ValidationFlags LIKE '%QC_PARSE_QUALITY:0.4%'
+   OR ValidationFlags LIKE '%QC_PARSE_QUALITY:0.5%'
+   OR ValidationFlags LIKE '%QC_PARSE_QUALITY:0.6%'
+   OR ValidationFlags LIKE '%QC_PARSE_QUALITY:0.7%'
 
 -- Find observations where unit was extracted from ParameterSubtype
 SELECT * FROM tmp_FlattenedStandardizedTable
@@ -695,7 +695,7 @@ WHERE ValidationFlags LIKE '%PK_SUBPARAM_UNIT_EXTRACTED%'
 SELECT
     CASE
         WHEN ValidationFlags LIKE '%AI_CORRECTED%' THEN 'Claude'
-        WHEN ValidationFlags LIKE '%MLNET:CATEGORY_CORRECTED%' THEN 'ML'
+        WHEN ValidationFlags LIKE '%QC:CATEGORY_CORRECTED%' THEN 'ML'
         WHEN ValidationFlags LIKE '%COL_STD:%' THEN 'Deterministic'
         ELSE 'None'
     END AS CorrectionSource,
@@ -703,7 +703,7 @@ SELECT
 FROM tmp_FlattenedStandardizedTable
 GROUP BY CASE
     WHEN ValidationFlags LIKE '%AI_CORRECTED%' THEN 'Claude'
-    WHEN ValidationFlags LIKE '%MLNET:CATEGORY_CORRECTED%' THEN 'ML'
+    WHEN ValidationFlags LIKE '%QC:CATEGORY_CORRECTED%' THEN 'ML'
     WHEN ValidationFlags LIKE '%COL_STD:%' THEN 'Deterministic'
     ELSE 'None'
 END

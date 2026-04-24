@@ -8,7 +8,7 @@ namespace MedRecProTest
 {
     /**************************************************************/
     /// <summary>
-    /// Tests for <see cref="MlNetCorrectionService"/> — the Stage 3.4 ML.NET-based correction
+    /// Tests for <see cref="QCNetCorrectionService"/> — the Stage 3.4 ML.NET-based correction
     /// service that applies trained Stage 1/2/3 classifiers to parsed observations and
     /// delegates downstream Claude forwarding to <see cref="IParseQualityService"/>.
     /// </summary>
@@ -19,41 +19,41 @@ namespace MedRecProTest
     /// behavior, and flag formatting. Parse-quality behaviour itself is covered in
     /// <c>ParseQualityServiceTests</c>; these tests only verify that a registered
     /// <see cref="IParseQualityService"/> is invoked and emits an
-    /// <c>MLNET_PARSE_QUALITY</c> flag.
+    /// <c>QC_PARSE_QUALITY</c> flag.
     ///
     /// ## Stage 4 Retirement
     /// The former Stage 4 anomaly-scoring test regions (per-key, UnifiedGlobal, adaptive
     /// threshold, validation-guard, degrade-fallback) were deleted on 2026-04-24 along with
     /// the anomaly pipeline itself.
     /// </remarks>
-    /// <seealso cref="IMlNetCorrectionService"/>
-    /// <seealso cref="MlNetCorrectionSettings"/>
+    /// <seealso cref="IQCNetCorrectionService"/>
+    /// <seealso cref="QCNetCorrectionSettings"/>
     [TestClass]
-    public class MlNetCorrectionServiceTests
+    public class QCNetCorrectionServiceTests
     {
         #region Helper Methods
 
         /**************************************************************/
         /// <summary>
-        /// Creates a <see cref="MlNetCorrectionService"/> with default settings and mock logger.
+        /// Creates a <see cref="QCNetCorrectionService"/> with default settings and mock logger.
         /// </summary>
         /// <param name="settings">Optional settings override.</param>
         /// <param name="includeQualityService">When true (default), injects a stub
         /// <see cref="IParseQualityService"/> so tests can assert on
-        /// <c>MLNET_PARSE_QUALITY</c> emission without depending on the full rule engine.</param>
+        /// <c>QC_PARSE_QUALITY</c> emission without depending on the full rule engine.</param>
         /// <returns>Initialized service ready for testing.</returns>
-        private static async Task<MlNetCorrectionService> createInitializedServiceAsync(
-            MlNetCorrectionSettings? settings = null,
+        private static async Task<QCNetCorrectionService> createInitializedServiceAsync(
+            QCNetCorrectionSettings? settings = null,
             bool includeQualityService = true)
         {
             #region implementation
 
-            settings ??= new MlNetCorrectionSettings();
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            settings ??= new QCNetCorrectionSettings();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
             IParseQualityService? qualityService = includeQualityService
                 ? new StubParseQualityService()
                 : null;
-            var service = new MlNetCorrectionService(
+            var service = new QCNetCorrectionService(
                 mockLogger.Object,
                 settings,
                 trainingStore: null,
@@ -214,8 +214,8 @@ namespace MedRecProTest
 
             var result = service.ScoreAndCorrect(obs);
             Assert.IsNotNull(result[0].ValidationFlags);
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"),
-                $"Expected MLNET_PARSE_QUALITY flag after initialization but got: {result[0].ValidationFlags}");
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("QC_PARSE_QUALITY:"),
+                $"Expected QC_PARSE_QUALITY flag after initialization but got: {result[0].ValidationFlags}");
 
             #endregion
         }
@@ -229,9 +229,9 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
-            var service = new MlNetCorrectionService(
+            var settings = new QCNetCorrectionSettings();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
+            var service = new QCNetCorrectionService(
                 mockLogger.Object, settings,
                 trainingStore: null,
                 parseQualityService: new StubParseQualityService());
@@ -241,7 +241,7 @@ namespace MedRecProTest
 
             var obs = new List<ParsedObservation> { createTestObservation() };
             var result = service.ScoreAndCorrect(obs);
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("QC_PARSE_QUALITY:"));
 
             #endregion
         }
@@ -262,7 +262,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 MinTrainingRowsPerCategory = 5,
                 RetrainingBatchSize = 50
@@ -280,7 +280,7 @@ namespace MedRecProTest
                 createTestObservation(category: "PK", primaryValueType: "GeometricMean", primaryValue: 100.0, unii: "ABC123")
             };
             var result2 = service.ScoreAndCorrect(batch2);
-            Assert.IsTrue(result2[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
+            Assert.IsTrue(result2[0].ValidationFlags!.Contains("QC_PARSE_QUALITY:"));
 
             #endregion
         }
@@ -297,7 +297,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 BootstrapMinParseConfidence = 0.85,
                 MinTrainingRowsPerCategory = 5,
@@ -316,8 +316,8 @@ namespace MedRecProTest
 
             foreach (var obs in result)
             {
-                Assert.IsTrue(obs.ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"),
-                    $"Expected MLNET_PARSE_QUALITY on every observation regardless of confidence.");
+                Assert.IsTrue(obs.ValidationFlags!.Contains("QC_PARSE_QUALITY:"),
+                    $"Expected QC_PARSE_QUALITY on every observation regardless of confidence.");
             }
 
             #endregion
@@ -334,7 +334,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 MinTrainingRowsPerCategory = 5,
                 RetrainingBatchSize = 40
@@ -354,7 +354,7 @@ namespace MedRecProTest
             Assert.AreEqual(2, result2.Count);
             foreach (var obs in result2)
             {
-                Assert.IsTrue(obs.ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
+                Assert.IsTrue(obs.ValidationFlags!.Contains("QC_PARSE_QUALITY:"));
             }
 
             #endregion
@@ -378,7 +378,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("PK", result[0].TableCategory);
-            Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET:CATEGORY_CORRECTED"));
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("QC:CATEGORY_CORRECTED"));
 
             #endregion
         }
@@ -392,7 +392,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 TableCategoryMinConfidence = 0.99f, // Very high bar — nothing should pass
                 MinTrainingRowsPerCategory = 10,
@@ -432,7 +432,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("Cmax", result[0].DoseRegimen);
-            Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET:DOSEREGIMEN_ROUTED_TO"));
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("QC:DOSEREGIMEN_ROUTED_TO"));
 
             #endregion
         }
@@ -452,7 +452,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             Assert.IsNull(result[0].DoseRegimen);
-            Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET:DOSEREGIMEN_ROUTED_TO"));
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("QC:DOSEREGIMEN_ROUTED_TO"));
 
             #endregion
         }
@@ -477,7 +477,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("GeometricMean", result[0].PrimaryValueType);
-            Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET:PVTYPE_DISAMBIGUATED"));
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("QC:PVTYPE_DISAMBIGUATED"));
 
             #endregion
         }
@@ -497,7 +497,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("Numeric", result[0].PrimaryValueType);
-            Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET:PVTYPE_DISAMBIGUATED"));
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("QC:PVTYPE_DISAMBIGUATED"));
 
             #endregion
         }
@@ -515,7 +515,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings { Enabled = false };
+            var settings = new QCNetCorrectionSettings { Enabled = false };
             var service = await createInitializedServiceAsync(settings);
 
             var obs = createTestObservation();
@@ -535,9 +535,9 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
-            var service = new MlNetCorrectionService(mockLogger.Object, settings);
+            var settings = new QCNetCorrectionSettings();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
+            var service = new QCNetCorrectionService(mockLogger.Object, settings);
             // NOT calling InitializeAsync
 
             var obs = createTestObservation();
@@ -584,7 +584,7 @@ namespace MedRecProTest
             Assert.IsNotNull(result[0].ValidationFlags);
             Assert.IsTrue(result[0].ValidationFlags!.StartsWith("COL_STD:EXISTING_FLAG; "),
                 $"Expected semicolon-space delimiter but got: {result[0].ValidationFlags}");
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("QC_PARSE_QUALITY:"));
 
             #endregion
         }
@@ -596,7 +596,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// Verifies that the registered <see cref="IParseQualityService"/> is invoked during
-        /// <c>ScoreAndCorrect</c> and emits the primary <c>MLNET_PARSE_QUALITY:{score}</c>
+        /// <c>ScoreAndCorrect</c> and emits the primary <c>QC_PARSE_QUALITY:{score}</c>
         /// flag on every observation.
         /// </summary>
         [TestMethod]
@@ -612,8 +612,8 @@ namespace MedRecProTest
             foreach (var obs in result)
             {
                 var flags = obs.ValidationFlags ?? string.Empty;
-                Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:"),
-                    $"row={obs.SourceRowSeq}: expected MLNET_PARSE_QUALITY on every observation");
+                Assert.IsTrue(flags.Contains("QC_PARSE_QUALITY:"),
+                    $"row={obs.SourceRowSeq}: expected QC_PARSE_QUALITY on every observation");
             }
 
             #endregion
@@ -636,7 +636,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             Assert.IsNotNull(result[0].ValidationFlags);
-            Assert.IsFalse(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"),
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("QC_PARSE_QUALITY:"),
                 "No parse-quality service registered — flag should not appear");
             Assert.IsTrue(result[0].ValidationFlags!.Contains("CONFIDENCE:ML:"),
                 "Pipeline should still emit the CONFIDENCE:ML provenance flag");
@@ -647,7 +647,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// Verifies that when the quality service reports penalty reasons, the companion
-        /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{list}</c> flag is emitted alongside the
+        /// <c>QC_PARSE_QUALITY:REVIEW_REASONS:{list}</c> flag is emitted alongside the
         /// numeric score flag.
         /// </summary>
         [TestMethod]
@@ -655,10 +655,10 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            var settings = new QCNetCorrectionSettings();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
             IParseQualityService qualityService = new ReasonReturningStubQualityService();
-            var service = new MlNetCorrectionService(
+            var service = new QCNetCorrectionService(
                 mockLogger.Object, settings,
                 trainingStore: null,
                 parseQualityService: qualityService);
@@ -668,9 +668,9 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:0.5000"),
+            Assert.IsTrue(flags.Contains("QC_PARSE_QUALITY:0.5000"),
                 $"Expected numeric score flag but got: {flags}");
-            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS:PrimaryValueNull|ParameterNameNull"),
+            Assert.IsTrue(flags.Contains("QC_PARSE_QUALITY:REVIEW_REASONS:PrimaryValueNull|ParameterNameNull"),
                 $"Expected REVIEW_REASONS flag but got: {flags}");
 
             #endregion
@@ -704,12 +704,12 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
+            var settings = new QCNetCorrectionSettings();
             var claudeSettings = new ClaudeApiCorrectionSettings { ClaudeReviewQualityThreshold = 0.75f };
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
             // Stub returns score 0.9 (above 0.75 threshold) with a non-empty reasons list.
             IParseQualityService qualityService = new AboveThresholdReasonStubQualityService();
-            var service = new MlNetCorrectionService(
+            var service = new QCNetCorrectionService(
                 mockLogger.Object, settings,
                 trainingStore: null,
                 parseQualityService: qualityService,
@@ -720,9 +720,9 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:0.9000"),
+            Assert.IsTrue(flags.Contains("QC_PARSE_QUALITY:0.9000"),
                 $"Numeric score flag must still emit; got: {flags}");
-            Assert.IsFalse(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS"),
+            Assert.IsFalse(flags.Contains("QC_PARSE_QUALITY:REVIEW_REASONS"),
                 $"REVIEW_REASONS must be suppressed when score >= threshold; got: {flags}");
 
             #endregion
@@ -740,11 +740,11 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
+            var settings = new QCNetCorrectionSettings();
             var claudeSettings = new ClaudeApiCorrectionSettings { ClaudeReviewQualityThreshold = 0.75f };
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
             IParseQualityService qualityService = new ExactThresholdReasonStubQualityService();
-            var service = new MlNetCorrectionService(
+            var service = new QCNetCorrectionService(
                 mockLogger.Object, settings,
                 trainingStore: null,
                 parseQualityService: qualityService,
@@ -755,7 +755,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS"),
+            Assert.IsFalse(flags.Contains("QC_PARSE_QUALITY:REVIEW_REASONS"),
                 $"REVIEW_REASONS must be suppressed when score == threshold; got: {flags}");
 
             #endregion
@@ -772,11 +772,11 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
+            var settings = new QCNetCorrectionSettings();
             var claudeSettings = new ClaudeApiCorrectionSettings { ClaudeReviewQualityThreshold = 0.90f };
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
             IParseQualityService qualityService = new AboveDefaultThresholdReasonStubQualityService();
-            var service = new MlNetCorrectionService(
+            var service = new QCNetCorrectionService(
                 mockLogger.Object, settings,
                 trainingStore: null,
                 parseQualityService: qualityService,
@@ -787,7 +787,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:REVIEW_REASONS"),
+            Assert.IsTrue(flags.Contains("QC_PARSE_QUALITY:REVIEW_REASONS"),
                 $"REVIEW_REASONS must emit when score < custom threshold (0.8 < 0.9); got: {flags}");
 
             #endregion
@@ -819,7 +819,7 @@ namespace MedRecProTest
 
         #endregion Parse-Quality Gate Integration
 
-        #region MlTrainingStore Eviction Tests
+        #region QCTrainingStore Eviction Tests
 
         /**************************************************************/
         /// <summary>
@@ -827,25 +827,25 @@ namespace MedRecProTest
         /// first and ground-truth records are preserved.
         /// </summary>
         [TestMethod]
-        public async Task MlTrainingStore_Eviction_BootstrapEvictedFirst()
+        public async Task QCTrainingStore_Eviction_BootstrapEvictedFirst()
         {
             #region implementation
 
             var tempPath = Path.Combine(Path.GetTempPath(), $"ml-store-evict-{Guid.NewGuid()}.json");
             try
             {
-                var settings = new MlNetCorrectionSettings
+                var settings = new QCNetCorrectionSettings
                 {
                     TrainingStoreFilePath = tempPath,
                     MaxAccumulatorRows = 10
                 };
-                var mockLogger = new Mock<ILogger<MlTrainingStore>>();
-                var store = new MlTrainingStore(mockLogger.Object, settings);
+                var mockLogger = new Mock<ILogger<QCTrainingStore>>();
+                var store = new QCTrainingStore(mockLogger.Object, settings);
                 await store.LoadAsync();
 
                 // Add 5 ground-truth records
                 var groundTruth = Enumerable.Range(1, 5)
-                    .Select(i => new MlTrainingRecord
+                    .Select(i => new QCTrainingRecord
                     {
                         TableCategory = "PK",
                         PrimaryValue = i,
@@ -856,7 +856,7 @@ namespace MedRecProTest
 
                 // Add 10 bootstrap records (total = 15, max = 10)
                 var bootstrap = Enumerable.Range(1, 10)
-                    .Select(i => new MlTrainingRecord
+                    .Select(i => new QCTrainingRecord
                     {
                         TableCategory = "PK",
                         PrimaryValue = i * 100,
@@ -884,7 +884,7 @@ namespace MedRecProTest
             #endregion
         }
 
-        #endregion MlTrainingStore Eviction Tests
+        #endregion QCTrainingStore Eviction Tests
 
         #region FeedClaudeCorrectedBatchAsync Tests
 
@@ -898,9 +898,9 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
-            var service = new MlNetCorrectionService(
+            var settings = new QCNetCorrectionSettings();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
+            var service = new QCNetCorrectionService(
                 mockLogger.Object, settings,
                 trainingStore: null,
                 parseQualityService: new StubParseQualityService());
@@ -912,8 +912,8 @@ namespace MedRecProTest
                     primaryValue: i * 10.0,
                     sourceRowSeq: i,
                     validationFlags: i <= 4
-                        ? $"MLNET_PARSE_QUALITY:0.5000; AI_CORRECTED:PrimaryValueType"
-                        : "MLNET_PARSE_QUALITY:0.9000"))
+                        ? $"QC_PARSE_QUALITY:0.5000; AI_CORRECTED:PrimaryValueType"
+                        : "QC_PARSE_QUALITY:0.9000"))
                 .ToList();
 
             await service.FeedClaudeCorrectedBatchAsync(observations);
@@ -931,7 +931,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(testBatch);
 
             Assert.IsNotNull(result[0].ValidationFlags);
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("MLNET_PARSE_QUALITY:"));
+            Assert.IsTrue(result[0].ValidationFlags!.Contains("QC_PARSE_QUALITY:"));
 
             #endregion
         }
@@ -946,9 +946,9 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
-            var mockLogger = new Mock<ILogger<MlNetCorrectionService>>();
-            var service = new MlNetCorrectionService(mockLogger.Object, settings);
+            var settings = new QCNetCorrectionSettings();
+            var mockLogger = new Mock<ILogger<QCNetCorrectionService>>();
+            var service = new QCNetCorrectionService(mockLogger.Object, settings);
             await service.InitializeAsync();
 
             var observations = Enumerable.Range(1, 5)
@@ -956,7 +956,7 @@ namespace MedRecProTest
                     category: "PK",
                     primaryValue: i * 10.0,
                     sourceRowSeq: i,
-                    validationFlags: "MLNET_PARSE_QUALITY:0.9000"))
+                    validationFlags: "QC_PARSE_QUALITY:0.9000"))
                 .ToList();
 
             // Should not throw
@@ -1001,10 +1001,10 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// R9 — With <see cref="MlNetCorrectionSettings.EnableStage1TableCategoryCorrection"/>
-        /// false AND <see cref="MlNetCorrectionSettings.EnableStage1ShadowMode"/> false,
-        /// Stage 1 is fully silent: no <c>MLNET:CATEGORY_CORRECTED</c> flag, no
-        /// <c>MLNET:CATEGORY_SHADOW</c> flag, and <c>TableCategory</c> is never mutated
+        /// R9 — With <see cref="QCNetCorrectionSettings.EnableStage1TableCategoryCorrection"/>
+        /// false AND <see cref="QCNetCorrectionSettings.EnableStage1ShadowMode"/> false,
+        /// Stage 1 is fully silent: no <c>QC:CATEGORY_CORRECTED</c> flag, no
+        /// <c>QC:CATEGORY_SHADOW</c> flag, and <c>TableCategory</c> is never mutated
         /// — even when a trained model would have produced a high-confidence prediction.
         /// </summary>
         [TestMethod]
@@ -1012,7 +1012,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage1TableCategoryCorrection = false,
                 EnableStage1ShadowMode = false,
@@ -1031,9 +1031,9 @@ namespace MedRecProTest
             Assert.AreEqual("PK", result[0].TableCategory,
                 "TableCategory must never be mutated when Stage 1 is fully disabled.");
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
+            Assert.IsFalse(flags.Contains("QC:CATEGORY_CORRECTED"),
                 "No CATEGORY_CORRECTED flag may be emitted when Stage 1 is disabled.");
-            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_SHADOW"),
+            Assert.IsFalse(flags.Contains("QC:CATEGORY_SHADOW"),
                 "No CATEGORY_SHADOW flag may be emitted when shadow mode is also disabled.");
 
             #endregion
@@ -1042,7 +1042,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// R9 — With Stage 1 correction disabled but shadow mode ON (the R9 default),
-        /// the classifier still runs and emits <c>MLNET:CATEGORY_SHADOW</c> flags for
+        /// the classifier still runs and emits <c>QC:CATEGORY_SHADOW</c> flags for
         /// predictions that WOULD have triggered a correction. <c>TableCategory</c>
         /// is never mutated.
         /// </summary>
@@ -1051,7 +1051,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage1TableCategoryCorrection = false,
                 EnableStage1ShadowMode = true,
@@ -1076,7 +1076,7 @@ namespace MedRecProTest
                 "Shadow mode must never mutate TableCategory.");
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
+            Assert.IsFalse(flags.Contains("QC:CATEGORY_CORRECTED"),
                 "CATEGORY_CORRECTED must NOT be emitted when correction is disabled.");
 
             #endregion
@@ -1085,14 +1085,14 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// R9 — With Stage 1 correction explicitly enabled, the classical
-        /// <c>MLNET:CATEGORY_CORRECTED</c> path runs and may mutate TableCategory.
+        /// <c>QC:CATEGORY_CORRECTED</c> path runs and may mutate TableCategory.
         /// </summary>
         [TestMethod]
         public async Task R9_Stage1_CorrectionEnabled_CanEmitCorrectedFlag()
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage1TableCategoryCorrection = true,
                 MinTrainingRowsPerCategory = 10,
@@ -1108,7 +1108,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_SHADOW"),
+            Assert.IsFalse(flags.Contains("QC:CATEGORY_SHADOW"),
                 "No SHADOW flag should be emitted when correction is actively enabled.");
 
             #endregion
@@ -1117,14 +1117,14 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// R9 — Disabling Stage 2 (DoseRegimen routing) stops
-        /// <c>MLNET:DOSEREGIMEN_ROUTED</c> flag emission.
+        /// <c>QC:DOSEREGIMEN_ROUTED</c> flag emission.
         /// </summary>
         [TestMethod]
         public async Task R9_Stage2_Disabled_NoDoseRegimenRoutedFlag()
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage2DoseRegimenRouting = false
             };
@@ -1136,7 +1136,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET:DOSEREGIMEN_ROUTED"),
+            Assert.IsFalse(flags.Contains("QC:DOSEREGIMEN_ROUTED"),
                 "Stage 2 disabled — no DOSEREGIMEN_ROUTED flag should be emitted.");
 
             #endregion
@@ -1145,14 +1145,14 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// R9 — Disabling Stage 3 (PrimaryValueType disambiguation) stops
-        /// <c>MLNET:PVTYPE_DISAMBIGUATED</c> flag emission.
+        /// <c>QC:PVTYPE_DISAMBIGUATED</c> flag emission.
         /// </summary>
         [TestMethod]
         public async Task R9_Stage3_Disabled_NoPvTypeDisambiguatedFlag()
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage3PrimaryValueTypeDisambiguation = false
             };
@@ -1162,7 +1162,7 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET:PVTYPE_DISAMBIGUATED"),
+            Assert.IsFalse(flags.Contains("QC:PVTYPE_DISAMBIGUATED"),
                 "Stage 3 disabled — no PVTYPE_DISAMBIGUATED flag should be emitted.");
 
             #endregion
@@ -1184,9 +1184,9 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { testObs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET:CATEGORY_CORRECTED"),
+            Assert.IsFalse(flags.Contains("QC:CATEGORY_CORRECTED"),
                 "R9 default: Stage 1 must not emit CATEGORY_CORRECTED without opt-in.");
-            Assert.IsTrue(flags.Contains("MLNET_PARSE_QUALITY:"),
+            Assert.IsTrue(flags.Contains("QC_PARSE_QUALITY:"),
                 "R9 default: parse-quality gate must still emit a flag on every observation.");
 
             #endregion
@@ -1205,7 +1205,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
+            var settings = new QCNetCorrectionSettings();
             Assert.IsTrue(settings.EnableStage2DoseRegimenRouting,
                 "Master toggle must default to on (pre-existing behavior).");
             Assert.IsTrue(settings.EnableStage2DoseRegimenRoutingCorrection,
@@ -1226,7 +1226,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage2DoseRegimenRouting = true,
                 EnableStage2DoseRegimenRoutingCorrection = false,
@@ -1240,9 +1240,9 @@ namespace MedRecProTest
             var result = service.ScoreAndCorrect(new List<ParsedObservation> { obs });
 
             var flags = result[0].ValidationFlags ?? string.Empty;
-            Assert.IsFalse(flags.Contains("MLNET:DOSEREGIMEN_ROUTED_TO"),
+            Assert.IsFalse(flags.Contains("QC:DOSEREGIMEN_ROUTED_TO"),
                 "No active routing when correction is disabled.");
-            Assert.IsFalse(flags.Contains("MLNET:DOSEREGIMEN_SHADOW"),
+            Assert.IsFalse(flags.Contains("QC:DOSEREGIMEN_SHADOW"),
                 "No shadow emission when shadow is disabled.");
             Assert.AreEqual(originalRegimen, result[0].DoseRegimen,
                 "DoseRegimen must not be mutated.");
@@ -1260,7 +1260,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage2DoseRegimenRoutingCorrection = true,
                 EnableStage2ShadowMode = true,
@@ -1285,7 +1285,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings();
+            var settings = new QCNetCorrectionSettings();
             Assert.IsFalse(settings.EnableStage1DualWriteAudit,
                 "Dual-write audit should default to off — it's an opt-in verbosity knob.");
 
@@ -1302,7 +1302,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var settings = new MlNetCorrectionSettings
+            var settings = new QCNetCorrectionSettings
             {
                 EnableStage1TableCategoryCorrection = true,
                 EnableStage1ShadowMode = true,

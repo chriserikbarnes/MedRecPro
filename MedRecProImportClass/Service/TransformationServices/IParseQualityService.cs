@@ -27,12 +27,12 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// - <c>Reasons</c>: pipe-delimitable list of human-readable rule names that fired.
     ///   Empty when Score == 1.0.
     ///
-    /// The caller (<see cref="MlNetCorrectionService.ScoreAndCorrect"/>) emits both as
-    /// <c>MLNET_PARSE_QUALITY:{Score:F4}</c> and
-    /// <c>MLNET_PARSE_QUALITY:REVIEW_REASONS:{pipe-joined Reasons}</c> ValidationFlags.
+    /// The caller (<see cref="QCNetCorrectionService.ScoreAndCorrect"/>) emits both as
+    /// <c>QC_PARSE_QUALITY:{Score:F4}</c> and
+    /// <c>QC_PARSE_QUALITY:REVIEW_REASONS:{pipe-joined Reasons}</c> ValidationFlags.
     /// </remarks>
     /// <seealso cref="IColumnContractRegistry"/>
-    /// <seealso cref="MlNetCorrectionService"/>
+    /// <seealso cref="QCNetCorrectionService"/>
     /// <seealso cref="ClaudeApiCorrectionService"/>
     public interface IParseQualityService
     {
