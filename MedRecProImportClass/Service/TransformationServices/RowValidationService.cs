@@ -1,4 +1,6 @@
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 using Microsoft.Extensions.Logging;
 
 namespace MedRecProImportClass.Service.TransformationServices
@@ -34,38 +36,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Required fields per TableCategory. Key = category, Value = list of property names
-        /// that must be non-null and non-empty.
-        /// </summary>
-        private static readonly Dictionary<string, List<string>> _requiredFieldsByCategory = new()
-        {
-            ["PK"] = new() { "ParameterName", "DoseRegimen" },
-            ["ADVERSE_EVENT"] = new() { "ParameterName", "TreatmentArm" },
-            ["EFFICACY"] = new() { "ParameterName", "TreatmentArm" },
-            ["BMD"] = new() { "ParameterName", "Timepoint" },
-            ["DOSING"] = new() { "ParameterName" },
-            ["TISSUE_DISTRIBUTION"] = new() { "ParameterName" },
-            ["DRUG_INTERACTION"] = new() { "ParameterName" },
-            ["OTHER"] = new() { "ParameterName" }
-        };
-
-        /**************************************************************/
-        /// <summary>
-        /// Expected fields per TableCategory for field completeness scoring.
-        /// Includes both required and desirable fields.
-        /// </summary>
-        private static readonly Dictionary<string, List<string>> _completenessFieldsByCategory = new()
-        {
-            ["PK"] = new() { "ParameterName", "DoseRegimen", "Population", "Unit", "Timepoint", "Time", "TimeUnit" },
-            ["ADVERSE_EVENT"] = new() { "ParameterName", "TreatmentArm", "ArmN", "PrimaryValueType", "Unit" },
-            ["EFFICACY"] = new() { "ParameterName", "TreatmentArm", "ArmN", "PrimaryValueType", "StudyContext", "Unit" },
-            ["BMD"] = new() { "ParameterName", "Timepoint", "Population", "Time", "TimeUnit", "Unit" },
-            ["DOSING"] = new() { "ParameterName", "Unit", "DoseRegimen" },
-            ["TISSUE_DISTRIBUTION"] = new() { "ParameterName", "Unit" }
-        };
-
-        /**************************************************************/
-        /// <summary>
         /// Allowed TimeUnit values for vocabulary validation.
         /// </summary>
         private static readonly HashSet<string> _allowedTimeUnits = new(StringComparer.OrdinalIgnoreCase)
@@ -86,32 +56,6 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["UNREASONABLE_TIME"] = 0.85,
             ["INVALID_TIME_UNIT"] = 0.90,
             ["MISSING_ARM_N"] = 0.95
-        };
-
-        /**************************************************************/
-        /// <summary>
-        /// Allowed PrimaryValueType values per TableCategory. Types outside these sets
-        /// produce a Warning (not Error, since edge cases exist).
-        /// </summary>
-        private static readonly Dictionary<string, HashSet<string>> _allowedValueTypesByCategory = new()
-        {
-            ["PK"] = new() { "Mean", "Median", "Numeric", "Ratio", "Text", "CodedExclusion", "SampleSize",
-                             "GeometricMean", "ArithmeticMean", "LSMean", "GeometricMeanRatio" },
-            ["ADVERSE_EVENT"] = new() { "Percentage", "Count", "Numeric", "CodedExclusion", "Text", "RiskDifference",
-                                        "RelativeRiskReduction", "PValue", "SampleSize",
-                                        "Percentage" },
-            ["EFFICACY"] = new() { "Percentage", "Count", "Numeric", "Mean", "Median", "RiskDifference",
-                                    "RelativeRiskReduction", "Ratio", "PValue", "Text", "CodedExclusion",
-                                    "SampleSize", "MeanPercentChange",
-                                    "Percentage", "HazardRatio", "OddsRatio", "RelativeRisk", "PercentChange",
-                                    "ArithmeticMean", "GeometricMean", "LSMean" },
-            ["BMD"] = new() { "MeanPercentChange", "Percentage", "Numeric", "Mean", "Text",
-                              "PercentChange", "ArithmeticMean" },
-            ["TISSUE_DISTRIBUTION"] = new() { "Ratio", "Numeric", "Text",
-                                               "ArithmeticMean", "GeometricMean" },
-            ["DOSING"] = new() { "Numeric", "Percentage", "Mean", "Text", "SampleSize" },
-            ["DRUG_INTERACTION"] = new() { "GeometricMeanRatio", "GeometricMean", "Ratio", "Numeric", "Text",
-                                           "Mean", "Median" }
         };
 
         #endregion Fields
@@ -262,9 +206,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             result.Status = determineStatus(result.Issues);
 
             // Append new flags to observation's ValidationFlags
-            if (newFlags.Count > 0)
+            foreach (var flag in newFlags)
             {
-                appendFlags(observation, newFlags);
+                observation.AppendValidationFlag(flag);
             }
 
             return result;
@@ -278,8 +222,10 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Checks required fields based on the observation's TableCategory.
+        /// Checks required fields based on the observation's TableCategory, sourcing the
+        /// required-field list from <see cref="CategoryProfileRegistry"/>.
         /// </summary>
+        /// <seealso cref="CategoryProfile.RowRequiredFields"/>
         private static void checkRequiredFields(ParsedObservation observation, RowValidationResult result, List<string> newFlags)
         {
             #region implementation
@@ -292,13 +238,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return;
             }
 
-            if (!_requiredFieldsByCategory.TryGetValue(category, out var requiredFields))
-                return;
+            var profile = CategoryProfileRegistry.Get(category);
 
-            foreach (var fieldName in requiredFields)
+            foreach (var fieldName in profile.RowRequiredFields)
             {
-                var value = getFieldValue(observation, fieldName);
-                if (string.IsNullOrWhiteSpace(value))
+                if (!ParsedObservationFieldAccess.IsPopulated(observation, fieldName))
                 {
                     result.Issues.Add($"MISSING_FIELD:{fieldName}");
                     newFlags.Add($"MISSING_{fieldName.ToUpperInvariant()}");
@@ -310,8 +254,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Checks whether PrimaryValueType is appropriate for the TableCategory.
+        /// Checks whether PrimaryValueType is appropriate for the TableCategory, sourcing the
+        /// allowed-types set from <see cref="CategoryProfileRegistry"/>. An empty set means
+        /// "no constraint" — the check is skipped (matches legacy behavior for categories that
+        /// had no entry in the old <c>_allowedValueTypesByCategory</c> dictionary).
         /// </summary>
+        /// <seealso cref="CategoryProfile.AllowedValueTypes"/>
         private static void checkValueTypeAppropriateness(ParsedObservation observation, RowValidationResult result, List<string> newFlags)
         {
             #region implementation
@@ -320,8 +268,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 || string.IsNullOrWhiteSpace(observation.PrimaryValueType))
                 return;
 
-            if (!_allowedValueTypesByCategory.TryGetValue(observation.TableCategory, out var allowedTypes))
-                return;
+            var allowedTypes = CategoryProfileRegistry.Get(observation.TableCategory).AllowedValueTypes;
+            if (allowedTypes.Count == 0)
+                return; // No constraint configured — skip (matches legacy "category not in dict" path)
 
             if (!allowedTypes.Contains(observation.PrimaryValueType))
             {
@@ -334,39 +283,19 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Gets a string field value from a <see cref="ParsedObservation"/> by property name.
-        /// Supports both string and nullable numeric fields (returns non-null string for populated numerics).
-        /// </summary>
-        private static string? getFieldValue(ParsedObservation observation, string fieldName)
-        {
-            #region implementation
-
-            return fieldName switch
-            {
-                "ParameterName" => observation.ParameterName,
-                "TreatmentArm" => observation.TreatmentArm,
-                "DoseRegimen" => observation.DoseRegimen,
-                "Timepoint" => observation.Timepoint,
-                "Population" => observation.Population,
-                "Unit" => observation.Unit,
-                "PrimaryValueType" => observation.PrimaryValueType,
-                "StudyContext" => observation.StudyContext,
-                "TimeUnit" => observation.TimeUnit,
-                "ArmN" => observation.ArmN?.ToString(),
-                "Time" => observation.Time?.ToString(),
-                _ => null
-            };
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Calculates field completeness score (0.0–1.0) based on how many expected fields
-        /// (required + desirable) are populated for the observation's TableCategory.
+        /// (required + desirable) are populated for the observation's TableCategory, sourcing
+        /// the completeness-fields list from <see cref="CategoryProfileRegistry"/>.
         /// </summary>
+        /// <remarks>
+        /// Categories with an empty <see cref="CategoryProfile.CompletenessFields"/> list
+        /// (DRUG_INTERACTION, TEXT_DESCRIPTIVE, OTHER, unknown) return 1.0 to avoid penalizing
+        /// rows the registry has no opinion on — preserves the legacy "unknown category — don't
+        /// penalize" behavior of the old <c>_completenessFieldsByCategory</c> lookup.
+        /// </remarks>
         /// <param name="observation">The observation to score.</param>
         /// <returns>Score from 0.0 (no fields populated) to 1.0 (all expected fields populated).</returns>
+        /// <seealso cref="CategoryProfile.CompletenessFields"/>
         private static double calculateFieldCompleteness(ParsedObservation observation)
         {
             #region implementation
@@ -374,13 +303,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(observation.TableCategory))
                 return 0.0;
 
-            if (!_completenessFieldsByCategory.TryGetValue(observation.TableCategory, out var fields))
-                return 1.0; // Unknown category — don't penalize
-
+            var fields = CategoryProfileRegistry.Get(observation.TableCategory).CompletenessFields;
             if (fields.Count == 0)
-                return 1.0;
+                return 1.0; // No constraint configured — don't penalize
 
-            var populated = fields.Count(f => !string.IsNullOrWhiteSpace(getFieldValue(observation, f)));
+            var populated = fields.Count(f => ParsedObservationFieldAccess.IsPopulated(observation, f));
             return (double)populated / fields.Count;
 
             #endregion
@@ -442,29 +369,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return ValidationStatus.Error;
 
             return ValidationStatus.Warning;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Appends new validation flags to the observation's ValidationFlags string
-        /// using semicolon delimiter, preserving existing Stage 3 flags.
-        /// </summary>
-        private static void appendFlags(ParsedObservation observation, List<string> newFlags)
-        {
-            #region implementation
-
-            var flagString = string.Join(";", newFlags);
-
-            if (string.IsNullOrWhiteSpace(observation.ValidationFlags))
-            {
-                observation.ValidationFlags = flagString;
-            }
-            else
-            {
-                observation.ValidationFlags = observation.ValidationFlags + ";" + flagString;
-            }
 
             #endregion
         }

@@ -481,6 +481,81 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Multiple new flags appended in one validation pass are separated by the
+        /// canonical "; " (semicolon + space) delimiter shared with
+        /// <see cref="ValidationFlagExtensions.AppendValidationFlag"/>.
+        /// </summary>
+        /// <seealso cref="ValidationFlagExtensions"/>
+        [TestMethod]
+        public void ValidateObservation_AppendsFlags_UseSemicolonSpaceDelimiter()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+            obs.TextTableID = null; // ORPHAN_ROW
+            obs.ParseConfidence = 0.3; // LOW_CONFIDENCE
+
+            service.ValidateObservation(obs);
+
+            Assert.IsTrue(obs.ValidationFlags!.Contains("; "),
+                $"Expected '; ' delimiter between flags, got: {obs.ValidationFlags}");
+            Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(obs.ValidationFlags, @";[^ ]"),
+                $"No bare ';' (without trailing space) should remain. Got: {obs.ValidationFlags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pre-existing Stage 3 flags joined to a single new failure flag use the
+        /// "; " delimiter exactly — no bare ";" between segments.
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_AppendsFlags_PreservesPreExistingFlagsWithSpaceDelimiter()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+            obs.ValidationFlags = "PCT_CHECK:PASS";
+            obs.TextTableID = null; // single failure → ORPHAN_ROW
+
+            service.ValidateObservation(obs);
+
+            Assert.AreEqual("PCT_CHECK:PASS; ORPHAN_ROW", obs.ValidationFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Multiple flags appended onto an empty ValidationFlags string are also
+        /// "; "-delimited (not bare ";").
+        /// </summary>
+        [TestMethod]
+        public void ValidateObservation_AppendsFlags_MultipleNewFlags_SeparatedBySemicolonSpace()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+            obs.ValidationFlags = null;
+            obs.TextTableID = null;       // ORPHAN_ROW
+            obs.ParseConfidence = 0.3;     // LOW_CONFIDENCE
+
+            service.ValidateObservation(obs);
+
+            Assert.IsNotNull(obs.ValidationFlags);
+            Assert.IsTrue(obs.ValidationFlags.Contains("ORPHAN_ROW; LOW_CONFIDENCE")
+                          || obs.ValidationFlags.Contains("LOW_CONFIDENCE; ORPHAN_ROW"),
+                $"Expected '; '-joined flags, got: {obs.ValidationFlags}");
+
+            #endregion
+        }
+
         #endregion Flag Append Tests
 
         #region Batch Validation Tests
@@ -684,6 +759,80 @@ namespace MedRecPro.Service.Test
             // 3 of 7 = ~0.43
             Assert.IsTrue(result.FieldCompletenessScore > 0.4);
             Assert.IsTrue(result.FieldCompletenessScore < 0.5);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Categories with an empty CompletenessFields list (DRUG_INTERACTION, TEXT_DESCRIPTIVE,
+        /// OTHER, unknown) return a completeness score of 1.0 — preserves the legacy "unknown
+        /// category — don't penalize" behavior after the migration to
+        /// <see cref="MedRecProImportClass.Service.TransformationServices.Dictionaries.CategoryProfileRegistry"/>.
+        /// </summary>
+        [TestMethod]
+        public void Completeness_ZeroFieldsCategory_Returns_1_0()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+            obs.TableCategory = "DRUG_INTERACTION"; // empty CompletenessFields in registry
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.AreEqual(1.0, result.FieldCompletenessScore, 1e-9);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Categories whose AllowedValueTypes set is empty (e.g. unknown categories) skip the
+        /// value-type appropriateness check entirely — no UNEXPECTED_VALUE_TYPE flag emitted.
+        /// </summary>
+        [TestMethod]
+        public void AllowedValueTypes_EmptySet_NoConstraintCheck()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+            obs.TableCategory = "OTHER";          // OTHER profile has empty AllowedValueTypes
+            obs.PrimaryValueType = "Bizarre";     // would fail any non-empty allowlist
+            obs.TextTableID = 1;
+
+            service.ValidateObservation(obs);
+
+            Assert.IsFalse(obs.ValidationFlags?.Contains("UNEXPECTED_VALUE_TYPE") ?? false,
+                $"OTHER (no allowed-types constraint) must not flag UNEXPECTED_VALUE_TYPE. Got: {obs.ValidationFlags}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Required-field check sources its list from
+        /// <see cref="MedRecProImportClass.Service.TransformationServices.Dictionaries.CategoryProfileRegistry"/>;
+        /// unknown categories produce no required-field flags (graceful empty path).
+        /// </summary>
+        [TestMethod]
+        public void RowRequired_PullsFromRegistry_UnknownCategory_NoFlags()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+            obs.TableCategory = "BOGUS_CATEGORY"; // returns CategoryProfile.Empty
+            obs.ParameterName = null;
+            obs.TreatmentArm = null;
+
+            service.ValidateObservation(obs);
+
+            Assert.IsFalse(obs.ValidationFlags?.Contains("MISSING_PARAMETERNAME") ?? false,
+                $"Unknown category should produce no MISSING_* required-field flags. Got: {obs.ValidationFlags}");
+            Assert.IsFalse(obs.ValidationFlags?.Contains("MISSING_TREATMENTARM") ?? false,
+                $"Unknown category should produce no MISSING_* required-field flags. Got: {obs.ValidationFlags}");
 
             #endregion
         }

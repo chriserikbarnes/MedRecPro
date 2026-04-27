@@ -867,7 +867,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 // Confidence provenance flag
                 var reason = obsCorrectionCount == 0 ? "clean" : obsCorrectionCount <= 2 ? "minor" : "major";
-                appendFlag(obs, $"CONFIDENCE:PATTERN:{obs.ParseConfidence ?? 0:F2}:{reason}({obsCorrectionCount})");
+                obs.AppendValidationFlag($"CONFIDENCE:PATTERN:{obs.ParseConfidence ?? 0:F2}:{reason}({obsCorrectionCount})");
             }
 
             if (correctionCount > 0)
@@ -1055,7 +1055,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 obs.TreatmentArm = null;
             }
 
-            appendFlag(obs, "COL_STD:ARM_WAS_N");
+            obs.AppendValidationFlag("COL_STD:ARM_WAS_N");
             return true;
 
             #endregion
@@ -1085,7 +1085,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 obs.TreatmentArm = null;
             }
 
-            appendFlag(obs, "COL_STD:ARM_WAS_FMT");
+            obs.AppendValidationFlag("COL_STD:ARM_WAS_FMT");
             return true;
 
             #endregion
@@ -1121,7 +1121,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 obs.TreatmentArm = null;
             }
 
-            appendFlag(obs, "COL_STD:ARM_WAS_SEVERITY");
+            obs.AppendValidationFlag("COL_STD:ARM_WAS_SEVERITY");
             return true;
 
             #endregion
@@ -1177,7 +1177,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
             }
 
-            appendFlag(obs, "COL_STD:ARM_WAS_DOSE");
+            obs.AppendValidationFlag("COL_STD:ARM_WAS_DOSE");
             return true;
 
             #endregion
@@ -1228,7 +1228,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             obs.StudyContext = null;
-            appendFlag(obs, "COL_STD:ARM_WAS_BARE_DOSE");
+            obs.AppendValidationFlag("COL_STD:ARM_WAS_BARE_DOSE");
             return true;
 
             #endregion
@@ -1265,7 +1265,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             obs.TreatmentArm = drugPart;
             obs.DoseRegimen = dosePart;
 
-            appendFlag(obs, "COL_STD:SPLIT_DRUG_DOSE");
+            obs.AppendValidationFlag("COL_STD:SPLIT_DRUG_DOSE");
             return true;
 
             #endregion
@@ -1299,7 +1299,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     obs.TreatmentArm = drugPart;
 
                 obs.StudyContext = null;
-                appendFlag(obs, "COL_STD:CTX_WAS_ARM_N");
+                obs.AppendValidationFlag("COL_STD:CTX_WAS_ARM_N");
                 return true;
             }
 
@@ -1317,7 +1317,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     obs.TreatmentArm = drugPart;
 
                 obs.StudyContext = null;
-                appendFlag(obs, "COL_STD:CTX_WAS_ARM_N");
+                obs.AppendValidationFlag("COL_STD:CTX_WAS_ARM_N");
                 return true;
             }
 
@@ -1349,7 +1349,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             obs.TreatmentArm = obs.StudyContext;
             obs.StudyContext = null; // Don't keep the old arm value as StudyContext
 
-            appendFlag(obs, "COL_STD:SWAP_ARM_CTX");
+            obs.AppendValidationFlag("COL_STD:SWAP_ARM_CTX");
             return true;
 
             #endregion
@@ -1370,7 +1370,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return false;
 
             obs.StudyContext = null;
-            appendFlag(obs, "COL_STD:CTX_WAS_DESC");
+            obs.AppendValidationFlag("COL_STD:CTX_WAS_DESC");
             return true;
 
             #endregion
@@ -1413,7 +1413,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 obs.Unit = "%";
             }
 
-            appendFlag(obs, "COL_STD:ARM_STRIP_PCT");
+            obs.AppendValidationFlag("COL_STD:ARM_STRIP_PCT");
             return true;
 
             #endregion
@@ -1497,7 +1497,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
             }
 
-            appendFlag(obs, "COL_STD:ARM_BRACKET_N");
+            obs.AppendValidationFlag("COL_STD:ARM_BRACKET_N");
             return true;
 
             #endregion
@@ -1766,7 +1766,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     set(cleaned);
                     if (!obs.ArmN.HasValue)
                         obs.ArmN = n;
-                    appendFlag(obs, $"COL_STD:N_STRIPPED:{colName}");
+                    obs.AppendValidationFlag($"COL_STD:N_STRIPPED:{colName}");
                     anyChange = true;
                 }
             }
@@ -1783,7 +1783,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         obs.ArmN = rawN;
                     }
                     obs.RawValue = rawNMatch.Groups[1].Value.Trim();
-                    appendFlag(obs, "COL_STD:N_STRIPPED:RawValue");
+                    obs.AppendValidationFlag("COL_STD:N_STRIPPED:RawValue");
                     anyChange = true;
                 }
             }
@@ -1812,7 +1812,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (PkParameterDictionary.IsPkParameter(val) || PkParameterDictionary.StartsWithPk(val))
             {
                 DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.ParameterSubtype, val);
-                appendFlag(obs, DoseRegimenRoutingPolicy.FlagPkSubparamRouted);
+                obs.AppendValidationFlag(DoseRegimenRoutingPolicy.FlagPkSubparamRouted);
                 return true;
             }
 
@@ -1837,7 +1837,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                  string.Equals(obs.TableCategory, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase)))
             {
                 DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.ParameterSubtype, val);
-                appendFlag(obs, DoseRegimenRoutingPolicy.FlagCoAdminRouted);
+                obs.AppendValidationFlag(DoseRegimenRoutingPolicy.FlagCoAdminRouted);
                 return true;
             }
 
@@ -1845,7 +1845,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (_residualPopulationPattern.IsMatch(val))
             {
                 DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.Population, val);
-                appendFlag(obs, DoseRegimenRoutingPolicy.FlagPopulationExtracted);
+                obs.AppendValidationFlag(DoseRegimenRoutingPolicy.FlagPopulationExtracted);
                 return true;
             }
 
@@ -1853,7 +1853,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (_residualTimepointPattern.IsMatch(val))
             {
                 DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.Timepoint, val);
-                appendFlag(obs, DoseRegimenRoutingPolicy.FlagTimepointExtracted);
+                obs.AppendValidationFlag(DoseRegimenRoutingPolicy.FlagTimepointExtracted);
                 return true;
             }
 
@@ -1862,7 +1862,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 val.Equals("Coadministered Drug", StringComparison.OrdinalIgnoreCase))
             {
                 DoseRegimenRoutingPolicy.ApplyRoute(obs, DoseRegimenRoutingPolicy.RouteTarget.None);
-                appendFlag(obs, "COL_STD:ROW_TYPE=HEADER");
+                obs.AppendValidationFlag("COL_STD:ROW_TYPE=HEADER");
                 return true;
             }
 
@@ -1894,7 +1894,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (_captionEchoPattern.IsMatch(val))
                 {
                     obs.ParameterName = null;
-                    appendFlag(obs, "COL_STD:ROW_TYPE=CAPTION");
+                    obs.AppendValidationFlag("COL_STD:ROW_TYPE=CAPTION");
                     return true;
                 }
             }
@@ -1903,7 +1903,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (_paramHeaderEchoPattern.IsMatch(val))
             {
                 obs.ParameterName = null;
-                appendFlag(obs, "COL_STD:ROW_TYPE=HEADER");
+                obs.AppendValidationFlag("COL_STD:ROW_TYPE=HEADER");
                 return true;
             }
 
@@ -1915,7 +1915,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(obs.DoseRegimen))
                     obs.DoseRegimen = val;
                 obs.ParameterName = null;
-                appendFlag(obs, "COL_STD:PARAM_WAS_DOSE");
+                obs.AppendValidationFlag("COL_STD:PARAM_WAS_DOSE");
                 return true;
             }
 
@@ -1926,7 +1926,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(obs.ParameterSubtype))
                     obs.ParameterSubtype = val;
                 obs.ParameterName = null;
-                appendFlag(obs, "COL_STD:COADMIN_ROUTED");
+                obs.AppendValidationFlag("COL_STD:COADMIN_ROUTED");
                 return true;
             }
 
@@ -1934,7 +1934,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (_htmlEntityPattern.IsMatch(val))
             {
                 obs.ParameterName = WebUtility.HtmlDecode(val);
-                appendFlag(obs, "COL_STD:HTML_ENTITY_DECODED");
+                obs.AppendValidationFlag("COL_STD:HTML_ENTITY_DECODED");
                 changed = true;
             }
 
@@ -1970,7 +1970,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (_armHeaderEchoPattern.IsMatch(val))
             {
                 obs.TreatmentArm = null;
-                appendFlag(obs, "COL_STD:ARM_WAS_HEADER");
+                obs.AppendValidationFlag("COL_STD:ARM_WAS_HEADER");
                 return true;
             }
 
@@ -1984,7 +1984,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     if (tryParseNValue(bracketMatch.Groups[2].Value, out var n))
                         obs.ArmN = n;
                     obs.TreatmentArm = bracketMatch.Groups[1].Value.Trim();
-                    appendFlag(obs, "COL_STD:ARM_BRACKET_N");
+                    obs.AppendValidationFlag("COL_STD:ARM_BRACKET_N");
                     return true;
                 }
 
@@ -1995,7 +1995,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     if (tryParseNValue(embMatch.Groups[2].Value, out var n2))
                         obs.ArmN = n2;
                     obs.TreatmentArm = embMatch.Groups[1].Value.Trim();
-                    appendFlag(obs, "COL_STD:ARM_BRACKET_N");
+                    obs.AppendValidationFlag("COL_STD:ARM_BRACKET_N");
                     return true;
                 }
             }
@@ -2009,7 +2009,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     if (string.IsNullOrEmpty(obs.DoseRegimen))
                         obs.DoseRegimen = doseMatch.Groups[1].Value.Trim();
                     obs.TreatmentArm = val[..doseMatch.Index].Trim();
-                    appendFlag(obs, "COL_STD:DOSE_EXTRACTED");
+                    obs.AppendValidationFlag("COL_STD:DOSE_EXTRACTED");
                     return true;
                 }
             }
@@ -2018,7 +2018,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (_genericArmLabels.Contains(val))
             {
                 obs.TreatmentArm = null;
-                appendFlag(obs, "COL_STD:ARM_WAS_GENERIC");
+                obs.AppendValidationFlag("COL_STD:ARM_WAS_GENERIC");
                 return true;
             }
 
@@ -2028,7 +2028,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrEmpty(obs.StudyContext))
                     obs.StudyContext = val;
                 obs.TreatmentArm = null;
-                appendFlag(obs, "COL_STD:ARM_WAS_STUDY");
+                obs.AppendValidationFlag("COL_STD:ARM_WAS_STUDY");
                 return true;
             }
 
@@ -2141,7 +2141,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (!string.Equals(canonical1, obs.ParameterName, StringComparison.Ordinal))
                 {
                     obs.ParameterName = canonical1;
-                    appendFlag(obs, "COL_STD:PK_NAME_CANONICALIZED");
+                    obs.AppendValidationFlag("COL_STD:PK_NAME_CANONICALIZED");
                     changed = true;
                 }
                 // fall through to Step 3 (Subtype scrub)
@@ -2223,7 +2223,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                             obs.ParameterSubtype = rescuedQualifier;
                     }
 
-                    appendFlag(obs, flag);
+                    obs.AppendValidationFlag(flag);
                     changed = true;
                 }
             }
@@ -2234,7 +2234,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (PkParameterDictionary.IsPkParameter(obs.ParameterSubtype))
                 {
                     obs.ParameterSubtype = null;
-                    appendFlag(obs, "COL_STD:PK_SUBTYPE_SCRUBBED");
+                    obs.AppendValidationFlag("COL_STD:PK_SUBTYPE_SCRUBBED");
                     changed = true;
                 }
                 else if (PkParameterDictionary.ContainsPkParameter(obs.ParameterSubtype)
@@ -2242,7 +2242,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                                 obs.ParameterSubtype, out _, out var residualQualifier))
                 {
                     obs.ParameterSubtype = residualQualifier;
-                    appendFlag(obs, "COL_STD:PK_SUBTYPE_SCRUBBED");
+                    obs.AppendValidationFlag("COL_STD:PK_SUBTYPE_SCRUBBED");
                     changed = true;
                 }
             }
@@ -2259,7 +2259,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var oldSubtype = obs.ParameterSubtype;
                 routeOrParkNameContent(obs, oldSubtype);
                 obs.ParameterSubtype = null;
-                appendFlag(obs, "COL_STD:PK_SUBTYPE_ROUTED");
+                obs.AppendValidationFlag("COL_STD:PK_SUBTYPE_ROUTED");
                 changed = true;
             }
 
@@ -2269,7 +2269,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (PdMarkerDictionary.IsPdMarker(obs.ParameterSubtype)
                 || PdMarkerDictionary.IsPdMarker(obs.ParameterName))
             {
-                appendFlag(obs, "COL_STD:PK_NON_PK_MARKER_DETECTED");
+                obs.AppendValidationFlag("COL_STD:PK_NON_PK_MARKER_DETECTED");
                 changed = true;
             }
 
@@ -2286,7 +2286,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var oldName = obs.ParameterName;
                 routeOrParkNameContent(obs, oldName);
                 obs.ParameterName = null;
-                appendFlag(obs, "COL_STD:PK_NAME_CLEANED_NONCANON");
+                obs.AppendValidationFlag("COL_STD:PK_NAME_CLEANED_NONCANON");
                 changed = true;
             }
 
@@ -2354,7 +2354,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 if (string.IsNullOrWhiteSpace(obs.Population))
                     obs.Population = popCanon;
-                appendFlag(obs, viaRegex
+                obs.AppendValidationFlag(viaRegex
                     ? "COL_STD:PK_POPULATION_ROUTED_REGEX"
                     : "COL_STD:PK_POPULATION_ROUTED");
                 return;
@@ -2368,7 +2368,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 if (string.IsNullOrWhiteSpace(obs.Timepoint))
                     obs.Timepoint = trimmed;
-                appendFlag(obs, "COL_STD:PK_TIMEPOINT_ROUTED");
+                obs.AppendValidationFlag("COL_STD:PK_TIMEPOINT_ROUTED");
                 return;
             }
 
@@ -2393,7 +2393,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                             obs.DoseUnit = doseUnit;
                         }
                     }
-                    appendFlag(obs, "COL_STD:PK_NAME_ROUTED_ARM");
+                    obs.AppendValidationFlag("COL_STD:PK_NAME_ROUTED_ARM");
                     return;
                 }
 
@@ -2405,7 +2405,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     obs.Dose = dose;
                     obs.DoseUnit = doseUnit;
                 }
-                appendFlag(obs, "COL_STD:PK_NAME_ROUTED_DOSE");
+                obs.AppendValidationFlag("COL_STD:PK_NAME_ROUTED_DOSE");
                 return;
             }
 
@@ -2414,14 +2414,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 if (string.IsNullOrWhiteSpace(obs.TreatmentArm))
                     obs.TreatmentArm = trimmed;
-                appendFlag(obs, "COL_STD:PK_NAME_ROUTED_ARM");
+                obs.AppendValidationFlag("COL_STD:PK_NAME_ROUTED_ARM");
                 return;
             }
 
             // (iv) Column-header echo — NULL Preservation Rule §0.2 carve-out.
             if (_headerEchoSet.Contains(trimmed))
             {
-                appendFlag(obs, "COL_STD:PK_NAME_ECHO_DROPPED");
+                obs.AppendValidationFlag("COL_STD:PK_NAME_ECHO_DROPPED");
                 return;
             }
 
@@ -2429,13 +2429,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(obs.StudyContext))
             {
                 obs.StudyContext = trimmed;
-                appendFlag(obs, "COL_STD:PK_NAME_PARKED_CTX");
+                obs.AppendValidationFlag("COL_STD:PK_NAME_PARKED_CTX");
             }
             else
             {
                 // Last resort: StudyContext is also occupied. Drop with a flag so
                 // the incident can be audited; this should be 0 on clean data.
-                appendFlag(obs, "COL_STD:PK_NAME_DROPPED_UNCLASSIFIED");
+                obs.AppendValidationFlag("COL_STD:PK_NAME_DROPPED_UNCLASSIFIED");
             }
 
             #endregion
@@ -2593,7 +2593,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     : subtypeBase;
             }
 
-            appendFlag(obs, "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
+            obs.AppendValidationFlag("COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
             return true;
 
             #endregion
@@ -2629,7 +2629,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (val.Length > 30)
             {
                 obs.Unit = null;
-                appendFlag(obs, "COL_STD:UNIT_HEADER_LEAK");
+                obs.AppendValidationFlag("COL_STD:UNIT_HEADER_LEAK");
                 return true;
             }
 
@@ -2637,7 +2637,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (isDrugName(val))
             {
                 obs.Unit = null;
-                appendFlag(obs, "COL_STD:UNIT_HEADER_LEAK");
+                obs.AppendValidationFlag("COL_STD:UNIT_HEADER_LEAK");
                 return true;
             }
 
@@ -2647,7 +2647,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (val.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 {
                     obs.Unit = null;
-                    appendFlag(obs, "COL_STD:UNIT_HEADER_LEAK");
+                    obs.AppendValidationFlag("COL_STD:UNIT_HEADER_LEAK");
                     return true;
                 }
             }
@@ -2660,7 +2660,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (Dictionaries.UnitDictionary.KnownUnits.Contains(extracted))
                 {
                     obs.Unit = extracted;
-                    appendFlag(obs, "COL_STD:UNIT_NORMALIZED");
+                    obs.AppendValidationFlag("COL_STD:UNIT_NORMALIZED");
                     return true;
                 }
             }
@@ -2669,7 +2669,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (Dictionaries.UnitDictionary.NormalizationMap.TryGetValue(val, out var canonical))
             {
                 obs.Unit = canonical;
-                appendFlag(obs, "COL_STD:UNIT_NORMALIZED");
+                obs.AppendValidationFlag("COL_STD:UNIT_NORMALIZED");
                 return true;
             }
 
@@ -2706,7 +2706,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (!string.Equals(obs.ParameterCategory, canonicalSoc, StringComparison.Ordinal))
                 {
                     obs.ParameterCategory = canonicalSoc;
-                    appendFlag(obs, "COL_STD:SOC_NORMALIZED");
+                    obs.AppendValidationFlag("COL_STD:SOC_NORMALIZED");
                     return true;
                 }
                 return false;
@@ -2716,14 +2716,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (repaired != val && _socCanonicalMap.TryGetValue(val, out canonicalSoc))
             {
                 obs.ParameterCategory = canonicalSoc;
-                appendFlag(obs, "COL_STD:SOC_NORMALIZED");
+                obs.AppendValidationFlag("COL_STD:SOC_NORMALIZED");
                 return true;
             }
 
             // No match — flag if it doesn't already match a canonical value
             if (!_socCanonicalMap.ContainsValue(val) && !_socCanonicalMap.ContainsValue(repaired))
             {
-                appendFlag(obs, "COL_STD:SOC_UNMATCHED");
+                obs.AppendValidationFlag("COL_STD:SOC_UNMATCHED");
             }
 
             return false;
@@ -2802,7 +2802,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (newType != null && !string.Equals(oldType, newType, StringComparison.OrdinalIgnoreCase))
             {
                 obs.PrimaryValueType = newType;
-                appendFlag(obs, $"COL_STD:PVT_MIGRATED:{oldType}→{newType}");
+                obs.AppendValidationFlag($"COL_STD:PVT_MIGRATED:{oldType}→{newType}");
                 return 1;
             }
 
@@ -2930,7 +2930,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return "Median";
 
             // Unresolved
-            appendFlag(obs, "COL_STD:PVT_UNRESOLVED");
+            obs.AppendValidationFlag("COL_STD:PVT_UNRESOLVED");
             return "Numeric";
 
             #endregion
@@ -2989,12 +2989,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (requirement != ColumnRequirement.NotApplicable)
                     continue;
 
-                var currentValue = getColumnValue(obs, column);
+                var currentValue = ParsedObservationFieldAccess.Get(obs, column);
                 if (currentValue == null)
                     continue;
 
-                setColumnValue(obs, column, null);
-                appendFlag(obs, $"COL_STD:NULL_{column}");
+                ParsedObservationFieldAccess.Set(obs, column, null);
+                obs.AppendValidationFlag($"COL_STD:NULL_{column}");
                 nulled++;
             }
 
@@ -3017,10 +3017,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (requirement != ColumnRequirement.Required)
                     continue;
 
-                var currentValue = getColumnValue(obs, column);
+                var currentValue = ParsedObservationFieldAccess.Get(obs, column);
                 if (string.IsNullOrWhiteSpace(currentValue?.ToString()))
                 {
-                    appendFlag(obs, $"COL_STD:MISSING_R_{column}");
+                    obs.AppendValidationFlag($"COL_STD:MISSING_R_{column}");
                 }
             }
 
@@ -3045,72 +3045,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (obs.TableCategory != null && _defaultBoundType.TryGetValue(obs.TableCategory, out var defaultType))
             {
                 obs.BoundType = defaultType;
-                appendFlag(obs, "COL_STD:BOUND_TYPE_INFERRED");
+                obs.AppendValidationFlag("COL_STD:BOUND_TYPE_INFERRED");
                 return true;
             }
 
             return false;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets the current value of a named column from the observation using reflection-free switching.
-        /// </summary>
-        private static object? getColumnValue(ParsedObservation obs, string column)
-        {
-            #region implementation
-
-            return column switch
-            {
-                "ParameterName" => obs.ParameterName,
-                "ParameterCategory" => obs.ParameterCategory,
-                "ParameterSubtype" => obs.ParameterSubtype,
-                "TreatmentArm" => obs.TreatmentArm,
-                "ArmN" => obs.ArmN,
-                "StudyContext" => obs.StudyContext,
-                "DoseRegimen" => obs.DoseRegimen,
-                "Dose" => obs.Dose,
-                "DoseUnit" => obs.DoseUnit,
-                "Population" => obs.Population,
-                "Timepoint" => obs.Timepoint,
-                "Time" => obs.Time,
-                "TimeUnit" => obs.TimeUnit,
-                "PrimaryValueType" => obs.PrimaryValueType,
-                "Unit" => obs.Unit,
-                _ => null
-            };
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Sets a named column to null on the observation using reflection-free switching.
-        /// </summary>
-        private static void setColumnValue(ParsedObservation obs, string column, object? value)
-        {
-            #region implementation
-
-            switch (column)
-            {
-                case "ParameterName": obs.ParameterName = value as string; break;
-                case "ParameterCategory": obs.ParameterCategory = value as string; break;
-                case "ParameterSubtype": obs.ParameterSubtype = value as string; break;
-                case "TreatmentArm": obs.TreatmentArm = value as string; break;
-                case "ArmN": obs.ArmN = value as int?; break;
-                case "StudyContext": obs.StudyContext = value as string; break;
-                case "DoseRegimen": obs.DoseRegimen = value as string; break;
-                case "Dose": obs.Dose = value as decimal?; break;
-                case "DoseUnit": obs.DoseUnit = value as string; break;
-                case "Population": obs.Population = value as string; break;
-                case "Timepoint": obs.Timepoint = value as string; break;
-                case "Time": obs.Time = value as double?; break;
-                case "TimeUnit": obs.TimeUnit = value as string; break;
-                case "PrimaryValueType": obs.PrimaryValueType = value as string; break;
-                case "Unit": obs.Unit = value as string; break;
-            }
 
             #endregion
         }
@@ -3223,21 +3162,11 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Apply correction
             obs.PrimaryValueType = "Percentage";
-            appendFlag(obs, $"COL_STD:POST_PCT_TYPE_CORRECTED:{matchedField}");
+            obs.AppendValidationFlag($"COL_STD:POST_PCT_TYPE_CORRECTED:{matchedField}");
             return true;
 
             #endregion
         }
-
-        /**************************************************************/
-        /// <summary>
-        /// Appends a standardization flag to the observation's ValidationFlags field. Delegates
-        /// to the shared <see cref="ValidationFlagExtensions.AppendValidationFlag"/> helper so
-        /// the delimiter convention (<c>"; "</c>) stays in one place across services.
-        /// </summary>
-        /// <param name="obs">Observation to flag.</param>
-        /// <param name="flag">Flag string to append (e.g., "COL_STD:ARM_WAS_N").</param>
-        private static void appendFlag(ParsedObservation obs, string flag) => obs.AppendValidationFlag(flag);
 
         /**************************************************************/
         /// <summary>

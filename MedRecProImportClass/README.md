@@ -11,7 +11,7 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **SPL XML Parsing**: Complete parsing infrastructure for FDA SPL documents
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
-- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 38-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis with classical ML -- includes table reconstruction, 8 section-aware parsers, 4-phase column standardization with per-category contract enforcement, ML.NET anomaly scoring, Claude AI correction, post-processing extraction, and automated validation
+- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 38-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, 8 section-aware parsers, 4-phase column standardization with per-category contract enforcement, deterministic parse-quality gate, Claude AI correction (gated by quality score), post-processing extraction, and automated validation
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -34,9 +34,13 @@ MedRecProImportClass/
 +-- Context/                # Entity Framework DbContext (auto-registers OrangeBook entities via reflection)
 +-- DataAccess/             # Repository pattern implementation
 +-- Helpers/                # Utility classes
-|   +-- EncryptionHelper.cs # AES-256 encryption (StringCipher)
-|   +-- TextUtil.cs         # Text processing utilities
-|   +-- XmlHelpers.cs       # XML parsing utilities
+|   +-- EncryptionHelper.cs           # AES-256 encryption (StringCipher)
+|   +-- TextUtil.cs                   # Text processing utilities
+|   +-- XmlHelpers.cs                 # XML parsing utilities
+|   +-- ApplicationNumberParser.cs    # NDA/ANDA prefix strip + classification
+|   +-- DoseRegimenRoutingPolicy.cs   # Shared dose-regimen routing rules
+|   +-- ParsedObservationFieldAccess.cs # Reflection-free Get/Set/IsPopulated by column name
+|   +-- ValidationFlagExtensions.cs   # Canonical "; "-delimited flag append
 |   +-- ...
 +-- Models/                 # Entity classes and DTOs
 |   +-- Labels.cs           # Main Label container with 50+ nested classes
@@ -62,10 +66,12 @@ MedRecProImportClass/
     |   +-- ...                   # SPL section parsers
     +-- ParsingValidators/        # Validation services
     +-- TransformationServices/   # SPL Table Standardization pipeline
+        +-- BioequivalentLabelDedupService.cs   # Stage 0: ANDA + repackager dedup by Orange Book group
         +-- TableCellContextService.cs          # Stage 1: source view assembly
         +-- TableReconstructionService.cs       # Stage 2: table reconstruction
         +-- ValueParser.cs                      # Stage 3: regex-based value decomposition
         +-- PopulationDetector.cs               # Stage 3: population auto-detection
+        +-- DoseExtractor.cs                    # Stage 3: dose number + unit extraction
         +-- BaseTableParser.cs                  # Stage 3: shared parser helpers
         +-- PkTableParser.cs                    # Stage 3: pharmacokinetic tables
         +-- SimpleArmTableParser.cs             # Stage 3: single-header AE/efficacy
@@ -77,13 +83,23 @@ MedRecProImportClass/
         +-- DosingTableParser.cs                # Stage 3: dosing parameter grids
         +-- TableParserRouter.cs                # Stage 3: section code -> parser routing
         +-- ColumnStandardizationService.cs     # Stage 3.25: 4-phase column contracts
-        +-- QCNetCorrectionService.cs           # Stage 3.4: QC scoring + correction (ML.NET-backed)
-        +-- QCTrainingStore.cs                  # Stage 3.4: persistent QC training data
-        +-- ClaudeApiCorrectionService.cs       # Stage 3.5: AI-powered correction
+        +-- ColumnContractRegistry.cs           # Stage 3.25/4: per-category R/E/O/N column sets
+        +-- AeParameterCategoryDictionaryService.cs # Stage 3.25: AE parameter -> SOC resolution (1189 entries)
+        +-- ParseQualityService.cs              # Stage 3.4: deterministic parse-quality gate (drives Claude forwarding)
+        +-- ClaudeApiCorrectionService.cs       # Stage 3.5: AI-powered correction (gated by Stage 3.4 score)
+        +-- QCNetCorrectionService.cs           # Shadow-mode ML.NET classifiers — emits diagnostic flags only, does not correct
+        +-- QCTrainingStore.cs                  # Persistent training data for the shadow-mode classifiers
         +-- TableParsingOrchestrator.cs         # Batch loop + stage sequencing + DB writes
         +-- RowValidationService.cs             # Stage 4: per-observation checks
         +-- TableValidationService.cs           # Stage 4: cross-row checks
         +-- BatchValidationService.cs           # Stage 4: aggregate reporting
+        +-- Dictionaries/                       # Shared single-source-of-truth lookups
+            +-- CategoryProfileRegistry.cs      # Per-TableCategory profiles (consolidates 6 prior dicts)
+            +-- CategoryProfile.cs              # Profile record (wraps CategoryContract + extras)
+            +-- CategoryNameNormalizer.cs       # Underscore-uppercase <-> documentation form
+            +-- PkParameterDictionary.cs        # Canonical PK parameter names + aliases
+            +-- UnitDictionary.cs               # Known PK units + variant normalization
+            +-- PdMarkerDictionary.cs           # Pharmacodynamic marker recognition
 ```
 
 ## Dependencies
@@ -94,7 +110,7 @@ MedRecProImportClass/
 | Microsoft.AspNetCore.Identity.EntityFrameworkCore | 8.0.15 | User entity support |
 | Microsoft.Extensions.Hosting | 9.0.4 | Background service support |
 | Microsoft.Extensions.Logging | 9.0.4 | Logging infrastructure |
-| Microsoft.ML | 4.0.2 | ML.NET anomaly detection and classification |
+| Microsoft.ML | 4.0.2 | ML.NET — backs the shadow-mode `QCNetCorrectionService` classifiers (diagnostic flags only; not part of the active correction flow) |
 | Dapper | 2.1.66 | Micro-ORM for complex queries |
 | Newtonsoft.Json | 13.0.3 | JSON serialization |
 | Microsoft.Extensions.Http | 9.0.4 | HttpClient factory for Claude API |
@@ -227,6 +243,9 @@ A multi-stage pipeline that transforms heterogeneous FDA drug label table data i
 ### Architecture
 
 ```
+Stage 0: Bioequivalent Label Dedup (default on)
+  BioequivalentLabelDedupService -> collapses ANDA + repackager labels to one canonical DocumentGUID per (Ingredient, DosageForm, Route)
+        |
 Stage 1: Source View Assembly
   TableCellContextService -> 26-column TableCellContext DTO
         |
@@ -239,10 +258,10 @@ Stage 3: Section-Aware Parsing
 Stage 3.25: Column Standardization (deterministic)
   ColumnStandardizationService -> 4-phase pipeline (all categories)
         |
-Stage 3.4: QC Correction (ML.NET-backed)
-  QCNetCorrectionService -> category validation, PVT disambiguation, parse-quality gate
+Stage 3.4: Parse-Quality Gate (deterministic, rule-based)
+  ParseQualityService -> score in [0,1] per observation; rows below threshold (0.75) forward to Claude
         |
-Stage 3.5: Claude AI Correction (optional)
+Stage 3.5: Claude AI Correction (gated by Stage 3.4 quality score)
   ClaudeApiCorrectionService -> semantic review + field correction
         |
 Stage 3.6: Post-Processing Extraction
@@ -253,6 +272,16 @@ Stage 3.6: Post-Processing Extraction
 Stage 4: Validation
   RowValidationService + TableValidationService + BatchValidationService -> BatchValidationReport
 ```
+
+### Stage 0: Bioequivalent Label Dedup
+
+`BioequivalentLabelDedupService` collapses multiple ANDA labels (and their repackager relabelings) referencing the same innovator down to one canonical DocumentGUID per bioequivalent group, preventing aggregate-signal inflation when the same published value appears 40+ times across generic/repackager labels.
+
+- **Group key**: `Ingredient + DosageForm + Route` from Orange Book (all strengths collapse).
+- **Selection priority**: NDA preferred over ANDA; within the chosen tier, the DocumentGUID with the most recent `LabelEffectiveDate` wins, tie-breaking on higher `VersionNumber` then lower DocumentGUID (ordinal).
+- **Unclassifiable handling**: drops DocumentGUIDs that cannot be resolved to an Orange Book `(ApplType, ApplNo)` pair, with three distinct reason codes: `no_application_number`, `unrecognized_prefix`, `no_orange_book_match`.
+- **UNII walk-order preserved**: kept rows retain their original UNII ordering — important because the Stage 3.4 ML training accumulator relies on UNII locality.
+- **Default on**; bypass via `--no-dedup-bioequivalent` on the CLI (applies to `parse` and `validate` modes).
 
 ### Stage 1: Source View Assembly
 
@@ -395,20 +424,27 @@ Enforces per-TableCategory contracts defining which columns are Required (R), Ex
 
 All corrections across all phases are flagged in `ValidationFlags` with `COL_STD:` prefixed audit flags.
 
-### Stage 3.4: QC Correction (ML.NET-backed)
+### Stage 3.4: Parse-Quality Gate
 
-`QCNetCorrectionService` applies a 3-stage classifier pipeline plus a deterministic parse-quality gate to every observation after deterministic standardization:
+Stage 3.4 does **not** correct observations. It computes a deterministic, rule-based parse-quality score per observation, and that score gates whether Stage 3.5 forwards the row to the Claude API for correction. The actual correction work happens at Stage 3.5; Stage 3.4's job is to pick which rows are worth spending an API call on.
 
-| Stage | Model | Purpose |
-|-------|-------|---------|
-| 1 | LightGBM multiclass | TableCategory validation -- overrides when high-confidence prediction differs |
-| 2 | LightGBM multiclass | DoseRegimen routing -- redirects misclassified content to correct column |
-| 3 | LightGBM multiclass | PrimaryValueType disambiguation -- resolves ambiguous "Numeric" values |
-| 3.4 | Rule-based (`ParseQualityService`) | Parse-quality gate -- deterministic score in [0,1] that drives Claude forwarding |
+`ParseQualityService` produces a score in `[0,1]` by applying multiplicative penalties for parse-alignment failures — the class of error Claude is good at correcting — rather than value-extremity. The score is emitted as `QC_PARSE_QUALITY:{score}` on every observation, with a companion `QC_PARSE_QUALITY:REVIEW_REASONS:{list}` flag when penalties fire.
 
-The service accumulates high-confidence rows from each batch and periodically retrains its classifiers. Training data is persisted via `QCTrainingStore` (JSON file) so models survive process restarts.
+| Penalty | Multiplier | Trigger |
+|---------|:---:|---------|
+| Hard failure | × 0.2 | Null `PrimaryValue` or null `PrimaryValueType` |
+| Hard failure | × 0.3 | `PrimaryValueType="Text"` or null `ParameterName` (only when Required for the category) |
+| Hard failure | × 0.4 | Null `TableCategory` |
+| Required miss | × 0.6 each | Per missing Required column from the per-category contract (`ColumnContractRegistry`) |
+| Structural garbage | × 0.5 | `Unit` matches digit / length-26+ / caption-leak regex |
+| Structural garbage | × 0.5 | `ParameterSubtype` matches stat-format / food-status / frequency / dose-phrase regex |
+| Structural garbage | × 0.7 | Negative `LowerBound` on `ArithmeticMean` / `GeometricMean` / `Percentage` / `Count` |
+| Soft repair | × 0.9 each | One of: `PVT_MIGRATED`, `BOUND_TYPE_INFERRED`, `CAPTION_REINTERPRET`, `PLUSMINUS_TYPE_INFERRED`, `MISSING_R_Unit`, `PK_NAME_PARKED_CTX` |
+| Rescue boost | × 0.85 | `PK_UNIT_SIBLING_VOTED:RESCUE_BOOST` (subsumes the plain 0.95 multiplier so they don't stack) |
+| Confidence floor | `score = min(score, ParseConfidence)` | Prevents low-confidence rows from skipping review even without specific flag hits |
 
-Corrections are flagged with `QC:` prefixed audit flags. Parse-quality scores are emitted as `QC_PARSE_QUALITY:{score}` on every observation, with a companion `QC_PARSE_QUALITY:REVIEW_REASONS:{list}` flag listing which rule penalties fired when the score is below threshold.
+Every rule that fires pushes a stable token (`PrimaryValueNull`, `BadUnit`, `SoftRepair:PVT_MIGRATED`, `MissingRequired:Unit`, …) into a `Reasons` list emitted as `QC_PARSE_QUALITY:REVIEW_REASONS:{pipe-joined list}`. `ClaudeApiCorrectionService` forwards observations whose score is **strictly less than** `ClaudeReviewQualityThreshold` (default `0.75`); absent / unparseable / NaN scores forward conservatively.
+
 ### Stage 3.5: Claude AI Correction
 
 `ClaudeApiCorrectionService` performs AI-powered post-parse correction of `ParsedObservation` objects before database write. After Stages 3.25 and 3.4 produce observations, the correction service sends table-level batches to Claude Haiku for semantic review and correction of misclassified fields.
@@ -608,34 +644,34 @@ These flags are set by `ColumnStandardizationService` during the 4-phase determi
 |------|---------|
 | `CONFIDENCE:PATTERN:{score}:{reason}({count})` | Summary of deterministic standardization. `{score}` is ParseConfidence at time of standardization. `{reason}` is `clean` (0 corrections), `minor` (1-2 corrections), or `major` (3+ corrections). `{count}` is the total number of corrections applied. |
 
-### Stage 3.4: QC Flags (QC)
+### Stage 3.4: Parse-Quality Flags (QC_PARSE_QUALITY)
 
-These flags are set by `QCNetCorrectionService` during the classifier pipeline and parse-quality evaluation.
-
-#### Correction Flags
+These flags are emitted by `ParseQualityService` on every observation. They drive the Stage 3.5 Claude forwarding decision.
 
 | Flag | Meaning |
 |------|---------|
-| `QC:CATEGORY_CORRECTED:{label}:{score}` | TableCategory was overridden by the ML classifier. `{label}` is the new category, `{score}` is the model's confidence (0.00-1.00). |
-| `QC:CATEGORY_SHADOW:{label}:{score}` | R9 shadow-mode emission — what the Stage 1 classifier WOULD have corrected the category to, without actually mutating it. Appears when `EnableStage1TableCategoryCorrection=false` + `EnableStage1ShadowMode=true` (the R9 default). |
-| `QC:DOSEREGIMEN_ROUTED_TO_{target}:{score}` | DoseRegimen content was rerouted by the classifier to a different column (e.g., `PARAMETER_SUBTYPE`). `{score}` is the confidence. |
-| `QC:DOSEREGIMEN_SHADOW:{target}:{score}` | PR #4 shadow-mode emission — what Stage 2 WOULD have routed DoseRegimen to, without mutation. Appears when `EnableStage2DoseRegimenRoutingCorrection=false` + `EnableStage2ShadowMode=true`. |
-| `QC:PVTYPE_DISAMBIGUATED:{label}:{score}` | PrimaryValueType was disambiguated from "Numeric" to a specific type by the classifier. `{label}` is the resolved type. |
-
-#### Parse-Quality Flags
-
-| Flag | Meaning |
-|------|---------|
-| `QC_PARSE_QUALITY:{score}` | Deterministic parse-quality score in [0,1] (4 decimal places). 1.0 = clean parse, no penalties; lower values = more parse-alignment failures. Emitted on every observation by `ParseQualityService`. |
+| `QC_PARSE_QUALITY:{score}` | Deterministic parse-quality score in [0,1] (4 decimal places). 1.0 = clean parse, no penalties; lower values = more parse-alignment failures. Emitted on every observation. |
 | `QC_PARSE_QUALITY:REVIEW_REASONS:{list}` | Pipe-delimited list of rule names that fired when the score is below the Claude review threshold — e.g. `PrimaryValueNull\|BadUnit\|SoftRepair:PVT_MIGRATED`. Audit trail for every Claude forward. |
 
-The `ClaudeApiCorrectionService` forwards observations whose `QC_PARSE_QUALITY` score is below `ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold` (default 0.75). Observations without a quality flag pass through conservatively.
+The `ClaudeApiCorrectionService` forwards observations whose `QC_PARSE_QUALITY` score is **strictly less than** `ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold` (default `0.75`). Observations without a quality flag pass through conservatively (forwarded to Claude).
+
+### Stage 3.4: Shadow-Mode Classifier Flags (QC) — diagnostic only
+
+The `QCNetCorrectionService` is preserved as shadow-mode infrastructure. By default it does **not** mutate observations — it only emits `*_SHADOW` flags so the classifier's predictions can be compared against the deterministic pipeline's output. The `*_CORRECTED` / `*_ROUTED_TO_*` / `PVTYPE_DISAMBIGUATED` variants only appear in historical data or if a deployment explicitly disables shadow mode.
+
+| Flag | Meaning |
+|------|---------|
+| `QC:CATEGORY_SHADOW:{label}:{score}` | Stage 1 classifier prediction — what `TableCategory` it WOULD have set, without mutating. Default emission when `EnableStage1ShadowMode=true`. |
+| `QC:DOSEREGIMEN_SHADOW:{target}:{score}` | Stage 2 classifier prediction — what column DoseRegimen content WOULD have been routed to, without mutating. Default emission when `EnableStage2ShadowMode=true`. |
+| `QC:CATEGORY_CORRECTED:{label}:{score}` | **Historical / non-shadow only.** TableCategory was overridden by the Stage 1 classifier. Only fires when `EnableStage1TableCategoryCorrection=true` (not default). |
+| `QC:DOSEREGIMEN_ROUTED_TO_{target}:{score}` | **Historical / non-shadow only.** DoseRegimen content was rerouted. Only fires when `EnableStage2DoseRegimenRoutingCorrection=true` (not default). |
+| `QC:PVTYPE_DISAMBIGUATED:{label}:{score}` | **Historical / non-shadow only.** PrimaryValueType was disambiguated from "Numeric" by the Stage 3 classifier. |
 
 #### Confidence Provenance
 
 | Flag | Meaning |
 |------|---------|
-| `CONFIDENCE:ML:{score}:{label}` | Summary of ML correction. `{score}` is ParseConfidence after ML pipeline. `{label}` is the highest-priority correction applied: `CATEGORY_CORRECTED`, `DOSEREGIMEN_ROUTED`, `PVTYPE_DISAMBIGUATED`, or `no_correction`. |
+| `CONFIDENCE:ML:{score}:{label}` | Historical summary flag from the shadow-mode pipeline. `{label}` is `CATEGORY_CORRECTED` / `DOSEREGIMEN_ROUTED` / `PVTYPE_DISAMBIGUATED` / `no_correction`. Present on observations from before shadow mode became default; in current data, expect `no_correction`. |
 
 ### Stage 3.5: Claude AI Correction Flags
 
@@ -692,10 +728,10 @@ SELECT * FROM tmp_FlattenedStandardizedTable
 WHERE ValidationFlags LIKE '%PK_SUBPARAM_UNIT_EXTRACTED%'
 
 -- Count corrections by type
+-- (QC:CATEGORY_CORRECTED is historical/non-shadow-only — current data uses Claude-gated correction)
 SELECT
     CASE
         WHEN ValidationFlags LIKE '%AI_CORRECTED%' THEN 'Claude'
-        WHEN ValidationFlags LIKE '%QC:CATEGORY_CORRECTED%' THEN 'ML'
         WHEN ValidationFlags LIKE '%COL_STD:%' THEN 'Deterministic'
         ELSE 'None'
     END AS CorrectionSource,
@@ -703,28 +739,31 @@ SELECT
 FROM tmp_FlattenedStandardizedTable
 GROUP BY CASE
     WHEN ValidationFlags LIKE '%AI_CORRECTED%' THEN 'Claude'
-    WHEN ValidationFlags LIKE '%QC:CATEGORY_CORRECTED%' THEN 'ML'
     WHEN ValidationFlags LIKE '%COL_STD:%' THEN 'Deterministic'
     ELSE 'None'
 END
 ```
 
-### Static Dictionaries
+### Shared Dictionaries
 
-The pipeline uses several static in-class dictionaries for deterministic normalization:
+The pipeline relies on several single-source-of-truth lookups housed under `Service/TransformationServices/Dictionaries/` (or as standalone services where the data is too large to embed inline). These replace the historical pattern of duplicating the same per-category data across multiple consumers.
 
-| Dictionary | Size | Purpose |
-|-----------|------|---------|
-| Drug Names | ~500+ (from DB) | Exact-match drug name identification via `vw_ProductsByIngredient` |
-| Drug Abbreviations | 13 | Common abbreviations not in formal product DB (AZA, MMF, CsA, etc.) |
-| PK Sub-Parameters | ~35 | PK parameter names for DoseRegimen triage (Cmax, AUC, t1/2, CL/F, etc.) |
-| Known Units | ~80 | Canonical unit strings for Unit scrub validation |
-| Unit Normalization | ~16 | Variant spelling -> canonical form (e.g., `mcg h/mL` -> `mcg*h/mL`, `pg*hr/mL` -> `pg*h/mL`) |
-| Unit Header Keywords | 13 | Leak detection keywords (Regimen, Dosage, Patients, etc.) |
-| Canonical SOC Map | ~55 | MedDRA SOC variant -> canonical name mapping |
-| PVT Direct Map | 9 | Direct 1:1 PrimaryValueType migration mappings |
-| Column Contracts | 7 categories x 13 columns | Per-category R/E/O/N requirement definitions |
-| Default BoundType | 5 entries | Category -> default BoundType when bounds present |
+| Dictionary | Source | Purpose |
+|-----------|--------|---------|
+| `CategoryProfileRegistry` | static class | Per-`TableCategory` profile bundling column contract (R/E/O/N), row-required fields, completeness fields, allowed `PrimaryValueType` set, default `BoundType`, and arm/time validation switches. Consumed by `RowValidationService` (and prepared for `TableValidationService` / `ColumnStandardizationService` migration) |
+| `ColumnContractRegistry` | `IColumnContractRegistry` | Per-`TableCategory` Required / Expected / Optional / NullExpected column sets transcribed from `TableStandards/column-contracts.md`. Consumed by `ParseQualityService` and (via `CategoryProfile`) by `RowValidationService` |
+| `CategoryNameNormalizer` | static class | Resolves `ADVERSE_EVENT` <-> `AdverseEvent` and equivalent forms across the 8 known categories |
+| `PkParameterDictionary` | static class | ~35 canonical PK parameter names + aliases (Cmax, AUC, t½, Tmax, Cl, Vd) with Unicode folding |
+| `UnitDictionary` | static class | ~80 known PK unit strings + ~16 variant-spelling normalizations (`mcg h/mL` -> `mcg*h/mL`) |
+| `PdMarkerDictionary` | static class | 9 pharmacodynamic markers (IPA, VASP-PRI, Platelet Aggregation, etc.) for parser routing |
+| `AeParameterCategoryDictionaryService` | scoped service | 1,189 unambiguous AE `ParameterName` -> canonical SOC mappings derived from production data, with name-variant collapsing |
+| `ParsedObservationFieldAccess` | static class | Reflection-free `Get` / `GetAsString` / `Set` / `IsPopulated` for the 15 observation-context columns (replaces three near-duplicate switch helpers) |
+| `ValidationFlagExtensions` | static class | Canonical `"; "`-delimited flag append on `ParsedObservation.ValidationFlags` |
+| Drug Names | runtime (from DB) | ~500+ exact-match drug names from `vw_ProductsByIngredient` (loaded by `ColumnStandardizationService` at init) |
+| Drug Abbreviations | inline | 13 common abbreviations not in formal product DB (AZA, MMF, CsA, etc.) |
+| Unit Header Keywords | inline | 13 leak-detection keywords (Regimen, Dosage, Patients, etc.) |
+| Canonical SOC Map | inline (`ColumnStandardizationService`) | ~55 MedDRA SOC variants -> 26 canonical names |
+| PVT Direct Map | inline | 9 direct 1:1 `PrimaryValueType` migration mappings |
 
 ## Relationship to MedRecPro
 
