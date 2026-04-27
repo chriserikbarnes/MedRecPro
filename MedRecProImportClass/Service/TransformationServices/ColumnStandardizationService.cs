@@ -539,17 +539,6 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
         };
 
-        /**************************************************************/
-        /// <summary>Default BoundType by TableCategory when bounds are present but BoundType is null.</summary>
-        private static readonly Dictionary<string, string> _defaultBoundType = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["PK"] = "90CI",
-            ["DRUG_INTERACTION"] = "90CI",
-            ["EFFICACY"] = "95CI",
-            ["BMD"] = "95CI",
-            ["ADVERSE_EVENT"] = "95CI"
-        };
-
         #endregion Phase 4 Column Contract Definitions
 
         #endregion Fields
@@ -3423,7 +3412,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (!obs.LowerBound.HasValue && !obs.UpperBound.HasValue)
                 return false;
 
-            if (obs.TableCategory != null && _defaultBoundType.TryGetValue(obs.TableCategory, out var defaultType))
+            // CategoryProfileRegistry.Get(...) is null-safe — returns Empty (DefaultBoundType=null)
+            // for unknown/null categories, so the outer null guard collapses.
+            var defaultType = CategoryProfileRegistry.Get(obs.TableCategory).DefaultBoundType;
+            if (defaultType != null)
             {
                 obs.BoundType = defaultType;
                 obs.AppendValidationFlag("COL_STD:BOUND_TYPE_INFERRED");

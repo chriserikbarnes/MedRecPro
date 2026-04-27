@@ -45,6 +45,26 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"(?:Pharmacokinetics\s+in\s+|Clinical\s+Studies\s+in\s+|Use\s+in\s+)(?<pop>[^(]+?)(?:\s*\(|$)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /**************************************************************/
+        /// <summary>
+        /// Body-weight band with a comparator: <c>&lt;50 kg</c>, <c>≥90 kg</c>,
+        /// <c>&lt;= 75 kg</c>. Anchored to the whole cell so prose containing
+        /// the same shape ("dose was reduced in patients &lt;50 kg") does not
+        /// match.
+        /// </summary>
+        private static readonly Regex _weightBandComparatorPattern = new(
+            @"^\s*(?:[<>≤≥]|<=|>=)\s*\d+(?:\.\d+)?\s*kg\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Body-weight band as a range: <c>50-59 kg</c>, <c>50–59 kg</c>,
+        /// <c>50 to 59 kg</c>. Anchored to the whole cell.
+        /// </summary>
+        private static readonly Regex _weightBandRangePattern = new(
+            @"^\s*\d+(?:\.\d+)?\s*(?:to|[-–—])\s*\d+(?:\.\d+)?\s*kg\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         // Known population keywords for dictionary-based extraction
         private static readonly Dictionary<string, string> _populationKeywords = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -128,6 +148,35 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // No population detected
             return (null, 0.0);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// True when <paramref name="raw"/> looks like a body-weight band such as
+        /// <c>50-59 kg</c>, <c>&lt;50 kg</c>, <c>≥90 kg</c>, or <c>50 to 59 kg</c>.
+        /// Used by the table router to confirm DOSING categorization for body-weight
+        /// dosing tables (TextTableID 19220 / 21539-style layouts) and by the dosing
+        /// shape classifier to recognize per-row Population bands.
+        /// </summary>
+        /// <remarks>
+        /// Matches comparator forms (<c>&lt;</c>, <c>&gt;</c>, <c>≤</c>, <c>≥</c>,
+        /// <c>&lt;=</c>, <c>&gt;=</c>) and range forms (hyphen, en-dash, em-dash,
+        /// or the literal word "to"). Only fires when the unit token is present;
+        /// a bare number like <c>50</c> is not a band.
+        /// </remarks>
+        /// <param name="raw">Candidate cell text.</param>
+        /// <returns>True when the cell is a weight band.</returns>
+        public static bool LooksLikeWeightBand(string? raw)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            return _weightBandComparatorPattern.IsMatch(raw)
+                || _weightBandRangePattern.IsMatch(raw);
 
             #endregion
         }
@@ -298,7 +347,42 @@ namespace MedRecProImportClass.Service.TransformationServices
                 @"^\s*Patients?\s+[Ww]ith\s+(?<cond>Renal|Hepatic|Cardiac|Liver|Kidney)\s+(?<state>Impairment|Disease|Failure|Dysfunction)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase),
              m => $"{titleCase(m.Groups["cond"].Value)} {titleCase(m.Groups["state"].Value)}"),
+
+            // Body-weight band, comparator form: "<50 kg", "≥90 kg", "<= 75 kg".
+            // Canonicalizes to a compact form with no space between comparator
+            // and number. <= → ≤, >= → ≥ so the canonical alphabet is small.
+            (new Regex(
+                @"^\s*(?<cmp>[<>≤≥]|<=|>=)\s*(?<n>\d+(?:\.\d+)?)\s*kg\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => normalizeComparator(m.Groups["cmp"].Value) + m.Groups["n"].Value + " kg"),
+
+            // Body-weight band, range form: "50-59 kg", "50–59 kg", "50 to 59 kg".
+            // Canonicalizes to ASCII-hyphen form so duplicates collapse.
+            (new Regex(
+                @"^\s*(?<lo>\d+(?:\.\d+)?)\s*(?:to|[-–—])\s*(?<hi>\d+(?:\.\d+)?)\s*kg\s*$",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase),
+             m => $"{m.Groups["lo"].Value}-{m.Groups["hi"].Value} kg"),
         };
+
+        /**************************************************************/
+        /// <summary>
+        /// Folds comparator variants to a canonical alphabet:
+        /// <c>&lt;=</c> → <c>≤</c>, <c>&gt;=</c> → <c>≥</c>; bare comparators
+        /// pass through unchanged.
+        /// </summary>
+        private static string normalizeComparator(string cmp)
+        {
+            #region implementation
+
+            return cmp switch
+            {
+                "<=" => "≤",
+                ">=" => "≥",
+                _ => cmp,
+            };
+
+            #endregion
+        }
 
         // Known all-caps acronyms preserved as-is by titleCase. Uppercase lookup
         // so any case variant of the input still triggers preservation.

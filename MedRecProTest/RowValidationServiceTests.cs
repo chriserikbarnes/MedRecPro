@@ -294,6 +294,54 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// AdverseEvent observation with lowercase "percentage" produces Warning.
+        /// AllowedValueTypes contains canonical PascalCase "Percentage" only — the
+        /// case-sensitive comparer matches legacy behavior and surfaces casing drift
+        /// emitted by upstream parsers.
+        /// </summary>
+        /// <seealso cref="MedRecProImportClass.Service.TransformationServices.Dictionaries.CategoryProfile.AllowedValueTypes"/>
+        [TestMethod]
+        public void ValidateObservation_LowercaseValueType_FlagsUnexpectedValueType()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidAeObservation();
+            obs.PrimaryValueType = "percentage";
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.AreEqual(ValidationStatus.Warning, result.Status);
+            Assert.IsTrue(result.Issues.Any(i => i.Contains("UNEXPECTED_VALUE_TYPE")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// PK observation with mixed-case "meaN" produces Warning. Confirms the
+        /// AllowedValueTypes set is case-sensitive end-to-end (not just lower vs upper).
+        /// </summary>
+        /// <seealso cref="MedRecProImportClass.Service.TransformationServices.Dictionaries.CategoryProfile.AllowedValueTypes"/>
+        [TestMethod]
+        public void ValidateObservation_MixedCaseValueType_FlagsUnexpectedValueType()
+        {
+            #region implementation
+
+            var service = createService();
+            var obs = createValidPkObservation();
+            obs.PrimaryValueType = "meaN";
+
+            var result = service.ValidateObservation(obs);
+
+            Assert.AreEqual(ValidationStatus.Warning, result.Status);
+            Assert.IsTrue(result.Issues.Any(i => i.Contains("UNEXPECTED_VALUE_TYPE")));
+
+            #endregion
+        }
+
         #endregion Value Type Appropriateness Tests
 
         #region ArmN With TreatmentArm Tests

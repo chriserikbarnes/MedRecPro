@@ -83,12 +83,12 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
 
             var result = new Dictionary<string, CategoryProfile>(StringComparer.OrdinalIgnoreCase);
 
-            // AdverseEvent — UsesArmCoverage=true (TableValidationService._armBasedCategories)
+            // AdverseEvent — UsesArmCoverage=true
             result["AdverseEvent"] = new CategoryProfile(
                 Contract: _contractRegistry.GetContract("AdverseEvent"),
                 RowRequiredFields: new[] { "ParameterName", "TreatmentArm" },
                 CompletenessFields: new[] { "ParameterName", "TreatmentArm", "ArmN", "PrimaryValueType", "Unit" },
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                AllowedValueTypes: new HashSet<string>()
                 {
                     "Percentage", "Count", "Numeric", "CodedExclusion", "Text", "RiskDifference",
                     "RelativeRiskReduction", "PValue", "SampleSize"
@@ -97,12 +97,12 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 UsesArmCoverage: true,
                 UsesTimeConsistency: false);
 
-            // PK — UsesTimeConsistency=true (TableValidationService._timeBasedCategories)
+            // PK — UsesTimeConsistency=true
             result["PK"] = new CategoryProfile(
                 Contract: _contractRegistry.GetContract("PK"),
                 RowRequiredFields: new[] { "ParameterName", "DoseRegimen" },
                 CompletenessFields: new[] { "ParameterName", "DoseRegimen", "Population", "Unit", "Timepoint", "Time", "TimeUnit" },
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                AllowedValueTypes: new HashSet<string>()
                 {
                     "Mean", "Median", "Numeric", "Ratio", "Text", "CodedExclusion", "SampleSize",
                     "GeometricMean", "ArithmeticMean", "LSMean", "GeometricMeanRatio"
@@ -116,7 +116,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 Contract: _contractRegistry.GetContract("DrugInteraction"),
                 RowRequiredFields: new[] { "ParameterName" },
                 CompletenessFields: Array.Empty<string>(),
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                AllowedValueTypes: new HashSet<string>()
                 {
                     "GeometricMeanRatio", "GeometricMean", "Ratio", "Numeric", "Text", "Mean", "Median"
                 },
@@ -129,7 +129,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 Contract: _contractRegistry.GetContract("Efficacy"),
                 RowRequiredFields: new[] { "ParameterName", "TreatmentArm" },
                 CompletenessFields: new[] { "ParameterName", "TreatmentArm", "ArmN", "PrimaryValueType", "StudyContext", "Unit" },
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                AllowedValueTypes: new HashSet<string>()
                 {
                     "Percentage", "Count", "Numeric", "Mean", "Median", "RiskDifference",
                     "RelativeRiskReduction", "Ratio", "PValue", "Text", "CodedExclusion",
@@ -145,7 +145,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 Contract: _contractRegistry.GetContract("Dosing"),
                 RowRequiredFields: new[] { "ParameterName" },
                 CompletenessFields: new[] { "ParameterName", "Unit", "DoseRegimen" },
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                AllowedValueTypes: new HashSet<string>()
                 {
                     "Numeric", "Percentage", "Mean", "Text", "SampleSize"
                 },
@@ -158,7 +158,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 Contract: _contractRegistry.GetContract("BMD"),
                 RowRequiredFields: new[] { "ParameterName", "Timepoint" },
                 CompletenessFields: new[] { "ParameterName", "Timepoint", "Population", "Time", "TimeUnit", "Unit" },
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                AllowedValueTypes: new HashSet<string>()
                 {
                     "MeanPercentChange", "Percentage", "Numeric", "Mean", "Text", "PercentChange", "ArithmeticMean"
                 },
@@ -171,7 +171,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 Contract: _contractRegistry.GetContract("TissueDistribution"),
                 RowRequiredFields: new[] { "ParameterName" },
                 CompletenessFields: new[] { "ParameterName", "Unit" },
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                AllowedValueTypes: new HashSet<string>()
                 {
                     "Ratio", "Numeric", "Text", "ArithmeticMean", "GeometricMean"
                 },
@@ -184,7 +184,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 Contract: _contractRegistry.GetContract("TextDescriptive"),
                 RowRequiredFields: Array.Empty<string>(),
                 CompletenessFields: Array.Empty<string>(),
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                AllowedValueTypes: new HashSet<string>(),
                 DefaultBoundType: null,
                 UsesArmCoverage: false,
                 UsesTimeConsistency: false);
@@ -194,7 +194,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 Contract: CategoryContract.Empty,
                 RowRequiredFields: new[] { "ParameterName" },
                 CompletenessFields: Array.Empty<string>(),
-                AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                AllowedValueTypes: new HashSet<string>(),
                 DefaultBoundType: null,
                 UsesArmCoverage: false,
                 UsesTimeConsistency: false);

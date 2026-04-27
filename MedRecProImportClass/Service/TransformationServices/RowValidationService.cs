@@ -257,7 +257,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Checks whether PrimaryValueType is appropriate for the TableCategory, sourcing the
         /// allowed-types set from <see cref="CategoryProfileRegistry"/>. An empty set means
         /// "no constraint" — the check is skipped (matches legacy behavior for categories that
-        /// had no entry in the old <c>_allowedValueTypesByCategory</c> dictionary).
+        /// had no entry in the legacy allowed-value-types dictionary).
         /// </summary>
         /// <seealso cref="CategoryProfile.AllowedValueTypes"/>
         private static void checkValueTypeAppropriateness(ParsedObservation observation, RowValidationResult result, List<string> newFlags)

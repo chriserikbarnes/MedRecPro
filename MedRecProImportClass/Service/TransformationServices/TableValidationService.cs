@@ -1,4 +1,5 @@
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 using Microsoft.Extensions.Logging;
 
 namespace MedRecProImportClass.Service.TransformationServices
@@ -24,24 +25,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>Logger for validation diagnostics.</summary>
         private readonly ILogger<TableValidationService> _logger;
-
-        /**************************************************************/
-        /// <summary>
-        /// Categories where arm coverage and count reasonableness checks apply.
-        /// </summary>
-        private static readonly HashSet<string> _armBasedCategories = new()
-        {
-            "ADVERSE_EVENT", "EFFICACY"
-        };
-
-        /**************************************************************/
-        /// <summary>
-        /// Categories where time extraction consistency checks apply.
-        /// </summary>
-        private static readonly HashSet<string> _timeBasedCategories = new()
-        {
-            "PK", "BMD"
-        };
 
         #endregion Fields
 
@@ -122,8 +105,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Check 1: Duplicate observations
             checkDuplicates(tableObservations, result);
 
-            // Check 2: Arm coverage gap (AE/EFFICACY only)
-            if (category != null && _armBasedCategories.Contains(category))
+            // Check 2: Arm coverage gap (AE/EFFICACY only) — sourced from CategoryProfileRegistry.
+            // Get(...) handles null/whitespace by returning CategoryProfile.Empty (UsesArmCoverage=false),
+            // so the null guard collapses.
+            var profile = CategoryProfileRegistry.Get(category);
+            if (profile.UsesArmCoverage)
             {
                 checkArmCoverage(tableObservations, result);
 
@@ -132,7 +118,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             // Check 4: Time extraction consistency (PK/BMD only)
-            if (category != null && _timeBasedCategories.Contains(category))
+            if (profile.UsesTimeConsistency)
             {
                 checkTimeConsistency(tableObservations, result);
             }

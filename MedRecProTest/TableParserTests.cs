@@ -1624,6 +1624,128 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// 34068-7 table whose header carries a real dose phrase ("3 mg/kg")
+        /// passes the dose-phrase signal in <c>validateDosingOrDowngrade</c>
+        /// and routes to DOSING.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_PassesThroughDosePhraseHeader()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var table = createTestTable(
+                new[] { "Population", "3 mg/kg", "6 mg/kg" },
+                new List<string?[]> { new[] { "Pediatric", "100", "200" } },
+                parentSectionCode: "34068-7");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DOSING, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// 34068-7 table whose col 0 carries a known dose descriptor
+        /// ("Starting Dose") passes the descriptor signal and routes to DOSING.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_PassesThroughDoseDescriptorRowLabel()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var table = createTestTable(
+                new[] { "Indication", "Dosage" },
+                new List<string?[]>
+                {
+                    new[] { "Starting Dose", "5 mg" },
+                    new[] { "Maintenance Dose", "10 mg" }
+                },
+                parentSectionCode: "34068-7");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DOSING, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// 34068-7 table whose col 0 carries body-weight bands
+        /// ("&lt;50 kg", "50-59 kg") routes to DOSING via the weight-band signal.
+        /// Mirrors TextTableID 19220 / 21539 layouts.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_PassesThroughWeightBandRowLabel()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var table = createTestTable(
+                new[] { "Body Weight", "Volume" },
+                new List<string?[]>
+                {
+                    new[] { "<50 kg", "0.22 mL" },
+                    new[] { "50-59 kg", "0.26 mL" },
+                    new[] { "≥90 kg", "0.4 mL" }
+                },
+                parentSectionCode: "34068-7");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DOSING, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// 34068-7 table with prose-only cells and no dose / population /
+        /// descriptor signals downgrades to TEXT_DESCRIPTIVE so it is no
+        /// longer counted against the Dosing comparison-key denominator.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_DowngradesProseInstructionTable()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var prose = new string('x', 200); // > 120 char prose threshold
+            var table = createTestTable(
+                new[] { "Step", "Instruction" },
+                new List<string?[]>
+                {
+                    new[] { "Preparation", prose },
+                    new[] { "Storage", prose }
+                },
+                parentSectionCode: "34068-7");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.TEXT_DESCRIPTIVE, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// 34068-7 table with structured but non-Dosing content (no dose
+        /// phrase, no descriptor, no weight band, no recognized population)
+        /// downgrades to OTHER rather than being forced into DOSING.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_DowngradesStructuredNonDosingToOther()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var table = createTestTable(
+                new[] { "Color", "Code" },
+                new List<string?[]>
+                {
+                    new[] { "Red", "R1" },
+                    new[] { "Blue", "B2" }
+                },
+                parentSectionCode: "34068-7");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.OTHER, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Creates one instance of every parser for router tests.
         /// </summary>
         private static List<ITableParser> createAllParsers()

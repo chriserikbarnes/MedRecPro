@@ -484,5 +484,85 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion R14 — Age Group Compound Forms
+
+        #region Weight Band Detection
+
+        /**************************************************************/
+        /// <summary>
+        /// LooksLikeWeightBand recognizes comparator-form bands and range-form
+        /// bands used in body-weight dosing tables (TextTableID 19220 / 21539).
+        /// </summary>
+        [TestMethod]
+        [DataRow("<50 kg")]
+        [DataRow("< 50 kg")]
+        [DataRow("> 90 kg")]
+        [DataRow("≤75 kg")]
+        [DataRow("≥90 kg")]
+        [DataRow("<=75 kg")]
+        [DataRow(">=90 kg")]
+        [DataRow("50-59 kg")]
+        [DataRow("50–59 kg")]
+        [DataRow("50—59 kg")]
+        [DataRow("50 to 59 kg")]
+        [DataRow("60-69 kg")]
+        [DataRow("2.5-5 kg")]
+        public void LooksLikeWeightBand_KnownBand_ReturnsTrue(string raw)
+        {
+            Assert.IsTrue(PopulationDetector.LooksLikeWeightBand(raw),
+                $"'{raw}' should be recognized as a weight band");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// LooksLikeWeightBand rejects bare numbers, bare units, and prose
+        /// that contains weight-band-shaped substrings — the patterns are
+        /// anchored to the whole cell.
+        /// </summary>
+        [TestMethod]
+        [DataRow("50")]
+        [DataRow("kg")]
+        [DataRow("5 kg")]
+        [DataRow("Pediatric")]
+        [DataRow("the dose was reduced in patients <50 kg")]
+        [DataRow("")]
+        public void LooksLikeWeightBand_NotABand_ReturnsFalse(string raw)
+        {
+            Assert.IsFalse(PopulationDetector.LooksLikeWeightBand(raw),
+                $"'{raw}' should not be recognized as a weight band");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// LooksLikeWeightBand handles null without throwing.
+        /// </summary>
+        [TestMethod]
+        public void LooksLikeWeightBand_Null_ReturnsFalse()
+        {
+            Assert.IsFalse(PopulationDetector.LooksLikeWeightBand(null));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// TryMatchLabel canonicalizes weight bands to a stable form so
+        /// duplicates collapse: ASCII hyphen for ranges, no space between
+        /// comparator and number, &lt;= and &gt;= folded to ≤ / ≥.
+        /// </summary>
+        [TestMethod]
+        [DataRow("50-59 kg", "50-59 kg")]
+        [DataRow("50–59 kg", "50-59 kg")]
+        [DataRow("50 to 59 kg", "50-59 kg")]
+        [DataRow("<50 kg", "<50 kg")]
+        [DataRow("< 50 kg", "<50 kg")]
+        [DataRow("≥90 kg", "≥90 kg")]
+        [DataRow("<=75 kg", "≤75 kg")]
+        [DataRow(">=90 kg", "≥90 kg")]
+        public void TryMatchLabel_WeightBand_CanonicalizesToStableForm(string input, string expected)
+        {
+            var hit = PopulationDetector.TryMatchLabel(input, out var canonical);
+            Assert.IsTrue(hit, $"'{input}' must resolve as a weight-band population");
+            Assert.AreEqual(expected, canonical);
+        }
+
+        #endregion Weight Band Detection
     }
 }

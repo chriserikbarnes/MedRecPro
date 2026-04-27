@@ -61,7 +61,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             Contract: CategoryContract.Empty,
             RowRequiredFields: Array.Empty<string>(),
             CompletenessFields: Array.Empty<string>(),
-            AllowedValueTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            AllowedValueTypes: new HashSet<string>(),
             DefaultBoundType: null,
             UsesArmCoverage: false,
             UsesTimeConsistency: false);

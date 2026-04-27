@@ -36,7 +36,9 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /**************************************************************/
         /// <summary>
         /// Documentation form → underscore-uppercase. Inverse of <see cref="_toDocForm"/>
-        /// for callers that need the parser-pipeline form.
+        /// for callers that need the parser-pipeline form. Self-mappings on the
+        /// underscore-uppercase keys let already-underscore inputs (in any case) round-trip
+        /// to canonical uppercase via the case-insensitive comparer.
         /// </summary>
         private static readonly Dictionary<string, string> _toUnderscoreForm =
             new(StringComparer.OrdinalIgnoreCase)
@@ -47,6 +49,13 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             ["TextDescriptive"] = "TEXT_DESCRIPTIVE",
             ["Efficacy"] = "EFFICACY",
             ["Dosing"] = "DOSING",
+            // Self-mappings so lower/mixed-case underscore input normalizes to uppercase.
+            ["ADVERSE_EVENT"] = "ADVERSE_EVENT",
+            ["DRUG_INTERACTION"] = "DRUG_INTERACTION",
+            ["TISSUE_DISTRIBUTION"] = "TISSUE_DISTRIBUTION",
+            ["TEXT_DESCRIPTIVE"] = "TEXT_DESCRIPTIVE",
+            ["EFFICACY"] = "EFFICACY",
+            ["DOSING"] = "DOSING",
         };
 
         #endregion
@@ -89,8 +98,9 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /// <returns>Underscore-uppercase form, or empty string when <paramref name="raw"/> is null/whitespace.</returns>
         /// <example>
         /// <code>
-        /// CategoryNameNormalizer.ToUnderscoreForm("AdverseEvent") // → "ADVERSE_EVENT"
-        /// CategoryNameNormalizer.ToUnderscoreForm("PK")           // → "PK"
+        /// CategoryNameNormalizer.ToUnderscoreForm("AdverseEvent")  // → "ADVERSE_EVENT"
+        /// CategoryNameNormalizer.ToUnderscoreForm("adverse_event") // → "ADVERSE_EVENT"
+        /// CategoryNameNormalizer.ToUnderscoreForm("PK")            // → "PK"
         /// </code>
         /// </example>
         public static string ToUnderscoreForm(string? raw)

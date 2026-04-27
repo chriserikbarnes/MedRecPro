@@ -332,5 +332,73 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion AllowedValueTypes / CompletenessFields Tests
+
+        #region Migration Guard Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Locks every (UsesArmCoverage, UsesTimeConsistency, DefaultBoundType) tuple to its
+        /// migrated value. Intentionally exhaustive — once <c>TableValidationService</c> and
+        /// <c>ColumnStandardizationService</c> consume the registry directly, drift between
+        /// the registry and any duplicate field would only show up at runtime; this guard
+        /// turns it into a compile-time-fast unit-test failure instead.
+        /// </summary>
+        /// <seealso cref="MedRecProImportClass.Service.TransformationServices.TableValidationService"/>
+        /// <seealso cref="MedRecProImportClass.Service.TransformationServices.ColumnStandardizationService"/>
+        [TestMethod]
+        public void Profile_AllCategories_FlagsAndBoundType_MatchMigratedValues()
+        {
+            #region implementation
+
+            // (category, usesArmCoverage, usesTimeConsistency, defaultBoundType)
+            var expectations = new (string Category, bool Arm, bool Time, string? Bound)[]
+            {
+                ("ADVERSE_EVENT",      true,  false, "95CI"),
+                ("EFFICACY",           true,  false, "95CI"),
+                ("PK",                 false, true,  "90CI"),
+                ("BMD",                false, true,  "95CI"),
+                ("DRUG_INTERACTION",   false, false, "90CI"),
+                ("DOSING",             false, false, null),
+                ("TISSUE_DISTRIBUTION",false, false, null),
+                ("TEXT_DESCRIPTIVE",   false, false, null),
+                ("OTHER",              false, false, null),
+            };
+
+            foreach (var (category, arm, time, bound) in expectations)
+            {
+                var profile = CategoryProfileRegistry.Get(category);
+                Assert.AreEqual(arm,   profile.UsesArmCoverage,     $"UsesArmCoverage mismatch for {category}");
+                Assert.AreEqual(time,  profile.UsesTimeConsistency, $"UsesTimeConsistency mismatch for {category}");
+                Assert.AreEqual(bound, profile.DefaultBoundType,    $"DefaultBoundType mismatch for {category}");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// AllowedValueTypes uses the default (case-sensitive) ordinal comparer. This is a
+        /// behavior contract — RowValidationService relies on case-sensitive matching to surface
+        /// casing drift in parser-emitted PrimaryValueType values via UNEXPECTED_VALUE_TYPE.
+        /// </summary>
+        /// <seealso cref="MedRecProImportClass.Service.TransformationServices.RowValidationService"/>
+        [TestMethod]
+        public void Profile_AllowedValueTypes_IsCaseSensitive()
+        {
+            #region implementation
+
+            var ae = CategoryProfileRegistry.Get("ADVERSE_EVENT");
+
+            Assert.IsTrue(ae.AllowedValueTypes.Contains("Percentage"),
+                "Canonical PascalCase 'Percentage' must be present.");
+            Assert.IsFalse(ae.AllowedValueTypes.Contains("percentage"),
+                "Lowercase 'percentage' must NOT match — case-sensitive comparer required.");
+            Assert.IsFalse(ae.AllowedValueTypes.Contains("PERCENTAGE"),
+                "Uppercase 'PERCENTAGE' must NOT match — case-sensitive comparer required.");
+
+            #endregion
+        }
+
+        #endregion Migration Guard Tests
     }
 }

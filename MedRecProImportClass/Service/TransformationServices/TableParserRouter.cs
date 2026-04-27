@@ -189,7 +189,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 CODE_PHARMACOKINETICS => validatePkOrDowngrade(table),
                 CODE_ADVERSE_REACTIONS => TableCategory.ADVERSE_EVENT,
                 CODE_CLINICAL_STUDIES => TableCategory.EFFICACY,
-                CODE_DOSAGE_ADMINISTRATION => TableCategory.DOSING,
+                CODE_DOSAGE_ADMINISTRATION => validateDosingOrDowngrade(table),
                 CODE_PRECAUTIONS => categorizeFromCaption(table),
                 CODE_UNCLASSIFIED => categorizeFromSectionTitle(table),
                 null => categorizeFromCaption(table),
@@ -217,7 +217,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return TableCategory.ADVERSE_EVENT;
             if (title.Contains("Dosage", StringComparison.OrdinalIgnoreCase) ||
                 title.Contains("Dosing", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.DOSING;
+                return validateDosingOrDowngrade(table);
             if (title.Contains("Drug Interaction", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.DRUG_INTERACTION;
             if (title.Contains("Clinical Studies", StringComparison.OrdinalIgnoreCase) ||
@@ -333,6 +333,130 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return TableCategory.TEXT_DESCRIPTIVE;
 
             return TableCategory.OTHER;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates a Dosing section-code or caption hint against actual table content.
+        /// Returns <see cref="TableCategory.DOSING"/> when at least one column header
+        /// or row label carries a positive dosing signal — a parseable dose phrase, a
+        /// known dosing descriptor (Starting Dose, Renal Adjustment, …), a population
+        /// label, or a body-weight band. Otherwise downgrades to
+        /// <see cref="TableCategory.TEXT_DESCRIPTIVE"/> (prose-heavy) or
+        /// <see cref="TableCategory.OTHER"/> (structured but non-Dosing).
+        /// </summary>
+        /// <remarks>
+        /// Mirrors <see cref="validatePkOrDowngrade"/>. The 34068-7 (Dosage and
+        /// Administration) section regularly contains preparation instructions,
+        /// storage / compatibility prose, and admin warnings that share the section
+        /// code with real recommended-dose tables. Without a content check those
+        /// prose tables get forced into the Dosing contract and pollute the
+        /// comparison-key denominator.
+        ///
+        /// ## Positive signals (any one is sufficient)
+        /// - <see cref="DoseExtractor.Extract"/> returns a dose for a header / row label
+        ///   (catches "1 mg once daily", "5 mg/kg", "150-600 mg/d", etc.).
+        /// - <see cref="DosingDescriptorDictionary.ContainsDosingDescriptor"/> hits
+        ///   on a header / row label ("Starting Dose", "Renal Adjustment", "Dose
+        ///   Reduction", …).
+        /// - <see cref="PopulationDetector.LooksLikeWeightBand"/> hits ("&lt;50 kg",
+        ///   "50-59 kg", "≥90 kg") — body-weight dosing layouts.
+        /// - <see cref="PopulationDetector.TryMatchLabel"/> resolves a header / row
+        ///   label to a canonical Population (Pediatric, Renal Impairment, …).
+        ///
+        /// ## Downgrade rule
+        /// No positive signal AND <see cref="computeProseRatio"/> ≥ 0.30 →
+        /// <c>TEXT_DESCRIPTIVE</c>. Otherwise → <c>OTHER</c>.
+        /// </remarks>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns>Resolved category after content check.</returns>
+        /// <seealso cref="DosingDescriptorDictionary"/>
+        /// <seealso cref="PopulationDetector.LooksLikeWeightBand"/>
+        /// <seealso cref="DoseExtractor.Extract"/>
+        /// <seealso cref="computeProseRatio"/>
+        private static TableCategory validateDosingOrDowngrade(ReconstructedTable table)
+        {
+            #region implementation
+
+            int signalHits = 0;
+
+            // Header axis — column labels carry dose phrases ("3 mg/kg"), weight
+            // bands ("50-59 kg"), or descriptor phrases ("Recommended Dosage").
+            if (table.Header?.Columns != null)
+            {
+                foreach (var col in table.Header.Columns)
+                {
+                    if (hasDosingSignal(col.LeafHeaderText))
+                    {
+                        signalHits++;
+                        break;
+                    }
+                }
+            }
+
+            // Row-label axis — column 0 cells carry dose-descriptor labels
+            // ("Starting Dose", "Renal Adjustment"), populations ("Pediatric"),
+            // or weight bands. Stop after the first hit; one positive signal
+            // is enough to confirm DOSING.
+            if (signalHits == 0)
+            {
+                foreach (var row in table.DataRows())
+                {
+                    var col0 = row.CellAt(0)?.CleanedText?.Trim();
+                    if (hasDosingSignal(col0))
+                    {
+                        signalHits++;
+                        break;
+                    }
+                }
+            }
+
+            if (signalHits >= 1)
+                return TableCategory.DOSING;
+
+            // No dosing content — decide between TEXT_DESCRIPTIVE (prose) and OTHER (structured)
+            if (computeProseRatio(table) >= 0.30)
+                return TableCategory.TEXT_DESCRIPTIVE;
+
+            return TableCategory.OTHER;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// True when <paramref name="text"/> carries any of the dosing-signal
+        /// patterns enumerated in <see cref="validateDosingOrDowngrade"/>.
+        /// Pulled out as a helper so both axes (header columns, row labels)
+        /// share the same definition and can short-circuit on the first hit.
+        /// </summary>
+        private static bool hasDosingSignal(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            // Dose phrase — anything DoseExtractor can decompose to (Dose, DoseUnit)
+            var (dose, _) = DoseExtractor.Extract(text);
+            if (dose.HasValue)
+                return true;
+
+            // Dosing descriptor row labels and header phrases
+            if (DosingDescriptorDictionary.ContainsDosingDescriptor(text))
+                return true;
+
+            // Body-weight bands — used as Population in body-weight dosing tables
+            if (PopulationDetector.LooksLikeWeightBand(text))
+                return true;
+
+            // Canonical population labels (Pediatric, Renal Impairment, …)
+            if (PopulationDetector.TryMatchLabel(text, out _))
+                return true;
+
+            return false;
 
             #endregion
         }

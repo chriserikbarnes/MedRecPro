@@ -27,7 +27,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// </remarks>
     /// <seealso cref="ParsedObservation"/>
     /// <seealso cref="ArmDefinition"/>
-    internal static class DoseExtractor
+    public static class DoseExtractor
     {
         #region Compiled Regex Patterns
 

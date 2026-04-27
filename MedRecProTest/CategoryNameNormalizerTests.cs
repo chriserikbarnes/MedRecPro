@@ -165,6 +165,41 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Lowercase underscore input normalizes to canonical uppercase form, honoring the
+        /// "input may be either form" contract.
+        /// </summary>
+        [TestMethod]
+        public void ToUnderscoreForm_LowercaseUnderscoreInput_NormalizesToUppercase()
+        {
+            #region implementation
+
+            Assert.AreEqual("ADVERSE_EVENT", CategoryNameNormalizer.ToUnderscoreForm("adverse_event"));
+            Assert.AreEqual("DRUG_INTERACTION", CategoryNameNormalizer.ToUnderscoreForm("drug_interaction"));
+            Assert.AreEqual("TISSUE_DISTRIBUTION", CategoryNameNormalizer.ToUnderscoreForm("tissue_distribution"));
+            Assert.AreEqual("TEXT_DESCRIPTIVE", CategoryNameNormalizer.ToUnderscoreForm("text_descriptive"));
+            Assert.AreEqual("EFFICACY", CategoryNameNormalizer.ToUnderscoreForm("efficacy"));
+            Assert.AreEqual("DOSING", CategoryNameNormalizer.ToUnderscoreForm("dosing"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Mixed-case underscore input normalizes to canonical uppercase form.
+        /// </summary>
+        [TestMethod]
+        public void ToUnderscoreForm_MixedCaseUnderscoreInput_NormalizesToUppercase()
+        {
+            #region implementation
+
+            Assert.AreEqual("ADVERSE_EVENT", CategoryNameNormalizer.ToUnderscoreForm("Adverse_Event"));
+            Assert.AreEqual("DRUG_INTERACTION", CategoryNameNormalizer.ToUnderscoreForm("Drug_Interaction"));
+
+            #endregion
+        }
+
         #endregion ToUnderscoreForm Tests
     }
 }
