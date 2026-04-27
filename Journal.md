@@ -3169,3 +3169,85 @@ Implemented the high-value subset (4 phases) of an 8-phase DRY plan for `MedRecP
 **Follow-up plan file:** `C:\Users\chris\.claude\plans\primary-dry-candidates-in-hashed-sundae.md` documents the deferred phases (broad string-constant extraction, `TableValidationService` migration via `profile.UsesArmCoverage`/`profile.UsesTimeConsistency`, `ColumnStandardizationService` migration off `_columnContracts`/`_defaultBoundType` to `profile.Contract`/`profile.DefaultBoundType`, SOC dictionary consolidation). Registry data is already populated for the table/column phases — those are pure call-site swaps when ready.
 
 ---
+
+### 2026-04-27 12:47 PM EST — PK Parsing Full Compliance Pass (5 defects)
+
+Audited the latest deterministic PK parse run (3,818 rows in `MedRecProConsole/bin/Debug/net8.0/PK_Database_Result.json`) against `MedRecProImportClass/TableStandards/{column-contracts,normalization-rules}.md` and closed five contract gaps in one PR. All changes live in `ColumnStandardizationService.cs` (per user decision — no per-parser fallback edits) plus matching tests.
+
+**Defect 1 — Bare `N=X` not stripped (83+ rows).** `_inlineNPattern` required brackets/parens, so values like `"60–89 mL per minute N=10"`, `"Postpartum (6–12 weeks) N=6"`, `"Adults given 50 mg once daily for 7 days N=12"`, `"Abdomen N=113"` slipped through. Added end-anchored `_bareInlineNPattern = @"\s+[Nn]\s*=\s*(\d[\d,]*)\b\s*$"` plus `tryStripBareInlineN()` 4th-tier helper, wired as `else if` after `tryStripInlineN` inside `normalizeInlineNValues`. Flag suffix `:BARE` added to `COL_STD:N_STRIPPED:{Column}` so audits can count how many cases needed the no-bracket fallback. End-anchoring + leading `\s+` requirement protects prose like "N=12 patients in cohort A" from being eaten.
+
+**Defect 2 — Non-canonical PrimaryValueType.** Three violations: `Range` (24 rows), `RelativeRisk` on PK (217 rows from `rr_ci` rule), `SampleSize` (2 rows). None in the column-contracts.md enum. Extended `_pvtDirectMap`: `Range → ArithmeticMean` (range_to already populates LowerBound/UpperBound + BoundType=Range — only the label was wrong), `SampleSize → Count`. Made `resolveRiskType` category-aware with new `isNonEfficacyRiskCategory()` helper covering PK/DRUG_INTERACTION/BMD/TISSUE_DISTRIBUTION — these now return ArithmeticMean (or GeometricMean if Caption contains "geometric"). Added an explicit `else if (oldType=="RelativeRisk" && isNonEfficacyRiskCategory(...))` branch in `applyPhase3_PrimaryValueTypeMigration` so already-canonical RelativeRisk on PK rows gets remapped (would otherwise fall through to the `else { return 0; }` no-op path). New flag `COL_STD:PVT_RR_CI_CATEGORY_REMAP`.
+
+**Defect 3 — DoseRegimen header echoes.** Values like `"Mean ± Standard Deviation"` and `"Median (Range)"` were leaking into DoseRegimen via section-divider inheritance. Added `_doseRegimenStatEchoSet` (10 phrases, OrdinalIgnoreCase) and a Priority 0 full-string-match check at the top of `normalizeDoseRegimen` — runs before PRI 1 so bare "Median" doesn't get routed to ParameterSubtype. Match is `Equals` after `Trim`, never `Contains` — preserves the §0.2 NULL Preservation Rule (header-echo carve-out is literal-match). Flag `COL_STD:DOSEREGIMEN_STAT_ECHO_DROPPED`.
+
+**Defect 4 — Unit header-leak post-extract (6 rows).** `"mcg•hr/mL) Amoxicillin (±S.D."` (length 29 — slips past Rule 2's >30 check) was surviving all six existing rules: not in `KnownUnits` (R1), not >30 chars (R2), not exact-match drug (R3), no header keywords (R4), `_extractableUnitPattern` matched the inner `±S.D.` which isn't in `KnownUnits` so R5 returned false silently, no NormalizationMap entry (R6). Added Rule 7 sanity sweep with two helpers: `hasUnbalancedParens()` (depth counter — catches stray `)` before any `(`) and `containsDrugNameToken()` (splits on whitespace/brackets/commas, strips trailing `.;:`, checks each ≥4-char token against `_drugNames`). Either signal → null with flag `COL_STD:UNIT_HEADER_LEAK:POST_EXTRACT`.
+
+**Defect 5 — Study identifier in ParameterName (~18 rows).** Codes like `"TMC114-C230 N=12"`, `"TMC125-C234/IMPAACT P1090"`, `"TMC114-C211 N=335"` were polluting ParameterName. Defect 1 strips the trailing N= first, leaving `"TMC114-C230"`. Added `_studyIdPattern = @"^[A-Z]{2,5}[\s\-_]?\d{2,5}(?:[\-_/][A-Z0-9][A-Z0-9\s/\-]*)?$"`.
+
+**Defect 5 — non-obvious ordering issue.** Initially placed the study-id check inside `routeOrParkNameContent` as a new step (i.6) — first test run failed because `routeOrParkNameContent` was never invoked for these names. Root cause: `applyPkCanonicalization` Step 5 (R7 unconditional fitness) gates on `!ContainsPkParameter(name)`, but `_containsAnyPkPattern` includes `C\s*\d{1,3}\s*h?\b` (matches "C0", "C72" concentration-time labels). The `C230` in `TMC114-C230` falsely matches that pattern, so the gate returns early and routing never happens. Fix: added Step 0 at the top of `applyPkCanonicalization` (runs before the PK fast path) with the same `_studyIdPattern` + `!isDrugName` + `!IsPkParameter` guards. On match: `StudyContext = name`, `ParameterName = null`, flag `COL_STD:PK_NAME_ROUTED_STUDY_ID`, return immediately. Kept the (i.6) step in `routeOrParkNameContent` as a safety net for cases where Step 0's guards happen to fail but routing still needs to handle the residue.
+
+**Verification.** `dotnet test MedRecProTest/MedRecProTest.csproj` = **1796/1796 passed, 0 failed, 0 regressions (2m19s)**. New tests: 6 `[DataTestMethod]` regions covering 23 parameterized cases total — every case uses production-data examples lifted directly from `PK_Database_Result.json`. Build clean, 0 errors. Net diff: +316 lines in `ColumnStandardizationService.cs`, +331 lines in `ColumnStandardizationServiceTests.cs`. End-to-end re-parse against the live corpus (`MedRecProConsole.exe --standardize-tables parse --no-claude`) deferred — user runs when convenient and diffs against the existing JSON for the 8 success criteria from the plan (zero rows with bare N=, zero `Range`/`SampleSize`/non-Efficacy `RelativeRisk` PVT, zero stat-echo DoseRegimen, zero `Unit.Length > 30`, no `^TMC\d{3}-` in ParameterName).
+
+**Plan file:** `C:\Users\chris\.claude\plans\c-users-chris-documents-repos-medrecpro-spicy-lemon.md`.
+
+---
+
+### 2026-04-27 1:30 PM EST — PK Compliance Pass: End-to-End Validation + Step 0 Regression Fix
+
+User ran `MedRecProConsole.exe --standardize-tables parse --no-claude` against the live corpus, producing `standardization-report-20260427-125124.jsonl`. Compared it to the prior run's `standardization-report-20260427-113810.jsonl` and validated against the eight goal criteria from the plan.
+
+**Goal criteria — all five defects met or exceeded targets:**
+
+| Criterion                               | Old | New | Goal | ✓ |
+|---|---|---|---|---|
+| Bare `N=X` in DoseRegimen               |  55 |   0 | 0 | ✓ |
+| Bare `N=X` in StudyContext              |  49 |   0 | 0 | ✓ |
+| `PrimaryValueType="Range"`              |  24 |   0 | 0 | ✓ |
+| `PrimaryValueType="SampleSize"`         |   2 |   0 | 0 | ✓ |
+| PK rows with `PrimaryValueType="RelativeRisk"` | 217 |   0 | 0 | ✓ |
+| DoseRegimen stat-form echoes (e.g. "Median (Range)") |  14 |   0 | 0 | ✓ |
+| Unit length > 30 chars                  |   8 |   0 | 0 | ✓ |
+| ParameterName starts with `TMC###-`     |  35 |   4 | ~0 | partial — 4 multi-study compounds (`TMC114-C213 + TMC114-C202 (integrated data)`) the regex doesn't cover |
+
+**New flag firings (NEW run):** `N_STRIPPED:DoseRegimen:BARE`=42, `N_STRIPPED:ParameterName:BARE`=128, `PVT_RR_CI_CATEGORY_REMAP`=217, `DOSEREGIMEN_STAT_ECHO_DROPPED`=14, `UNIT_HEADER_LEAK:POST_EXTRACT`=244 (validated as precision wins — every single one is a malformed leaked header like `"range) (mL/kg/min"`, `"6–12 Weeks) (n=11"`, `"5 mg three times daily) (n=35"`).
+
+**Regression discovered: 41 missing PK rows.** OLD JSONL had 3818 PK observations; NEW had 3777 — a 41-row loss across four tables (10376 −16, 10377 −8, 23349 −7, 37517 −10). Investigation showed table 37517 (Fidaxomicin OP-1118 metabolite block) had two row groups in OLD: 10 Fidaxomicin rows + 10 OP-1118 rows. Only Fidaxomicin survived. The OP-1118 rows had `ParameterName="Cmax"` and `StudyContext="OP-1118"` post-standardization in OLD — which means the parser produced these rows with `ParameterName="OP-1118"` and `ParameterSubtype="Cmax(ng/mL)"`, and the existing PK_NAME_SUBTYPE_SWAPPED rescue path moved Cmax up to ParameterName while parking OP-1118 into StudyContext.
+
+**Root cause.** My Step 0 in `applyPkCanonicalization` short-circuited too aggressively. When ParameterName matched `_studyIdPattern` it nulled Name and returned `true` — bypassing Steps 1–5 entirely, including the Step 2 Subtype rescue. So for any row where the study-id was in Name AND a recoverable PK term sat in Subtype, the PK statistic stranded in Subtype and ParameterName ended up null. Phase 4 contract enforcement then flagged the row missing-required, and downstream filtering dropped it from output.
+
+**Fix.** Added one guard to Step 0 — `&& !PkParameterDictionary.ContainsPkParameter(obs.ParameterSubtype)`. When Subtype carries a PK term, Step 0 yields the floor to the existing rescue path; the rescue promotes the PK term to Name and calls `routeOrParkNameContent` with the displaced study-id, where my (i.6) study-id step picks it up and lands the value in StudyContext. End state for an OP-1118 row: `ParameterName="Cmax"`, `ParameterSubtype=null`, `StudyContext="OP-1118"`, with both `PK_NAME_SUBTYPE_SWAPPED` and `PK_NAME_ROUTED_STUDY_ID` flags. Added a dedicated regression test (`Defect5Regression_StudyIdName_PkTermInSubtype_BothPathsFire`) that pins all of these invariants.
+
+**Verification.** `dotnet test` = **1815/1815 passed, 0 failed (2m19s)**. The Defect 5 short-circuit cases (TMC114-C230 with no Subtype) still pass — guard is `null` → `ContainsPkParameter(null)` = false → Step 0 fires for them. Build clean, 0 errors.
+
+**Note about the 4 remaining `TMC###-` rows.** These are `TMC114-C213 + TMC114-C202 (integrated data)` — multi-study compound IDs. The current `_studyIdPattern` doesn't accept `+` or trailing parens. Out of scope for the current pass; would warrant a small extension if the user prioritizes it (low-volume, 4 rows of 3,777 = 0.1%).
+
+**Recommended next step for user:** re-run `MedRecProConsole.exe --standardize-tables parse --no-claude` so the 41 dropped rows reappear with correct routing. The expected NEW total is ~3818 PK rows again, with new `PK_NAME_ROUTED_STUDY_ID` flags now firing for the OP-1118 / TMC families instead of 0.
+
+---
+
+### 2026-04-27 2:22 PM EST — Unit Standardization Dictionary Expansion (R11)
+
+Expanded the Unit standardization pipeline to collapse the long tail of variants observed in `MedRecProConsole/bin/Debug/net8.0/Units.json` (3,778 PK observation cells). The corpus had ~70+ distinct unit strings for what should have been ~30-40 canonical tokens — bullet/dot operator variants, period/asterisk/multiplication-sign separators, Greek-mu vs Micro-sign duplication, time-word variants (`Hours`/`hour`/`Days`), whitespace defects from PDF extraction (`mcg /mL`, `mcg . hr /mL`), reversed-order AUC (`h·ng/mL`), and assorted leaks of age descriptors / statistics / dose regimens / drug abbreviations into the Unit column.
+
+**Layer 1 — `PkParameterDictionary.NormalizeUnicode` (single change, dozens of variants resolved).** Added five codepoint folds alongside the existing U+22C5 / U+2044 / U+2215 folds: U+2219 BULLET OPERATOR `∙`, U+2022 BULLET `•`, U+00D7 MULTIPLICATION SIGN `×` all collapse to U+00B7 MIDDLE DOT `·`; U+00B5 MICRO SIGN `µ` folds to U+03BC GREEK SMALL LETTER MU `μ` (matches the direction NFKC was already taking). This single change immediately resolves `mcg∙h/mL`, `mcg•h/mL`, `ng×hr/mL`, `μg•h/mL` etc. without per-pattern enumeration.
+
+**Latent bug uncovered.** The pre-R11 `KnownUnits` had `µg/mL` and `µg·h/mL` keyed on U+00B5 (Micro Sign), but `NormalizeUnicode`'s NFKC step decomposes U+00B5 → U+03BC. Under `OrdinalIgnoreCase`, U+00B5 ≠ U+03BC, so any input containing micro/Greek-mu was unreachable in `KnownUnits` for the entire post-NormalizeUnicode flow. Migrated all `µ` entries in `UnitDictionary.cs` to `\u03BC` escapes (KnownUnits, NormalizationMap targets, `PkUnitStructurePattern`, `_inlineUnitPattern` candidate list) so they're now actually matched.
+
+**Layer 2 — `UnitDictionary` expansion.** Added 6 new canonical units (`mg·h/L`, `L/kg/h`, `L/h/m`, `μM`, `μM·h`, `ng·day/mL`) and ~30 new `NormalizationMap` entries for time-word variants (`Hours`/`hour`/`day` → `h`/`days`), long-form (`nanogram per mL` → `ng/mL`), `L/h` family (`L/hr`/`L/hour`/`L/kg/hr` → `L/h`/`L/kg/h`), period/asterisk AUC variants enumerated explicitly (can't fold `.` globally — would break decimals), `mg·h/L` family, reversed AUC ordering (`h·ng/mL` → `ng·h/mL`), micromolar variants, `CV%` → `%CV`. Period (.) and asterisk (*) variants are enumerated rather than folded because both characters appear legitimately in numeric cell text (decimals, footnote markers).
+
+**Layer 2.5 — Whitespace-tolerant fallback.** Added `_whitespaceStrip` regex pre-pass to `IsRecognized` and `TryNormalize` that runs ONLY after the original-spacing form fails — so legitimate spaced canonicals (`percentage points`, `mean ± SD` if added, `subjects`/`events`/`patients`) still match exact, and only PDF-extraction defects like `mcg /mL`, `mcg . hr /mL`, `mL /min /kg`, `m c g/mL` fall through to the strip-and-retry path. Eliminates the need to enumerate every spacing variant.
+
+**Layer 3 — `ColumnStandardizationService.normalizeUnit` Phase 2d wiring.** Three changes:
+- Rule 1 fixed for Unicode-fold cases: previously `KnownUnits.Contains(val)` short-circuited with `return false` even when `val` (post-fold) differed from the pre-fold `obs.Unit`, leaving the original variant unchanged in the output. Now uses `TryGetValue` and applies the canonical form as a correction when val ≠ obs.Unit (Ordinal). Caught immediately by 4 of the 16 new tests on first run — Greek-mu fold, bullet operator fold, bullet fold, mg·h/L bullet variant.
+- Rule 5 (parens extraction) now uses `TryNormalize` on the extracted token so `(mcg /mL)` and `(hr)` canonicalize via the whitespace fallback + NormalizationMap.
+- Rule 6 (variant spelling) uses `TryNormalize` end-to-end so the whitespace-tolerant fallback applies to all NormalizationMap-keyed lookups, not just exact-match.
+
+**Layer 4 — Header-leak detection expanded.** Added 16 tokens to `_unitHeaderKeywords` covering dose regimens (`Suspension`, `every`, `b.i.d.`, `t.i.d.`, `q.d.`, `loading`, `Maintenance`, `daily dose`, `LD/MD`), age descriptors (`Ages`, `yrs`, `years`, `age range`), subgroups (`eGFR`), statistics (`Mean ±`, `mean ±`, `±SD`, `± SD`, `% CI`), AUC subscripts (`0-24`, `0-τ`), and footnotes (`except where`). Each is a unique low-false-positive substring — no real PK unit contains any of these tokens.
+
+**Drug abbreviations.** Added `BIC`, `FTC`, `TAF` (HIV antiretrovirals) to existing `_knownAbbreviations` dictionary at line 68 (with full-name mappings to `Bictegravir`/`Emtricitabine`/`Tenofovir Alafenamide`). Reused existing infrastructure rather than creating a parallel set — line 845 already adds `_knownAbbreviations.Keys` to `_drugNames`, so `isDrugName` (Rule 3 of `normalizeUnit`) catches them with the more specific `UNIT_HEADER_LEAK` flag rather than falling through to the generic header-keyword path.
+
+**Verification.** `dotnet test MedRecProTest/MedRecProTest.csproj` = **1814/1814 passed, 0 failed, 0 regressions (2m19s)**. 16 new `[TestMethod]`s in `Phase 2 Tests — Unit Scrub` region covering one variant per family using corpus-derived inputs: bullet operator (U+2219), bullet (U+2022), asterisk, period, multiplication sign (U+00D7), Greek mu fold, hours/hour, long-form nanogram, simple whitespace (`mcg /mL`), compound whitespace (`mcg . hr /mL`), reversed AUC order, mg·h/L exact + bullet variant, age descriptor, statistics (`Mean ± SD`), AUC subscript (`0-24`), dose regimen leak, BIC drug abbreviation, CV% → %CV. Build clean, 0 errors. End-to-end re-parse against live corpus (`MedRecProConsole`) deferred — user can run when convenient; the Units.json blast-radius now collapses through `NormalizeUnicode` + dictionary lookup before reaching the file.
+
+**Plan file:** `C:\Users\chris\.claude\plans\c-users-chris-documents-repos-medrecpro-witty-kettle.md`.
+
+---

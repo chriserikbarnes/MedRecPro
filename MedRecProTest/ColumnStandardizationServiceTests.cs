@@ -2255,6 +2255,479 @@ namespace MedRecProTest
             #endregion
         }
 
+        #region R11 — Expanded Unit Variant Coverage
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: U+2219 BULLET OPERATOR variant of mcg·h/mL canonicalizes.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_BulletOperator_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "mcg\u2219h/mL"; // U+2219 BULLET OPERATOR
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("mcg·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: U+2022 BULLET variant of mcg·h/mL canonicalizes.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_Bullet_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "mcg\u2022h/mL"; // U+2022 BULLET
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("mcg·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: ASCII asterisk variant ng*h/mL canonicalizes to ng·h/mL.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_Asterisk_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "ng*h/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ng·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Period variant ng.hr/mL canonicalizes to ng·h/mL.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_Period_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "ng.hr/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ng·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: U+00D7 MULTIPLICATION SIGN variant ng×hr/mL → ng·h/mL.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_MultiplicationSign_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "ng\u00D7hr/mL"; // U+00D7 MULTIPLICATION SIGN
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ng·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Greek mu (U+03BC) and Micro sign (U+00B5) both canonicalize
+        /// to the same form so μg/mL and µg/mL are identical post-normalization.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_GreekMu_Folded()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // Greek mu input
+            var obsGreek = createObservation("Placebo");
+            obsGreek.Unit = "\u03BCg/mL"; // U+03BC GREEK SMALL LETTER MU
+
+            // Micro sign input
+            var obsMicro = createObservation("Placebo");
+            obsMicro.Unit = "\u00B5g/mL"; // U+00B5 MICRO SIGN
+
+            var result = service.Standardize(new List<ParsedObservation> { obsGreek, obsMicro });
+
+            // Both canonicalize to the same form (Greek mu, post-NFKC)
+            Assert.AreEqual("\u03BCg/mL", result[0].Unit, "Greek mu input should round-trip");
+            Assert.AreEqual("\u03BCg/mL", result[1].Unit, "Micro sign input should fold to Greek mu");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Time word "Hours" / "hours" / "hour" all canonicalize to "h".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_HoursWord_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs1 = createObservation("Placebo");
+            obs1.Unit = "Hours";
+
+            var obs2 = createObservation("Placebo");
+            obs2.Unit = "hour";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs1, obs2 });
+
+            Assert.AreEqual("h", result[0].Unit, "'Hours' should normalize to 'h'");
+            Assert.AreEqual("h", result[1].Unit, "'hour' should normalize to 'h'");
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+            assertHasFlag(result[1], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Long-form "nanogram per mL" canonicalizes to "ng/mL".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_LongFormNanogram_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "nanogram per mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ng/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Whitespace-defective unit "mcg /mL" (PDF extraction artifact)
+        /// canonicalizes to "mcg/mL" via the whitespace-tolerant fallback.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_WhitespaceCollapse_Simple_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "mcg /mL"; // space before slash — common PDF extraction defect
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("mcg/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Whitespace + period variant "mcg . hr /mL" canonicalizes
+        /// to "mcg·h/mL" — combines whitespace strip and period→middle-dot mapping.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_WhitespaceCollapse_Compound_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "mcg . hr /mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("mcg·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Reversed-order AUC "h·ng/mL" canonicalizes to "ng·h/mL".
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_ReversedAucOrder_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "h·ng/mL";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("ng·h/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: New canonical mg·h/L preserved when input is exact match;
+        /// bullet variant mg•h/L canonicalizes after Unicode fold.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_NewCanonical_MgHL()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obsExact = createObservation("Placebo");
+            obsExact.Unit = "mg·h/L";
+
+            var obsBullet = createObservation("Placebo");
+            obsBullet.Unit = "mg\u2022h/L"; // U+2022 BULLET
+
+            var result = service.Standardize(new List<ParsedObservation> { obsExact, obsBullet });
+
+            Assert.AreEqual("mg·h/L", result[0].Unit, "Exact match should be preserved");
+            Assert.AreEqual("mg·h/L", result[1].Unit, "Bullet variant should fold to canonical");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Age descriptor "Ages 27-58 yrs" → null + UNIT_HEADER_LEAK.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_AgeDescriptor_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "Ages 27-58 yrs";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Statistical descriptor "Mean ± SD" → null + UNIT_HEADER_LEAK.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_Statistics_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "Mean \u00B1 SD"; // U+00B1 PLUS-MINUS
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: AUC subscript "0-24" → null + UNIT_HEADER_LEAK.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_AucSubscript_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "0-24";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: Dose regimen leak "20mg/kg every 8 hours" → null + UNIT_HEADER_LEAK.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_DoseRegimenLeak_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "20mg/kg every 8 hours";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: HIV antiretroviral abbreviation "BIC" → null + UNIT_HEADER_LEAK
+        /// via the drug-name detection rule (Rule 3).
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_DrugAbbreviation_BIC_Nulled()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "BIC";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 Phase 2d: CV% header form normalizes to %CV canonical.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2_Unit_CvPercent_Normalized()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.Unit = "CV%";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("%CV", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:UNIT_NORMALIZED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion R11 — Expanded Unit Variant Coverage
+
         #endregion Phase 2 Tests — Unit Scrub
 
         #region Phase 2 Tests — SOC Mapping
@@ -4563,5 +5036,399 @@ namespace MedRecProTest
         }
 
         #endregion Wave 2 R7 — Unconditional Name Fitness
+
+        #region Defect 1 — Bare N= Stripping
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that the Phase 2 pre-pass strips bare trailing N= patterns
+        /// (no surrounding brackets/parens) from any eligible column and populates
+        /// ArmN. Regression coverage for the production case where 55+ DoseRegimen
+        /// rows and 28+ StudyContext rows held values like "60–89 mL per minute N=10",
+        /// "Postpartum (6–12 weeks) N=6", "Adults given 50 mg once daily for 7 days N=12".
+        /// </summary>
+        /// <seealso cref="ColumnStandardizationService"/>
+        [DataTestMethod]
+        [DataRow("DoseRegimen", "60–89 mL per minute N=10", "60–89 mL per minute", 10)]
+        [DataRow("DoseRegimen", "Adults given 50 mg once daily for 7 days N=12", "Adults given 50 mg once daily for 7 days", 12)]
+        [DataRow("StudyContext", "Postpartum (6–12 weeks) N=6", "Postpartum (6–12 weeks)", 6)]
+        [DataRow("StudyContext", "Abdomen N=113", "Abdomen", 113)]
+        [DataRow("StudyContext", "Moderate Hepatic Impairment N=10", "Moderate Hepatic Impairment", 10)]
+        public async Task Defect1_BareTrailingN_StrippedAndArmNPopulated(
+            string column, string input, string expectedCleaned, int expectedArmN)
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = new ParsedObservation
+            {
+                TableCategory = "PK",
+                ParameterName = "Cmax",
+                TextTableID = 999,
+                RawValue = "10",
+                PrimaryValue = 10.0,
+                PrimaryValueType = "ArithmeticMean",
+                ParseConfidence = 0.9
+            };
+            switch (column)
+            {
+                case "DoseRegimen": obs.DoseRegimen = input; break;
+                case "StudyContext": obs.StudyContext = input; break;
+                default: throw new InvalidOperationException($"Unsupported column: {column}");
+            }
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // Verify the bare N= suffix is stripped and ArmN is populated.
+            var actual = column == "DoseRegimen" ? result[0].DoseRegimen : result[0].StudyContext;
+            Assert.AreEqual(expectedCleaned, actual,
+                $"Column {column} should have bare N= suffix stripped");
+            Assert.AreEqual(expectedArmN, result[0].ArmN,
+                $"ArmN should be populated from stripped bare N=");
+            assertHasFlag(result[0], $"COL_STD:N_STRIPPED:{column}:BARE");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Defect 1 — Bare N= Stripping
+
+        #region Defect 2 — PrimaryValueType Enum Compliance
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the Phase 3 PVT migration coerces non-canonical labels to the
+        /// enum defined in column-contracts.md: "Range" → ArithmeticMean (the
+        /// midpoint is already in PrimaryValue with bounds set), "SampleSize" →
+        /// Count (sample-size counts are integer counts).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("Range", "ArithmeticMean")]
+        [DataRow("SampleSize", "Count")]
+        public async Task Defect2_NonCanonicalPvt_MappedToCanonical(string oldType, string expectedNew)
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = new ParsedObservation
+            {
+                TableCategory = "PK",
+                ParameterName = "Cmax",
+                TextTableID = 999,
+                RawValue = "12 to 18",
+                PrimaryValue = 15.0,
+                PrimaryValueType = oldType,
+                ParseConfidence = 0.9
+            };
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(expectedNew, result[0].PrimaryValueType,
+                $"PVT '{oldType}' should migrate to '{expectedNew}'");
+            assertHasFlag(result[0], $"COL_STD:PVT_MIGRATED:{oldType}→{expectedNew}");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that already-canonical RelativeRisk on a non-Efficacy
+        /// TableCategory is remapped to the contract-appropriate type. Per
+        /// column-contracts.md, only the Efficacy contract permits risk-type
+        /// PVTs; PK / DRUG_INTERACTION must use ArithmeticMean / GeometricMean.
+        /// Caption containing "geometric" steers to GeometricMean.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("PK", "", "ArithmeticMean")]
+        [DataRow("PK", "Geometric Mean Ratio (90% CI)", "GeometricMean")]
+        [DataRow("PK", "arithmetic mean ± SD", "ArithmeticMean")]
+        [DataRow("DRUG_INTERACTION", "", "ArithmeticMean")]
+        [DataRow("EFFICACY", "", "RelativeRisk")] // negative case — Efficacy keeps RelativeRisk
+        public async Task Defect2_RelativeRiskOnNonEfficacy_RemappedByCategory(
+            string category, string caption, string expected)
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = new ParsedObservation
+            {
+                TableCategory = category,
+                ParameterName = "Cmax",
+                TextTableID = 999,
+                Caption = caption,
+                RawValue = "1.5 (1.2, 1.8)",
+                PrimaryValue = 1.5,
+                LowerBound = 1.2,
+                UpperBound = 1.8,
+                BoundType = "90CI",
+                PrimaryValueType = "RelativeRisk",
+                ParseRule = "rr_ci",
+                ParseConfidence = 0.9
+            };
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(expected, result[0].PrimaryValueType,
+                $"PVT for {category} (caption='{caption}') should be '{expected}'");
+            // Bounds preserved
+            Assert.AreEqual(1.2, result[0].LowerBound);
+            Assert.AreEqual(1.8, result[0].UpperBound);
+
+            // Negative case: Efficacy should NOT carry the remap flag.
+            if (string.Equals(category, "EFFICACY", StringComparison.OrdinalIgnoreCase))
+            {
+                Assert.IsTrue(
+                    result[0].ValidationFlags == null ||
+                    !result[0].ValidationFlags.Contains("COL_STD:PVT_RR_CI_CATEGORY_REMAP"),
+                    "Efficacy should NOT receive the remap flag");
+            }
+            else
+            {
+                assertHasFlag(result[0], "COL_STD:PVT_RR_CI_CATEGORY_REMAP");
+            }
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Defect 2 — PrimaryValueType Enum Compliance
+
+        #region Defect 3 — DoseRegimen Stat-Form Echo
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that stat-form column-header echoes leaked into DoseRegimen
+        /// (e.g., "Mean ± Standard Deviation", "Median (Range)") are nulled per
+        /// the §0.2 header-echo carve-out in normalization-rules.md. A real dose
+        /// regimen is preserved untouched (negative case).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("Mean ± Standard Deviation", true)]
+        [DataRow("Median (Range)", true)]
+        [DataRow("Geometric Mean (CV%)", true)]
+        [DataRow("Mean ± SD", true)]
+        [DataRow("Median", true)]
+        [DataRow("10 mg once daily", false)] // negative — real dose stays
+        public async Task Defect3_DoseRegimenStatEcho_NulledOrPreserved(string input, bool shouldNull)
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = new ParsedObservation
+            {
+                TableCategory = "PK",
+                ParameterName = "Cmax",
+                DoseRegimen = input,
+                TextTableID = 999,
+                RawValue = "10",
+                PrimaryValue = 10.0,
+                PrimaryValueType = "ArithmeticMean",
+                ParseConfidence = 0.9
+            };
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            if (shouldNull)
+            {
+                Assert.IsNull(result[0].DoseRegimen,
+                    $"Stat-form echo '{input}' should be nulled");
+                assertHasFlag(result[0], "COL_STD:DOSEREGIMEN_STAT_ECHO_DROPPED");
+            }
+            else
+            {
+                Assert.AreEqual(input, result[0].DoseRegimen,
+                    $"Real dose '{input}' should be preserved");
+                Assert.IsTrue(
+                    result[0].ValidationFlags == null ||
+                    !result[0].ValidationFlags.Contains("COL_STD:DOSEREGIMEN_STAT_ECHO_DROPPED"),
+                    "Real dose should not carry the echo-dropped flag");
+            }
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Defect 3 — DoseRegimen Stat-Form Echo
+
+        #region Defect 4 — Unit Header-Leak Post-Extract
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that <see cref="ColumnStandardizationService.normalizeUnit"/>
+        /// catches malformed Unit values that slip past Rules 1–6: values shorter
+        /// than 30 chars (so Rule 2 misses), not exact-match drug names (so Rule 3
+        /// misses), with unbalanced parens or embedded drug-name tokens. The
+        /// observed production case is "mcg•hr/mL) Amoxicillin (±S.D.".
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("mcg•hr/mL) Amoxicillin (±S.D.", true)]  // unbalanced parens + drug
+        [DataRow("mcg/mL", false)]                        // clean known unit (Rule 1)
+        public async Task Defect4_UnitPostExtractSanity_NullsLeakedHeader(string input, bool shouldNull)
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = new ParsedObservation
+            {
+                TableCategory = "PK",
+                ParameterName = "Cmax",
+                Unit = input,
+                TextTableID = 999,
+                RawValue = "10",
+                PrimaryValue = 10.0,
+                PrimaryValueType = "ArithmeticMean",
+                ParseConfidence = 0.9
+            };
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            if (shouldNull)
+            {
+                Assert.IsNull(result[0].Unit,
+                    $"Malformed Unit '{input}' should be nulled by sanity sweep");
+                assertHasFlag(result[0], "COL_STD:UNIT_HEADER_LEAK:POST_EXTRACT");
+            }
+            else
+            {
+                Assert.AreEqual(input, result[0].Unit,
+                    $"Clean Unit '{input}' should be preserved");
+            }
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Defect 4 — Unit Header-Leak Post-Extract
+
+        #region Defect 5 — Study Identifier Routing
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that clinical-trial study identifiers leaked into ParameterName
+        /// (e.g., "TMC114-C230" after Defect 1 strips the trailing "N=12") are
+        /// routed to StudyContext, not parked there as the catch-all "unclassified"
+        /// fallback. Drug names like "Amoxicillin" are excluded by the guard and
+        /// route through the existing drug-name path. PK parameters are excluded
+        /// by the IsPkParameter guard.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("TMC114-C230", true)]
+        [DataRow("TMC125-C234/IMPAACT P1090", true)]
+        [DataRow("Cmax", false)]              // PK parameter — fast path wins
+        public async Task Defect5_StudyId_RoutedToStudyContext(string parameterName, bool shouldRoute)
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createPkObservation(parameterName, parameterSubtype: null);
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            if (shouldRoute)
+            {
+                Assert.AreEqual(parameterName, result[0].StudyContext,
+                    $"Study ID '{parameterName}' should be routed to StudyContext");
+                Assert.IsNull(result[0].ParameterName,
+                    "ParameterName should be nulled after routing");
+                assertHasFlag(result[0], "COL_STD:PK_NAME_ROUTED_STUDY_ID");
+            }
+            else
+            {
+                // PK parameter — should remain as ParameterName via fast path.
+                Assert.AreEqual(parameterName, result[0].ParameterName,
+                    $"PK parameter '{parameterName}' should remain as ParameterName");
+                Assert.IsTrue(
+                    result[0].ValidationFlags == null ||
+                    !result[0].ValidationFlags.Contains("COL_STD:PK_NAME_ROUTED_STUDY_ID"),
+                    "PK parameter should not carry the study-id routed flag");
+            }
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Defect 5 — Study Identifier Routing
+
+        #region Defect 5 Regression — Subtype Rescue Path
+
+        /**************************************************************/
+        /// <summary>
+        /// Regression: when ParameterName is a study identifier AND ParameterSubtype
+        /// holds a recoverable PK term (e.g., Name="OP-1118", Subtype="Cmax"), the
+        /// Step 0 short-circuit MUST NOT fire — otherwise the existing Subtype
+        /// rescue (PK_NAME_SUBTYPE_SWAPPED) is bypassed and the PK statistic is
+        /// stranded. The end-to-end re-parse against the live corpus showed 10 rows
+        /// of table 37517 (Fidaxomicin OP-1118 metabolite block) lost their
+        /// Cmax/Tmax/AUC rows because the unguarded Step 0 nulled Name before the
+        /// rescue could promote the PK term.
+        /// </summary>
+        /// <remarks>
+        /// Expected post-Phase 2 state for this row:
+        /// ParameterName="Cmax", ParameterSubtype=null, StudyContext="OP-1118",
+        /// flag PK_NAME_SUBTYPE_SWAPPED (from the rescue) and
+        /// PK_NAME_ROUTED_STUDY_ID (from the (i.6) step inside routeOrParkNameContent).
+        /// </remarks>
+        [TestMethod]
+        public async Task Defect5Regression_StudyIdName_PkTermInSubtype_BothPathsFire()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            // Reproduces the OP-1118 / Cmax-in-Subtype shape from table 37517.
+            var obs = createPkObservation(
+                parameterName: "OP-1118",
+                parameterSubtype: "Cmax",
+                unit: "ng/mL");
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            // The PK term must be rescued from Subtype to Name.
+            Assert.AreEqual("Cmax", result[0].ParameterName,
+                "Subtype rescue should promote the PK term to ParameterName");
+
+            // The displaced study identifier must be routed to StudyContext.
+            Assert.AreEqual("OP-1118", result[0].StudyContext,
+                "Displaced study identifier should land in StudyContext");
+
+            // ParameterSubtype is cleared (the qualifier side-channel is empty for
+            // a bare canonical PK term).
+            Assert.IsNull(result[0].ParameterSubtype,
+                "ParameterSubtype should be cleared after rescue");
+
+            // Step 0 short-circuit must NOT have fired — would have nulled Name
+            // prematurely. The PK_NAME_SUBTYPE_SWAPPED flag confirms the rescue ran.
+            assertHasFlag(result[0], "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
+
+            // The (i.6) study-id step inside routeOrParkNameContent fires for the
+            // displaced ParameterName.
+            assertHasFlag(result[0], "COL_STD:PK_NAME_ROUTED_STUDY_ID");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Defect 5 Regression — Subtype Rescue Path
     }
 }

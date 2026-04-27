@@ -79,7 +79,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["TNF"] = "Tumor Necrosis Factor",
             ["PGB"] = "Pregabalin",
             ["HCT"] = "Hydrochlorothiazide",
-            ["ASA"] = "Aspirin"
+            ["ASA"] = "Aspirin",
+            // R11 — HIV antiretroviral abbreviations leaking from regimen columns
+            // into Unit cells (observed standalone "BIC"/"FTC"/"TAF" values).
+            ["BIC"] = "Bictegravir",
+            ["FTC"] = "Emtricitabine",
+            ["TAF"] = "Tenofovir Alafenamide"
         };
 
         /**************************************************************/
@@ -123,6 +128,33 @@ namespace MedRecProImportClass.Service.TransformationServices
         private static readonly Regex _actualDosePattern = new(
             @"\d+\.?\d*\s*(?:mg|mcg|µg|g|mL|units?|IU)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Stat-form column-header echoes that leak into DoseRegimen — e.g., when a
+        /// PK table has a header row "Mean ± Standard Deviation" and the parser
+        /// inherited it into DoseRegimen via section-divider context. Per
+        /// normalization-rules.md §0.2 (header-echo carve-out), these are nulled.
+        /// </summary>
+        /// <remarks>
+        /// Match is full-string equality after trim — never substring — so values
+        /// like "Mean concentration 50 mg" are not erased. Comparer is
+        /// case-insensitive.
+        /// </remarks>
+        /// <seealso cref="normalizeDoseRegimen"/>
+        private static readonly HashSet<string> _doseRegimenStatEchoSet = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Mean ± Standard Deviation",
+            "Mean ± SD",
+            "Mean (SD)",
+            "Median (Range)",
+            "Median (IQR)",
+            "Range",
+            "Geometric Mean (CV%)",
+            "Arithmetic Mean ± SD",
+            "Mean",
+            "Median"
+        };
 
         /**************************************************************/
         /// <summary>Regex to detect caption echo rows in ParameterName.</summary>
@@ -185,7 +217,36 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             "Regimen", "Dosage", "Patients", "Titration", "Starting",
             "Recommended", "Duration", "TAKING", "Tablets", "Injection",
-            "Therapy", "Combination", "Divided", "Subjects"
+            "Therapy", "Combination", "Divided", "Subjects",
+
+            // R11 — Dose regimen / frequency descriptors leaked into Unit
+            "Suspension",      // "20 mg/kg Oral Suspension"
+            "every",           // "20mg/kg every 8 hours"
+            "b.i.d.", "t.i.d.", "q.d.",
+            "loading", "Maintenance", // "loading dose", "Maintenance dose"
+            "daily dose",
+            "LD/MD",           // "LD/MD, mg", "LD/MD, mg/kg"
+
+            // R11 — Age / population descriptors (NOT units)
+            "Ages",            // "Ages 27-58 yrs", "Ages 27 to 58 yrs"
+            "yrs",             // "≥65 yrs"
+            "years",           // "19 to 78 years", "20-48 years", "age range 18 to 32 years"
+            "age range",       // "age range 18 to 32 years"
+
+            // R11 — Subgroup descriptors
+            "eGFR",            // "eGFR ≥ 90 mL/min", "eGFR 60 to < 90 mL/min"
+
+            // R11 — Statistical markers (NOT units; downstream dispersion fields handle these)
+            "Mean ±", "mean ±",
+            "±SD", "± SD",
+            "% CI",            // "90% CI", "95% CI"
+
+            // R11 — Time-window / interval markers (AUC subscripts that leaked)
+            "0-24",            // "0-24", "0-24ss"
+            "0-τ",             // "0-τ"
+
+            // R11 — Footnote / qualifier leaks
+            "except where"     // "except where noted"
         };
 
         /**************************************************************/
@@ -314,7 +375,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["Count"] = "Count",
             ["Text"] = "Text",
             ["PValue"] = "PValue",
-            ["SampleSize"] = "SampleSize",
+            // SampleSize is not in the canonical PrimaryValueType enum
+            // (column-contracts.md). Coerce to Count.
+            ["SampleSize"] = "Count",
+            // Range is not in the canonical enum either; range_to rows already
+            // populate LowerBound/UpperBound + BoundType="Range" with the
+            // midpoint in PrimaryValue, so the correct PVT label is the
+            // statistic for that midpoint — ArithmeticMean.
+            ["Range"] = "ArithmeticMean",
             ["CodedExclusion"] = "CodedExclusion"
         };
 
@@ -633,6 +701,25 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <seealso cref="_bracketedNPattern"/>
         private static readonly Regex _inlineNPattern = new(
             @"[\(\[]\s*[Nn]\s*=\s*(\d[\d,]*)\s*[\)\]]",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Bare trailing N= sample-size annotation — no surrounding brackets or parens.
+        /// Matches values like "60–89 mL per minute N=10", "Postpartum (6–12 weeks) N=6",
+        /// "Adults given 50 mg once daily for 7 days N=12", "Abdomen N=113".
+        /// </summary>
+        /// <remarks>
+        /// End-anchored so it only fires when N=X sits at the trailing edge of the value
+        /// (the observed pattern across 83+ DoseRegimen / StudyContext rows). The leading
+        /// `\s+` requirement prevents the regex from biting into a value that happens to
+        /// end with `…N=12` as part of a larger token.
+        /// Captures: Group 1 = N value.
+        /// </remarks>
+        /// <seealso cref="_inlineNPattern"/>
+        /// <seealso cref="tryStripBareInlineN"/>
+        private static readonly Regex _bareInlineNPattern = new(
+            @"\s+[Nn]\s*=\s*(\d[\d,]*)\b\s*$",
             RegexOptions.Compiled);
 
         /**************************************************************/
@@ -1562,6 +1649,54 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Tier-4 fallback to <see cref="tryStripInlineN"/> for bare trailing N= forms
+        /// without surrounding brackets or parens — e.g., "Postpartum (6–12 weeks) N=6",
+        /// "Adults given 50 mg once daily for 7 days N=12", "Abdomen N=113". Called only
+        /// when the bracket/paren-aware tiers all miss, to avoid double-stripping.
+        /// </summary>
+        /// <remarks>
+        /// End-anchored via <see cref="_bareInlineNPattern"/> to keep the regex away from
+        /// arbitrary mid-string prose ("N=12 patients in cohort A" stays untouched).
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// tryStripBareInlineN("60–89 mL per minute N=10", out var c, out var n);
+        /// // → c = "60–89 mL per minute", n = 10, returns true
+        /// </code>
+        /// </example>
+        /// <param name="val">The raw column value to inspect.</param>
+        /// <param name="cleaned">The value after stripping the bare N= suffix, or null if the entire value was N=.</param>
+        /// <param name="n">The extracted sample-size integer.</param>
+        /// <returns>True if a bare trailing N= pattern was found and stripped.</returns>
+        /// <seealso cref="tryStripInlineN"/>
+        /// <seealso cref="_bareInlineNPattern"/>
+        /// <seealso cref="normalizeInlineNValues"/>
+        private bool tryStripBareInlineN(string? val, out string? cleaned, out int n)
+        {
+            #region implementation
+
+            cleaned = val;
+            n = 0;
+            if (string.IsNullOrWhiteSpace(val)) return false;
+
+            var trimmed = val.Trim();
+
+            var match = _bareInlineNPattern.Match(trimmed);
+            if (!match.Success) return false;
+            if (!tryParseNValue(match.Groups[1].Value, out n)) return false;
+
+            // Strip the matched bare-N suffix (e.g., " N=10") from the trailing edge.
+            var stripped = _bareInlineNPattern.Replace(trimmed, "").Trim();
+            // Collapse internal double-spaces left behind by the strip.
+            stripped = Regex.Replace(stripped, @"\s{2,}", " ").Trim();
+            cleaned = string.IsNullOrWhiteSpace(stripped) ? null : stripped;
+            return true;
+
+            #endregion
+        }
+
         #endregion Inline N= Helpers
 
         #region Classification Methods
@@ -1769,6 +1904,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                     obs.AppendValidationFlag($"COL_STD:N_STRIPPED:{colName}");
                     anyChange = true;
                 }
+                else if (tryStripBareInlineN(get(), out cleaned, out n))
+                {
+                    // Tier-4: bare trailing N= (no brackets/parens) — observed in 83+
+                    // DoseRegimen / StudyContext rows. Suffix `:BARE` lets us audit
+                    // how many cases needed the no-bracket fallback vs. tiers 1–3.
+                    set(cleaned);
+                    if (!obs.ArmN.HasValue)
+                        obs.ArmN = n;
+                    obs.AppendValidationFlag($"COL_STD:N_STRIPPED:{colName}:BARE");
+                    anyChange = true;
+                }
             }
 
             // RawValue: extract trailing N= (e.g., "2.9 (22%) N=16", "94.7 (34%)^N=14")
@@ -1807,6 +1953,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return false;
 
             var val = obs.DoseRegimen.Trim();
+
+            // Priority 0: Stat-form column-header echo (e.g., "Mean ± Standard Deviation",
+            // "Median (Range)") leaked into DoseRegimen via section-divider inheritance.
+            // Must run BEFORE Priority 1 — otherwise bare "Median" would be classified as
+            // a PK qualifier and routed to ParameterSubtype.
+            if (_doseRegimenStatEchoSet.Contains(val))
+            {
+                obs.DoseRegimen = null;
+                obs.AppendValidationFlag("COL_STD:DOSEREGIMEN_STAT_ECHO_DROPPED");
+                return true;
+            }
 
             // Priority 1: PK sub-parameter match → route to ParameterSubtype
             if (PkParameterDictionary.IsPkParameter(val) || PkParameterDictionary.StartsWithPk(val))
@@ -2135,6 +2292,37 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             bool changed = false;
 
+            // Step 0: Clinical-trial study identifier in ParameterName (e.g.,
+            // "TMC114-C230", "TMC125-C234/IMPAACT P1090"). Must run BEFORE the PK
+            // canonicalization fast path because the C-prefix-plus-digits motif
+            // inside study codes (e.g., "C230") false-matches the broad
+            // `ContainsPkParameter` check (which treats `C230` as concentration-at-230h).
+            // Routing here short-circuits the rest of the machinery and lands the
+            // value in StudyContext per its column contract.
+            //
+            // GUARD: If ParameterSubtype carries a recoverable PK term, do NOT short-
+            // circuit. The existing Step 2 rescue path (PK_NAME_SUBTYPE_SWAPPED) will
+            // promote the PK term from Subtype to Name and route the displaced study-id
+            // through `routeOrParkNameContent`, where the (i.6) study-id step picks it
+            // up. Bypassing that path would leave Name=null with the PK term stranded
+            // in Subtype — which is what caused 10 rows of table 37517 (OP-1118 +
+            // Cmax-in-Subtype pattern) to lose their PK statistic entirely.
+            if (!string.IsNullOrWhiteSpace(obs.ParameterName)
+                && !PkParameterDictionary.ContainsPkParameter(obs.ParameterSubtype))
+            {
+                var nameTrimmed = obs.ParameterName.Trim();
+                if (_studyIdPattern.IsMatch(nameTrimmed) &&
+                    !isDrugName(nameTrimmed) &&
+                    !PkParameterDictionary.IsPkParameter(nameTrimmed))
+                {
+                    if (string.IsNullOrWhiteSpace(obs.StudyContext))
+                        obs.StudyContext = nameTrimmed;
+                    obs.ParameterName = null;
+                    obs.AppendValidationFlag("COL_STD:PK_NAME_ROUTED_STUDY_ID");
+                    return true;
+                }
+            }
+
             // Step 1: Fast path — Name already canonicalizes to a PK term.
             if (PkParameterDictionary.TryCanonicalize(obs.ParameterName, out var canonical1))
             {
@@ -2372,6 +2560,21 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return;
             }
 
+            // (i.6) Clinical-trial study identifier — route to StudyContext.
+            // Drug names and PK parameters are guarded out so this branch only
+            // catches study codes (e.g., TMC114-C230, TMC125-C234/IMPAACT P1090).
+            // Must precede the dose-extractor (ii): codes like "C230" or "1090"
+            // would otherwise look dose-like to DoseExtractor.
+            if (_studyIdPattern.IsMatch(trimmed) &&
+                !isDrugName(trimmed) &&
+                !PkParameterDictionary.IsPkParameter(trimmed))
+            {
+                if (string.IsNullOrWhiteSpace(obs.StudyContext))
+                    obs.StudyContext = trimmed;
+                obs.AppendValidationFlag("COL_STD:PK_NAME_ROUTED_STUDY_ID");
+                return;
+            }
+
             // (ii) Drug + dose compound: "Guanfacine Ext-Release Tablets 1 mg once daily"
             var (dose, doseUnit) = DoseExtractor.Extract(trimmed);
             if (dose.HasValue)
@@ -2477,6 +2680,25 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Clinical-trial study identifier pattern — matches codes like
+        /// "TMC114-C230", "TMC125-C234/IMPAACT P1090", "ABC-12345". Used by
+        /// <see cref="routeOrParkNameContent"/> to route study IDs out of
+        /// ParameterName to StudyContext.
+        /// </summary>
+        /// <remarks>
+        /// Anchored full-string. Structure: 2–5 uppercase letters, optional
+        /// separator, 2–5 digits, optional follow-on group (separator +
+        /// alphanumeric token). Drug names and PK parameters are excluded by
+        /// the caller via <see cref="isDrugName"/> /
+        /// <see cref="PkParameterDictionary.IsPkParameter"/> guards.
+        /// </remarks>
+        /// <seealso cref="routeOrParkNameContent"/>
+        private static readonly System.Text.RegularExpressions.Regex _studyIdPattern = new(
+            @"^[A-Z]{2,5}[\s\-_]?\d{2,5}(?:[\-_/][A-Z0-9][A-Z0-9\s/\-]*)?$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
         /// Strips the numeric dose fragment and everything after it from a
         /// drug+dose string, leaving just the drug-name prefix. Used by
         /// <see cref="routeOrParkNameContent"/> to separate "Guanfacine Extended-Release Tablets"
@@ -2562,8 +2784,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (extractedUnit == null)
                 return false;
 
-            // Normalize the extracted unit
-            if (Dictionaries.UnitDictionary.NormalizationMap.TryGetValue(extractedUnit, out var canonical))
+            // Normalize the extracted unit. TryNormalize combines NormalizationMap
+            // lookup, KnownUnits canonical lookup, structural pattern, and the
+            // whitespace-tolerant fallback in one call — so a spaced source like
+            // "mcg /mL" still ends up as "mcg/mL" rather than the spaced literal.
+            var canonical = Dictionaries.UnitDictionary.TryNormalize(extractedUnit);
+            if (!string.IsNullOrWhiteSpace(canonical))
                 extractedUnit = canonical;
 
             // Only set Unit if it's currently empty
@@ -2617,13 +2843,27 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(obs.Unit))
                 return false;
 
-            // Fold Unicode dot operator (U+22C5) to middle dot (U+00B7) so the
-            // NormalizationMap keyed on "·" matches cells like "mcg⋅h/mL".
+            // Fold Unicode dot operator (U+22C5), bullet operator (U+2219), bullet
+            // (U+2022), multiplication sign (U+00D7) to middle dot (U+00B7); and
+            // micro sign (U+00B5) to Greek mu (U+03BC), so the dictionaries keyed
+            // on canonical codepoints match cells like "mcg⋅h/mL", "mcg∙h/mL",
+            // "mcg•h/mL", "ng×hr/mL", "µg/mL".
             var val = PkParameterDictionary.NormalizeUnicode(obs.Unit).Trim();
 
-            // Rule 1: Exact match in known units → keep
-            if (Dictionaries.UnitDictionary.KnownUnits.Contains(val))
+            // Rule 1: Match in known units (post-Unicode-fold). If the post-fold
+            // form differs from the original obs.Unit (e.g., U+2219 folded to
+            // U+00B7, or U+00B5 folded to U+03BC), apply the canonical form as a
+            // correction. Otherwise the value is already canonical — no work.
+            if (Dictionaries.UnitDictionary.KnownUnits.TryGetValue(val, out var knownCanonical))
+            {
+                if (!string.Equals(knownCanonical, obs.Unit, StringComparison.Ordinal))
+                {
+                    obs.Unit = knownCanonical;
+                    obs.AppendValidationFlag("COL_STD:UNIT_NORMALIZED");
+                    return true;
+                }
                 return false;
+            }
 
             // Rule 2: len > 30 → likely a leaked column header
             if (val.Length > 30)
@@ -2652,27 +2892,112 @@ namespace MedRecProImportClass.Service.TransformationServices
                 }
             }
 
-            // Rule 5: Extractable real unit inside parentheses
+            // Rule 5: Extractable real unit inside parentheses. Use TryNormalize
+            // so a parenthesized variant or spaced unit ("(mcg /mL)", "(hr)")
+            // canonicalizes correctly via NormalizationMap + whitespace fallback.
             var extractMatch = _extractableUnitPattern.Match(val);
             if (extractMatch.Success)
             {
                 var extracted = extractMatch.Groups[1].Value.Trim();
-                if (Dictionaries.UnitDictionary.KnownUnits.Contains(extracted))
+                var extractedCanonical = Dictionaries.UnitDictionary.TryNormalize(extracted);
+                if (!string.IsNullOrWhiteSpace(extractedCanonical))
                 {
-                    obs.Unit = extracted;
+                    obs.Unit = extractedCanonical;
                     obs.AppendValidationFlag("COL_STD:UNIT_NORMALIZED");
                     return true;
                 }
             }
 
-            // Rule 6: Variant spelling normalization
-            if (Dictionaries.UnitDictionary.NormalizationMap.TryGetValue(val, out var canonical))
+            // Rule 6: Variant spelling normalization. TryNormalize subsumes the
+            // NormalizationMap lookup AND adds whitespace-tolerance + structural
+            // pattern matching, so spaced PDF artifacts like "mcg /mL" or
+            // "mcg . hr /mL" canonicalize to "mcg/mL" / "mcg·h/mL".
+            var canonical = Dictionaries.UnitDictionary.TryNormalize(val);
+            if (!string.IsNullOrWhiteSpace(canonical) &&
+                !string.Equals(canonical, val, StringComparison.OrdinalIgnoreCase))
             {
                 obs.Unit = canonical;
                 obs.AppendValidationFlag("COL_STD:UNIT_NORMALIZED");
                 return true;
             }
 
+            // Rule 7 (post-extract sanity sweep): If none of Rules 1-6 fired, the
+            // value is neither a clean known unit nor a recognized verbose form.
+            // Catch malformed leakage that slipped past earlier rules — values like
+            // "mcg•hr/mL) Amoxicillin (±S.D." (length 29 — slips past Rule 2's >30
+            // check; not exact-match drug name — slips past Rule 3; trailing parens
+            // unbalanced — Rule 5 fails; not in Rule 6 map). Detection signals:
+            //   • Unbalanced parens (stray ')' before any '(' OR open/close mismatch)
+            //   • A drug-name token embedded inside the value
+            if (hasUnbalancedParens(val) || containsDrugNameToken(val))
+            {
+                obs.Unit = null;
+                obs.AppendValidationFlag("COL_STD:UNIT_HEADER_LEAK:POST_EXTRACT");
+                return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when the value's parentheses are unbalanced — either the
+        /// counts don't match, or a closing paren appears before any matching open.
+        /// </summary>
+        /// <remarks>
+        /// Used by <see cref="normalizeUnit"/> Rule 7 to detect malformed leaked
+        /// header text like "mcg•hr/mL) Amoxicillin (±S.D." where a stray close
+        /// paren and an unclosed open paren both signal corrupted input.
+        /// </remarks>
+        /// <seealso cref="normalizeUnit"/>
+        private static bool hasUnbalancedParens(string val)
+        {
+            #region implementation
+
+            int depth = 0;
+            foreach (var ch in val)
+            {
+                if (ch == '(') depth++;
+                else if (ch == ')')
+                {
+                    depth--;
+                    if (depth < 0) return true; // close before any open
+                }
+            }
+            return depth != 0;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when any token within the value matches a known drug name.
+        /// Tokens are split on whitespace and bracket characters and stripped of
+        /// trailing punctuation.
+        /// </summary>
+        /// <remarks>
+        /// Differs from <see cref="isDrugName"/>: this scans embedded tokens (the
+        /// other does whole-string and first-word match). Used by
+        /// <see cref="normalizeUnit"/> Rule 7 to catch drug names that leaked into
+        /// the middle of a malformed Unit string.
+        /// </remarks>
+        /// <seealso cref="normalizeUnit"/>
+        private bool containsDrugNameToken(string val)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(val)) return false;
+
+            var tokens = Regex.Split(val, @"[\s\(\)\[\]\,]+");
+            foreach (var raw in tokens)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var token = raw.Trim().TrimEnd('.', ';', ':');
+                if (token.Length < 4) continue; // minimum drug-name length
+                if (_drugNames.Contains(token)) return true;
+            }
             return false;
 
             #endregion
@@ -2778,6 +3103,18 @@ namespace MedRecProImportClass.Service.TransformationServices
             else if (string.Equals(oldType, "RelativeRiskReduction", StringComparison.OrdinalIgnoreCase))
             {
                 newType = resolveRiskType(obs);
+                if (isNonEfficacyRiskCategory(obs.TableCategory))
+                    obs.AppendValidationFlag("COL_STD:PVT_RR_CI_CATEGORY_REMAP");
+            }
+            // Already-canonical "RelativeRisk" on a non-Efficacy category is a
+            // contract violation produced by the rr_ci parse rule misfiring on
+            // PK / DrugInteraction `value (CI, CI)` cells. Remap before the
+            // direct-map "already canonical" early return below would skip it.
+            else if (string.Equals(oldType, "RelativeRisk", StringComparison.OrdinalIgnoreCase) &&
+                     isNonEfficacyRiskCategory(obs.TableCategory))
+            {
+                newType = resolveRiskType(obs);
+                obs.AppendValidationFlag("COL_STD:PVT_RR_CI_CATEGORY_REMAP");
             }
             // Context-dependent: "Ratio"
             else if (string.Equals(oldType, "Ratio", StringComparison.OrdinalIgnoreCase))
@@ -2855,13 +3192,32 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Resolves "RelativeRiskReduction" → HazardRatio, OddsRatio, or RelativeRisk based on caption.
+        /// Resolves a risk-type PrimaryValueType to a canonical value, honoring the
+        /// per-TableCategory contract in column-contracts.md.
         /// </summary>
+        /// <remarks>
+        /// For Efficacy tables, picks HazardRatio / OddsRatio / RelativeRisk based on
+        /// caption hints. For non-Efficacy categories (PK, DrugInteraction, BMD,
+        /// TissueDistribution), the rr_ci parse rule misfires on `value (CI, CI)`
+        /// patterns and produces a contract-violating RelativeRisk label. Remap to
+        /// ArithmeticMean (or GeometricMean if the caption indicates geometric stats).
+        /// Bounds are preserved by the migration framework — only the PVT label changes.
+        /// </remarks>
+        /// <seealso cref="isNonEfficacyRiskCategory"/>
+        /// <seealso cref="applyPhase3_PrimaryValueTypeMigration"/>
         private static string resolveRiskType(ParsedObservation obs)
         {
             #region implementation
 
             var caption = obs.Caption ?? "";
+
+            // Non-Efficacy override: rr_ci parse rule produced a contract violation.
+            if (isNonEfficacyRiskCategory(obs.TableCategory))
+            {
+                return caption.Contains("geometric", StringComparison.OrdinalIgnoreCase)
+                    ? "GeometricMean"
+                    : "ArithmeticMean";
+            }
 
             if (caption.Contains("hazard", StringComparison.OrdinalIgnoreCase))
                 return "HazardRatio";
@@ -2869,6 +3225,31 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return "OddsRatio";
 
             return "RelativeRisk";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when the TableCategory is one whose contract forbids the
+        /// risk-type PrimaryValueTypes (HazardRatio / OddsRatio / RelativeRisk).
+        /// </summary>
+        /// <remarks>
+        /// Per column-contracts.md, only the Efficacy contract permits these labels.
+        /// PK and DrugInteraction use ArithmeticMean / GeometricMean / GeometricMeanRatio;
+        /// BMD uses PercentChange / ArithmeticMean; TissueDistribution uses ArithmeticMean
+        /// / GeometricMean. Empty / unknown category returns false (no remap).
+        /// </remarks>
+        /// <seealso cref="resolveRiskType"/>
+        private static bool isNonEfficacyRiskCategory(string? category)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(category)) return false;
+            return string.Equals(category, "PK", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(category, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(category, "BMD", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(category, "TISSUE_DISTRIBUTION", StringComparison.OrdinalIgnoreCase);
 
             #endregion
         }

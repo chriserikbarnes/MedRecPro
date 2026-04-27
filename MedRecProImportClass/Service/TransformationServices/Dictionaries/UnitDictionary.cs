@@ -54,17 +54,21 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         public static readonly HashSet<string> KnownUnits = new(StringComparer.OrdinalIgnoreCase)
         {
             "%", "%CV", "h", "hr", "min", "days", "weeks", "months", "years",
-            "mg", "mcg", "µg", "g", "kg",
-            "mcg/mL", "ng/mL", "pg/mL", "µg/mL", "mg/L", "ng/dL", "mg/dL",
-            "mcg·h/mL", "ng·h/mL", "µg·h/mL", "pg·h/mL",
-            "mL/min", "mL/min/kg", "L/h", "L/h/kg", "mL/h/kg",
+            "mg", "mcg", "\u03BCg", "g", "kg",
+            "mcg/mL", "ng/mL", "pg/mL", "\u03BCg/mL", "mg/L", "ng/dL", "mg/dL",
+            "mcg·h/mL", "ng·h/mL", "\u03BCg·h/mL", "pg·h/mL", "mg·h/L",
+            "mL/min", "mL/min/kg", "L/h", "L/h/kg", "L/kg/h", "L/h/m", "mL/h/kg",
             "L", "mL", "L/kg",
             "mcg/kg/min", "mg/h", "IU/mL",
             "mg/kg", "mcg/kg", "mg/m²", "mg/kg/day",
             "ratio", "g/cm²", "beats/min", "mmHg", "mEq/L", "mOsm/kg",
             "percentage points", "subjects", "events", "patients",
             "ng/g", "mcg/g",
-            "mg/day", "mg/d", "mcg/day"
+            "mg/day", "mg/d", "mcg/day",
+            // R11 — micromolar concentration & AUC for high-potency / molarly-reported drugs
+            "\u03BCM", "\u03BCM·h",
+            // R11 — long-acting drug AUC (very long t½ products, e.g., depot formulations)
+            "ng·day/mL"
         };
 
         #endregion Known Units
@@ -98,14 +102,76 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             ["ng·hr/mL"] = "ng·h/mL",
             ["ug·hr/mL"] = "mcg·h/mL",
             // U+22C5 DOT OPERATOR variants — folded to U+00B7 MIDDLE DOT via NormalizeUnicode
-            ["mcg⋅hr/mL"] = "mcg·h/mL",
-            ["ng⋅hr/mL"] = "ng·h/mL",
-            ["pg⋅hr/mL"] = "pg·h/mL",
-            ["µg⋅hr/mL"] = "µg·h/mL",
-            ["mcg⋅h/mL"] = "mcg·h/mL",
-            ["ng⋅h/mL"] = "ng·h/mL",
-            ["pg⋅h/mL"] = "pg·h/mL",
-            ["µg⋅h/mL"] = "µg·h/mL"
+            // (Note: post-fold these match the entries above. Listed verbatim only for any
+            // pre-NormalizeUnicode caller — current callers all run NormalizeUnicode first.)
+
+            // R11 — Time-word variants. Case-insensitive HashSet handles "Hours"/"HOURS".
+            ["hours"] = "h",
+            ["hour"] = "h",
+            ["day"] = "days",
+            ["H"] = "h",
+
+            // R11 — Long-form spelled-out concentrations
+            ["nanogram per mL"] = "ng/mL",
+            ["nanogram/mL"] = "ng/mL",
+
+            // R11 — L/h family (post-NormalizeUnicode keys: ⋅•∙× all → ·)
+            ["L/hr"] = "L/h",
+            ["L/hour"] = "L/h",
+            ["L/kg/hr"] = "L/kg/h",
+            ["L/kg·hr"] = "L/kg/h",  // post-bullet-fold of "L/kg•hr"
+            ["L/kg·h"] = "L/kg/h",
+            ["L/hr/m"] = "L/h/m",    // hr→h, otherwise verbatim per user decision
+
+            // R11 — Asterisk and period variants of AUC. Period (`.`) is enumerated
+            // because we cannot fold `.` globally (would break decimal numbers in cell
+            // text). Asterisk (`*`) for the same reason — also appears in footnotes.
+            ["mcg*h/mL"] = "mcg·h/mL",
+            ["mcg*hr/mL"] = "mcg·h/mL",
+            ["mcg.h/mL"] = "mcg·h/mL",
+            ["mcg.hr/mL"] = "mcg·h/mL",
+            ["ng*h/mL"] = "ng·h/mL",
+            ["ng*hr/mL"] = "ng·h/mL",
+            ["ng.h/mL"] = "ng·h/mL",
+            ["ng.hr/mL"] = "ng·h/mL",
+            ["ngxhr/mL"] = "ng·h/mL",  // ASCII 'x' between ng and hr
+            ["pg.h/mL"] = "pg·h/mL",
+            ["pg.hr/mL"] = "pg·h/mL",
+            ["pg*h/mL"] = "pg·h/mL",
+            ["pg*hr/mL"] = "pg·h/mL",
+
+            // R11 — mg·h/L family (new canonical) — post-NormalizeUnicode keys
+            ["mg·hr/L"] = "mg·h/L",
+            ["mg.h/L"] = "mg·h/L",
+            ["mg.hr/L"] = "mg·h/L",
+            ["mg*h/L"] = "mg·h/L",
+            ["mg*hr/L"] = "mg·h/L",
+
+            // R11 — Reversed-order AUC (rare, observed in corpus as "h·ng/mL")
+            ["h·ng/mL"] = "ng·h/mL",
+            ["h·mcg/mL"] = "mcg·h/mL",
+            ["h·pg/mL"] = "pg·h/mL",
+
+            // R11 — Micromolar (μM) AUC variants — post-NormalizeUnicode keys (μ = U+03BC)
+            ["\u03BCM·hr"] = "\u03BCM·h",
+            ["\u03BCM.hr"] = "\u03BCM·h",
+            ["\u03BCM.h"] = "\u03BCM·h",
+            ["\u03BCM*hr"] = "\u03BCM·h",
+            ["\u03BCM·hr/L"] = "\u03BCM·h",
+            ["\u03BCM.hr/L"] = "\u03BCM·h",
+
+            // R11 — Greek-mu AUC variants. NormalizeUnicode folds U+00B5 → U+03BC,
+            // so these keys must use U+03BC (Greek Mu).
+            ["\u03BCg·hr/mL"] = "\u03BCg·h/mL",
+            ["\u03BCg.h/mL"] = "\u03BCg·h/mL",
+            ["\u03BCg.hr/mL"] = "\u03BCg·h/mL",
+            ["\u03BCg*h/mL"] = "\u03BCg·h/mL",
+            ["\u03BCg*hr/mL"] = "\u03BCg·h/mL",
+            ["\u03BCghr/mL"] = "\u03BCg·h/mL",
+            ["\u03BCg h/mL"] = "\u03BCg·h/mL",
+
+            // R11 — CV percentage (CV% appears as a header but means "%CV")
+            ["CV%"] = "%CV"
         };
 
         #endregion Normalization Map
@@ -120,8 +186,17 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /// (<c>mg/kg</c>, <c>mg/m²</c>) shapes. Anchored — full-string match only.
         /// </summary>
         public static readonly Regex PkUnitStructurePattern = new(
-            @"^(?:(?:mc?g|ng|pg|µg|mg|IU)(?:·(?:h|hr))?/(?:mL|L|kg|m²))$",
+            "^(?:(?:mc?g|ng|pg|\u03BCg|mg|IU)(?:\u00B7(?:h|hr))?/(?:mL|L|kg|m\u00B2))$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// R11 — Internal-whitespace stripper used by the whitespace-tolerant
+        /// fallback in <see cref="TryNormalize"/> and <see cref="IsRecognized"/>
+        /// to canonicalize PDF-extraction defects like <c>"mcg /mL"</c>,
+        /// <c>"mcg . hr /mL"</c>, <c>"mL /min /kg"</c>, <c>"m c g/mL"</c>.
+        /// </summary>
+        private static readonly Regex _whitespaceStrip = new(@"\s+", RegexOptions.Compiled);
 
         #endregion Structural Pattern
 
@@ -160,18 +235,20 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             // false-positive unit assignments on non-PK content.
             var inlineCandidates = new List<string>
             {
-                // Composite concentration units (longest first)
-                "mcg·h/mL", "ng·h/mL", "pg·h/mL", "µg·h/mL",
-                "mcg·hr/mL", "ng·hr/mL", "pg·hr/mL", "µg·hr/mL",
+                // Composite concentration units (longest first). Mu entries use
+                // U+03BC (GREEK MU) to match post-NormalizeUnicode input.
+                "mcg·h/mL", "ng·h/mL", "pg·h/mL", "\u03BCg·h/mL",
+                "mcg·hr/mL", "ng·hr/mL", "pg·hr/mL", "\u03BCg·hr/mL",
                 "mL/min/kg", "mg/kg/day", "mcg/kg/min",
-                "mL/h/kg", "L/h/kg",
-                "mcg/mL", "ng/mL", "pg/mL", "µg/mL",
-                "mg/dL", "ng/dL", "mg/L",
+                "mL/h/kg", "L/h/kg", "L/kg/h",
+                "mcg/mL", "ng/mL", "pg/mL", "\u03BCg/mL",
+                "mg/dL", "ng/dL", "mg/L", "mg·h/L",
                 "mg/kg", "mcg/kg",
                 "mg/day", "mcg/day", "mg/m²",
                 "mL/min", "L/kg", "L/h", "mg/h", "IU/mL",
                 "mg/d",
                 "ng/g", "mcg/g",
+                "ng·day/mL",
                 // Time tokens — PK-specific only (hours / minutes). Excludes
                 // days/weeks/months/years to avoid narrative age-range matches.
                 "hrs", "hr", "min",
@@ -239,7 +316,28 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             if (NormalizationMap.ContainsKey(folded))
                 return true;
 
-            return PkUnitStructurePattern.IsMatch(folded);
+            if (PkUnitStructurePattern.IsMatch(folded))
+                return true;
+
+            // R11 — Whitespace-tolerant fallback. Real corpus has spacing defects
+            // from PDF extraction: "mcg /mL", "mcg ·h/mL", "mcg . hr /mL",
+            // "mL /min /kg", "m c g/mL". Strip ALL internal whitespace and retry.
+            // Skipped for entries that legitimately contain spaces (`percentage
+            // points`, `mean ± SD` if added) — those are caught by the spaced-form
+            // checks above. Whitespace-stripped form is tried last so we never
+            // collapse a legitimate spaced canonical to an unrelated concatenation.
+            var compact = _whitespaceStrip.Replace(folded, "");
+            if (compact.Length > 0 && compact.Length != folded.Length)
+            {
+                if (KnownUnits.Contains(compact))
+                    return true;
+                if (NormalizationMap.ContainsKey(compact))
+                    return true;
+                if (PkUnitStructurePattern.IsMatch(compact))
+                    return true;
+            }
+
+            return false;
 
             #endregion
         }
@@ -276,6 +374,20 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
 
             if (PkUnitStructurePattern.IsMatch(folded))
                 return folded;
+
+            // R11 — Whitespace-tolerant fallback. See IsRecognized for full rationale.
+            // Tried last so legitimate spaced canonicals ("percentage points") win on
+            // their original-spacing form before the compact form is considered.
+            var compact = _whitespaceStrip.Replace(folded, "");
+            if (compact.Length > 0 && compact.Length != folded.Length)
+            {
+                if (NormalizationMap.TryGetValue(compact, out var compactMapped))
+                    return compactMapped;
+                if (KnownUnits.TryGetValue(compact, out var compactCanonical))
+                    return compactCanonical;
+                if (PkUnitStructurePattern.IsMatch(compact))
+                    return compact;
+            }
 
             return null;
 

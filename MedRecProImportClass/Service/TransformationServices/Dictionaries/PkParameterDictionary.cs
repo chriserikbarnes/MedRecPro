@@ -74,6 +74,25 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         private const char FRACTION_SLASH = '\u2044';
         private const char DIVISION_SLASH = '\u2215';
 
+        // R11 — additional dot/bullet variants used as unit-multiplication separators
+        // in real SPL tables. All fold to U+00B7 MIDDLE DOT so the canonical
+        // <c>mcg·h/mL</c>-style entries match.
+        // U+2219 BULLET OPERATOR — "mcg∙h/mL", "ng∙hr/mL", "μg∙h/mL"
+        private const char BULLET_OPERATOR = '\u2219';
+        // U+2022 BULLET — "mcg•h/mL", "mg•h/L", "pg•h/mL"
+        private const char BULLET = '\u2022';
+        // U+00D7 MULTIPLICATION SIGN — "ng×hr/mL"
+        private const char MULTIPLICATION_SIGN = '\u00D7';
+
+        // R11 — Micro Sign vs Greek Mu. NFKC decomposes U+00B5 → U+03BC, so the
+        // dictionary keys must use U+03BC to remain reachable. Fold explicitly so
+        // the intent is documented in code (the NFKC pass below would also do
+        // this, but the explicit fold makes the contract obvious to readers).
+        // U+00B5 MICRO SIGN — "µg/mL", "µg·h/mL"
+        private const char MICRO_SIGN = '\u00B5';
+        // U+03BC GREEK SMALL LETTER MU — canonical form post-NFKC
+        private const char GREEK_MU = '\u03BC';
+
         // Collapse sequences of whitespace to a single space
         private static readonly Regex _whitespaceCollapse = new(@"\s+", RegexOptions.Compiled);
 
@@ -95,20 +114,29 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /**************************************************************/
         /// <summary>
         /// Folds Unicode variants so downstream lookups see a canonical codepoint form.
-        /// Maps U+22C5 (DOT OPERATOR, `⋅`) onto U+00B7 (MIDDLE DOT, `·`),
-        /// U+2044 (FRACTION SLASH, `⁄`) and U+2215 (DIVISION SLASH, `∕`) onto
-        /// ASCII `/`, then runs an NFKC normalization pass over the result.
+        /// Maps U+22C5 (DOT OPERATOR, `⋅`), U+2219 (BULLET OPERATOR, `∙`), U+2022
+        /// (BULLET, `•`), and U+00D7 (MULTIPLICATION SIGN, `×`) onto U+00B7
+        /// (MIDDLE DOT, `·`); U+2044 (FRACTION SLASH, `⁄`) and U+2215 (DIVISION
+        /// SLASH, `∕`) onto ASCII `/`; U+00B5 (MICRO SIGN, `µ`) onto U+03BC (GREEK
+        /// SMALL LETTER MU, `μ`); then runs an NFKC normalization pass.
         /// </summary>
         /// <param name="input">Raw text from the source table.</param>
         /// <returns>Canonicalized string, or the empty string when <paramref name="input"/> is null.</returns>
         /// <remarks>
         /// Real SPL tables use:
-        /// - `⋅` (U+22C5) in unit expressions like `mcg⋅hr/mL` — folded to `·`
-        ///   (U+00B7) so the <see cref="UnitDictionary.NormalizationMap"/> keys match.
+        /// - `⋅` (U+22C5), `∙` (U+2219), `•` (U+2022), `×` (U+00D7) interchangeably
+        ///   as unit-multiplication separators (`mcg⋅hr/mL`, `mcg∙h/mL`, `mcg•h/mL`,
+        ///   `ng×hr/mL`) — all fold to `·` (U+00B7) so the
+        ///   <see cref="UnitDictionary.NormalizationMap"/> keys match.
         /// - `⁄` (U+2044 FRACTION SLASH) in `t1⁄2` variants — folded to `/` so
         ///   `t1/2` resolves to the canonical `t½` entry.
         /// - `∕` (U+2215 DIVISION SLASH) in rare compound units — folded to `/`
         ///   for symmetry.
+        /// - `µ` (U+00B5 MICRO SIGN) and `μ` (U+03BC GREEK SMALL LETTER MU) are
+        ///   visually identical and used interchangeably for "micro". NFKC's
+        ///   compatibility-decomposition collapses MICRO SIGN onto GREEK MU, so
+        ///   we fold explicitly in the same direction (idempotent with the NFKC
+        ///   pass) and key all dictionary entries on U+03BC.
         /// </remarks>
         public static string NormalizeUnicode(string? input)
         {
@@ -120,10 +148,17 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             // Fast path: replace known codepoint variants first
             var folded = input
                 .Replace(DOT_OPERATOR, MIDDLE_DOT)
+                .Replace(BULLET_OPERATOR, MIDDLE_DOT)
+                .Replace(BULLET, MIDDLE_DOT)
+                .Replace(MULTIPLICATION_SIGN, MIDDLE_DOT)
+                .Replace(MICRO_SIGN, GREEK_MU)
                 .Replace(FRACTION_SLASH, '/')
                 .Replace(DIVISION_SLASH, '/');
 
-            // NFKC also collapses things like fullwidth digits; safe for unit text
+            // NFKC also collapses things like fullwidth digits; safe for unit text.
+            // It also decomposes U+00B5 (MICRO SIGN) → U+03BC (GREEK MU), which the
+            // explicit fold above already accomplishes — kept in NFKC's path for
+            // belt-and-suspenders and to handle other compatibility decompositions.
             return folded.Normalize(NormalizationForm.FormKC);
 
             #endregion
