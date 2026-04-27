@@ -3133,3 +3133,17 @@ Rebranded the Stage 3.4 service family from `Ml*` to `QC*` (Quality Check) to ma
 **Verification:** `dotnet build` = 0 errors. `dotnet test MedRecProTest` = 1713 passed, 0 failed, 0 skipped (2m20s). Final ripgrep sweep across `MedRecProImportClass/`, `MedRecProConsole/`, `MedRecProTest/` confirms zero remaining `\bMl[A-Z]` / `\bIMl[A-Z]` / `\bMLNET[:_]` symbols in C# source (the README is also clean).
 
 ---
+
+### 2026-04-27 10:43 AM EST — Simplify ParseQualityService: switch → dictionary, flag-token constants
+
+Ran `/simplify` against `MedRecProImportClass/Service/TransformationServices/`. Three parallel review agents (reuse / quality / efficiency) examined the recent QC-rebrand and parse-quality-gate commits. Most findings were already-clean confirmations; several were rejected after verification (e.g. the claim that `string.Contains(s, StringComparison.OrdinalIgnoreCase)` allocates a comparer per call — `StringComparison` is an enum, no allocation; the claim that `_contracts.GetContract()` is wasteful — already O(1) on a static dictionary). Two real cleanups stuck and were applied to `ParseQualityService.cs`:
+
+**Fix 1 — `isColumnEmpty()` switch → static dictionary lookup.** The previous body, `col.ToLowerInvariant() switch { "parametername" => ..., "parametercategory" => ..., ... }`, allocated a lowercase string on every Required-column check (per row × per Required column). Replaced with a `static readonly Dictionary<string, Func<ParsedObservation, bool>>` initialized using `StringComparer.OrdinalIgnoreCase`. The method body collapses to `_emptyChecks.TryGetValue(col, out var check) && check(obs)`. Zero per-call string allocation; the table form is also more readable than the 24-arm switch.
+
+**Fix 2 — Extract upstream-flag tokens to `private const string` fields.** Eight soft-repair flag literals (`PVT_MIGRATED`, `BOUND_TYPE_INFERRED`, `CAPTION_REINTERPRET`, `PLUSMINUS_TYPE_INFERRED`, `PK_UNIT_SIBLING_VOTED:RESCUE_BOOST`, `PK_UNIT_SIBLING_VOTED`, `COL_STD:PK_NAME_PARKED_CTX`, `MISSING_R_Unit`) had been scattered as inline string-literal `Contains()` arguments. They now live in a single `Soft-repair flag tokens` region near the regex patterns. Important: `Reasons.Add("SoftRepair:...")` payloads were intentionally **kept as inline literals** so the downstream `QC_PARSE_QUALITY:REVIEW_REASONS:...` audit-trail strings stay byte-identical with prior versions. The `PK_NAME_PARKED_CTX` reason is intentionally asymmetric (the upstream flag has a `COL_STD:` prefix that the reason drops) — documented in the new region's `<remarks>`.
+
+**Fix 3 — `belowQualityThreshold()` flag parser → ValidationFlagExtensions helper.** Considered and **deferred** per the Code-Reuse agent's analysis: only one consumer exists today (`ClaudeApiCorrectionService`), so promoting the parsing logic to `ValidationFlagExtensions.TryGetQualityScore` would add coupling without payoff. Listed in the plan file so we don't lose track if a second consumer (audit reader, downstream metric) emerges.
+
+**Verification:** `dotnet build MedRecProImportClass.csproj` = 0 errors (148 pre-existing warnings, none in the touched file). `dotnet test --filter "FullyQualifiedName~ParseQualityService"` = **27/27 passed in 460 ms** — proves Reasons-string parity (the test fixtures assert exact pipe-delimited reason payloads, so any stringly-typed drift would have failed the suite). Net diff: +86 / −39 in `ParseQualityService.cs`; structural `#region` blocks all preserved per project convention.
+
+---

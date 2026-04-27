@@ -115,6 +115,79 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion
 
+        #region Soft-repair flag tokens
+
+        /**************************************************************/
+        /// <summary>
+        /// Soft-repair flag tokens emitted by upstream parsers and matched against
+        /// <see cref="ParsedObservation.ValidationFlags"/>. Centralized so that if any of
+        /// these tokens are renamed at the emission site, the rename is grep-discoverable
+        /// here rather than silently disabling the corresponding penalty.
+        /// </summary>
+        /// <remarks>
+        /// The corresponding <c>SoftRepair:{token}</c> reason strings written into
+        /// <see cref="ParseQualityScore.Reasons"/> remain inline literals to keep the
+        /// audit-trail payload byte-identical with prior versions. <c>PK_NAME_PARKED_CTX</c>
+        /// is intentionally asymmetric: the upstream flag is <c>COL_STD:PK_NAME_PARKED_CTX</c>
+        /// but the reason drops the <c>COL_STD:</c> prefix.
+        /// </remarks>
+        private const string FlagPvtMigrated = "PVT_MIGRATED";
+        private const string FlagBoundTypeInferred = "BOUND_TYPE_INFERRED";
+        private const string FlagCaptionReinterpret = "CAPTION_REINTERPRET";
+        private const string FlagPlusMinusTypeInferred = "PLUSMINUS_TYPE_INFERRED";
+        private const string FlagPkUnitSiblingVotedRescueBoost = "PK_UNIT_SIBLING_VOTED:RESCUE_BOOST";
+        private const string FlagPkUnitSiblingVoted = "PK_UNIT_SIBLING_VOTED";
+        private const string FlagPkNameParkedCtx = "COL_STD:PK_NAME_PARKED_CTX";
+        private const string FlagMissingRUnit = "MISSING_R_Unit";
+
+        #endregion
+
+        #region Column empty-check lookup
+
+        /**************************************************************/
+        /// <summary>
+        /// Maps each Required-column name to the predicate that decides whether the
+        /// corresponding <see cref="ParsedObservation"/> field is null / empty / whitespace
+        /// (or, for nullable numerics, has no value). Replaces a per-call lowercase switch
+        /// with an <see cref="StringComparer.OrdinalIgnoreCase"/> dictionary lookup so the
+        /// hot path no longer allocates a lowercase string per Required column per row.
+        /// </summary>
+        /// <remarks>
+        /// The Required-set in <see cref="ColumnContractRegistry"/> is the closed universe of
+        /// column names that can reach this lookup; adding a new Required entry there
+        /// requires adding a row here. Keys missing from this map default to "populated"
+        /// (no penalty), preserving the previous switch's <c>_ => false</c> behavior.
+        /// </remarks>
+        private static readonly Dictionary<string, Func<ParsedObservation, bool>> _emptyChecks =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ParameterName"]      = obs => string.IsNullOrWhiteSpace(obs.ParameterName),
+                ["ParameterCategory"]  = obs => string.IsNullOrWhiteSpace(obs.ParameterCategory),
+                ["ParameterSubtype"]   = obs => string.IsNullOrWhiteSpace(obs.ParameterSubtype),
+                ["TreatmentArm"]       = obs => string.IsNullOrWhiteSpace(obs.TreatmentArm),
+                ["ArmN"]               = obs => !obs.ArmN.HasValue,
+                ["StudyContext"]       = obs => string.IsNullOrWhiteSpace(obs.StudyContext),
+                ["DoseRegimen"]        = obs => string.IsNullOrWhiteSpace(obs.DoseRegimen),
+                ["Dose"]               = obs => !obs.Dose.HasValue,
+                ["DoseUnit"]           = obs => string.IsNullOrWhiteSpace(obs.DoseUnit),
+                ["Population"]         = obs => string.IsNullOrWhiteSpace(obs.Population),
+                ["Timepoint"]          = obs => string.IsNullOrWhiteSpace(obs.Timepoint),
+                ["Time"]               = obs => !obs.Time.HasValue,
+                ["TimeUnit"]           = obs => string.IsNullOrWhiteSpace(obs.TimeUnit),
+                ["RawValue"]           = obs => string.IsNullOrWhiteSpace(obs.RawValue),
+                ["PrimaryValue"]       = obs => !obs.PrimaryValue.HasValue,
+                ["PrimaryValueType"]   = obs => string.IsNullOrWhiteSpace(obs.PrimaryValueType),
+                ["SecondaryValue"]     = obs => !obs.SecondaryValue.HasValue,
+                ["SecondaryValueType"] = obs => string.IsNullOrWhiteSpace(obs.SecondaryValueType),
+                ["LowerBound"]         = obs => !obs.LowerBound.HasValue,
+                ["UpperBound"]         = obs => !obs.UpperBound.HasValue,
+                ["BoundType"]          = obs => string.IsNullOrWhiteSpace(obs.BoundType),
+                ["PValue"]             = obs => !obs.PValue.HasValue,
+                ["Unit"]               = obs => string.IsNullOrWhiteSpace(obs.Unit),
+            };
+
+        #endregion
+
         #region Constructor
 
         /**************************************************************/
@@ -217,44 +290,44 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Soft repair signals — upstream parser had to work for this row.
             var flags = obs.ValidationFlags ?? string.Empty;
-            if (flags.Contains("PVT_MIGRATED", StringComparison.OrdinalIgnoreCase))
+            if (flags.Contains(FlagPvtMigrated, StringComparison.OrdinalIgnoreCase))
             {
                 score *= 0.9;
                 reasons.Add("SoftRepair:PVT_MIGRATED");
             }
-            if (flags.Contains("BOUND_TYPE_INFERRED", StringComparison.OrdinalIgnoreCase))
+            if (flags.Contains(FlagBoundTypeInferred, StringComparison.OrdinalIgnoreCase))
             {
                 score *= 0.9;
                 reasons.Add("SoftRepair:BOUND_TYPE_INFERRED");
             }
-            if (flags.Contains("CAPTION_REINTERPRET", StringComparison.OrdinalIgnoreCase))
+            if (flags.Contains(FlagCaptionReinterpret, StringComparison.OrdinalIgnoreCase))
             {
                 score *= 0.9;
                 reasons.Add("SoftRepair:CAPTION_REINTERPRET");
             }
-            if (flags.Contains("PLUSMINUS_TYPE_INFERRED", StringComparison.OrdinalIgnoreCase))
+            if (flags.Contains(FlagPlusMinusTypeInferred, StringComparison.OrdinalIgnoreCase))
             {
                 score *= 0.9;
                 reasons.Add("SoftRepair:PLUSMINUS_TYPE_INFERRED");
             }
-            if (flags.Contains("PK_UNIT_SIBLING_VOTED:RESCUE_BOOST", StringComparison.OrdinalIgnoreCase))
+            if (flags.Contains(FlagPkUnitSiblingVotedRescueBoost, StringComparison.OrdinalIgnoreCase))
             {
                 // Rescue-boost subsumes the plain sibling-voted penalty. Apply the stricter
                 // 0.85 multiplier and skip the 0.95 check.
                 score *= 0.85;
                 reasons.Add("SoftRepair:PK_UNIT_SIBLING_VOTED:RESCUE_BOOST");
             }
-            else if (flags.Contains("PK_UNIT_SIBLING_VOTED", StringComparison.OrdinalIgnoreCase))
+            else if (flags.Contains(FlagPkUnitSiblingVoted, StringComparison.OrdinalIgnoreCase))
             {
                 score *= 0.95;
                 reasons.Add("SoftRepair:PK_UNIT_SIBLING_VOTED");
             }
-            if (flags.Contains("COL_STD:PK_NAME_PARKED_CTX", StringComparison.OrdinalIgnoreCase))
+            if (flags.Contains(FlagPkNameParkedCtx, StringComparison.OrdinalIgnoreCase))
             {
                 score *= 0.9;
                 reasons.Add("SoftRepair:PK_NAME_PARKED_CTX");
             }
-            if (flags.Contains("MISSING_R_Unit", StringComparison.OrdinalIgnoreCase))
+            if (flags.Contains(FlagMissingRUnit, StringComparison.OrdinalIgnoreCase))
             {
                 score *= 0.9;
                 reasons.Add("SoftRepair:MISSING_R_Unit");
@@ -308,10 +381,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <see cref="ParsedObservation"/> that appear in the per-category contracts.
         /// </summary>
         /// <remarks>
-        /// Any column name not covered by the switch silently returns false (treated as
-        /// populated). The Required-set in <see cref="ColumnContractRegistry"/> is the
-        /// closed universe of column names that can reach this method; adding a new
-        /// Required entry there requires adding a case here.
+        /// Any column name not covered by <see cref="_emptyChecks"/> silently returns false
+        /// (treated as populated). The Required-set in <see cref="ColumnContractRegistry"/>
+        /// is the closed universe of column names that can reach this method; adding a new
+        /// Required entry there requires adding a row to <see cref="_emptyChecks"/>.
         /// </remarks>
         /// <param name="obs">Observation being evaluated.</param>
         /// <param name="col">Column name from <see cref="CategoryContract.Required"/>.</param>
@@ -320,33 +393,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            return col.ToLowerInvariant() switch
-            {
-                "parametername" => string.IsNullOrWhiteSpace(obs.ParameterName),
-                "parametercategory" => string.IsNullOrWhiteSpace(obs.ParameterCategory),
-                "parametersubtype" => string.IsNullOrWhiteSpace(obs.ParameterSubtype),
-                "treatmentarm" => string.IsNullOrWhiteSpace(obs.TreatmentArm),
-                "armn" => !obs.ArmN.HasValue,
-                "studycontext" => string.IsNullOrWhiteSpace(obs.StudyContext),
-                "doseregimen" => string.IsNullOrWhiteSpace(obs.DoseRegimen),
-                "dose" => !obs.Dose.HasValue,
-                "doseunit" => string.IsNullOrWhiteSpace(obs.DoseUnit),
-                "population" => string.IsNullOrWhiteSpace(obs.Population),
-                "timepoint" => string.IsNullOrWhiteSpace(obs.Timepoint),
-                "time" => !obs.Time.HasValue,
-                "timeunit" => string.IsNullOrWhiteSpace(obs.TimeUnit),
-                "rawvalue" => string.IsNullOrWhiteSpace(obs.RawValue),
-                "primaryvalue" => !obs.PrimaryValue.HasValue,
-                "primaryvaluetype" => string.IsNullOrWhiteSpace(obs.PrimaryValueType),
-                "secondaryvalue" => !obs.SecondaryValue.HasValue,
-                "secondaryvaluetype" => string.IsNullOrWhiteSpace(obs.SecondaryValueType),
-                "lowerbound" => !obs.LowerBound.HasValue,
-                "upperbound" => !obs.UpperBound.HasValue,
-                "boundtype" => string.IsNullOrWhiteSpace(obs.BoundType),
-                "pvalue" => !obs.PValue.HasValue,
-                "unit" => string.IsNullOrWhiteSpace(obs.Unit),
-                _ => false,
-            };
+            return _emptyChecks.TryGetValue(col, out var check) && check(obs);
 
             #endregion
         }
