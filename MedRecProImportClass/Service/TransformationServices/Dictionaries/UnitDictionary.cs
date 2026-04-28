@@ -73,6 +73,112 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
 
         #endregion Known Units
 
+        #region Dosing & Lab Unit Sets
+
+        /**************************************************************/
+        /// <summary>
+        /// Composed dosing units beyond those already in <see cref="KnownUnits"/>.
+        /// All have a left numerator + denominator(s); the structural rule is
+        /// that a dose unit must always have a left side to its <c>/</c>. Used
+        /// by <c>DoseExtractor</c> via <see cref="DoseUnitAlternation"/>.
+        /// </summary>
+        /// <remarks>
+        /// Additive: does not extend <see cref="KnownUnits"/>, so the PK
+        /// Phase-2d scrub keeps its narrow whitelist. A new dosing unit goes
+        /// here, not in <see cref="KnownUnits"/>, unless it is also a valid
+        /// PK concentration / AUC / clearance unit.
+        /// </remarks>
+        public static readonly HashSet<string> DoseComposedUnits = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "mg/5 mL",       // suspension concentration (e.g., "250 mg/5 mL")
+            "mL/kg",         // volume per body weight
+            "mL/h", "mL/hr", // hourly volume
+            "mcg/d"          // (mg/d, mg/day, mcg/day are in KnownUnits; mcg/d is not)
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Clinical lab CONCENTRATION units. Numerator/denominator with a
+        /// non-empty left side (hemoglobin, creatinine, glucose, electrolytes).
+        /// Structurally look like dose rates and are recognized by
+        /// <see cref="DoseUnitAlternation"/>; semantic rejection of these as
+        /// dose values happens at the parser level via
+        /// <c>PopulationDetector.LooksLikeLabThresholdDoseModification</c>.
+        /// </summary>
+        public static readonly HashSet<string> ClinicalConcentrationUnits = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "g/dL",   // hemoglobin
+            "mg/dL",  // creatinine, glucose
+            "mEq/L",  // electrolytes
+            "mmol/L"  // electrolytes
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// Clinical lab COUNT units. Bare denominator, no numerator on the
+        /// left of <c>/</c> -- therefore NOT dose units. Used solely by
+        /// lab-threshold detection in dose-modification tables (platelet,
+        /// neutrophil, CD4 counts). NEVER appear in
+        /// <see cref="DoseUnitAlternation"/>.
+        /// </summary>
+        public static readonly HashSet<string> ClinicalCountUnits = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "/μL", // platelet / neutrophil counts (Greek mu, U+03BC)
+            "/µL", // micro-sign variant (U+00B5)
+            "/mcL",     // ASCII fallback
+            "cells/mm³" // CD4 counts
+        };
+
+        /**************************************************************/
+        /// <summary>
+        /// All clinical lab units, both concentration and count. Consumed by
+        /// <c>PopulationDetector.LooksLikeLabThresholdDoseModification</c> to
+        /// detect lab-threshold dose-modification triggers in 34068-7 tables.
+        /// </summary>
+        public static IEnumerable<string> AllClinicalLabUnits =>
+            ClinicalConcentrationUnits.Concat(ClinicalCountUnits);
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex-safe alternation of every unit a dose can structurally take.
+        /// Always has a left numerator: the <c>StartsWith("/")</c> filter
+        /// strips bare denominators (count units) at build time. Longest-first
+        /// so <c>mcg·h/mL</c> wins over <c>mcg</c>.
+        /// </summary>
+        /// <remarks>
+        /// Built once at static construction from the union of
+        /// <see cref="KnownUnits"/>, <see cref="DoseComposedUnits"/>,
+        /// <see cref="ClinicalConcentrationUnits"/>, plus the bare-singleton
+        /// dose units (<c>IU</c>, <c>U</c>, <c>Units</c>, <c>Unit</c>,
+        /// <c>µg</c>) that are dose-relevant but absent from the
+        /// PK-focused <see cref="KnownUnits"/> set.
+        /// </remarks>
+        public static string DoseUnitAlternation => _doseUnitAlternation.Value;
+
+        private static readonly Lazy<string> _doseUnitAlternation = new(() =>
+        {
+            #region implementation
+
+            // Bare singleton dose units that aren't in the PK-focused KnownUnits
+            // but must match in dose extraction.
+            var bareDoseSingletons = new[] { "IU", "U", "Units", "Unit", "µg" };
+
+            return string.Join("|",
+                KnownUnits
+                    .Concat(DoseComposedUnits)
+                    .Concat(ClinicalConcentrationUnits)
+                    .Concat(bareDoseSingletons)
+                    .Where(u => !u.StartsWith("/", StringComparison.Ordinal))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderByDescending(u => u.Length)
+                    .ThenBy(u => u, StringComparer.Ordinal)
+                    .Select(Regex.Escape));
+
+            #endregion
+        });
+
+        #endregion Dosing & Lab Unit Sets
+
         #region Normalization Map
 
         /**************************************************************/

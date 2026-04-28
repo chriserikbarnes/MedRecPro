@@ -365,6 +365,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         ///   "50-59 kg", "≥90 kg") — body-weight dosing layouts.
         /// - <see cref="PopulationDetector.TryMatchLabel"/> resolves a header / row
         ///   label to a canonical Population (Pediatric, Renal Impairment, …).
+        /// - Caption / section-title fallback uses descriptor-only matching for
+        ///   layouts whose dosing signal appears in surrounding table context.
         ///
         /// ## Downgrade rule
         /// No positive signal AND <see cref="computeProseRatio"/> ≥ 0.30 →
@@ -410,6 +412,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                         signalHits++;
                         break;
                     }
+                }
+            }
+
+            // Caption / section-title fallback: some structured dose tables carry
+            // their only descriptor in surrounding context instead of headers or row labels.
+            if (signalHits == 0)
+            {
+                if (DosingDescriptorDictionary.ContainsDosingDescriptor(table.Caption)
+                    || DosingDescriptorDictionary.ContainsDosingDescriptor(table.SectionTitle))
+                {
+                    signalHits++;
                 }
             }
 

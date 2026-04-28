@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using MedRecProImportClass.Service.TransformationServices.Dictionaries;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -63,6 +64,105 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private static readonly Regex _weightBandRangePattern = new(
             @"^\s*\d+(?:\.\d+)?\s*(?:to|[-–—])\s*\d+(?:\.\d+)?\s*kg\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Height / BSA band with a comparator: <c>&lt; 1.50 m</c>,
+        /// <c>≥ 1.90 m</c>, <c>&lt;1.30 m²</c>. Anchored to the whole cell.
+        /// </summary>
+        private static readonly Regex _heightBandComparatorPattern = new(
+            @"^\s*(?:[<>≤≥]|<=|>=)\s*\d+(?:\.\d+)?\s*m(?:[²2])?\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Height / BSA band as a range: <c>1.50-1.69 m</c>,
+        /// <c>1.70 – 1.89 m</c>, <c>1.30 to 1.49 m²</c>. Anchored to the whole
+        /// cell so prose containing the same shape does not match.
+        /// </summary>
+        private static readonly Regex _heightBandRangePattern = new(
+            @"^\s*\d+(?:\.\d+)?\s*(?:to|[-–—])\s*\d+(?:\.\d+)?\s*m(?:[²2])?\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Creatinine clearance band, comparator form: <c>&lt;30 mL/min</c>,
+        /// <c>≥60 mL/min</c>. Anchored to the whole cell.
+        /// </summary>
+        private static readonly Regex _crClBandComparatorPattern = new(
+            @"^\s*(?:[<>≤≥]|<=|>=)\s*\d+(?:\.\d+)?\s*mL/min\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Creatinine clearance band, range form: <c>30-59 mL/min</c>,
+        /// <c>60 to 89 mL/min</c>. Anchored to the whole cell.
+        /// </summary>
+        private static readonly Regex _crClBandRangePattern = new(
+            @"^\s*\d+(?:\.\d+)?\s*(?:to|[-–—])\s*\d+(?:\.\d+)?\s*mL/min\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Bare creatinine clearance value: <c>90 mL/min</c>, <c>60 mL/min</c>.
+        /// Anchored to the whole cell. Distinct from the comparator and range
+        /// forms above because some renal dose tables list a single CrCl value
+        /// per row rather than a band.
+        /// </summary>
+        private static readonly Regex _crClBareValuePattern = new(
+            @"^\s*\d+(?:\.\d+)?\s*mL/min\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Comparator-bearing clinical lab threshold used as a dose-modification
+        /// trigger, such as <c>Hemoglobin &lt;8 g/dL</c> or
+        /// <c>Platelet count &lt;50,000/mcL</c>. Lab-unit alternation is built
+        /// from <see cref="UnitDictionary.AllClinicalLabUnits"/> so concentration
+        /// and count units stay centralized in one source of truth.
+        /// </summary>
+        private static readonly Regex _labThresholdDoseModificationPattern = buildLabThresholdPattern();
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the lookahead-based lab-threshold detector. Three lookaheads
+        /// must all match: a comparator, a digit, and a clinical lab unit from
+        /// <see cref="UnitDictionary.AllClinicalLabUnits"/> (concentration or
+        /// count) or one of the open-form lab shapes (<c>10^N</c>,
+        /// <c>cells/mm3</c>) that don't fit a token list.
+        /// </summary>
+        private static Regex buildLabThresholdPattern()
+        {
+            #region implementation
+
+            var unitAlternation = string.Join("|",
+                UnitDictionary.AllClinicalLabUnits
+                    .OrderByDescending(u => u.Length)
+                    .ThenBy(u => u, StringComparer.Ordinal)
+                    .Select(Regex.Escape));
+
+            // Open-form shapes that aren't tokenizable:
+            //   10^N or 10N — exponent notation for cell counts
+            //   cells/mm3 — explicit count phrasing
+            const string openFormShapes = @"10\^?\d|cells?/mm3";
+
+            var labUnitAlternation = $"{unitAlternation}|{openFormShapes}";
+
+            return new Regex(
+                $@"(?=.*(?:[<>]=?|[≤≥]))(?=.*\d)(?=.*(?:{labUnitAlternation}))",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+            #endregion
+        }
+
+
+        /**************************************************************/
+        /// <summary>
+        /// CTCAE-style grade threshold used as a dose-modification trigger.
+        /// </summary>
+        private static readonly Regex _gradeThresholdDoseModificationPattern = new(
+            @"\b(?:Grade\s+[1-4](?:\s*(?:or|to|-)\s*(?:Grade\s*)?[1-4])?|Non[-\s]*hematologic\s+Grade\s+[1-4])\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Known population keywords for dictionary-based extraction
@@ -177,6 +277,85 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             return _weightBandComparatorPattern.IsMatch(raw)
                 || _weightBandRangePattern.IsMatch(raw);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// True when <paramref name="raw"/> looks like a height or BSA band such
+        /// as <c>1.50-1.69 m</c>, <c>&lt;1.30 m²</c>, or <c>≥ 1.90 m</c>. Used
+        /// by the dosing shape classifier and DosingTableParser to recognize
+        /// height-stratified row labels (BSA dosing tables).
+        /// </summary>
+        /// <remarks>
+        /// Matches both <c>m</c> (height) and <c>m²</c> (BSA) suffixes. Only
+        /// fires on whole-cell labels — prose containing the same shape does
+        /// not match.
+        /// </remarks>
+        /// <param name="raw">Candidate row label or cell text.</param>
+        /// <returns>True when the cell is a height or BSA band.</returns>
+        public static bool LooksLikeHeightBand(string? raw)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            return _heightBandComparatorPattern.IsMatch(raw)
+                || _heightBandRangePattern.IsMatch(raw);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// True when <paramref name="raw"/> looks like a creatinine clearance
+        /// band such as <c>30-59 mL/min</c>, <c>&lt;30 mL/min</c>,
+        /// <c>≥60 mL/min</c>, or a bare CrCl value such as <c>90 mL/min</c>
+        /// (some renal dose tables list a single CrCl per row instead of a
+        /// band). Used by the dosing shape classifier and DosingTableParser
+        /// to recognize renal-function-stratified row labels.
+        /// </summary>
+        /// <param name="raw">Candidate row label or cell text.</param>
+        /// <returns>True when the cell is a CrCl band or bare CrCl value.</returns>
+        public static bool LooksLikeCreatinineClearanceBand(string? raw)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            return _crClBandComparatorPattern.IsMatch(raw)
+                || _crClBandRangePattern.IsMatch(raw)
+                || _crClBareValuePattern.IsMatch(raw);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// True when <paramref name="raw"/> looks like a lab-threshold or
+        /// grade-threshold trigger in a dose-modification table.
+        /// </summary>
+        /// <remarks>
+        /// These values describe clinical criteria for holding, resuming, or
+        /// reducing a medication. They are intentionally detected separately
+        /// from body-weight populations because values such as <c>8 g/dL</c>
+        /// and <c>50,000/mcL</c> are thresholds, not medication doses.
+        /// </remarks>
+        /// <param name="raw">Candidate row label or cell text.</param>
+        /// <returns>True when the text is a lab/grade dose-modification threshold.</returns>
+        public static bool LooksLikeLabThresholdDoseModification(string? raw)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            var key = _whitespaceCollapse.Replace(raw.Trim(), " ");
+            return _labThresholdDoseModificationPattern.IsMatch(key)
+                || _gradeThresholdDoseModificationPattern.IsMatch(key);
 
             #endregion
         }

@@ -25,7 +25,7 @@ SELECT  --[TextTableID]
 	,[ParseRule]
 	,[ValidationFlags]
 FROM [dbo].[tmp_FlattenedStandardizedTable]
-where TableCategory = 'PK' --and PrimaryValue is null -- and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
+where TableCategory = 'DOSING' --and PrimaryValue is null -- and PrimaryValueType = 'ArithmeticMean' and ParameterName is not null
 order by TableCategory
 --Where PValue is not null
 --where ArmN is not null and PrimaryValue is not null
@@ -33,6 +33,50 @@ order by TableCategory
 --order by ParameterName
 --where ParameterSubtype is not null
 --where [TextTableID] = 203
+
+--
+
+SELECT
+    (
+        SELECT
+             t.[TableCategory]
+            ,t.[ParameterName]
+            ,t.[ParameterCategory]
+            ,t.[ParameterSubtype]
+            ,t.[TreatmentArm]
+            ,t.[ArmN]
+            ,t.[StudyContext]
+            ,t.[Dose]
+            ,t.[DoseUnit]
+            ,t.[DoseRegimen]
+            ,t.[RawValue]
+            ,t.[PrimaryValue]
+            ,t.[PrimaryValueType]
+            ,t.[SecondaryValue]
+            ,t.[SecondaryValueType]
+            ,t.[LowerBound]
+            ,t.[UpperBound]
+            ,t.[BoundType]
+            ,t.[Unit]
+            ,t.[ParseConfidence]
+            ,t.[ParseRule]
+            ,t.[ValidationFlags]
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+    ) AS RowJson
+FROM [dbo].[tmp_FlattenedStandardizedTable] AS t
+WHERE t.TableCategory = 'DOSING'
+
+
+SELECT
+    (
+        SELECT
+            t.[Unit]
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+    ) AS RowJson
+FROM [dbo].[tmp_FlattenedStandardizedTable] AS t
+WHERE t.TableCategory = 'PK'
+
+--
 
 
 SELECT distinct [DocumentGUID]
@@ -84,8 +128,6 @@ Select Count(*) As DCount from [dbo].[tmp_FlattenedStandardizedTable] A
 
 select max(TextTableID) as Biggest from TextTable --46453
 select max(TextTableID) as Biggest from [dbo].[tmp_FlattenedStandardizedTable] --46451
-
-
 
 SELECT  *
 FROM [dbo].[tmp_FlattenedStandardizedTable]

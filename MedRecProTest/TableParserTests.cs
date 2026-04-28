@@ -1477,10 +1477,11 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Dosing parser uses header text as unit context.
+        /// Dosing parser treats dose-bearing headers as DoseRegimen context
+        /// instead of leaking those header strings into Unit.
         /// </summary>
         [TestMethod]
-        public void DosingParser_UsesHeaderAsUnit()
+        public void DosingParser_ClassifiesDoseHeaderAsDoseRegimen()
         {
             var table = createTestTable(
                 new[] { "Population", "3 mg/kg", "6 mg/kg", "12 mg/kg" },
@@ -1494,9 +1495,351 @@ namespace MedRecPro.Service.Test
             var results = parser.Parse(table);
 
             Assert.AreEqual(3, results.Count);
-            Assert.AreEqual("3 mg/kg", results[0].Unit);
-            Assert.AreEqual("6 mg/kg", results[1].Unit);
-            Assert.AreEqual("12 mg/kg", results[2].Unit);
+            Assert.AreEqual("Pediatric", results[0].Population);
+            Assert.AreEqual("3 mg/kg", results[0].DoseRegimen);
+            Assert.AreEqual(3m, results[0].Dose);
+            Assert.AreEqual("mg/kg", results[0].DoseUnit);
+            Assert.IsNull(results[0].Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dosing parser promotes dose-reduction cells into DoseRegimen, Dose,
+        /// and DoseUnit. Mirrors TextTableID 40876-style layouts.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_DoseReductionCells_PromoteToDoseRegimen()
+        {
+            var table = createTestTable(
+                new[] { "Dose Level", "Recommended Dose" },
+                new List<string?[]>
+                {
+                    new[] { "Recommended starting dose", "1 mg once daily" },
+                    new[] { "First dose reduction", "0.75 mg once daily" },
+                    new[] { "Second dose reduction", "0.5 mg once daily" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.AreEqual("Recommended starting dose", results[0].ParameterName);
+            Assert.AreEqual("1 mg once daily", results[0].DoseRegimen);
+            Assert.AreEqual(1m, results[0].Dose);
+            Assert.AreEqual("mg/d", results[0].DoseUnit);
+            Assert.AreEqual("Numeric", results[0].PrimaryValueType);
+            Assert.IsTrue((results[0].ValidationFlags ?? "").Contains("DOSING_CELL_DOSE"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dosing parser routes body-weight row labels to Population and dose
+        /// cells to DoseRegimen. Mirrors TextTableID 19220-style layouts.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_BodyWeightRows_RouteRowLabelToPopulation()
+        {
+            var table = createTestTable(
+                new[] { "Body Weight", "Recommended Dose" },
+                new List<string?[]>
+                {
+                    new[] { "<50 kg", "0.22 mL" },
+                    new[] { "50-59 kg", "0.26 mL" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.AreEqual("<50 kg", results[0].Population);
+            Assert.AreEqual("Recommended Dose", results[0].ParameterName);
+            Assert.AreEqual("0.22 mL", results[0].DoseRegimen);
+            Assert.AreEqual(0.22m, results[0].Dose);
+            Assert.AreEqual("mL", results[0].DoseUnit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Dosing parser preserves range high-dose extraction for weight-band
+        /// tables. Mirrors TextTableID 21539-style layouts.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_DoseRangeCell_ExtractsHighDose()
+        {
+            var table = createTestTable(
+                new[] { "Body Weight", "Dose Range" },
+                new List<string?[]>
+                {
+                    new[] { ">=90 kg", "150 to 600 mg" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("\u226590 kg", results[0].Population);
+            Assert.AreEqual("150 to 600 mg", results[0].DoseRegimen);
+            Assert.AreEqual(600m, results[0].Dose);
+            Assert.AreEqual("mg", results[0].DoseUnit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Lab-threshold dose-modification tables keep row-label thresholds in
+        /// ParameterName and only extract Dose/DoseUnit from real medication
+        /// dose action cells.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_LabThresholdRows_DoNotExtractThresholdAsDose()
+        {
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Action" },
+                new List<string?[]>
+                {
+                    new[] { "Hemoglobin <8 g/dL", "Resume at reduced dose" },
+                    new[] { "Platelet count <50,000/mcL", "100 mg once daily" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+
+            Assert.AreEqual("Hemoglobin <8 g/dL", results[0].ParameterName);
+            Assert.AreEqual("Resume at reduced dose", results[0].DoseRegimen);
+            Assert.IsNull(results[0].Dose);
+            Assert.IsNull(results[0].DoseUnit);
+            Assert.IsNull(results[0].PrimaryValueType);
+
+            Assert.AreEqual("Platelet count <50,000/mcL", results[1].ParameterName);
+            Assert.AreEqual("100 mg once daily", results[1].DoseRegimen);
+            Assert.AreEqual(100m, results[1].Dose);
+            Assert.AreEqual("mg/d", results[1].DoseUnit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Body-weight typed col 0: header carries the unit (Body Weight (kg))
+        /// and rows are bare numeric values. Bare numbers must inherit kg and
+        /// route to Population, not ParameterName. Mirrors TextTableID
+        /// 19220-style layouts that previously emitted ParameterName="2.5".
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_BodyWeightTypedCol0_BareNumbersRouteToPopulation()
+        {
+            var table = createTestTable(
+                new[] { "Body Weight (kg)", "Volume to be Administered (mL)" },
+                new List<string?[]>
+                {
+                    new[] { "2.5", "0.5" },
+                    new[] { "60", "12" },
+                    new[] { "150", "30" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.AreEqual("2.5 kg", results[0].Population);
+            Assert.AreEqual("60 kg", results[1].Population);
+            Assert.AreEqual("150 kg", results[2].Population);
+
+            // ParameterName must not be the bare number. It is either "Dose"
+            // (set by the row context) or the header text (set by the
+            // BodyWeight shape branch, but the long header here exceeds the
+            // length guard so it stays as "Dose").
+            foreach (var obs in results)
+            {
+                Assert.AreNotEqual("2.5", obs.ParameterName);
+                Assert.AreNotEqual("60", obs.ParameterName);
+                Assert.AreNotEqual("150", obs.ParameterName);
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Height/BSA bands as row labels route to Population. Mirrors
+        /// the 1.50-1.69 m / ≥ 1.90 m layouts seen in BSA-stratified dosing
+        /// tables.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_HeightBandRows_RouteToPopulation()
+        {
+            var table = createTestTable(
+                new[] { "Height", "Recommended Dose" },
+                new List<string?[]>
+                {
+                    new[] { "1.30 - 1.49 m", "10 mg" },
+                    new[] { "1.50 - 1.69 m", "15 mg" },
+                    new[] { "≥ 1.90 m", "25 mg" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.AreEqual("1.30 - 1.49 m", results[0].Population);
+            Assert.AreEqual("1.50 - 1.69 m", results[1].Population);
+            Assert.AreEqual("≥ 1.90 m", results[2].Population);
+            Assert.AreEqual(10m, results[0].Dose);
+            Assert.AreEqual(15m, results[1].Dose);
+            Assert.AreEqual(25m, results[2].Dose);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Bare creatinine clearance row labels (90 mL/min, 60 mL/min) route
+        /// to Population. Mirrors renal-dose tables that list a single CrCl
+        /// value per row instead of a band.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_CreatinineClearanceBareValues_RouteToPopulation()
+        {
+            var table = createTestTable(
+                new[] { "CrCl", "Dose" },
+                new List<string?[]>
+                {
+                    new[] { "90 mL/min", "300 mg" },
+                    new[] { "60 mL/min", "200 mg" },
+                    new[] { "30 mL/min", "100 mg" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.AreEqual("90 mL/min", results[0].Population);
+            Assert.AreEqual("60 mL/min", results[1].Population);
+            Assert.AreEqual("30 mL/min", results[2].Population);
+            Assert.AreEqual(300m, results[0].Dose);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Timepoint row labels (Day 1, Week 5 onward to maintenance) route
+        /// to Timepoint instead of ParameterName. ParameterName becomes "Dose".
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_TimepointRowLabels_RouteToTimepoint()
+        {
+            var table = createTestTable(
+                new[] { "Visit", "Dose" },
+                new List<string?[]>
+                {
+                    new[] { "Day 1", "100 mg" },
+                    new[] { "Weeks 1 and 2", "150 mg" },
+                    new[] { "Week 5 onward to maintenance", "200 mg" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.AreEqual("Day 1", results[0].Timepoint);
+            Assert.AreEqual("Weeks 1 and 2", results[1].Timepoint);
+            Assert.AreEqual("Week 5 onward to maintenance", results[2].Timepoint);
+            // ParameterName must not echo the row label.
+            Assert.AreNotEqual("Day 1", results[0].ParameterName);
+            Assert.AreEqual(100m, results[0].Dose);
+            Assert.AreEqual(150m, results[1].Dose);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Drug + dose compound row labels split into TreatmentArm and
+        /// DoseRegimen via DoseExtractor.StripDoseFragment. Recovers the
+        /// "TRISENOX 0.15 mg/kg once daily intravenously" pattern.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_DrugPlusDoseRowLabel_SplitsToArmAndDoseRegimen()
+        {
+            var table = createTestTable(
+                new[] { "Treatment", "Schedule" },
+                new List<string?[]>
+                {
+                    new[] { "TRISENOX 0.15 mg/kg once daily intravenously", "Days 1-5" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("TRISENOX", results[0].TreatmentArm);
+            Assert.AreEqual("0.15 mg/kg once daily intravenously", results[0].DoseRegimen);
+            Assert.AreEqual(0.15m, results[0].Dose);
+            Assert.AreEqual("mg/kg", results[0].DoseUnit);
+            // ParameterName must not echo the full compound row label.
+            Assert.AreNotEqual(
+                "TRISENOX 0.15 mg/kg once daily intravenously",
+                results[0].ParameterName);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Long header text in body-weight tables must not leak into
+        /// ParameterName. The 90-character "Recommended Dosage Total Volume of
+        /// Oral Solution Once Daily (Trametinib Content)" header would
+        /// previously overwrite ParameterName="Dose".
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_LongHeaderText_DoesNotLeakIntoParameterName()
+        {
+            var longHeader = "Recommended Dosage Total Volume of Oral Solution Once Daily (Trametinib Content)";
+            var table = createTestTable(
+                new[] { "Body Weight (kg)", longHeader },
+                new List<string?[]>
+                {
+                    new[] { "10", "0.5 mL" },
+                    new[] { "20", "1.0 mL" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            // Long header text must not have leaked into ParameterName
+            Assert.AreNotEqual(longHeader, results[0].ParameterName);
+            Assert.AreNotEqual(longHeader, results[1].ParameterName);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Severity bands route to Population only when the col 0 header
+        /// indicates a renal/hepatic-impairment context. Bare "Mild" without
+        /// that context stays in ParameterName because the word is too generic.
+        /// </summary>
+        [TestMethod]
+        public void DosingParser_SeverityBands_PromotedOnlyWithRenalHepaticContext()
+        {
+            var renalTable = createTestTable(
+                new[] { "Renal Impairment", "Recommended Dose" },
+                new List<string?[]>
+                {
+                    new[] { "Mild", "100 mg" },
+                    new[] { "Moderate", "75 mg" },
+                    new[] { "Severe", "50 mg" }
+                },
+                parentSectionCode: "34068-7");
+
+            var parser = new DosingTableParser();
+            var results = parser.Parse(renalTable);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.AreEqual("Mild Impairment", results[0].Population);
+            Assert.AreEqual("Moderate Impairment", results[1].Population);
+            Assert.AreEqual("Severe Impairment", results[2].Population);
+            // ParameterName should NOT be the severity word.
+            Assert.AreNotEqual("Mild", results[0].ParameterName);
         }
 
         #endregion DosingTableParser Tests
@@ -1691,6 +2034,85 @@ namespace MedRecPro.Service.Test
 
             var (category, _) = router.Route(table);
             Assert.AreEqual(TableCategory.DOSING, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// 34068-7 table whose only dosing signal appears in the caption routes
+        /// to DOSING through the descriptor-only caption fallback. Mirrors
+        /// TextTableID 37253-style layouts.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_PassesThroughCaptionDoseDescriptor()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var table = createTestTable(
+                new[] { "Parameter", "Value" },
+                new List<string?[]>
+                {
+                    new[] { "Argatroban", "100" },
+                    new[] { "Infusion rate", "50" }
+                },
+                caption: "Table 2 Recommended Doses and Infusion Rates for 2 mcg/kg/min Dose",
+                parentSectionCode: "34068-7");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DOSING, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// 34068-7 table whose only dosing signal appears in the section title
+        /// routes to DOSING through the descriptor-only section-title fallback.
+        /// Mirrors TextTableID 29252-style layouts.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_PassesThroughSectionTitleDoseDescriptor()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var table = createTestTable(
+                new[] { "Procedure", "Value" },
+                new List<string?[]>
+                {
+                    new[] { "Oral procedure", "63" },
+                    new[] { "Rectal procedure", "50" }
+                },
+                parentSectionCode: "34068-7",
+                sectionTitle: "2.5 Recommended Dosage for Oral Procedures in Adults");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.DOSING, category);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// 34068-7 table with a non-dosing section title that lacks descriptor,
+        /// dose, population, and weight-band signals still downgrades to OTHER.
+        /// Mirrors TextTableID 13128-style sigma-threshold layouts.
+        /// </summary>
+        [TestMethod]
+        public void Router_ValidatesDosing_SectionTitleWithoutDoseDescriptorStillDowngrades()
+        {
+            var parsers = createAllParsers();
+            var router = new TableParserRouter(parsers);
+
+            var table = createTestTable(
+                new[] { "Threshold", "Value" },
+                new List<string?[]>
+                {
+                    new[] { "Three Sigma", "12" },
+                    new[] { "Six Sigma", "24" }
+                },
+                caption: "Table 2. Examples of Three Sigma Threshold Values",
+                parentSectionCode: "34068-7",
+                sectionTitle: "2.5 Lymphatic Mapping");
+
+            var (category, _) = router.Route(table);
+            Assert.AreEqual(TableCategory.OTHER, category);
         }
 
         /**************************************************************/

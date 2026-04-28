@@ -1177,5 +1177,117 @@ namespace MedRecProTest
         }
 
         #endregion ScanAllColumnsForDose
+
+        #region Extract - Expanded Dosing and Lab Units
+
+        /**************************************************************/
+        /// <summary>
+        /// Comma-formatted dose values are parsed without losing the thousands
+        /// separator.
+        /// </summary>
+        [TestMethod]
+        public void Extract_CommaFormattedDose_ReturnsDoseAndUnit()
+        {
+            #region implementation
+
+            var (dose, unit) = DoseExtractor.Extract("1,000 mg once daily");
+
+            Assert.AreEqual(1000m, dose);
+            Assert.AreEqual("mg/d", unit);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Concentration and volume-normalized dose units are recognized as
+        /// complete units.
+        /// </summary>
+        [TestMethod]
+        public void Extract_ExpandedDoseUnits_ReturnsCompleteUnit()
+        {
+            #region implementation
+
+            var (suspensionDose, suspensionUnit) = DoseExtractor.Extract("250 mg/5 mL");
+            var (rateDose, rateUnit) = DoseExtractor.Extract("2 mcg/kg/min");
+            var (volumeDose, volumeUnit) = DoseExtractor.Extract("0.1 mL/kg");
+
+            Assert.AreEqual(250m, suspensionDose);
+            Assert.AreEqual("mg/5 mL", suspensionUnit);
+            Assert.AreEqual(2m, rateDose);
+            Assert.AreEqual("mcg/kg/min", rateUnit);
+            Assert.AreEqual(0.1m, volumeDose);
+            Assert.AreEqual("mL/kg", volumeUnit);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Legacy arm split values such as 2g/day still expose the dose amount
+        /// and simple gram unit expected by downstream standardization.
+        /// </summary>
+        [TestMethod]
+        public void Extract_GPerDay_ReturnsSimpleGramUnit()
+        {
+            #region implementation
+
+            var (dose, unit) = DoseExtractor.Extract("Mycophenolate Mofetil 2g/day");
+
+            Assert.AreEqual(2m, dose);
+            Assert.AreEqual("g", unit);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Clinical-lab CONCENTRATION units (g/dL, mg/dL) have a left numerator
+        /// and are recognized structurally by Extract. The dosing parser
+        /// intercepts these as lab thresholds at row level (via
+        /// PopulationDetector.LooksLikeLabThresholdDoseModification) before
+        /// the value is committed as a medication dose; this test only
+        /// documents Extract's structural behavior.
+        /// </summary>
+        [TestMethod]
+        public void Extract_ConcentrationLabUnits_StructurallyExtracts()
+        {
+            #region implementation
+
+            var (hemoglobin, hemoglobinUnit) = DoseExtractor.Extract("Hemoglobin <8 g/dL");
+            var (creatinine, creatinineUnit) = DoseExtractor.Extract("Creatinine >2 mg/dL");
+
+            Assert.AreEqual(8m, hemoglobin);
+            Assert.AreEqual("g/dL", hemoglobinUnit);
+            Assert.AreEqual(2m, creatinine);
+            Assert.AreEqual("mg/dL", creatinineUnit);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Bare-denominator lab COUNT units (/mcL, /μL) have no left numerator
+        /// and are therefore not dose units. Extract must return (null, null)
+        /// — these tokens are recognized exclusively by
+        /// PopulationDetector.LooksLikeLabThresholdDoseModification.
+        /// </summary>
+        [TestMethod]
+        public void Extract_BareCountUnits_ReturnsNull()
+        {
+            #region implementation
+
+            var (platelets, plateletUnit) = DoseExtractor.Extract("Platelet count <50,000/mcL");
+            var (neutrophils, neutrophilUnit) = DoseExtractor.Extract("Neutrophil count <1,000/μL");
+
+            Assert.IsNull(platelets);
+            Assert.IsNull(plateletUnit);
+            Assert.IsNull(neutrophils);
+            Assert.IsNull(neutrophilUnit);
+
+            #endregion
+        }
+
+        #endregion Extract - Expanded Dosing and Lab Units
     }
 }
