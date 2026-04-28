@@ -136,6 +136,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             var columnSubHeaders = new Dictionary<int, string>();
             string? currentGroup = null;
             var dataRows = getDataBodyRows(table);
+            var skipRows = enrichArmsFromBodyRows(dataRows, arms);
+            if (skipRows > 0)
+            {
+                dataRows = dataRows.Skip(skipRows).ToList();
+            }
 
             foreach (var row in dataRows)
             {
@@ -176,6 +181,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     for (int i = 0; i < arms.Count; i++)
                     {
                         var arm = arms[i];
+                        if (!hasUsableTreatmentArm(arm))
+                            continue;
+
                         var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
                         if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
                             continue;
@@ -185,6 +193,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var o = createBaseObservation(table, r, cell, TableCategory.EFFICACY);
                         o.ParameterName = paramName;
                         o.ParameterCategory = currentGroup;
+                        o.ParameterSubtype = arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
                         o.ArmN = armN;
                         o.StudyContext = arm.StudyContext;

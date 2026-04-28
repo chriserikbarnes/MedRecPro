@@ -3408,3 +3408,18 @@ Implemented Phase 3 of the deterministic-parse-QC remediation plan: AE/Efficacy 
 **Plan file:** `C:\Users\chris\.claude\plans\deterministic-parse-qc-splendid-beacon.md`. Phases 4-7 remain.
 
 ---
+
+### 2026-04-28 6:17 PM EST — Deterministic Parse QC: Phase 3 Follow-up
+Implemented the Phase 3 follow-up remediation from the 2026-04-28 standardization reports: AE/Efficacy body-row arm recovery, sibling/parent header fallback, and stricter suppression of observations when a real arm cannot be recovered.
+
+**Header/body recovery.** [BaseTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableParser.cs) — extended `extractArmDefinitions()` and `enrichArmsFromBodyRows()` so blank/generic/value-axis headers can be recovered from parent headers, sibling spans, body arm-name rows, N rows, and format/severity rows. Added `ParameterSubtype` propagation for severity/value-axis labels and tightened generic-arm rejection so labels like `Event`, `Body System (Event)`, `Percent`, and value-axis headers are not emitted as treatment arms.
+
+**Parser wiring.** [SimpleArmTableParser.cs](MedRecProImportClass/Service/TransformationServices/SimpleArmTableParser.cs), [MultilevelAeTableParser.cs](MedRecProImportClass/Service/TransformationServices/MultilevelAeTableParser.cs), [AeWithSocTableParser.cs](MedRecProImportClass/Service/TransformationServices/AeWithSocTableParser.cs), and [EfficacyMultilevelTableParser.cs](MedRecProImportClass/Service/TransformationServices/EfficacyMultilevelTableParser.cs) now skip unrecoverable arm placeholders instead of emitting MissingRequired:TreatmentArm rows. Efficacy multilevel parsing now enriches N/format/body-arm metadata before observation emission while preserving its existing column sub-header handling for rows like `Absolute Risk per 10,000 Women-Years`.
+
+**Standardization guardrail.** [ColumnStandardizationService.cs](MedRecProImportClass/Service/TransformationServices/ColumnStandardizationService.cs) now bypasses arm cleanup only for true comparison statistic rows. Tightened stat-column detection so drug names containing `or` (for example, `Hydrochloride`) are not misclassified as `Comparison`.
+
+**Fixtures.** [AeArmRecoveryParserTests.cs](MedRecProTest/AeArmRecoveryParserTests.cs) adds coverage for generic parent headers, body-row arm recovery, severity split headers, study/body arm rows, N-row propagation, and the `Hydrochloride`/`OR` false-positive shape. [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs) now covers both comparison-stat skip behavior and non-stat `Comparison` arm recovery from `StudyContext`.
+
+**Verification.** `dotnet build MedRecProImportClass` passed clean. Focused parser/standardization tests passed **8/8** after a small regression fix that prevented Efficacy sub-header rows from being mistaken for body arm-name rows. Full `dotnet test MedRecProTest` passed **1802/1802 in 2.4185m** using SDK 9.0.305, elevated access for NuGet/user-secrets, and a temporary alternate `BaseOutputPath` because the default console bin was locked by Visual Studio / `MedRecProConsole`.
+
+---

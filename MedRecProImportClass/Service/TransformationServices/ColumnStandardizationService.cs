@@ -864,8 +864,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.Equals(obs.TableCategory, "SKIP", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                // Skip comparison/stat rows
-                if (string.Equals(obs.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase))
+                // Skip true comparison/stat rows. Plain AE rows whose arm was
+                // accidentally labeled "Comparison" still need cleanup.
+                if (isComparisonStatisticObservation(obs))
                     continue;
 
                 int obsCorrectionCount = 0;
@@ -991,6 +992,31 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion IColumnStandardizationService Implementation
 
         #region Phase 1: Arm/Context Corrections
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a <c>Comparison</c> row is a statistical comparison
+        /// observation rather than a misclassified treatment arm.
+        /// </summary>
+        /// <param name="obs">Observation to inspect.</param>
+        /// <returns><c>true</c> when the row should bypass arm normalization.</returns>
+        private static bool isComparisonStatisticObservation(ParsedObservation obs)
+        {
+            #region implementation
+
+            if (!string.Equals(obs.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return string.Equals(obs.PrimaryValueType, "RiskDifference", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(obs.PrimaryValueType, "ARR", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(obs.PrimaryValueType, "RelativeRisk", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(obs.PrimaryValueType, "RelativeRiskReduction", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(obs.PrimaryValueType, "HazardRatio", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(obs.PrimaryValueType, "OddsRatio", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(obs.PrimaryValueType, "Ratio", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

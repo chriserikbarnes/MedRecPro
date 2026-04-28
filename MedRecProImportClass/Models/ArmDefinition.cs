@@ -78,6 +78,19 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
+        /// Column-axis qualifier associated with the arm, such as
+        /// <c>Grades 1-4</c>, <c>Grade 3/4</c>, or <c>Any</c>.
+        /// </summary>
+        /// <remarks>
+        /// Some AE tables split each treatment arm into adjacent severity or metric
+        /// columns. This field preserves that column-axis label without treating it as
+        /// the treatment arm itself.
+        /// </remarks>
+        /// <seealso cref="ParsedObservation.ParameterSubtype"/>
+        public string? ParameterSubtype { get; set; }
+
+        /**************************************************************/
+        /// <summary>
         /// Dose regimen extracted from body-row header enrichment (e.g., "10 mg", "20 mg once daily").
         /// Null for arms without dose-specific data. Propagated to <see cref="ParsedObservation.DoseRegimen"/>.
         /// </summary>

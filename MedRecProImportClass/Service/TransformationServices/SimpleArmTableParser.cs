@@ -140,7 +140,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
 
                 // Subtype detection: row with parameter name but all arm cells empty
-                var hasData = arms.Any(arm =>
+                var hasData = arms.Where(hasUsableTreatmentArm).Any(arm =>
                 {
                     var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
                     return cell != null && !string.IsNullOrWhiteSpace(cell.CleanedText);
@@ -171,6 +171,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // Arm data columns
                     foreach (var arm in arms)
                     {
+                        if (!hasUsableTreatmentArm(arm))
+                            continue;
+
                         var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
                         if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
                             continue;
@@ -178,7 +181,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var o = createBaseObservation(table, r, cell, category);
                         o.ParameterName = paramName;
                         o.ParameterCategory = currentCategory;
-                        o.ParameterSubtype = currentSubtype;
+                        o.ParameterSubtype = currentSubtype ?? arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
                         o.ArmN = arm.SampleSize;
                         o.StudyContext = arm.StudyContext;

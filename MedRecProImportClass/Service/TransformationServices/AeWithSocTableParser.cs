@@ -104,6 +104,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     foreach (var arm in arms)
                     {
+                        if (!hasUsableTreatmentArm(arm))
+                            continue;
+
                         var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
                         if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
                             continue;
@@ -111,6 +114,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var o = createBaseObservation(table, r, cell, TableCategory.ADVERSE_EVENT);
                         o.ParameterName = paramName;
                         o.ParameterCategory = currentSoc;
+                        o.ParameterSubtype = arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
                         o.ArmN = arm.SampleSize;
                         // Arm-derived StudyContext (from header colspan) always wins;

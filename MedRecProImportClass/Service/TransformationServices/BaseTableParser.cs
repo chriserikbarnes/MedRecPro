@@ -191,7 +191,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         // Pattern for detecting stat/comparison column headers
         private static readonly Regex _statColumnPattern = new(
-            @"(?:P[\s-]*[Vv]alue|Difference|Risk\s+Reduction|ARR|RR|HR|OR|95%?\s*CI|Relative\s+Risk)",
+            @"(?:P[\s-]*[Vv]alue|Difference|Risk\s+Reduction|\b(?:ARR|RR|HR|OR)\b|95\s*%?\s*CI|Relative\s+Risk)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Pattern for detecting timepoint column headers
@@ -228,6 +228,22 @@ namespace MedRecProImportClass.Service.TransformationServices
               @"[nN]|" +
               @"Number|Count|Frequency" +
             @")\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Phase 3b - AE/Efficacy column-axis labels that describe the value
+        // dimension, not the treatment arm. These are preserved as
+        // ArmDefinition.ParameterSubtype when possible.
+        private static readonly Regex _armAxisLabelPattern = new(
+            @"^\s*(?:" +
+              @"Any(?:\s+(?:Grade|Grades?))?(?:\s+Adverse\s+(?:Reactions?|Events?))?|" +
+              @"All\s+(?:CTC\s+)?Grades?|" +
+              @"(?:CTC|CTCAE)\s+Grades?.*|" +
+              @"Grades?\s*(?:\d+|[IVX]+)(?:\s*(?:[-/\u2013,&]|and|or|to)\s*(?:\d+|[IVX]+))*|" +
+              @"Grade\s*(?:(?:>=|>|\u2265)\s*)?\d+(?:\s*(?:[-/\u2013,&]|and|or|to)\s*\d+)?(?:\s+Adverse\s+(?:Reactions?|Events?))?|" +
+              @"(?:Number|No\.?|Percent(?:age)?)\s*(?:\(\s*%\s*\))?\s*(?:of\s+)?(?:Patients|Subjects|Participants|Reporting)?(?:\s+.*)?|" +
+              @"%\s+of\s+(?:Patients|Subjects|Participants)(?:\s+.*)?|" +
+              @"Incidence\s+of\s+adverse\s+(?:reactions?|events?)" +
+            @")\s*(?:\(\s*%\s*\)|%)?\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Pattern for dose regimen cells: "10 mg", "20 mg oral", "50 mcg once daily"
@@ -357,8 +373,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 // ancestor. Skip the column entirely when no recovery is possible — the
                 // alternative is emitting an observation that fails MissingRequired:TreatmentArm.
                 var leafText = recoverArmHeaderText(col);
+                leafText ??= recoverArmHeaderTextFromSiblingSpan(table.Header.Columns, i);
                 if (leafText == null)
+                {
+                    arms.Add(createPlaceholderArmDefinition(col));
                     continue;
+                }
 
                 var arm = ValueParser.ParseArmHeader(leafText);
                 if (arm != null)
@@ -371,6 +391,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         arm.StudyContext = col.HeaderPath[0];
                     }
 
+                    applyAxisMetadata(col.LeafHeaderText, arm);
                     arms.Add(arm);
                 }
                 else
@@ -381,7 +402,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var armName = hintMatch.Success ? hintMatch.Groups[1].Value.Trim() : trimmed;
                     var formatHint = hintMatch.Success ? hintMatch.Groups[2].Value.Trim() : (string?)null;
 
-                    arms.Add(new ArmDefinition
+                    var fallbackArm = new ArmDefinition
                     {
                         Name = armName,
                         FormatHint = formatHint,
@@ -389,7 +410,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         StudyContext = col.HeaderPath != null && col.HeaderPath.Count > 1
                             ? col.HeaderPath[0]
                             : null
-                    });
+                    };
+                    applyAxisMetadata(col.LeafHeaderText, fallbackArm);
+                    arms.Add(fallbackArm);
                 }
             }
 
@@ -453,6 +476,133 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Recovers a treatment-arm header from an adjacent sibling column with the
+        /// same parent header path.
+        /// </summary>
+        /// <remarks>
+        /// SPL tables sometimes leave one leaf blank or use a structural leaf while a
+        /// sibling in the same colspan carries the actual arm name. This keeps that
+        /// column recoverable before body-row enrichment runs.
+        /// </remarks>
+        /// <param name="columns">Resolved header columns for the table.</param>
+        /// <param name="columnOffset">Offset of the column within <paramref name="columns"/>.</param>
+        /// <returns>Sibling arm text, or <c>null</c> when no sibling qualifies.</returns>
+        /// <seealso cref="recoverArmHeaderText"/>
+        private static string? recoverArmHeaderTextFromSiblingSpan(
+            IReadOnlyList<HeaderColumn> columns, int columnOffset)
+        {
+            #region implementation
+
+            if (columnOffset < 0 || columnOffset >= columns.Count)
+                return null;
+
+            var source = columns[columnOffset];
+            for (int i = columnOffset - 1; i >= 1; i--)
+            {
+                if (!hasSameHeaderParent(source, columns[i]))
+                    break;
+
+                var candidate = recoverArmHeaderText(columns[i]);
+                if (candidate != null)
+                    return candidate;
+            }
+
+            for (int i = columnOffset + 1; i < columns.Count; i++)
+            {
+                if (!hasSameHeaderParent(source, columns[i]))
+                    break;
+
+                var candidate = recoverArmHeaderText(columns[i]);
+                if (candidate != null)
+                    return candidate;
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a column-position placeholder for a header column whose arm name
+        /// must be recovered from body metadata.
+        /// </summary>
+        /// <param name="col">Header column that did not yield a real treatment arm.</param>
+        /// <returns>An arm placeholder retaining column index and axis metadata.</returns>
+        /// <seealso cref="enrichArmsFromBodyRows"/>
+        private static ArmDefinition createPlaceholderArmDefinition(HeaderColumn col)
+        {
+            #region implementation
+
+            var arm = new ArmDefinition
+            {
+                ColumnIndex = col.ColumnIndex,
+                StudyContext = getHeaderStudyContext(col)
+            };
+            applyAxisMetadata(col.LeafHeaderText, arm);
+            return arm;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when two columns share the same non-leaf header path.
+        /// </summary>
+        /// <param name="left">First header column.</param>
+        /// <param name="right">Second header column.</param>
+        /// <returns><c>true</c> when the columns are siblings under the same span.</returns>
+        private static bool hasSameHeaderParent(HeaderColumn left, HeaderColumn right)
+        {
+            #region implementation
+
+            var leftParent = getHeaderParentKey(left);
+            var rightParent = getHeaderParentKey(right);
+            return string.Equals(leftParent, rightParent, StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a stable key from the non-leaf entries in a column header path.
+        /// </summary>
+        /// <param name="col">Header column to inspect.</param>
+        /// <returns>Parent-path key, or an empty string for single-level headers.</returns>
+        private static string getHeaderParentKey(HeaderColumn col)
+        {
+            #region implementation
+
+            if (col.HeaderPath == null || col.HeaderPath.Count <= 1)
+                return string.Empty;
+
+            return string.Join("\u001F", col.HeaderPath.Take(col.HeaderPath.Count - 1)
+                .Select(p => p?.Trim() ?? string.Empty));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets a non-generic parent header as study context for placeholder arms.
+        /// </summary>
+        /// <param name="col">Header column to inspect.</param>
+        /// <returns>Study context candidate, or <c>null</c> when none is available.</returns>
+        private static string? getHeaderStudyContext(HeaderColumn col)
+        {
+            #region implementation
+
+            if (col.HeaderPath == null || col.HeaderPath.Count <= 1)
+                return null;
+
+            var candidate = col.HeaderPath[0]?.Trim();
+            return looksLikeGenericArmLabel(candidate) ? null : candidate;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Phase 3 helper: returns <c>true</c> when the given header text is null,
         /// whitespace, or matches the generic-axis-label pattern
         /// (<see cref="_genericArmLabelPattern"/>). Used by
@@ -468,7 +618,98 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (string.IsNullOrWhiteSpace(text))
                 return true;
-            return _genericArmLabelPattern.IsMatch(text);
+            return _genericArmLabelPattern.IsMatch(text) ||
+                   _armAxisLabelPattern.IsMatch(text);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an arm definition has a usable treatment-arm name.
+        /// </summary>
+        /// <param name="arm">Arm definition to evaluate.</param>
+        /// <returns><c>true</c> when observations may be emitted for this arm.</returns>
+        /// <seealso cref="looksLikeGenericArmLabel"/>
+        protected static bool hasUsableTreatmentArm(ArmDefinition? arm)
+        {
+            #region implementation
+
+            return arm != null &&
+                   !string.IsNullOrWhiteSpace(arm.Name) &&
+                   !looksLikeGenericArmLabel(arm.Name);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies value-axis metadata from a header or body metadata cell to an arm.
+        /// </summary>
+        /// <param name="text">Header or metadata cell text.</param>
+        /// <param name="arm">Arm definition to update.</param>
+        /// <seealso cref="ArmDefinition.ParameterSubtype"/>
+        private static void applyAxisMetadata(string? text, ArmDefinition arm)
+        {
+            #region implementation
+
+            if (!tryExtractAxisMetadata(text, out var subtype, out var formatHint))
+                return;
+
+            if (!string.IsNullOrWhiteSpace(subtype))
+                arm.ParameterSubtype = subtype;
+
+            if (!string.IsNullOrWhiteSpace(formatHint))
+                arm.FormatHint = formatHint;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts severity/metric subtype and percentage format hints from a
+        /// non-arm column-axis label.
+        /// </summary>
+        /// <param name="text">Axis label text.</param>
+        /// <param name="subtype">Extracted parameter subtype, if present.</param>
+        /// <param name="formatHint">Extracted format hint, if present.</param>
+        /// <returns><c>true</c> when the text matches a supported axis label.</returns>
+        private static bool tryExtractAxisMetadata(
+            string? text, out string? subtype, out string? formatHint)
+        {
+            #region implementation
+
+            subtype = null;
+            formatHint = null;
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var trimmed = text.Trim();
+            if (!_armAxisLabelPattern.IsMatch(trimmed) && !_formatHintCellPattern.IsMatch(trimmed))
+                return false;
+
+            if (trimmed.Contains("n(", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("number", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("No.", StringComparison.OrdinalIgnoreCase))
+            {
+                formatHint = "n(%)";
+            }
+            else if (trimmed.Contains('%') ||
+                     trimmed.Contains("percent", StringComparison.OrdinalIgnoreCase) ||
+                     trimmed.Contains("percentage", StringComparison.OrdinalIgnoreCase))
+            {
+                formatHint = "%";
+            }
+
+            var clean = Regex.Replace(trimmed, @"\s*(?:\(\s*%\s*\)|%)\s*$", "", RegexOptions.IgnoreCase).Trim();
+            if (Regex.IsMatch(clean, @"^(?:Any|All\s+(?:CTC\s+)?Grades?|(?:CTC|CTCAE)\s+Grades?|Grades?|Grade)\b",
+                    RegexOptions.IgnoreCase))
+            {
+                subtype = clean;
+            }
+
+            return true;
 
             #endregion
         }
@@ -1148,7 +1389,15 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (arms.Count == 0) return null;
 
-            int doseCount = 0, nCount = 0, fmtCount = 0, cellCount = 0;
+            var rowLabel = getCellAtColumn(row, 0)?.CleanedText;
+            if (!looksLikeMetadataRowLabel(rowLabel))
+                return null;
+
+            var allowArmNameEnrichment = looksLikeArmNameMetadataRowLabel(rowLabel) ||
+                arms.Any(a => !hasUsableTreatmentArm(a) || looksLikeStudyIdentifier(a.Name));
+
+            int armNameCount = 0, doseCount = 0, nCount = 0, fmtCount = 0, cellCount = 0;
+            var previousText = (string?)null;
 
             foreach (var arm in arms)
             {
@@ -1159,19 +1408,167 @@ namespace MedRecProImportClass.Service.TransformationServices
                 cellCount++;
                 var text = cell.CleanedText.Trim();
 
-                if (_doseRegimenPattern.IsMatch(text)) doseCount++;
+                if (isDittoCellText(text))
+                {
+                    if (!string.IsNullOrWhiteSpace(previousText))
+                    {
+                        if (looksLikeArmNameCell(previousText)) armNameCount++;
+                        else if (_doseRegimenPattern.IsMatch(previousText)) doseCount++;
+                        else if (_nEqualsCellPattern.IsMatch(previousText)) nCount++;
+                        else if (looksLikeFormatAxisCell(previousText)) fmtCount++;
+                    }
+                    continue;
+                }
+
+                previousText = text;
+
+                if (looksLikeArmNameCell(text)) armNameCount++;
+                else if (_doseRegimenPattern.IsMatch(text)) doseCount++;
                 else if (_nEqualsCellPattern.IsMatch(text)) nCount++;
-                else if (_formatHintCellPattern.IsMatch(text)) fmtCount++;
+                else if (looksLikeFormatAxisCell(text)) fmtCount++;
             }
 
             if (cellCount == 0) return null;
 
             // Require majority match (>= 50% of non-empty cells)
+            if (allowArmNameEnrichment && armNameCount * 2 >= cellCount) return "arm_name";
             if (doseCount * 2 >= cellCount) return "dose";
             if (nCount * 2 >= cellCount) return "n_equals";
             if (fmtCount * 2 >= cellCount) return "format_hint";
 
             return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether column 0 identifies a leading metadata row rather than a
+        /// clinical observation row.
+        /// </summary>
+        /// <param name="text">Column 0 text.</param>
+        /// <returns><c>true</c> when the row can safely enrich arm metadata.</returns>
+        private static bool looksLikeMetadataRowLabel(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return true;
+
+            var trimmed = text.Trim();
+            if (trimmed is "-" or "--")
+                return true;
+
+            return Regex.IsMatch(trimmed,
+                @"^(?:Col\s*0|Adverse\s+(?:Reaction|Reactions|Event|Events)(?:\s*\(.*\))?|Body\s+System(?:\s*\(.*\))?|System\s+Organ\s+Class|Preferred\s+Term|Treatment\s+Arm|Arm|Group|Study\s+Drug)\s*$",
+                RegexOptions.IgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether column 0 explicitly names a treatment-arm metadata row.
+        /// </summary>
+        /// <param name="text">Column 0 text.</param>
+        /// <returns><c>true</c> when body cells should be interpreted as arm names.</returns>
+        private static bool looksLikeArmNameMetadataRowLabel(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            return Regex.IsMatch(text.Trim(),
+                @"^(?:Treatment\s+Arm|Arm|Group|Study\s+Drug)\s*$",
+                RegexOptions.IgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a recovered header is more likely a study identifier than a treatment arm.
+        /// </summary>
+        /// <param name="text">Header-derived arm name.</param>
+        /// <returns><c>true</c> for compact study labels such as TAX323 or TMC114-C230.</returns>
+        private static bool looksLikeStudyIdentifier(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            return Regex.IsMatch(text.Trim(),
+                @"^(?:[A-Z]{2,}[-\s]?)?\d{2,}[A-Z0-9/-]*$",
+                RegexOptions.IgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a cell is an arrow/ditto marker that inherits the
+        /// previous metadata value in the row.
+        /// </summary>
+        /// <param name="text">Cell text to inspect.</param>
+        /// <returns><c>true</c> when the cell means "same as previous".</returns>
+        private static bool isDittoCellText(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var trimmed = text.Trim();
+            return trimmed is "\u2194" or "\u2192" or "\u2190" or "\u27F7" or "\u27F6" or "<->" or "->" or "<-";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a leading body-row cell looks like a treatment arm name.
+        /// </summary>
+        /// <param name="text">Cell text to inspect.</param>
+        /// <returns><c>true</c> when the cell can supply an arm name.</returns>
+        private static bool looksLikeArmNameCell(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var trimmed = text.Trim();
+            if (isDittoCellText(trimmed) ||
+                _nEqualsCellPattern.IsMatch(trimmed) ||
+                looksLikeFormatAxisCell(trimmed) ||
+                _doseRegimenPattern.IsMatch(trimmed) ||
+                looksLikeGenericArmLabel(trimmed))
+            {
+                return false;
+            }
+
+            if (Regex.IsMatch(trimmed, @"^[<>=]?\s*\d+(?:\.\d+)?\s*(?:%|\([^)]*\))?$"))
+                return false;
+
+            return Regex.IsMatch(trimmed, @"[A-Za-z]");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a cell contains a format hint or value-axis label.
+        /// </summary>
+        /// <param name="text">Cell text to inspect.</param>
+        /// <returns><c>true</c> for cells such as <c>n (%)</c>, <c>Any %</c>, or <c>Grade 3/4 %</c>.</returns>
+        private static bool looksLikeFormatAxisCell(string? text)
+        {
+            #region implementation
+
+            return _formatHintCellPattern.IsMatch(text ?? string.Empty) ||
+                   tryExtractAxisMetadata(text, out _, out _);
 
             #endregion
         }
@@ -1188,6 +1585,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            string? previousArmName = null;
+            string? previousDoseRegimen = null;
+            int? previousN = null;
+            string? previousFormatHint = null;
+            string? previousSubtype = null;
+
             for (int i = 0; i < arms.Count; i++)
             {
                 var cell = getCellAtColumn(row, arms[i].ColumnIndex ?? 0);
@@ -1198,7 +1601,24 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 switch (rowType)
                 {
+                    case "arm_name":
+                        if (isDittoCellText(text))
+                            text = previousArmName;
+                        else
+                            previousArmName = text;
+
+                        applyArmNameMetadata(arms[i], text);
+                        break;
+
                     case "dose":
+                        if (isDittoCellText(text))
+                            text = previousDoseRegimen;
+                        else
+                            previousDoseRegimen = text;
+
+                        if (string.IsNullOrWhiteSpace(text))
+                            break;
+
                         arms[i].DoseRegimen = text;
                         var (dose, doseUnit) = DoseExtractor.Extract(text);
                         arms[i].Dose = dose;
@@ -1206,16 +1626,73 @@ namespace MedRecProImportClass.Service.TransformationServices
                         break;
 
                     case "n_equals":
+                        if (isDittoCellText(text))
+                        {
+                            if (previousN.HasValue)
+                                arms[i].SampleSize = previousN;
+                            break;
+                        }
+
                         var nMatch = _nEqualsCellPattern.Match(text);
                         if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value.Replace(",", ""), out var n))
+                        {
                             arms[i].SampleSize = n;
+                            previousN = n;
+                        }
                         break;
 
                     case "format_hint":
-                        arms[i].FormatHint = text;
+                        if (isDittoCellText(text))
+                        {
+                            if (!string.IsNullOrWhiteSpace(previousFormatHint))
+                                arms[i].FormatHint = previousFormatHint;
+                            if (!string.IsNullOrWhiteSpace(previousSubtype))
+                                arms[i].ParameterSubtype = previousSubtype;
+                            break;
+                        }
+
+                        applyAxisMetadata(text, arms[i]);
+                        if (_formatHintCellPattern.IsMatch(text))
+                            arms[i].FormatHint = text;
+                        previousFormatHint = arms[i].FormatHint;
+                        previousSubtype = arms[i].ParameterSubtype;
                         break;
                 }
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies a body-row arm-name cell to an arm definition.
+        /// </summary>
+        /// <param name="arm">Arm definition to update.</param>
+        /// <param name="text">Recovered arm-name cell text.</param>
+        /// <seealso cref="ValueParser.ParseArmHeader"/>
+        private static void applyArmNameMetadata(ArmDefinition arm, string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text) || !looksLikeArmNameCell(text))
+                return;
+
+            var parsedArm = ValueParser.ParseArmHeader(text);
+            var recoveredName = parsedArm?.Name ?? text.Trim();
+
+            if (!string.IsNullOrWhiteSpace(arm.Name) &&
+                !looksLikeGenericArmLabel(arm.Name) &&
+                !string.Equals(arm.Name, recoveredName, StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(arm.StudyContext))
+            {
+                arm.StudyContext = arm.Name;
+            }
+
+            arm.Name = recoveredName;
+            if (parsedArm?.SampleSize != null)
+                arm.SampleSize = parsedArm.SampleSize;
+            if (!string.IsNullOrWhiteSpace(parsedArm?.FormatHint))
+                arm.FormatHint = parsedArm.FormatHint;
 
             #endregion
         }

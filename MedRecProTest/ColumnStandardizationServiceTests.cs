@@ -418,20 +418,46 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that Comparison rows are never modified.
+        /// Verifies that true Comparison statistic rows are not modified.
         /// </summary>
         [TestMethod]
-        public async Task Standardize_ComparisonRow_Unchanged()
+        public async Task Standardize_ComparisonStatisticRow_Unchanged()
         {
             #region implementation
 
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Comparison", "Placebo");
+            obs.PrimaryValueType = "RiskDifference";
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("Comparison", result[0].TreatmentArm);
             assertNoFlags(result[0]);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that non-stat rows mislabeled as Comparison still go through arm cleanup.
+        /// </summary>
+        [TestMethod]
+        public async Task Standardize_ComparisonNonStatisticRow_CanRecoverFromStudyContext()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Comparison", "Placebo");
+            obs.PrimaryValueType = "Percentage";
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Placebo", result[0].TreatmentArm);
+            Assert.IsNull(result[0].StudyContext);
+            assertHasFlag(result[0], "COL_STD:SWAP_ARM_CTX");
 
             context.Dispose();
             sentinel.Dispose();

@@ -107,6 +107,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // Map data cells to arms by column position
                     foreach (var arm in arms)
                     {
+                        if (!hasUsableTreatmentArm(arm))
+                            continue;
+
                         var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
                         if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
                             continue;
@@ -114,6 +117,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var o = createBaseObservation(table, r, cell, TableCategory.ADVERSE_EVENT);
                         o.ParameterName = paramName;
                         o.ParameterCategory = currentSoc;
+                        o.ParameterSubtype = arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
                         o.ArmN = arm.SampleSize;
                         // Header-derived StudyContext always wins; caption fallback
@@ -158,46 +162,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            var arms = new List<ArmDefinition>();
-            if (table.Header?.Columns == null)
-                return arms;
-
-            // Skip column 0 (parameter name column)
-            for (int i = 1; i < table.Header.Columns.Count; i++)
-            {
-                var col = table.Header.Columns[i];
-
-                // Phase 3: same generic-label rejection + parent-path recovery rule used
-                // by extractArmDefinitions in BaseTableParser, so the four AE/Efficacy
-                // parsers share one arm-recovery contract.
-                var leafText = recoverArmHeaderText(col);
-                if (leafText == null)
-                    continue;
-
-                var arm = ValueParser.ParseArmHeader(leafText);
-                if (arm == null)
-                {
-                    // Check for trailing format hint (e.g., "Paroxetine %")
-                    var hintMatch = _trailingFormatHintPattern.Match(leafText);
-                    arm = new ArmDefinition
-                    {
-                        Name = hintMatch.Success ? hintMatch.Groups[1].Value.Trim() : leafText,
-                        FormatHint = hintMatch.Success ? hintMatch.Groups[2].Value.Trim() : null
-                    };
-                }
-
-                arm.ColumnIndex = col.ColumnIndex;
-
-                // Study context from parent header path
-                if (col.HeaderPath != null && col.HeaderPath.Count > 1)
-                {
-                    arm.StudyContext = col.HeaderPath[0];
-                }
-
-                arms.Add(arm);
-            }
-
-            return arms;
+            return extractArmDefinitions(table);
 
             #endregion
         }
