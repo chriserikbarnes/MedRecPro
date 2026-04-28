@@ -204,6 +204,32 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(.+?)\s+(n\s*\(\s*%\s*\)|%)\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // Phase 3 — Generic structural axis labels that are NOT real treatment-arm names.
+        // When a leaf header equals one of these (anchored, exact match, case-insensitive),
+        // arm derivation walks up the HeaderPath looking for a non-generic ancestor; if none
+        // exists, the column is skipped rather than emitting an arm-less observation.
+        // Conservative scope: only labels that are unambiguously generic / structural.
+        // Drug names, study names, ambiguous tokens like "Placebo" / "Total" are NOT
+        // included so they continue to be accepted as arm names.
+        private static readonly Regex _genericArmLabelPattern = new(
+            @"^\s*(?:" +
+              @"Events?|" +
+              @"Body\s+System(?:\s*[\(/\-].*)?|" +
+              @"System\s+Organ\s+Class|SOC|" +
+              @"MedDRA(?:\s+(?:Term|Preferred\s+Term))?|" +
+              @"Adverse\s+(?:Reactions?|Events?|Experiences?)|" +
+              @"Reactions?|" +
+              @"Outcomes?|" +
+              @"Variables?|" +
+              @"Parameters?|" +
+              @"Preferred\s+Term|Term|" +
+              @"Percent|Percentage|%|" +
+              @"n\s*\(\s*%\s*\)|" +
+              @"[nN]|" +
+              @"Number|Count|Frequency" +
+            @")\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         // Pattern for dose regimen cells: "10 mg", "20 mg oral", "50 mcg once daily"
         private static readonly Regex _doseRegimenPattern = new(
             @"^\d+\s*(?:mg|mcg|µg|g|ml|mL)\b",
@@ -303,11 +329,16 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Extracts arm definitions from the resolved header's leaf texts using
         /// <see cref="ValueParser.ParseArmHeader"/>. Skips column 0 (parameter name column).
+        /// When a leaf header is blank or equals a generic structural label
+        /// (<c>Event</c>, <c>Body System</c>, <c>Percent</c>, etc.), Phase 3 recovery
+        /// walks up the <see cref="HeaderColumn.HeaderPath"/> looking for a real arm name;
+        /// columns that cannot be recovered are skipped rather than emitting arm-less rows.
         /// </summary>
         /// <param name="table">Table with resolved header.</param>
         /// <returns>List of arm definitions with column positions. Empty if no header.</returns>
         /// <seealso cref="ArmDefinition"/>
         /// <seealso cref="ValueParser.ParseArmHeader"/>
+        /// <seealso cref="recoverArmHeaderText"/>
         protected static List<ArmDefinition> extractArmDefinitions(ReconstructedTable table)
         {
             #region implementation
@@ -320,9 +351,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             for (int i = 1; i < table.Header.Columns.Count; i++)
             {
                 var col = table.Header.Columns[i];
-                var leafText = col.LeafHeaderText;
 
-                if (string.IsNullOrWhiteSpace(leafText))
+                // Phase 3: recover the best arm-name candidate from this column's header
+                // path, rejecting blank/generic leaves and walking up to a non-generic
+                // ancestor. Skip the column entirely when no recovery is possible — the
+                // alternative is emitting an observation that fails MissingRequired:TreatmentArm.
+                var leafText = recoverArmHeaderText(col);
+                if (leafText == null)
                     continue;
 
                 var arm = ValueParser.ParseArmHeader(leafText);
@@ -359,6 +394,81 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return arms;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3 helper: returns the best arm-name candidate text for a header column,
+        /// or <c>null</c> when no real arm name can be recovered. Prefers the leaf header;
+        /// when the leaf is blank or matches <see cref="_genericArmLabelPattern"/>
+        /// (<c>Event</c>, <c>Body System (...)</c>, <c>Percent</c>, etc.), walks up the
+        /// <see cref="HeaderColumn.HeaderPath"/> looking for a non-generic ancestor.
+        /// </summary>
+        /// <remarks>
+        /// Treatment arm derivation surface: this method is called by both
+        /// <see cref="extractArmDefinitions"/> (used by SimpleArm / AeWithSoc /
+        /// EfficacyMultilevel parsers) and the multilevel AE parser's private extractor,
+        /// so the rejection rule is consistent across all four AE/Efficacy parsers.
+        ///
+        /// ## Why ascend rather than emit
+        /// Real-world failure shape (TextTableID 40880 family): the leaf header is a
+        /// structural label like <c>Body System (Event)</c>, while the actual arm name
+        /// is the spanning parent header (e.g., <c>Drug A (N=200)</c>). Walking up the
+        /// HeaderPath recovers the arm; otherwise the parser emits observations with
+        /// <c>TreatmentArm</c> set to <c>"Body System (Event)"</c> which is functionally
+        /// equivalent to a missing arm and fires <c>MissingRequired:TreatmentArm</c> via
+        /// downstream context inference.
+        /// </remarks>
+        /// <param name="col">Header column to recover an arm name from.</param>
+        /// <returns>The recovered arm-name text, or <c>null</c> when no candidate qualifies.</returns>
+        /// <seealso cref="looksLikeGenericArmLabel"/>
+        /// <seealso cref="extractArmDefinitions"/>
+        protected static string? recoverArmHeaderText(HeaderColumn col)
+        {
+            #region implementation
+
+            var leaf = col.LeafHeaderText?.Trim();
+            if (!looksLikeGenericArmLabel(leaf))
+                return leaf;
+
+            // Walk up the HeaderPath (excluding the leaf itself) looking for a candidate
+            // that is not blank and not generic. The HeaderPath convention places the
+            // leaf at the last index, so we iterate from Count-2 down to 0.
+            if (col.HeaderPath != null)
+            {
+                for (int i = col.HeaderPath.Count - 2; i >= 0; i--)
+                {
+                    var candidate = col.HeaderPath[i]?.Trim();
+                    if (!looksLikeGenericArmLabel(candidate))
+                        return candidate;
+                }
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 3 helper: returns <c>true</c> when the given header text is null,
+        /// whitespace, or matches the generic-axis-label pattern
+        /// (<see cref="_genericArmLabelPattern"/>). Used by
+        /// <see cref="recoverArmHeaderText"/> to decide whether to walk up the
+        /// HeaderPath in search of a real arm name.
+        /// </summary>
+        /// <param name="text">Header text to evaluate.</param>
+        /// <returns><c>true</c> when the text should NOT be used as a treatment arm.</returns>
+        /// <seealso cref="_genericArmLabelPattern"/>
+        protected static bool looksLikeGenericArmLabel(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return true;
+            return _genericArmLabelPattern.IsMatch(text);
 
             #endregion
         }

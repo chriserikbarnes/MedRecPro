@@ -110,9 +110,29 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^([\d.]+)\s*%$",
             RegexOptions.Compiled);
 
-        // Pattern 10: n= — n=1401 or N=188 or N=5,310
+        // Pattern 9b (Phase 2): Inequality percentage — <1%, ≤0.5%, < 1 %.
+        // Matches an explicit upper-limit percentage, common in adverse-event tables
+        // where the exact incidence is suppressed (e.g., reported as <1% when fewer
+        // than 1% of subjects experienced the event). Tags as Percentage with an
+        // INEQUALITY_UPPER validation flag so downstream consumers know the value is
+        // an upper bound, not the exact incidence.
+        private static readonly Regex _inequalityPercentPattern = new(
+            @"^([<≤])\s*(\d+\.?\d*)\s*%$",
+            RegexOptions.Compiled);
+
+        // Pattern 4c (Phase 2): Compound count + inequality percent — 27 (<1%) or
+        // 5 (≤0.5%). The count is the observed n; the percentage is an upper bound.
+        // Decomposes to PrimaryValue=percentage with INEQUALITY_UPPER flag and
+        // SecondaryValue=count, mirroring Pattern 4 (n_pct) for clean compound shape.
+        private static readonly Regex _countInequalityPercentPattern = new(
+            @"^(\d+)\s*\(\s*([<≤])\s*(\d+\.?\d*)\s*%\s*\)$",
+            RegexOptions.Compiled);
+
+        // Pattern 10: n= — n=1401 or N=188 or N=5,310 (footnote markers tolerated:
+        // N = 100*, N = 112‡). Footnote markers are stripped before extraction; the
+        // documentation footnote text is recovered separately by the parser.
         private static readonly Regex _nEqualsPattern = new(
-            @"^[Nn]\s*=\s*(\d[\d,]*)$",
+            @"^[Nn]\s*=\s*(\d[\d,]*)\s*[*†‡§¶#]?\s*$",
             RegexOptions.Compiled);
 
         // Pattern 11: P-value — p<0.05, P=0.001, <0.001, 0.0295
@@ -265,6 +285,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (tryParseNPercent(text, armN, out var nPctResult))
                 return nPctResult;
 
+            // Pattern 4c (Phase 2): Compound count + inequality percent — 27 (<1%).
+            // Runs immediately after Pattern 4 because both share the n(?) outer shape;
+            // Pattern 4 requires a numeric inner group so the inequality form falls
+            // through cleanly.
+            if (tryParseCountInequalityPercent(text, out var countIneqResult))
+                return countIneqResult;
+
             // Pattern 5: RR with CI — 55%(29%, 71%)
             if (tryParseRRWithCI(text, out var rrResult))
                 return rrResult;
@@ -302,6 +329,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Pattern 9: Standalone % — 5%
             if (tryParseStandalonePercent(text, out var pctResult))
                 return pctResult;
+
+            // Pattern 9b (Phase 2): Inequality percent — <1%, ≤0.5%. Must run after
+            // Pattern 9 (standalone %) because a clean standalone percentage like "5%"
+            // is more specific. Runs before Pattern 11 (p-value) so the trailing %
+            // wins over the bare-inequality interpretation.
+            if (tryParseInequalityPercent(text, out var ineqPctResult))
+                return ineqPctResult;
 
             // Pattern 10: n= — n=1401
             if (tryParseNEquals(text, out var nEqResult))
@@ -1037,7 +1071,86 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Parses n= pattern: n=1401 or N=188.
+        /// Parses inequality-percentage cells: <c>&lt;1%</c>, <c>≤0.5%</c>. Tags as
+        /// <c>Percentage</c> with <see cref="ParsedValue.PrimaryValue"/> set to the upper
+        /// bound and <see cref="ParsedValue.ValidationFlags"/> = <c>INEQUALITY_UPPER:&lt;</c>
+        /// (or <c>INEQUALITY_UPPER:≤</c>) so downstream consumers know the value is an
+        /// upper limit, not the exact rate.
+        /// </summary>
+        /// <remarks>
+        /// Common in adverse-event tables where exact incidence is suppressed below a
+        /// reporting threshold. Without this pattern the cell falls to text fallback,
+        /// driving the row under the 0.75 quality gate via the <c>PrimaryValueTypeText</c>
+        /// + <c>PrimaryValueNull</c> hard penalties.
+        /// </remarks>
+        internal static bool tryParseInequalityPercent(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _inequalityPercentPattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            if (!double.TryParse(match.Groups[2].Value, out var bound))
+                return false;
+
+            result = new ParsedValue
+            {
+                PrimaryValue = bound,
+                PrimaryValueType = "Percentage",
+                Unit = "%",
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
+                ParseRule = "inequality_percent",
+                ValidationFlags = "INEQUALITY_UPPER:" + match.Groups[1].Value
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses compound count + inequality-percent cells: <c>27 (&lt;1%)</c>,
+        /// <c>5 (≤0.5%)</c>. The integer is the observed n; the percentage is an upper
+        /// bound. Mirrors Pattern 4 (n_pct) for clean count-with-percentage shape but
+        /// preserves the inequality semantics in <see cref="ParsedValue.ValidationFlags"/>.
+        /// </summary>
+        internal static bool tryParseCountInequalityPercent(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _countInequalityPercentPattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            if (!int.TryParse(match.Groups[1].Value, out var count))
+                return false;
+            if (!double.TryParse(match.Groups[3].Value, out var bound))
+                return false;
+
+            result = new ParsedValue
+            {
+                PrimaryValue = bound,
+                PrimaryValueType = "Percentage",
+                SecondaryValue = count,
+                SecondaryValueType = "Count",
+                Unit = "%",
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
+                ParseRule = "count_inequality_percent",
+                ValidationFlags = "INEQUALITY_UPPER:" + match.Groups[2].Value
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses n= pattern: n=1401 or N=188 (footnote markers tolerated: N = 100*).
         /// </summary>
         internal static bool tryParseNEquals(string text, out ParsedValue result)
         {

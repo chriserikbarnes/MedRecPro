@@ -154,53 +154,72 @@ Select distinct [TableCategory] from [dbo].[tmp_FlattenedStandardizedTable]
 
 DECLARE @Threshold FLOAT = 0.75;  -- keep in sync with ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold
 
-WITH ScoredRows AS (
+WITH ScoreToken AS (
     SELECT
-        [TableCategory],
+        TableCategory,
+        ValidationFlags,
+        PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) AS ScoreStart
+    FROM dbo.tmp_FlattenedStandardizedTable
+    WHERE ValidationFlags LIKE '%QC_PARSE_QUALITY:[0-9]%'
+),
+ScoredRows AS (
+    SELECT
+        TableCategory,
         TRY_CAST(
             LTRIM(RTRIM(REPLACE(REPLACE(
                 SUBSTRING(
                     ValidationFlags,
-                    PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20,
-                    CHARINDEX(';', ValidationFlags + ';',
-                        PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
-                    - (PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
+                    ScoreStart + LEN('QC_PARSE_QUALITY:'),
+                    CHARINDEX(
+                        ';',
+                        ValidationFlags + ';',
+                        ScoreStart + LEN('QC_PARSE_QUALITY:')
+                    ) - (ScoreStart + LEN('QC_PARSE_QUALITY:'))
                 ),
             CHAR(13), ''), CHAR(10), ''))) AS FLOAT) AS Score
-    FROM dbo.tmp_FlattenedStandardizedTable
-    WHERE ValidationFlags LIKE '%QC_PARSE_QUALITY:[0-9]%'
+    FROM ScoreToken
+    WHERE ScoreStart > 0
 )
 SELECT
-    ISNULL([TableCategory], '— ALL —')                          AS [Category],
-    COUNT(*)                                                     AS [Total Rows],
-    SUM(CASE WHEN Score < @Threshold THEN 1 ELSE 0 END)          AS [Claude-Forwarded],
-    SUM(CASE WHEN Score >= @Threshold THEN 1 ELSE 0 END)         AS [Skipped],
+    ISNULL(TableCategory, '- ALL -') AS Category,
+    COUNT(*) AS [Total Rows],
+    SUM(CASE WHEN Score < @Threshold THEN 1 ELSE 0 END) AS [Claude-Forwarded],
+    SUM(CASE WHEN Score >= @Threshold THEN 1 ELSE 0 END) AS [Skipped],
     FORMAT(
         SUM(CASE WHEN Score < @Threshold THEN 1.0 ELSE 0 END) / NULLIF(COUNT(*), 0),
         'P1'
-    )                                                            AS [Forward Rate]
+    ) AS [Forward Rate]
 FROM ScoredRows
 WHERE Score IS NOT NULL
-GROUP BY GROUPING SETS (([TableCategory]), ())
-ORDER BY GROUPING([TableCategory]) DESC, [Forward Rate] DESC;
+GROUP BY GROUPING SETS ((TableCategory), ())
+ORDER BY GROUPING(TableCategory) DESC, [Forward Rate] DESC;
 
 -- Enhanced histogram with threshold banding:
 
 DECLARE @Threshold FLOAT = 0.75;
 
-WITH RawExtract AS (
+WITH ScoreToken AS (
+    SELECT
+        ValidationFlags,
+        PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) AS ScoreStart
+    FROM dbo.tmp_FlattenedStandardizedTable
+    WHERE ValidationFlags LIKE '%QC_PARSE_QUALITY:[0-9]%'
+),
+RawExtract AS (
     SELECT
         LTRIM(RTRIM(REPLACE(REPLACE(
             SUBSTRING(
                 ValidationFlags,
-                PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20,
-                CHARINDEX(';', ValidationFlags + ';',
-                    PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
-                - (PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
+                ScoreStart + LEN('QC_PARSE_QUALITY:'),
+                CHARINDEX(
+                    ';',
+                    ValidationFlags + ';',
+                    ScoreStart + LEN('QC_PARSE_QUALITY:')
+                ) - (ScoreStart + LEN('QC_PARSE_QUALITY:'))
             ),
         CHAR(13), ''), CHAR(10), ''))) AS RawScore
-    FROM dbo.tmp_FlattenedStandardizedTable
-    WHERE ValidationFlags LIKE '%QC_PARSE_QUALITY:[0-9]%'
+    FROM ScoreToken
+    WHERE ScoreStart > 0
 ),
 Scores AS (
     SELECT TRY_CAST(RawScore AS FLOAT) AS Score
@@ -210,23 +229,23 @@ Scores AS (
 Histogram AS (
     SELECT
         FLOOR(Score / 0.05) * 0.05 AS BinStart,
-        COUNT(*)                    AS Cnt,
-        MIN(Score)                  AS BinMin,
-        MAX(Score)                  AS BinMax,
-        AVG(Score)                  AS BinAvg
+        COUNT(*)                   AS Cnt,
+        MIN(Score)                 AS BinMin,
+        MAX(Score)                 AS BinMax,
+        AVG(Score)                 AS BinAvg
     FROM Scores
     GROUP BY FLOOR(Score / 0.05) * 0.05
 )
 SELECT
     FORMAT(BinStart, '0.00') + N' – ' + FORMAT(BinStart + 0.05, '0.00') AS [Score Range],
     CASE WHEN BinStart + 0.05 <= @Threshold THEN N'→ Claude'
-         WHEN BinStart       <  @Threshold THEN N'↘ straddle'
-         ELSE                                    N'  skip'   END            AS [Fate],
-    Cnt                                                                     AS [Count],
-    FORMAT(BinMin, '0.0000')                                                AS [Min],
-    FORMAT(BinMax, '0.0000')                                                AS [Max],
-    FORMAT(BinAvg, '0.0000')                                                AS [Avg],
-    REPLICATE(N'█', CAST(ROUND(Cnt * 50.0 / MAX(Cnt) OVER (), 0) AS INT))  AS [Distribution]
+         WHEN BinStart        <  @Threshold THEN N'↘ straddle'
+         ELSE                                    N'  skip'   END           AS [Fate],
+    Cnt                                                                    AS [Count],
+    FORMAT(BinMin, '0.0000')                                               AS [Min],
+    FORMAT(BinMax, '0.0000')                                               AS [Max],
+    FORMAT(BinAvg, '0.0000')                                               AS [Avg],
+    REPLICATE(N'█', CAST(ROUND(Cnt * 50.0 / MAX(Cnt) OVER (), 0) AS INT)) AS [Distribution]
 FROM Histogram
 ORDER BY BinStart;
 
@@ -320,10 +339,10 @@ SELECT [TableCategory]
     ,'[' + LTRIM(RTRIM(REPLACE(REPLACE(
         SUBSTRING(
             ValidationFlags,
-            PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20,
+            PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + LEN('QC_PARSE_QUALITY:'),
             CHARINDEX(';', ValidationFlags + ';',
-                PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
-            - (PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
+                PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + LEN('QC_PARSE_QUALITY:'))
+            - (PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + LEN('QC_PARSE_QUALITY:'))
         ),
     CHAR(13), ''), CHAR(10), ''))) + ']' AS ExtractedValue
 FROM dbo.tmp_FlattenedStandardizedTable
@@ -334,10 +353,10 @@ WHERE ValidationFlags LIKE '%QC_PARSE_QUALITY:%'
         LTRIM(RTRIM(REPLACE(REPLACE(
             SUBSTRING(
                 ValidationFlags,
-                PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20,
+                PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + LEN('QC_PARSE_QUALITY:'),
                 CHARINDEX(';', ValidationFlags + ';',
-                    PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
-                - (PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + 20)
+                    PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + LEN('QC_PARSE_QUALITY:'))
+                - (PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ValidationFlags) + LEN('QC_PARSE_QUALITY:'))
             ),
         CHAR(13), ''), CHAR(10), '')))
       AS FLOAT) IS NULL

@@ -296,14 +296,30 @@ namespace MedRecProImportClass.Helpers
                         }
                     }
 
-                    return new string(array, 0, arrayIndex);
+                    /******************************/
+                    // Below was previously used to decode HTML entities, but it was commented out. 
+
+                    // return new string(array, 0, arrayIndex);
+
+                    // Decode HTML character entities so downstream consumers see literal
+                    // characters, not encoded forms. Without this, tokens like &lt;1 reach
+                    // ValueParser un-decoded and fall to the text fallback. This is the
+                    // single-touch fix for the encoded-inequality leak documented in the
+                    // deterministic-parse-QC remediation plan.
+                    return HttpUtility.HtmlDecode(new string(array, 0, arrayIndex));
 
                     #endregion
                 }
 
                 // Remove unwanted tags using recursive approach while preserving allowed tags
                 processNode(document.DocumentNode, preserveTags);
-                return document.DocumentNode.InnerHtml;
+
+                /******************************/
+                // Below was previously used to decode HTML entities, but it was commented out. 
+
+                // return new string(array, 0, arrayIndex);
+
+                return HttpUtility.HtmlDecode(document.DocumentNode.InnerHtml);
             }
             catch (Exception e)
             {

@@ -3350,3 +3350,61 @@ Implemented the PR 1.5 dosing validator fallback so 34068-7 tables can remain DO
 **Plan file:** `C:\Users\chris\.claude\plans\overview-most-of-fancy-globe.md`.
 
 ---
+
+### 2026-04-28 3:10 PM EST — Deterministic Parse QC: Phase 0 + Phase 1
+Started a remediation effort to reduce true Claude forwarding from the Stage 3 standardization gate (`< 0.75` parse-quality score). Wrote a 7-phase plan at `C:\Users\chris\.claude\plans\deterministic-parse-qc-splendid-beacon.md` after validating every claim against the codebase (gate threshold, penalty multipliers, router downgrade pattern, contract registry, value-parser patterns, HTML-decode leak path). User approved Phase 0 + Phase 1 to start.
+
+**Phase 0 — Audit SQL hygiene.** Six occurrences of `PATINDEX('%QC_PARSE_QUALITY:[0-9]%', ...) + 20` in [MedRecPro/SQL/Transient/TableStandardizationChecks.sql](MedRecPro/SQL/Transient/TableStandardizationChecks.sql) lines 339-364 silently extracted three characters past the prefix start, casting `000` to `0` and producing the bogus 83.5% forward rate seen in the screenshot. Replaced with `+ LEN('QC_PARSE_QUALITY:')` to match the corrected query at lines 155-195 and the gate semantics in `ClaudeApiCorrectionService`. The "Show rows that failed to parse" diagnostic now genuinely shows rows with missing or unparsable score tokens.
+
+**Phase 1c — Artifact analyzer.** New file [MedRecProConsole/Services/Reporting/JsonlArtifactAnalyzer.cs](MedRecProConsole/Services/Reporting/JsonlArtifactAnalyzer.cs) — reads a Stage 3 JSONL artifact and produces forward-rate roll-ups by category, parser, reason combination, raw-value shape (encoded-`<`, dash, digits-only, text-with-digits, etc.), and worst tables. Includes a GFM markdown formatter so analyzer output is directly comparable to the plan's baseline tables. Threshold defaulted to `0.75` (kept in sync with `ClaudeApiCorrectionSettings.ClaudeReviewQualityThreshold`).
+
+**Phase 1c2 — Analyzer tests.** [MedRecProTest/Reporting/JsonlArtifactAnalyzerTests.cs](MedRecProTest/Reporting/JsonlArtifactAnalyzerTests.cs) — 8 tests pin gate semantics (strict `<`, exactly-at-threshold rows skip), per-(category, parser) grouping, alphabetic reason-combination dedupe, reasons-only-on-forwarded-rows behavior, shape classifier coverage, worst-table sort by absolute forwarded count, line-without-score handling, and markdown section rendering.
+
+**Phase 1d — Baseline parser fixtures.** [MedRecProTest/TableParserBaselineFixtureTests.cs](MedRecProTest/TableParserBaselineFixtureTests.cs) — 9 regression fixtures capturing the failure shapes from `standardization-report-20260428-134443.jsonl`: encoded `&lt;` AE values fall to text fallback (TextTableID 44946 family), QC-side missing-arm AE row scores below gate, body-system-as-data AE row, PK missing-unit row, PK at confidence 0.74 falls under gate while same-shape row at 0.83 passes (documents the `0.9 × ParseConfidence` cliff identified in the plan), Efficacy compound event-rate `74% (220/296) 58% (167/288)` falls to text. One fixture revealed a finding worth recording: `SimpleArmTableParser` already skips columns whose leaf header is the empty string — the 6,080 `MissingRequired:TreatmentArm` AE rows in the artifact (TextTableID 40880) must come from a different shape (generic labels like `Event`, multi-level study-context paths), which can't be reproduced from the failure description alone. The fixture now pins the actual current behavior with a comment documenting the gap.
+
+**Verification.** `dotnet build MedRecPro.sln` clean (0 errors). `dotnet test` filtered to the new + adjacent suites: 17 new tests pass, 310 existing parser/QC/reporting tests still pass. Phases 2-7 of the plan remain to be sliced into separate sessions.
+
+**Plan file:** `C:\Users\chris\.claude\plans\deterministic-parse-qc-splendid-beacon.md`.
+
+---
+
+### 2026-04-28 3:25 PM EST — Deterministic Parse QC: Phase 2
+Implemented Phase 2 of the deterministic-parse-QC remediation plan (`C:\Users\chris\.claude\plans\deterministic-parse-qc-splendid-beacon.md`): value-parsing and cell-normalization fixes that target the high-volume failure shapes from the 2026-04-28 baseline without changing routing or weakening the 0.75 quality gate.
+
+**Boundary HtmlDecode fix.** [TextUtil.cs:265-272, :313](MedRecProImportClass/Helpers/TextUtil.cs:265) — added `HttpUtility.HtmlDecode` after tag stripping in both branches of `RemoveUnwantedTags(html, preserveTags, cleanAll)`. This is the single-touch fix for the encoded-leak path documented in Phase 1: [TableReconstructionService.cs:330](MedRecProImportClass/Service/TransformationServices/TableReconstructionService.cs:330) calls this helper with `cleanAll: true`, so cell text now reaches `ValueParser` with `&lt;`, `&gt;`, `&amp;`, `&nbsp;` resolved. The plan flagged ~1,830 encoded-`<` AE rows leaking through this gap.
+
+**ValueParser inequality patterns.** [ValueParser.cs](MedRecProImportClass/Service/TransformationServices/ValueParser.cs):
+- New Pattern 9b (`_inequalityPercentPattern`) — `<1%`, `≤0.5%` → `Percentage` with `PrimaryValue` set to the upper bound, `Unit = "%"`, `ValidationFlags = "INEQUALITY_UPPER:<"`. Runs before Pattern 11 (p-value).
+- New Pattern 4c (`_countInequalityPercentPattern`) — `27 (<1%)`, `5 (≤0.5%)` → count in `SecondaryValue`, percentage upper-bound in `PrimaryValue`, mirrors Pattern 4 (n_pct) for clean compound shape. Runs immediately after Pattern 4.
+- Both at `ConfidenceTier.Unambiguous` (1.0); `INEQUALITY_UPPER:{op}` flag preserves the inequality semantic without a model change.
+
+**Pattern 10 footnote tolerance.** [ValueParser.cs:113-117](MedRecProImportClass/Service/TransformationServices/ValueParser.cs:113) — extended the `n=` regex to allow a single trailing footnote marker (`* † ‡ § ¶ #`) after the integer. Matches SPL conventions like `N = 100*`, `N = 112‡` that previously fell to text fallback.
+
+**Bare `<X` (no `%`) decision.** Left to existing Pattern 11 → `PValue`. After the boundary decode, `&lt;1` arrives as `<1`, matches the p-value pattern with optional `[Pp]?`, and tags as `PValue` with qualifier `<` and `PrimaryValue = 1`. PValue is allowed (Optional) for AE/Efficacy in `ColumnContractRegistry`, so the row clears the gate via populated `PrimaryValue` + non-Text `PrimaryValueType` even though the semantic is "wrong" for AE incidence. Context-aware promotion of bare-inequality cells from `PValue` to `Percentage` upper-limit in AE/Efficacy is intentionally deferred to Phase 3 (header/arm recovery) or Phase 6 (routing) — the deterministic value parser stays category-agnostic.
+
+**Fixtures.** [TableParserBaselineFixtureTests.cs](MedRecProTest/TableParserBaselineFixtureTests.cs) — replaced the two pre-fix baseline tests with six post-fix tests covering: `&lt;1` direct call still text (parser doesn't decode), bare `<1` → PValue with qualifier, `<1%` → Percentage with `INEQUALITY_UPPER:<`, `27 (<1%)` → count + percentage upper-limit, `N = 100*` / `N = 112‡` → SampleSize with footnote markers tolerated, and an end-to-end `TextUtil.RemoveUnwantedTags("&lt;1", [], cleanAll: true)` returning `<1`.
+
+**Verification.** Full `dotnet test MedRecProTest` suite **1792/1792 passed in 2m20s**. The HtmlDecode boundary change did not regress any existing test — strong evidence that no consumer relied on encoded entities being preserved through `RemoveUnwantedTags`.
+
+**Plan file:** `C:\Users\chris\.claude\plans\deterministic-parse-qc-splendid-beacon.md`. Phases 3-7 remain.
+
+---
+
+### 2026-04-28 4:30 PM EST — Deterministic Parse QC: Phase 3
+Implemented Phase 3 of the deterministic-parse-QC remediation plan: AE/Efficacy header arm recovery, focused on rejecting generic axis labels that masquerade as treatment-arm names and walking up the HeaderPath when the leaf is generic.
+
+**Generic-label rejection.** [BaseTableParser.cs:206-228](MedRecProImportClass/Service/TransformationServices/BaseTableParser.cs:206) — added `_genericArmLabelPattern`, an anchored case-insensitive regex matching exact-string axis labels that should never be treated as treatment arms: `Event` / `Events`, `Body System (...)`, `System Organ Class` / `SOC`, `MedDRA (Term|Preferred Term)`, `Adverse Reaction(s)` / `Adverse Event(s)` / `Adverse Experiences`, bare `Reaction(s)`, `Outcome(s)`, `Variable(s)`, `Parameter(s)`, `Term`, `Preferred Term`, format-only labels (`%`, `Percent`, `Percentage`, `n (%)`, single `n` / `N`, `Number`, `Count`, `Frequency`). Conservative scope on purpose: `Placebo`, `Total`, and `All Patients` are explicitly NOT rejected because they can be valid arm names.
+
+**Parent-path recovery + skip semantics.** [BaseTableParser.cs:391-440](MedRecProImportClass/Service/TransformationServices/BaseTableParser.cs:391) — new `recoverArmHeaderText(HeaderColumn col)` returns the leaf if it is not generic; otherwise walks up `col.HeaderPath` from `Count-2` down to 0 looking for a non-generic ancestor. Returns `null` when no candidate qualifies. Companion predicate `looksLikeGenericArmLabel(text)` is shared and `protected` so subclasses can use it directly.
+
+**Wired into both arm-extraction paths.** [BaseTableParser.cs:333-365](MedRecProImportClass/Service/TransformationServices/BaseTableParser.cs:333) `extractArmDefinitions` (used by SimpleArmTableParser, AeWithSocTableParser, EfficacyMultilevelTableParser) and [MultilevelAeTableParser.cs:166-176](MedRecProImportClass/Service/TransformationServices/MultilevelAeTableParser.cs:166) `extractMultilevelArms` both call `recoverArmHeaderText` and skip the column when it returns null. All four AE/Efficacy parsers share one rejection contract, so adding a new generic label to the regex updates every parser at once.
+
+**Failure shape addressed.** TextTableID 40880 family (6,080 AE rows + 1,491 with PVT_MIGRATED in the 2026-04-28 baseline): leaf header is a structural label like `Body System (Event)`, while the actual arm name lives in the spanning parent row. Pre-fix, the parser used the generic leaf as the arm name and emitted observations whose `TreatmentArm` was effectively missing (`Body System (Event)` doesn't survive downstream context inference and fires `MissingRequired:TreatmentArm` when it reaches the QC scorer). Post-fix, the parser walks up to the `Drug A (N=200)` parent and emits proper arm-attributed observations — or skips the column entirely when no real arm exists in the path.
+
+**Fixtures.** [TableParserBaselineFixtureTests.cs](MedRecProTest/TableParserBaselineFixtureTests.cs) — added a `createMultilevelTable` helper plus 5 Phase 3 tests: generic leaf with no parent → 0 observations (40880 minimal repro), generic leaf with real parent → recovers parent and produces `TreatmentArm = "Drug A"` / `"Placebo"` (key assertion: no observation has `TreatmentArm == "Event"`), `Body System (Event)` leaf rejected (31303 family), `%` leaf rejected, and a negative test confirming `Placebo` and `ZAVZPRET` are still accepted as arm names.
+
+**Verification.** Full `dotnet test MedRecProTest` suite **1797/1797 passed in 2m19s** (5 new tests, 0 regressions). The conservative regex scope did not over-reject any of the existing 414 parser/QC tests' fixture arm names.
+
+**Plan file:** `C:\Users\chris\.claude\plans\deterministic-parse-qc-splendid-beacon.md`. Phases 4-7 remain.
+
+---

@@ -166,8 +166,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             for (int i = 1; i < table.Header.Columns.Count; i++)
             {
                 var col = table.Header.Columns[i];
-                var leafText = col.LeafHeaderText?.Trim();
-                if (string.IsNullOrWhiteSpace(leafText))
+
+                // Phase 3: same generic-label rejection + parent-path recovery rule used
+                // by extractArmDefinitions in BaseTableParser, so the four AE/Efficacy
+                // parsers share one arm-recovery contract.
+                var leafText = recoverArmHeaderText(col);
+                if (leafText == null)
                     continue;
 
                 var arm = ValueParser.ParseArmHeader(leafText);
