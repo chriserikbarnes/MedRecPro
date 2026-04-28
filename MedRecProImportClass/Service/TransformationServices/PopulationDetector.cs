@@ -256,9 +256,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// True when <paramref name="raw"/> looks like a body-weight band such as
         /// <c>50-59 kg</c>, <c>&lt;50 kg</c>, <c>≥90 kg</c>, or <c>50 to 59 kg</c>.
-        /// Used by the table router to confirm DOSING categorization for body-weight
-        /// dosing tables (TextTableID 19220 / 21539-style layouts) and by the dosing
-        /// shape classifier to recognize per-row Population bands.
+        /// Used to recognize per-row Population bands in stratified table layouts.
         /// </summary>
         /// <remarks>
         /// Matches comparator forms (<c>&lt;</c>, <c>&gt;</c>, <c>≤</c>, <c>≥</c>,
@@ -285,7 +283,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// True when <paramref name="raw"/> looks like a height or BSA band such
         /// as <c>1.50-1.69 m</c>, <c>&lt;1.30 m²</c>, or <c>≥ 1.90 m</c>. Used
-        /// by the dosing shape classifier and DosingTableParser to recognize
+        /// to recognize stratified row labels to recognize
         /// height-stratified row labels (BSA dosing tables).
         /// </summary>
         /// <remarks>
@@ -314,7 +312,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// band such as <c>30-59 mL/min</c>, <c>&lt;30 mL/min</c>,
         /// <c>≥60 mL/min</c>, or a bare CrCl value such as <c>90 mL/min</c>
         /// (some renal dose tables list a single CrCl per row instead of a
-        /// band). Used by the dosing shape classifier and DosingTableParser
+        /// band). Used to recognize stratified row labels
         /// to recognize renal-function-stratified row labels.
         /// </summary>
         /// <param name="raw">Candidate row label or cell text.</param>

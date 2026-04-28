@@ -122,10 +122,7 @@ namespace MedRecPro.Service.Test
                 new SimpleArmTableParser(),
                 new MultilevelAeTableParser(),
                 new AeWithSocTableParser(),
-                new EfficacyMultilevelTableParser(),
-                new BmdTableParser(),
-                new TissueRatioTableParser(),
-                new DosingTableParser()
+                new EfficacyMultilevelTableParser()
             };
             var router = new TableParserRouter(parsers);
 

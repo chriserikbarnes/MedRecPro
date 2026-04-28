@@ -17,12 +17,9 @@ namespace MedRecProImportClass.Models
     /// - **PK**: Pharmacokinetic parameter tables (Cmax, AUC, t½, Tmax, Cl, Vd)
     /// - **ADVERSE_EVENT**: Adverse reaction incidence tables with treatment arm columns
     /// - **EFFICACY**: Clinical study efficacy/outcomes tables with stat columns
-    /// - **DOSING**: Dosage and administration tables
-    /// - **BMD**: Bone mineral density / timepoint tables
-    /// - **TISSUE_DISTRIBUTION**: Tissue-to-plasma ratio tables
-    /// - **DRUG_INTERACTION**: Drug interaction tables (stub — future implementation)
-    /// - **OTHER**: Unclassified but parseable tables
-    /// - **SKIP**: Tables to exclude (patient info, NDC, formulas, How Supplied)
+    /// - **DRUG_INTERACTION**: Drug interaction tables (structural subset of PK)
+    /// - **SKIP**: Tables to exclude (patient info, NDC, formulas, How Supplied,
+    ///   and any table that doesn't classify into one of the four kept categories)
     /// </remarks>
     /// <seealso cref="ReconstructedTable"/>
     public enum TableCategory
@@ -50,53 +47,16 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// Dosage and administration tables. Rows are parameters/populations,
-        /// columns are dose levels or units.
-        /// </summary>
-        DOSING,
-
-        /**************************************************************/
-        /// <summary>
-        /// Bone mineral density tables. Columns are timepoints (Week/Month/Year),
-        /// rows are anatomical sites. Values are typically mean percent change.
-        /// </summary>
-        BMD,
-
-        /**************************************************************/
-        /// <summary>
-        /// Tissue-to-plasma ratio tables. Simple two-column structure:
-        /// tissue name and ratio value.
-        /// </summary>
-        TISSUE_DISTRIBUTION,
-
-        /**************************************************************/
-        /// <summary>
-        /// Drug interaction tables. Stub for future implementation.
-        /// These have unique structure with direction arrows and magnitude percentages.
+        /// Drug interaction tables. Structural subset of PK with co-administered drug
+        /// names in row labels and geometric mean ratios with 90% CI bounds.
         /// </summary>
         DRUG_INTERACTION,
 
         /**************************************************************/
         /// <summary>
-        /// Text-only narrative tables — drug interaction prose, safety narratives,
-        /// hormone physiology descriptions, and similar. Values are whole-cell text
-        /// and are not numerically comparable. Produced by the router downgrading
-        /// section-code-hinted PK tables that fail content validation (no PK
-        /// parameter names in headers or row labels and prose-heavy cells).
-        /// </summary>
-        TEXT_DESCRIPTIVE,
-
-        /**************************************************************/
-        /// <summary>
-        /// Unclassified but parseable tables. Used when no specific parser matches
-        /// but the table contains structured data worth preserving.
-        /// </summary>
-        OTHER,
-
-        /**************************************************************/
-        /// <summary>
         /// Tables to exclude from normalization. Includes patient information leaflets,
-        /// NDC/packaging tables, formulas, How Supplied, and single-column text tables.
+        /// NDC/packaging tables, formulas, How Supplied, single-column text tables, and
+        /// any table that does not classify into one of the four parsed categories.
         /// </summary>
         SKIP
     }

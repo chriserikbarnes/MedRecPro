@@ -882,9 +882,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <remarks>
         /// ## Scope
         /// PK-only. Observations with <c>TableCategory != "PK"</c> pass through
-        /// unchanged. Other categories (ADVERSE_EVENT, EFFICACY, DRUG_INTERACTION,
-        /// BMD, TissueRatio, Dosing) retain their rows for troubleshooting until
-        /// each category's filter contract is audited individually.
+        /// unchanged. Other categories (ADVERSE_EVENT, EFFICACY, DRUG_INTERACTION)
+        /// retain their rows for troubleshooting until each category's filter
+        /// contract is audited individually.
         ///
         /// ## Ordering — called TWICE
         /// - **Stage 3.35 (pre-ML)**: runs after R11/R12/R15.1 parser rescues so

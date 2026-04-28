@@ -224,31 +224,6 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// BMD observation missing Timepoint produces Warning.
-        /// </summary>
-        [TestMethod]
-        public void ValidateObservation_BmdMissingTimepoint_ReturnsWarning()
-        {
-            #region implementation
-
-            var service = createService();
-            var obs = createValidAeObservation();
-            obs.TableCategory = "BMD";
-            obs.PrimaryValueType = "MeanPercentChange";
-            obs.TreatmentArm = null;
-            obs.ArmN = null;
-            obs.Timepoint = null;
-
-            var result = service.ValidateObservation(obs);
-
-            Assert.AreEqual(ValidationStatus.Warning, result.Status);
-            Assert.IsTrue(result.Issues.Any(i => i.Contains("MISSING_FIELD:Timepoint")));
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Missing TableCategory produces Warning with MISSING_CATEGORY.
         /// </summary>
         [TestMethod]
@@ -813,8 +788,8 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Categories with an empty CompletenessFields list (DRUG_INTERACTION, TEXT_DESCRIPTIVE,
-        /// OTHER, unknown) return a completeness score of 1.0 — preserves the legacy "unknown
+        /// Categories with an empty CompletenessFields list (DRUG_INTERACTION, unknown)
+        /// return a completeness score of 1.0 — preserves the legacy "unknown
         /// category — don't penalize" behavior after the migration to
         /// <see cref="MedRecProImportClass.Service.TransformationServices.Dictionaries.CategoryProfileRegistry"/>.
         /// </summary>

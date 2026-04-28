@@ -53,10 +53,7 @@ namespace MedRecPro.Service.Test
                 new SimpleArmTableParser(),
                 new MultilevelAeTableParser(),
                 new AeWithSocTableParser(),
-                new EfficacyMultilevelTableParser(),
-                new BmdTableParser(),
-                new TissueRatioTableParser(),
-                new DosingTableParser()
+                new EfficacyMultilevelTableParser()
             };
             var router = new TableParserRouter(parsers);
 
@@ -1821,68 +1818,5 @@ namespace MedRecPro.Service.Test
 
         #endregion PK Sample Size and Population Tests
 
-        #region BMD Time Extraction Tests
-
-        /**************************************************************/
-        /// <summary>
-        /// BmdTableParser.parseTimepointNumeric extracts number-then-unit patterns.
-        /// </summary>
-        [TestMethod]
-        public void BmdTableParser_ParseTimepointNumeric_NumberUnitPattern()
-        {
-            #region implementation
-
-            var (time, timeUnit) = BmdTableParser.parseTimepointNumeric("12 Months");
-            Assert.AreEqual(12.0, time);
-            Assert.AreEqual("months", timeUnit);
-
-            var (time2, timeUnit2) = BmdTableParser.parseTimepointNumeric("24 Months");
-            Assert.AreEqual(24.0, time2);
-            Assert.AreEqual("months", timeUnit2);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// BmdTableParser.parseTimepointNumeric extracts unit-then-number patterns.
-        /// </summary>
-        [TestMethod]
-        public void BmdTableParser_ParseTimepointNumeric_UnitNumberPattern()
-        {
-            #region implementation
-
-            var (time, timeUnit) = BmdTableParser.parseTimepointNumeric("Week 12");
-            Assert.AreEqual(12.0, time);
-            Assert.AreEqual("weeks", timeUnit);
-
-            var (time2, timeUnit2) = BmdTableParser.parseTimepointNumeric("Day 49");
-            Assert.AreEqual(49.0, time2);
-            Assert.AreEqual("days", timeUnit2);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// BmdTableParser.parseTimepointNumeric returns nulls for unrecognized patterns.
-        /// </summary>
-        [TestMethod]
-        public void BmdTableParser_ParseTimepointNumeric_UnrecognizedPattern()
-        {
-            #region implementation
-
-            var (time, timeUnit) = BmdTableParser.parseTimepointNumeric("Baseline");
-            Assert.IsNull(time);
-            Assert.IsNull(timeUnit);
-
-            var (time2, timeUnit2) = BmdTableParser.parseTimepointNumeric(null);
-            Assert.IsNull(time2);
-            Assert.IsNull(timeUnit2);
-
-            #endregion
-        }
-
-        #endregion BMD Time Extraction Tests
     }
 }

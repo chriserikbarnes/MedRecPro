@@ -4,12 +4,12 @@ description: >
   Standardized data dictionary for the tmp_FlattenedStandardizedTable schema (38
   data columns, fixed width). Defines strict per-TableCategory contracts for every
   column — same column name, different documented meaning depending on the table
-  type being parsed (AdverseEvent, PK, DrugInteraction, Efficacy, Dosing, BMD,
-  TissueDistribution). Use this skill when building or extending the table parser,
-  writing ParseRule patterns, normalizing values, classifying TableCategory,
-  triaging DoseRegimen content, defining PrimaryValueType enums, writing cross-table
-  comparison queries, or training ML.NET models. If the task involves SPL table
-  parsing in any capacity, read this skill first.
+  type being parsed (AdverseEvent, PK, DrugInteraction, Efficacy). Use this skill
+  when building or extending the table parser, writing ParseRule patterns,
+  normalizing values, classifying TableCategory, triaging DoseRegimen content,
+  defining PrimaryValueType enums, writing cross-table comparison queries, or
+  training ML.NET models. If the task involves SPL table parsing in any capacity,
+  read this skill first.
 ---
 
 # Table Parser Data Dictionary
@@ -136,10 +136,6 @@ PK                   PK statistic qualifier             CV(%), steady_state,
 DrugInteraction      Co-administered drug name          Rifampin, Efavirenz,
                                                         Fluconazole, Midazolam
 Efficacy             Analysis population                ITT, mITT, Per Protocol
-Dosing               Adjustment context                 renal, hepatic, weight-based
-BMD                  (NULL)
-TissueDistribution   (NULL)
-TextDescriptive      (NULL)
 ```
 
 This is the column that absorbs what would otherwise require schema widening.
@@ -157,9 +153,6 @@ PK                    ParameterName + DoseRegimen + Population + Timepoint
                       + PrimaryValueType + Unit
 DrugInteraction       ParameterName + ParameterSubtype + TreatmentArm
 Efficacy              ParameterName + TreatmentArm + PrimaryValueType
-Dosing                ParameterName + Population + DoseRegimen
-BMD                   ParameterName + TreatmentArm + Timepoint
-TissueDistribution    ParameterName + DoseRegimen + Timepoint + Unit
 ```
 
 Note that for DrugInteraction, ParameterSubtype (= co-administered drug) is part

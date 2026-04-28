@@ -118,7 +118,7 @@ namespace MedRecPro.Service.Test
             #region implementation
 
             var contractRegistry = new ColumnContractRegistry();
-            var categories = new[] { "AdverseEvent", "PK", "DrugInteraction", "Efficacy", "Dosing", "BMD", "TissueDistribution", "TextDescriptive" };
+            var categories = new[] { "AdverseEvent", "PK", "DrugInteraction", "Efficacy" };
 
             foreach (var category in categories)
             {
@@ -163,27 +163,6 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("90CI", CategoryProfileRegistry.Get("DRUG_INTERACTION").DefaultBoundType);
         }
 
-        /**************************************************************/
-        [TestMethod]
-        public void Profile_BMD_DefaultBoundType_Is_95CI()
-        {
-            Assert.AreEqual("95CI", CategoryProfileRegistry.Get("BMD").DefaultBoundType);
-        }
-
-        /**************************************************************/
-        [TestMethod]
-        public void Profile_TissueDistribution_DefaultBoundType_IsNull()
-        {
-            Assert.IsNull(CategoryProfileRegistry.Get("TISSUE_DISTRIBUTION").DefaultBoundType);
-        }
-
-        /**************************************************************/
-        [TestMethod]
-        public void Profile_Dosing_DefaultBoundType_IsNull()
-        {
-            Assert.IsNull(CategoryProfileRegistry.Get("DOSING").DefaultBoundType);
-        }
-
         #endregion DefaultBoundType Tests
 
         #region UsesArmCoverage / UsesTimeConsistency Tests
@@ -214,13 +193,6 @@ namespace MedRecPro.Service.Test
         public void Profile_PK_UsesTimeConsistency_True()
         {
             Assert.IsTrue(CategoryProfileRegistry.Get("PK").UsesTimeConsistency);
-        }
-
-        /**************************************************************/
-        [TestMethod]
-        public void Profile_BMD_UsesTimeConsistency_True()
-        {
-            Assert.IsTrue(CategoryProfileRegistry.Get("BMD").UsesTimeConsistency);
         }
 
         /**************************************************************/
@@ -256,19 +228,6 @@ namespace MedRecPro.Service.Test
             var profile = CategoryProfileRegistry.Get("ADVERSE_EVENT");
 
             CollectionAssert.AreEqual(new[] { "ParameterName", "TreatmentArm" }, profile.RowRequiredFields.ToArray());
-
-            #endregion
-        }
-
-        /**************************************************************/
-        [TestMethod]
-        public void Profile_Other_RowRequiredFields_HasParameterName()
-        {
-            #region implementation
-
-            var profile = CategoryProfileRegistry.Get("OTHER");
-
-            CollectionAssert.AreEqual(new[] { "ParameterName" }, profile.RowRequiredFields.ToArray());
 
             #endregion
         }
@@ -356,12 +315,7 @@ namespace MedRecPro.Service.Test
                 ("ADVERSE_EVENT",      true,  false, "95CI"),
                 ("EFFICACY",           true,  false, "95CI"),
                 ("PK",                 false, true,  "90CI"),
-                ("BMD",                false, true,  "95CI"),
                 ("DRUG_INTERACTION",   false, false, "90CI"),
-                ("DOSING",             false, false, null),
-                ("TISSUE_DISTRIBUTION",false, false, null),
-                ("TEXT_DESCRIPTIVE",   false, false, null),
-                ("OTHER",              false, false, null),
             };
 
             foreach (var (category, arm, time, bound) in expectations)

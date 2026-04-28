@@ -3173,36 +3173,6 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// DOSING observations are now processed.
-        /// </summary>
-        [TestMethod]
-        public async Task CrossCategory_Dosing_NowProcessed()
-        {
-            #region implementation
-
-            var (service, context, sentinel) = await createInitializedServiceAsync();
-
-            var obs = createObservation(null, category: "DOSING");
-            obs.ParameterName = "Starting Dose";
-            obs.PrimaryValueType = "Numeric";
-            obs.DoseRegimen = "20 mg";
-            obs.Population = "Adult";
-
-            var result = service.Standardize(new List<ParsedObservation> { obs });
-
-            // Phase 3: Numeric stays as Numeric for DOSING (prescriptive)
-            Assert.AreEqual("Numeric", result[0].PrimaryValueType);
-            // Phase 4: ArmN should be null (N/A for DOSING)
-            Assert.IsNull(result[0].ArmN);
-
-            context.Dispose();
-            sentinel.Dispose();
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// SKIP category is still skipped by all phases.
         /// </summary>
         [TestMethod]
@@ -3262,8 +3232,7 @@ namespace MedRecProTest
         /**************************************************************/
         /// <summary>
         /// Standalone [N=60] in non-AE TreatmentArm → ArmN=60, TreatmentArm nulled.
-        /// Uses PK category where ArmN is Optional (DOSING marks ArmN as NotApplicable,
-        /// so Phase 4 would null it).
+        /// Uses PK category where ArmN is Optional.
         /// </summary>
         [TestMethod]
         public async Task InlineN_StandaloneBracketN_NonAE_ExtractsArmN()

@@ -119,11 +119,11 @@ namespace MedRecPro.Service.Test
                     ParseConfidence = 0.7, ParseRule = "range_to",
                     SourceRowSeq = 2, SourceCellSeq = 3
                 },
-                // Text observation, low confidence
+                // EFFICACY observation, low confidence
                 new ParsedObservation
                 {
-                    TextTableID = 3, TableCategory = "DOSING",
-                    ParameterName = "Instructions",
+                    TextTableID = 3, TableCategory = "EFFICACY",
+                    ParameterName = "Overall Survival", TreatmentArm = "Drug",
                     PrimaryValueType = "Text",
                     ParseConfidence = 0.3, ParseRule = "text_descriptive",
                     SourceRowSeq = 1, SourceCellSeq = 1
@@ -154,7 +154,7 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(5, report.TotalObservations);
             Assert.AreEqual(2, report.RowCountByCategory["ADVERSE_EVENT"]);
             Assert.AreEqual(2, report.RowCountByCategory["PK"]);
-            Assert.AreEqual(1, report.RowCountByCategory["DOSING"]);
+            Assert.AreEqual(1, report.RowCountByCategory["EFFICACY"]);
 
             #endregion
         }

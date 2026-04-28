@@ -25,10 +25,7 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual("AdverseEvent", CategoryNameNormalizer.Normalize("ADVERSE_EVENT"));
             Assert.AreEqual("DrugInteraction", CategoryNameNormalizer.Normalize("DRUG_INTERACTION"));
-            Assert.AreEqual("TissueDistribution", CategoryNameNormalizer.Normalize("TISSUE_DISTRIBUTION"));
-            Assert.AreEqual("TextDescriptive", CategoryNameNormalizer.Normalize("TEXT_DESCRIPTIVE"));
             Assert.AreEqual("Efficacy", CategoryNameNormalizer.Normalize("EFFICACY"));
-            Assert.AreEqual("Dosing", CategoryNameNormalizer.Normalize("DOSING"));
 
             #endregion
         }
@@ -45,7 +42,6 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("AdverseEvent", CategoryNameNormalizer.Normalize("AdverseEvent"));
             Assert.AreEqual("DrugInteraction", CategoryNameNormalizer.Normalize("DrugInteraction"));
             Assert.AreEqual("PK", CategoryNameNormalizer.Normalize("PK"));
-            Assert.AreEqual("BMD", CategoryNameNormalizer.Normalize("BMD"));
 
             #endregion
         }
@@ -127,10 +123,7 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual("ADVERSE_EVENT", CategoryNameNormalizer.ToUnderscoreForm("AdverseEvent"));
             Assert.AreEqual("DRUG_INTERACTION", CategoryNameNormalizer.ToUnderscoreForm("DrugInteraction"));
-            Assert.AreEqual("TISSUE_DISTRIBUTION", CategoryNameNormalizer.ToUnderscoreForm("TissueDistribution"));
-            Assert.AreEqual("TEXT_DESCRIPTIVE", CategoryNameNormalizer.ToUnderscoreForm("TextDescriptive"));
             Assert.AreEqual("EFFICACY", CategoryNameNormalizer.ToUnderscoreForm("Efficacy"));
-            Assert.AreEqual("DOSING", CategoryNameNormalizer.ToUnderscoreForm("Dosing"));
 
             #endregion
         }
@@ -177,10 +170,7 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual("ADVERSE_EVENT", CategoryNameNormalizer.ToUnderscoreForm("adverse_event"));
             Assert.AreEqual("DRUG_INTERACTION", CategoryNameNormalizer.ToUnderscoreForm("drug_interaction"));
-            Assert.AreEqual("TISSUE_DISTRIBUTION", CategoryNameNormalizer.ToUnderscoreForm("tissue_distribution"));
-            Assert.AreEqual("TEXT_DESCRIPTIVE", CategoryNameNormalizer.ToUnderscoreForm("text_descriptive"));
             Assert.AreEqual("EFFICACY", CategoryNameNormalizer.ToUnderscoreForm("efficacy"));
-            Assert.AreEqual("DOSING", CategoryNameNormalizer.ToUnderscoreForm("dosing"));
 
             #endregion
         }

@@ -289,9 +289,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <remarks>
         /// Categories with an empty <see cref="CategoryProfile.CompletenessFields"/> list
-        /// (DRUG_INTERACTION, TEXT_DESCRIPTIVE, OTHER, unknown) return 1.0 to avoid penalizing
-        /// rows the registry has no opinion on — preserves the legacy "unknown category — don't
-        /// penalize" behavior of the old <c>_completenessFieldsByCategory</c> lookup.
+        /// (DRUG_INTERACTION, unknown) return 1.0 to avoid penalizing rows the registry has
+        /// no opinion on — preserves the legacy "unknown category — don't penalize" behavior
+        /// of the old <c>_completenessFieldsByCategory</c> lookup.
         /// </remarks>
         /// <param name="observation">The observation to score.</param>
         /// <returns>Score from 0.0 (no fields populated) to 1.0 (all expected fields populated).</returns>

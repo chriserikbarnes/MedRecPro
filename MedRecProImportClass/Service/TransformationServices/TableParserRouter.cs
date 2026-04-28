@@ -13,13 +13,15 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// ## Section Routing Map
     /// | ParentSectionCode | Category |
     /// |---|---|
-    /// | 34090-1 (CLINICAL PHARMACOLOGY) | PK |
-    /// | 43682-4 (12.3 Pharmacokinetics) | PK |
+    /// | 34090-1 (CLINICAL PHARMACOLOGY) | PK (DDI fast-path overrides) |
+    /// | 43682-4 (12.3 Pharmacokinetics) | PK (DDI fast-path overrides) |
     /// | 34084-4 (ADVERSE REACTIONS) | ADVERSE_EVENT |
     /// | 34092-7 (CLINICAL STUDIES) | EFFICACY |
     /// | 42232-9 (PRECAUTIONS) | Caption-inspect → AE or EFFICACY |
-    /// | 34068-7 (DOSAGE AND ADMINISTRATION) | DOSING |
     /// | 42229-5 (SPL UNCLASSIFIED) | SectionTitle fallback |
+    ///
+    /// Tables that do not classify into PK / ADVERSE_EVENT / EFFICACY /
+    /// DRUG_INTERACTION fall through to <see cref="TableCategory.SKIP"/>.
     ///
     /// ## Skip Detection
     /// - SectionCode 68498-5 (patient info leaflet)
@@ -48,9 +50,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         // Precautions
         private const string CODE_PRECAUTIONS = "42232-9";
-
-        // Dosage and Administration
-        private const string CODE_DOSAGE_ADMINISTRATION = "34068-7";
 
         // SPL Unclassified
         private const string CODE_UNCLASSIFIED = "42229-5";
@@ -124,14 +123,6 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Select parser by priority within category
             var parser = selectParser(table, category);
 
-            // If no specific parser found, try OTHER category parsers
-            if (parser == null && category != TableCategory.OTHER)
-            {
-                parser = selectParser(table, TableCategory.OTHER);
-                if (parser != null)
-                    category = TableCategory.OTHER;
-            }
-
             return (category, parser);
 
             #endregion
@@ -189,7 +180,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 CODE_PHARMACOKINETICS => validatePkOrDowngrade(table),
                 CODE_ADVERSE_REACTIONS => TableCategory.ADVERSE_EVENT,
                 CODE_CLINICAL_STUDIES => TableCategory.EFFICACY,
-                CODE_DOSAGE_ADMINISTRATION => validateDosingOrDowngrade(table),
                 CODE_PRECAUTIONS => categorizeFromCaption(table),
                 CODE_UNCLASSIFIED => categorizeFromSectionTitle(table),
                 null => categorizeFromCaption(table),
@@ -215,9 +205,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return validatePkOrDowngrade(table);
             if (title.Contains("Adverse", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.ADVERSE_EVENT;
-            if (title.Contains("Dosage", StringComparison.OrdinalIgnoreCase) ||
-                title.Contains("Dosing", StringComparison.OrdinalIgnoreCase))
-                return validateDosingOrDowngrade(table);
             if (title.Contains("Drug Interaction", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.DRUG_INTERACTION;
             if (title.Contains("Clinical Studies", StringComparison.OrdinalIgnoreCase) ||
@@ -239,7 +226,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var caption = table.Caption;
             if (string.IsNullOrWhiteSpace(caption))
-                return TableCategory.OTHER;
+                return TableCategory.SKIP;
 
             // Wave 3 R8 — DDI keywords beat PK/Efficacy/etc. Drug-interaction captions
             // (`Drug Interaction`, `Co-administered`, `in the Presence of`) can appear
@@ -256,14 +243,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (caption.Contains("Efficacy", StringComparison.OrdinalIgnoreCase) ||
                 caption.Contains("Clinical", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.EFFICACY;
-            if (caption.Contains("Bone Mineral Density", StringComparison.OrdinalIgnoreCase) ||
-                caption.Contains("BMD", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.BMD;
-            if (caption.Contains("Tissue", StringComparison.OrdinalIgnoreCase) ||
-                caption.Contains("Ratio", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.TISSUE_DISTRIBUTION;
 
-            return TableCategory.OTHER;
+            return TableCategory.SKIP;
 
             #endregion
         }
@@ -272,22 +253,21 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Validates a PK section-code or caption hint against actual table content.
         /// Returns <see cref="TableCategory.PK"/> when at least one canonical PK
-        /// parameter name appears in a column header or row label; otherwise
-        /// downgrades to <see cref="TableCategory.TEXT_DESCRIPTIVE"/> when the table
-        /// is prose-heavy, or <see cref="TableCategory.OTHER"/> when the content
-        /// shape is structured but non-PK.
+        /// parameter name appears in a column header or row label, or
+        /// <see cref="TableCategory.DRUG_INTERACTION"/> when DDI signals dominate;
+        /// otherwise routes to <see cref="TableCategory.SKIP"/>.
         /// </summary>
         /// <remarks>
         /// Prevents the common failure where every table in LOINC 34090-1 / 43682-4
         /// gets tagged PK regardless of content — narrative DDI tables, hormone
         /// physiology summaries, and non-PK pharmacogenomic tables end up under PK
         /// and produce 0 observations from the parser. Content validation keeps PK
-        /// reserved for tables the parser can actually decompose.
+        /// reserved for tables the parser can actually decompose; everything else
+        /// drops to SKIP.
         /// </remarks>
         /// <param name="table">The reconstructed table.</param>
         /// <returns>Resolved category after content check.</returns>
         /// <seealso cref="PkParameterDictionary"/>
-        /// <seealso cref="computeProseRatio"/>
         /// <seealso cref="looksLikeDdi"/>
         private static TableCategory validatePkOrDowngrade(ReconstructedTable table)
         {
@@ -328,148 +308,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (headerHits + rowHits >= 1)
                 return TableCategory.PK;
 
-            // No PK content — decide between TEXT_DESCRIPTIVE (prose) and OTHER (structured)
-            if (computeProseRatio(table) >= 0.30)
-                return TableCategory.TEXT_DESCRIPTIVE;
-
-            return TableCategory.OTHER;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Validates a Dosing section-code or caption hint against actual table content.
-        /// Returns <see cref="TableCategory.DOSING"/> when at least one column header
-        /// or row label carries a positive dosing signal — a parseable dose phrase, a
-        /// known dosing descriptor (Starting Dose, Renal Adjustment, …), a population
-        /// label, or a body-weight band. Otherwise downgrades to
-        /// <see cref="TableCategory.TEXT_DESCRIPTIVE"/> (prose-heavy) or
-        /// <see cref="TableCategory.OTHER"/> (structured but non-Dosing).
-        /// </summary>
-        /// <remarks>
-        /// Mirrors <see cref="validatePkOrDowngrade"/>. The 34068-7 (Dosage and
-        /// Administration) section regularly contains preparation instructions,
-        /// storage / compatibility prose, and admin warnings that share the section
-        /// code with real recommended-dose tables. Without a content check those
-        /// prose tables get forced into the Dosing contract and pollute the
-        /// comparison-key denominator.
-        ///
-        /// ## Positive signals (any one is sufficient)
-        /// - <see cref="DoseExtractor.Extract"/> returns a dose for a header / row label
-        ///   (catches "1 mg once daily", "5 mg/kg", "150-600 mg/d", etc.).
-        /// - <see cref="DosingDescriptorDictionary.ContainsDosingDescriptor"/> hits
-        ///   on a header / row label ("Starting Dose", "Renal Adjustment", "Dose
-        ///   Reduction", …).
-        /// - <see cref="PopulationDetector.LooksLikeWeightBand"/> hits ("&lt;50 kg",
-        ///   "50-59 kg", "≥90 kg") — body-weight dosing layouts.
-        /// - <see cref="PopulationDetector.TryMatchLabel"/> resolves a header / row
-        ///   label to a canonical Population (Pediatric, Renal Impairment, …).
-        /// - Caption / section-title fallback uses descriptor-only matching for
-        ///   layouts whose dosing signal appears in surrounding table context.
-        ///
-        /// ## Downgrade rule
-        /// No positive signal AND <see cref="computeProseRatio"/> ≥ 0.30 →
-        /// <c>TEXT_DESCRIPTIVE</c>. Otherwise → <c>OTHER</c>.
-        /// </remarks>
-        /// <param name="table">The reconstructed table.</param>
-        /// <returns>Resolved category after content check.</returns>
-        /// <seealso cref="DosingDescriptorDictionary"/>
-        /// <seealso cref="PopulationDetector.LooksLikeWeightBand"/>
-        /// <seealso cref="DoseExtractor.Extract"/>
-        /// <seealso cref="computeProseRatio"/>
-        private static TableCategory validateDosingOrDowngrade(ReconstructedTable table)
-        {
-            #region implementation
-
-            int signalHits = 0;
-
-            // Header axis — column labels carry dose phrases ("3 mg/kg"), weight
-            // bands ("50-59 kg"), or descriptor phrases ("Recommended Dosage").
-            if (table.Header?.Columns != null)
-            {
-                foreach (var col in table.Header.Columns)
-                {
-                    if (hasDosingSignal(col.LeafHeaderText))
-                    {
-                        signalHits++;
-                        break;
-                    }
-                }
-            }
-
-            // Row-label axis — column 0 cells carry dose-descriptor labels
-            // ("Starting Dose", "Renal Adjustment"), populations ("Pediatric"),
-            // or weight bands. Stop after the first hit; one positive signal
-            // is enough to confirm DOSING.
-            if (signalHits == 0)
-            {
-                foreach (var row in table.DataRows())
-                {
-                    var col0 = row.CellAt(0)?.CleanedText?.Trim();
-                    if (hasDosingSignal(col0))
-                    {
-                        signalHits++;
-                        break;
-                    }
-                }
-            }
-
-            // Caption / section-title fallback: some structured dose tables carry
-            // their only descriptor in surrounding context instead of headers or row labels.
-            if (signalHits == 0)
-            {
-                if (DosingDescriptorDictionary.ContainsDosingDescriptor(table.Caption)
-                    || DosingDescriptorDictionary.ContainsDosingDescriptor(table.SectionTitle))
-                {
-                    signalHits++;
-                }
-            }
-
-            if (signalHits >= 1)
-                return TableCategory.DOSING;
-
-            // No dosing content — decide between TEXT_DESCRIPTIVE (prose) and OTHER (structured)
-            if (computeProseRatio(table) >= 0.30)
-                return TableCategory.TEXT_DESCRIPTIVE;
-
-            return TableCategory.OTHER;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// True when <paramref name="text"/> carries any of the dosing-signal
-        /// patterns enumerated in <see cref="validateDosingOrDowngrade"/>.
-        /// Pulled out as a helper so both axes (header columns, row labels)
-        /// share the same definition and can short-circuit on the first hit.
-        /// </summary>
-        private static bool hasDosingSignal(string? text)
-        {
-            #region implementation
-
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            // Dose phrase — anything DoseExtractor can decompose to (Dose, DoseUnit)
-            var (dose, _) = DoseExtractor.Extract(text);
-            if (dose.HasValue)
-                return true;
-
-            // Dosing descriptor row labels and header phrases
-            if (DosingDescriptorDictionary.ContainsDosingDescriptor(text))
-                return true;
-
-            // Body-weight bands — used as Population in body-weight dosing tables
-            if (PopulationDetector.LooksLikeWeightBand(text))
-                return true;
-
-            // Canonical population labels (Pediatric, Renal Impairment, …)
-            if (PopulationDetector.TryMatchLabel(text, out _))
-                return true;
-
-            return false;
+            // No PK content — drop to SKIP rather than parsing as a non-PK fallback
+            return TableCategory.SKIP;
 
             #endregion
         }
@@ -561,62 +401,6 @@ namespace MedRecProImportClass.Service.TransformationServices
           + @"|\bin\s+the\s+[Pp]resence\s+of\b"
           + @"|\bDDI\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-        /**************************************************************/
-        /// <summary>
-        /// Ratio of data cells that look like prose: cell length &gt; 120 characters
-        /// OR whitespace-delimited word count &gt; 20. A table with predominantly
-        /// narrative cells falls into <see cref="TableCategory.TEXT_DESCRIPTIVE"/>
-        /// rather than <see cref="TableCategory.OTHER"/>.
-        /// </summary>
-        /// <param name="table">The reconstructed table.</param>
-        /// <returns>Prose ratio in [0.0, 1.0]; 0.0 when the table has no data cells.</returns>
-        private static double computeProseRatio(ReconstructedTable table)
-        {
-            #region implementation
-
-            int proseCells = 0;
-            int totalCells = 0;
-
-            foreach (var row in table.DataRows())
-            {
-                if (row.Cells == null)
-                    continue;
-
-                foreach (var cell in row.Cells)
-                {
-                    var text = cell.CleanedText;
-                    if (string.IsNullOrWhiteSpace(text))
-                        continue;
-
-                    totalCells++;
-
-                    if (text.Length > 120)
-                    {
-                        proseCells++;
-                        continue;
-                    }
-
-                    // Rough word count — split on whitespace, skip empties
-                    var wordCount = 0;
-                    foreach (var token in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        wordCount++;
-                        if (wordCount > 20)
-                            break;
-                    }
-                    if (wordCount > 20)
-                        proseCells++;
-                }
-            }
-
-            if (totalCells == 0)
-                return 0.0;
-
-            return (double)proseCells / totalCells;
-
-            #endregion
-        }
 
         /**************************************************************/
         /// <summary>

@@ -19,9 +19,8 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
     /// (<c>AdverseEvent</c>) used by <see cref="ColumnContractRegistry"/>. Internal lookup is keyed on
     /// the documentation form via <see cref="CategoryNameNormalizer.Normalize"/>.
     ///
-    /// ## OTHER vs unknown
-    /// <c>OTHER</c> is a registered profile (with <c>RowRequiredFields = ["ParameterName"]</c>) —
-    /// distinct from truly unknown categories which return <see cref="CategoryProfile.Empty"/>.
+    /// ## Unknown categories
+    /// Unknown / unregistered categories return <see cref="CategoryProfile.Empty"/>.
     /// </remarks>
     /// <seealso cref="CategoryProfile"/>
     /// <seealso cref="ColumnContractRegistry"/>
@@ -138,65 +137,6 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 },
                 DefaultBoundType: "95CI",
                 UsesArmCoverage: true,
-                UsesTimeConsistency: false);
-
-            // Dosing — no DefaultBoundType, no arm/time switches
-            result["Dosing"] = new CategoryProfile(
-                Contract: _contractRegistry.GetContract("Dosing"),
-                RowRequiredFields: new[] { "ParameterName" },
-                CompletenessFields: new[] { "ParameterName", "Unit", "DoseRegimen" },
-                AllowedValueTypes: new HashSet<string>()
-                {
-                    "Numeric", "Percentage", "Mean", "Text", "SampleSize"
-                },
-                DefaultBoundType: null,
-                UsesArmCoverage: false,
-                UsesTimeConsistency: false);
-
-            // BMD — UsesTimeConsistency=true
-            result["BMD"] = new CategoryProfile(
-                Contract: _contractRegistry.GetContract("BMD"),
-                RowRequiredFields: new[] { "ParameterName", "Timepoint" },
-                CompletenessFields: new[] { "ParameterName", "Timepoint", "Population", "Time", "TimeUnit", "Unit" },
-                AllowedValueTypes: new HashSet<string>()
-                {
-                    "MeanPercentChange", "Percentage", "Numeric", "Mean", "Text", "PercentChange", "ArithmeticMean"
-                },
-                DefaultBoundType: "95CI",
-                UsesArmCoverage: false,
-                UsesTimeConsistency: true);
-
-            // TissueDistribution — no DefaultBoundType
-            result["TissueDistribution"] = new CategoryProfile(
-                Contract: _contractRegistry.GetContract("TissueDistribution"),
-                RowRequiredFields: new[] { "ParameterName" },
-                CompletenessFields: new[] { "ParameterName", "Unit" },
-                AllowedValueTypes: new HashSet<string>()
-                {
-                    "Ratio", "Numeric", "Text", "ArithmeticMean", "GeometricMean"
-                },
-                DefaultBoundType: null,
-                UsesArmCoverage: false,
-                UsesTimeConsistency: false);
-
-            // TextDescriptive — narrative tables; no completeness or allowed-value-types in legacy
-            result["TextDescriptive"] = new CategoryProfile(
-                Contract: _contractRegistry.GetContract("TextDescriptive"),
-                RowRequiredFields: Array.Empty<string>(),
-                CompletenessFields: Array.Empty<string>(),
-                AllowedValueTypes: new HashSet<string>(),
-                DefaultBoundType: null,
-                UsesArmCoverage: false,
-                UsesTimeConsistency: false);
-
-            // OTHER — only RowRequiredFields populated in legacy dict
-            result["OTHER"] = new CategoryProfile(
-                Contract: CategoryContract.Empty,
-                RowRequiredFields: new[] { "ParameterName" },
-                CompletenessFields: Array.Empty<string>(),
-                AllowedValueTypes: new HashSet<string>(),
-                DefaultBoundType: null,
-                UsesArmCoverage: false,
                 UsesTimeConsistency: false);
 
             return result;

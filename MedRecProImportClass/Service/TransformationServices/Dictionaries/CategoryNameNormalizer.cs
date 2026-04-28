@@ -20,17 +20,14 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /**************************************************************/
         /// <summary>
         /// Underscore-uppercase → documentation form. Categories without an entry
-        /// (PK, EFFICACY, DOSING, BMD) use the same string in both forms.
+        /// (PK, EFFICACY) use the same string in both forms.
         /// </summary>
         private static readonly Dictionary<string, string> _toDocForm =
             new(StringComparer.OrdinalIgnoreCase)
         {
             ["ADVERSE_EVENT"] = "AdverseEvent",
             ["DRUG_INTERACTION"] = "DrugInteraction",
-            ["TISSUE_DISTRIBUTION"] = "TissueDistribution",
-            ["TEXT_DESCRIPTIVE"] = "TextDescriptive",
             ["EFFICACY"] = "Efficacy",
-            ["DOSING"] = "Dosing",
         };
 
         /**************************************************************/
@@ -45,17 +42,11 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         {
             ["AdverseEvent"] = "ADVERSE_EVENT",
             ["DrugInteraction"] = "DRUG_INTERACTION",
-            ["TissueDistribution"] = "TISSUE_DISTRIBUTION",
-            ["TextDescriptive"] = "TEXT_DESCRIPTIVE",
             ["Efficacy"] = "EFFICACY",
-            ["Dosing"] = "DOSING",
             // Self-mappings so lower/mixed-case underscore input normalizes to uppercase.
             ["ADVERSE_EVENT"] = "ADVERSE_EVENT",
             ["DRUG_INTERACTION"] = "DRUG_INTERACTION",
-            ["TISSUE_DISTRIBUTION"] = "TISSUE_DISTRIBUTION",
-            ["TEXT_DESCRIPTIVE"] = "TEXT_DESCRIPTIVE",
             ["EFFICACY"] = "EFFICACY",
-            ["DOSING"] = "DOSING",
         };
 
         #endregion

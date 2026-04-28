@@ -22,7 +22,7 @@ correction) must preserve valid values:
      one of the explicit echo patterns below.
   3. **Schema-invalid for TableCategory.** The column is defined as NULL for
      this table type per `column-contracts.md`
-     (e.g. ParameterCategory outside AdverseEvent / Laboratory).
+     (e.g. ParameterCategory outside AdverseEvent).
 
 - Any value that is parseable, meaningful, and conforms to its column
   contract is **kept as-is**. A mildly suboptimal value is always preferable
@@ -255,10 +255,8 @@ CONDITION                                              ASSIGN
 TableCategory = AdverseEvent AND Unit = "%"            Percentage
 TableCategory = AdverseEvent AND Unit NULL AND int     Count
 TableCategory = PK                                     ArithmeticMean (unless caption has "geometric")
-TableCategory = DrugInteraction                        ArithmeticMeanRatio (unless caption has "geometric")
-TableCategory = BMD                                    PercentChange
+TableCategory = DrugInteraction                        GeometricMeanRatio (unless caption has "geometric")
 TableCategory = Efficacy AND bounds present            HazardRatio
-TableCategory = Dosing                                 Numeric (keep — prescriptive)
 Caption contains "geometric mean" (case-insensitive)   GeometricMean
 Caption contains "arithmetic mean"                     ArithmeticMean
 Caption contains "LS mean" or "least square"           LSMean
@@ -340,7 +338,7 @@ percentage points  subjects  events  patients
 
 Apply AFTER: HTML decode → OCR artifact repair → trim → case-insensitive lookup.
 
-**Only applies when TableCategory = AdverseEvent (or Laboratory).**
+**Only applies when TableCategory = AdverseEvent.**
 For all other table types, ParameterCategory should be NULL or passed through
 without SOC normalization.
 
@@ -407,7 +405,7 @@ PRI  TEST                                                 ACTION
                                                             ParameterName = NULL
 
 3    Bare integer matching common dose level AND           → Move to DoseRegimen
-     TableCategory ∈ {Dosing, PK}                           Flag PARAM_WAS_DOSE
+     TableCategory = PK                                     Flag PARAM_WAS_DOSE
      Set: {5,10,15,20,25,30,40,50,100,150,200,
            250,300,400,500,600,800,1200,1600,2400,3600}
 

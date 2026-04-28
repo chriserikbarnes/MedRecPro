@@ -54,30 +54,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 Expected: new(StringComparer.OrdinalIgnoreCase) { "ArmN", "LowerBound", "UpperBound", "BoundType" },
                 Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "StudyContext", "DoseRegimen", "Dose", "DoseUnit", "Population", "Timepoint", "Time", "TimeUnit", "PValue", "Unit" },
                 NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "SecondaryValue", "SecondaryValueType" }),
-
-            ["Dosing"] = new CategoryContract(
-                Required: new(StringComparer.OrdinalIgnoreCase) { "ParameterName" },
-                Expected: new(StringComparer.OrdinalIgnoreCase) { "DoseRegimen", "Population" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "TreatmentArm", "Dose", "DoseUnit", "Timepoint", "Time", "TimeUnit", "PrimaryValue", "PrimaryValueType", "LowerBound", "UpperBound", "BoundType", "Unit" },
-                NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "ArmN", "StudyContext", "SecondaryValue", "SecondaryValueType", "PValue" }),
-
-            ["BMD"] = new CategoryContract(
-                Required: new(StringComparer.OrdinalIgnoreCase) { "ParameterName", "TreatmentArm", "PrimaryValue", "PrimaryValueType" },
-                Expected: new(StringComparer.OrdinalIgnoreCase) { "ArmN", "Timepoint", "Time", "TimeUnit", "Unit" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "StudyContext", "DoseRegimen", "Dose", "DoseUnit", "Population", "SecondaryValue", "SecondaryValueType", "LowerBound", "UpperBound", "BoundType", "PValue" },
-                NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "ParameterSubtype" }),
-
-            ["TissueDistribution"] = new CategoryContract(
-                Required: new(StringComparer.OrdinalIgnoreCase) { "ParameterName", "PrimaryValue", "PrimaryValueType", "Unit" },
-                Expected: new(StringComparer.OrdinalIgnoreCase) { "DoseRegimen", "Dose", "DoseUnit", "Timepoint", "Time", "TimeUnit", "SecondaryValue", "SecondaryValueType" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "TreatmentArm", "ArmN", "Population" },
-                NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "ParameterSubtype", "StudyContext", "LowerBound", "UpperBound", "BoundType", "PValue" }),
-
-            ["TextDescriptive"] = new CategoryContract(
-                Required: new(StringComparer.OrdinalIgnoreCase) { "PrimaryValueType", "RawValue" },
-                Expected: new(StringComparer.OrdinalIgnoreCase) { "ParameterName" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "TreatmentArm", "DoseRegimen", "Dose", "DoseUnit", "Population" },
-                NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "ParameterSubtype", "ArmN", "Timepoint", "PrimaryValue", "SecondaryValue", "SecondaryValueType", "LowerBound", "UpperBound", "BoundType", "PValue", "Unit" }),
         };
 
         /**************************************************************/
@@ -90,8 +66,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             ["ADVERSE_EVENT"] = "AdverseEvent",
             ["DRUG_INTERACTION"] = "DrugInteraction",
-            ["TISSUE_DISTRIBUTION"] = "TissueDistribution",
-            ["TEXT_DESCRIPTIVE"] = "TextDescriptive",
         };
 
         #endregion

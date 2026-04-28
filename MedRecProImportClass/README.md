@@ -78,9 +78,6 @@ MedRecProImportClass/
         +-- MultilevelAeTableParser.cs          # Stage 3: two-row header AE tables
         +-- AeWithSocTableParser.cs             # Stage 3: AE with SOC dividers
         +-- EfficacyMultilevelTableParser.cs    # Stage 3: two-row header efficacy
-        +-- BmdTableParser.cs                   # Stage 3: bone mineral density
-        +-- TissueRatioTableParser.cs           # Stage 3: tissue-to-plasma ratio
-        +-- DosingTableParser.cs                # Stage 3: dosing parameter grids
         +-- TableParserRouter.cs                # Stage 3: section code -> parser routing
         +-- ColumnStandardizationService.cs     # Stage 3.25: 4-phase column contracts
         +-- ColumnContractRegistry.cs           # Stage 3.25/4: per-category R/E/O/N column sets
@@ -311,30 +308,17 @@ The `TableCategory` column is the single most important classification value -- 
 | `PK` | Pharmacokinetic parameters (Cmax, AUC, t1/2, etc.) | 43685-7 Clinical Pharmacology |
 | `DRUG_INTERACTION` | Co-admin drug effects on PK parameters (geometric mean ratios) | 34073-7 Drug Interactions |
 | `EFFICACY` | Comparative efficacy outcomes with risk measures and CIs | 34076-0 Clinical Studies |
-| `DOSING` | Recommended doses, titration schedules, adjustments | 34068-7 Dosage and Administration |
-| `BMD` | Bone mineral density at anatomical sites over time | 34076-0 Clinical Studies |
-| `TISSUE_DISTRIBUTION` | Drug concentration across body tissues and fluids | 43685-7 Clinical Pharmacology |
-| `DEMOGRAPHIC` | Baseline patient characteristics | 34076-0 Clinical Studies |
-| `LABORATORY` | Lab parameter changes/shifts | 34084-4 Adverse Reactions |
-| `TEXT_DESCRIPTIVE` | 100% text cells -- instructions, descriptions | Various |
-| `UNCLASSIFIED` | Could not be classified deterministically | Various |
-| `SKIP` | Tables to exclude (patient info, NDC, formulas) | Various |
+| `SKIP` | Tables to exclude (patient info, NDC, formulas, and any table that does not classify into the four parsed categories) | Various |
 
-#### Classification Decision Tree (Tier 1)
+#### Classification Decision Tree
 
 Tables are classified by applying tests in priority order against all rows sharing a TextTableID, plus Caption and ParentSectionCode. First match wins:
 
-1. 100% of PrimaryValueType = "Text" -> **TextDescriptive**
-2. MedDRA PT dictionary match (>=3 ParameterNames or >=2 SOC categories) -> **AdverseEvent**
-3. PK parameter dictionary match (Cmax, AUC, t1/2, CL/F, Vss, etc.) -> **PK** or **DrugInteraction** (DDI if caption contains "drug interaction", "co-administered", "in the presence of")
-4. PrimaryValueType contains RelativeRiskReduction or RiskDifference -> **Efficacy**
-5. Dosing keywords in ParameterName -> **Dosing**
-6. BMD anatomical site dictionary match -> **BMD**
-7. Tissue/organ dictionary match with concentration units -> **TissueDistribution**
-8. ParentSectionCode fallback (34084-4 -> AE, 43685-7 -> PK, 34068-7 -> Dosing, 34073-7 -> DDI)
-9. No match -> **Unclassified**
-
-Tables landing in Unclassified (~28%) are candidates for Tier 2 ML.NET classification using `LightGbmMulticlassTrainer` with 21 aggregated features per TextTableID (target: Macro F1 >= 0.85).
+1. MedDRA PT dictionary match (>=3 ParameterNames or >=2 SOC categories) -> **AdverseEvent**
+2. PK parameter dictionary match (Cmax, AUC, t1/2, CL/F, Vss, etc.) -> **PK** or **DrugInteraction** (DDI if caption contains "drug interaction", "co-administered", "in the presence of")
+3. PrimaryValueType contains RelativeRiskReduction or RiskDifference -> **Efficacy**
+4. ParentSectionCode fallback (34084-4 -> AE, 43685-7 -> PK, 34073-7 -> DDI, 34076-0 -> Efficacy)
+5. No match -> **SKIP**
 
 ### Parsers
 
@@ -345,9 +329,6 @@ Tables landing in Unclassified (~28%) are candidates for Tier 2 ML.NET classific
 | `MultilevelAeTableParser` | AE | Two-row header (colspan study contexts + arm sub-headers) |
 | `AeWithSocTableParser` | AE | Single-header with SOC divider rows in body |
 | `EfficacyMultilevelTableParser` | EFFICACY | Two-row header with stat columns (ARR, RR, P-value) |
-| `BmdTableParser` | BMD | Columns are timepoints (Week/Month/Year) |
-| `TissueRatioTableParser` | TISSUE_DISTRIBUTION | Two-column tissue/ratio tables |
-| `DosingTableParser` | DOSING | Dosing parameter grid tables |
 
 ### Value Decomposition
 
@@ -496,20 +477,20 @@ Each observation context column has a strict, context-dependent definition locke
 
 **Legend:** **R** = Required (flag if missing), **E** = Expected (usually populated), **O** = Optional, **N** = NULL (not applicable -- enforced by Phase 4)
 
-| Column | AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution |
-|--------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| ParameterName | R: MedDRA PT | R: PK param | R: PK param | R: Endpoint | R: Dose descriptor | R: Anatomical site | R: Tissue/fluid |
-| ParameterCategory | E: Canonical SOC | N | N | N | N | N | N |
-| ParameterSubtype | O: Severity | O: PK qualifier | R: **Co-admin drug** | O: Analysis pop | O: Adjustment ctx | N | N |
-| TreatmentArm | R: Drug/Placebo | O | E: Index drug | R: Drug vs comparator | O | R: Drug/Placebo | O |
-| ArmN | E | O | O | E | N | E | O |
-| StudyContext | O | O | O | O | N | O | N |
-| DoseRegimen | O | E | E | O | E | O | E |
-| Population | O | O | O | O | E | O | O |
-| Timepoint | N | O | N | O | O | E | E |
-| PrimaryValueType | R: Percentage/Count | R: AM/GM/Median | R: GMR | R: HR/OR/RR/Percentage | O: Numeric | R: PercentChange/AM | R: AM/GM |
-| Unit | E: % | R: conc/time/vol | O: ratio | O: % | O: mg/kg | E: %/g/cm2 | R: conc |
-| Default BoundType | 95CI | 90CI | 90CI | 95CI | -- | 95CI | -- |
+| Column | AdverseEvent | PK | DrugInteraction | Efficacy |
+|--------|:---:|:---:|:---:|:---:|
+| ParameterName | R: MedDRA PT | R: PK param | R: PK param | R: Endpoint |
+| ParameterCategory | E: Canonical SOC | N | N | N |
+| ParameterSubtype | O: Severity | O: PK qualifier | R: **Co-admin drug** | O: Analysis pop |
+| TreatmentArm | R: Drug/Placebo | O | E: Index drug | R: Drug vs comparator |
+| ArmN | E | O | O | E |
+| StudyContext | O | O | O | O |
+| DoseRegimen | O | E | E | O |
+| Population | O | O | O | O |
+| Timepoint | N | O | N | O |
+| PrimaryValueType | R: Percentage/Count | R: AM/GM/Median | R: GMR | R: HR/OR/RR/Percentage |
+| Unit | E: % | R: conc/time/vol | O: ratio | O: % |
+| Default BoundType | 95CI | 90CI | 90CI | 95CI |
 
 **Cross-table comparison keys** (columns that must match for meaningful comparison):
 
@@ -519,9 +500,6 @@ Each observation context column has a strict, context-dependent definition locke
 | PK | ParameterName + DoseRegimen + Population + Timepoint + PrimaryValueType + Unit |
 | DrugInteraction | ParameterName + ParameterSubtype + TreatmentArm |
 | Efficacy | ParameterName + TreatmentArm + PrimaryValueType |
-| Dosing | ParameterName + Population + DoseRegimen |
-| BMD | ParameterName + TreatmentArm + Timepoint |
-| TissueDistribution | ParameterName + DoseRegimen + Timepoint + Unit |
 
 ### Output Schema
 

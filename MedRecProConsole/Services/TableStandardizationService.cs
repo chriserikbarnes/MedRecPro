@@ -915,10 +915,6 @@ namespace MedRecProConsole.Services
             services.AddScoped<ITableParser, MultilevelAeTableParser>();
             services.AddScoped<ITableParser, AeWithSocTableParser>();
             services.AddScoped<ITableParser, EfficacyMultilevelTableParser>();
-            services.AddScoped<ITableParser, BmdTableParser>();
-            services.AddScoped<ITableParser, TissueRatioTableParser>();
-            services.AddScoped<ITableParser, DosingTableParser>();
-            services.AddScoped<ITableParser, TextDescriptiveTableParser>();
             services.AddScoped<ITableParserRouter, TableParserRouter>();
 
             // Stage 4: Validate (optional)

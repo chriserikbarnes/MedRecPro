@@ -482,60 +482,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["TimeUnit"] = ColumnRequirement.Optional,
                 ["PrimaryValueType"] = ColumnRequirement.Required,
                 ["Unit"] = ColumnRequirement.Optional
-            },
-            ["DOSING"] = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ParameterName"] = ColumnRequirement.Required,
-                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
-                ["ParameterSubtype"] = ColumnRequirement.Optional,
-                ["TreatmentArm"] = ColumnRequirement.Optional,
-                ["ArmN"] = ColumnRequirement.NotApplicable,
-                ["StudyContext"] = ColumnRequirement.NotApplicable,
-                ["DoseRegimen"] = ColumnRequirement.Expected,
-                ["Dose"] = ColumnRequirement.Optional,
-                ["DoseUnit"] = ColumnRequirement.Optional,
-                ["Population"] = ColumnRequirement.Expected,
-                ["Timepoint"] = ColumnRequirement.Optional,
-                ["Time"] = ColumnRequirement.Optional,
-                ["TimeUnit"] = ColumnRequirement.Optional,
-                ["PrimaryValueType"] = ColumnRequirement.Optional,
-                ["Unit"] = ColumnRequirement.Optional
-            },
-            ["BMD"] = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ParameterName"] = ColumnRequirement.Required,
-                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
-                ["ParameterSubtype"] = ColumnRequirement.NotApplicable,
-                ["TreatmentArm"] = ColumnRequirement.Required,
-                ["ArmN"] = ColumnRequirement.Expected,
-                ["StudyContext"] = ColumnRequirement.Optional,
-                ["DoseRegimen"] = ColumnRequirement.Optional,
-                ["Dose"] = ColumnRequirement.Optional,
-                ["DoseUnit"] = ColumnRequirement.Optional,
-                ["Population"] = ColumnRequirement.Optional,
-                ["Timepoint"] = ColumnRequirement.Expected,
-                ["Time"] = ColumnRequirement.Expected,
-                ["TimeUnit"] = ColumnRequirement.Expected,
-                ["PrimaryValueType"] = ColumnRequirement.Required,
-                ["Unit"] = ColumnRequirement.Expected
-            },
-            ["TISSUE_DISTRIBUTION"] = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ParameterName"] = ColumnRequirement.Required,
-                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
-                ["ParameterSubtype"] = ColumnRequirement.NotApplicable,
-                ["TreatmentArm"] = ColumnRequirement.Optional,
-                ["ArmN"] = ColumnRequirement.Optional,
-                ["StudyContext"] = ColumnRequirement.NotApplicable,
-                ["DoseRegimen"] = ColumnRequirement.Expected,
-                ["Dose"] = ColumnRequirement.Expected,
-                ["DoseUnit"] = ColumnRequirement.Expected,
-                ["Population"] = ColumnRequirement.Optional,
-                ["Timepoint"] = ColumnRequirement.Expected,
-                ["Time"] = ColumnRequirement.Expected,
-                ["TimeUnit"] = ColumnRequirement.Expected,
-                ["PrimaryValueType"] = ColumnRequirement.Required,
-                ["Unit"] = ColumnRequirement.Required
             }
         };
 
@@ -2055,8 +2001,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Priority 3: Bare integer matching common dose level
             if (_bareDoseLevels.Contains(val) &&
-                (string.Equals(obs.TableCategory, "DOSING", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase)))
+                string.Equals(obs.TableCategory, "PK", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.IsNullOrEmpty(obs.DoseRegimen))
                     obs.DoseRegimen = val;
@@ -3186,11 +3131,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <remarks>
         /// For Efficacy tables, picks HazardRatio / OddsRatio / RelativeRisk based on
-        /// caption hints. For non-Efficacy categories (PK, DrugInteraction, BMD,
-        /// TissueDistribution), the rr_ci parse rule misfires on `value (CI, CI)`
-        /// patterns and produces a contract-violating RelativeRisk label. Remap to
-        /// ArithmeticMean (or GeometricMean if the caption indicates geometric stats).
-        /// Bounds are preserved by the migration framework — only the PVT label changes.
+        /// caption hints. For non-Efficacy categories (PK, DrugInteraction), the rr_ci
+        /// parse rule misfires on `value (CI, CI)` patterns and produces a
+        /// contract-violating RelativeRisk label. Remap to ArithmeticMean (or
+        /// GeometricMean if the caption indicates geometric stats). Bounds are
+        /// preserved by the migration framework — only the PVT label changes.
         /// </remarks>
         /// <seealso cref="isNonEfficacyRiskCategory"/>
         /// <seealso cref="applyPhase3_PrimaryValueTypeMigration"/>
@@ -3225,9 +3170,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <remarks>
         /// Per column-contracts.md, only the Efficacy contract permits these labels.
-        /// PK and DrugInteraction use ArithmeticMean / GeometricMean / GeometricMeanRatio;
-        /// BMD uses PercentChange / ArithmeticMean; TissueDistribution uses ArithmeticMean
-        /// / GeometricMean. Empty / unknown category returns false (no remap).
+        /// PK and DrugInteraction use ArithmeticMean / GeometricMean / GeometricMeanRatio.
+        /// Empty / unknown category returns false (no remap).
         /// </remarks>
         /// <seealso cref="resolveRiskType"/>
         private static bool isNonEfficacyRiskCategory(string? category)
@@ -3236,9 +3180,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (string.IsNullOrWhiteSpace(category)) return false;
             return string.Equals(category, "PK", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(category, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(category, "BMD", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(category, "TISSUE_DISTRIBUTION", StringComparison.OrdinalIgnoreCase);
+                || string.Equals(category, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase);
 
             #endregion
         }
@@ -3275,18 +3217,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.Equals(category, "DRUG_INTERACTION", StringComparison.OrdinalIgnoreCase))
                 return "GeometricMeanRatio";
 
-            // BMD → PercentChange
-            if (string.Equals(category, "BMD", StringComparison.OrdinalIgnoreCase))
-                return "PercentChange";
-
             // EFFICACY + bounds → HazardRatio
             if (string.Equals(category, "EFFICACY", StringComparison.OrdinalIgnoreCase) &&
                 (obs.LowerBound.HasValue || obs.UpperBound.HasValue))
                 return "HazardRatio";
-
-            // DOSING → keep as Numeric (prescriptive)
-            if (string.Equals(category, "DOSING", StringComparison.OrdinalIgnoreCase))
-                return "Numeric";
 
             // Caption-based resolution (any category)
             if (caption.Contains("geometric mean", StringComparison.OrdinalIgnoreCase))

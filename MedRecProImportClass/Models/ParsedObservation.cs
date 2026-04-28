@@ -90,8 +90,7 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// Table category. Values: PK, ADVERSE_EVENT, EFFICACY, BMD,
-        /// TISSUE_DISTRIBUTION, DOSING, DRUG_INTERACTION, OTHER.
+        /// Table category. Values: PK, ADVERSE_EVENT, EFFICACY, DRUG_INTERACTION, SKIP.
         /// </summary>
         public string? TableCategory { get; set; }
 

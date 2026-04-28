@@ -44,8 +44,7 @@ A `newValue` of `NULL` is ONLY permitted when EXACTLY ONE of these holds:
    the Unit / ParameterName / TreatmentArm / DoseRegimen sections below.
 
 3. **Schema-invalid by TableCategory.** The column is defined as NULL for this
-   TableCategory (e.g. `ParameterCategory` on a non-AdverseEvent / non-Laboratory
-   table, `ParameterSubtype` on BMD / TissueDistribution / TextDescriptive).
+   TableCategory (e.g. `ParameterCategory` on a non-AdverseEvent table).
 
 **Anything else — LEAVE IT ALONE.** Specifically:
 
@@ -64,7 +63,7 @@ When in doubt: omit the correction. No correction is always safer than a
 NULL that deletes a perfectly good parsed value.
 
 ## TableCategory — the governing context for all rules
-AdverseEvent | PK | DrugInteraction | Efficacy | Dosing | BMD | TissueDistribution | Demographic | Laboratory | TextDescriptive | Unclassified
+AdverseEvent | PK | DrugInteraction | Efficacy | SKIP
 
 ## PrimaryValueType — valid values (15)
 ArithmeticMean | GeometricMean | GeometricMeanRatio | LSMean | Median | Percentage | Count | PercentChange | HazardRatio | OddsRatio | RelativeRisk | RiskDifference | PValue | Text | Numeric
@@ -78,8 +77,7 @@ Migrations (correct these old values):
 - "Numeric" (AdverseEvent, Unit null, value is integer) → Count
 - "Numeric" (PK) → ArithmeticMean (unless caption has "geometric")
 - "Numeric" (DrugInteraction, no bounds) → ArithmeticMean (unless caption has "geometric")
-- "Numeric" (DrugInteraction, bounds present) → ArithmeticMeanMeanRatio (unless caption has "geometric")
-- "Numeric" (BMD) → PercentChange
+- "Numeric" (DrugInteraction, bounds present) → GeometricMeanRatio (unless caption has "geometric")
 - "Numeric" (Efficacy, bounds present) → HazardRatio
 - Caption has "geometric mean" → GeometricMean
 - Caption has "arithmetic mean" or "mean" → ArithmeticMean
@@ -110,7 +108,7 @@ Valid units (≤15 chars typical): % %CV h min days mg mcg µg g kg mcg/mL ng/mL
 ## ParameterName — route misplaced content
 1. Starts with "Table \d" or contains caption echo ("Pharmacokinetic Parameters", "Geometric Mean Ratio", "Drug Interactions:") or len > 60 → NULL, reason=ROW_TYPE=CAPTION
 2. Exact match ^n$ or ^N$ or starts with "n (" or "N (" → NULL, reason=ROW_TYPE=HEADER
-3. Bare integer from common dose set {5,10,15,20,25,30,40,50,100,150,200,250,300,400,500,600,800,1200,1600,2400,3600} when TableCategory=Dosing or PK → field=ParameterName newValue=NULL, field=DoseRegimen newValue={integer}
+3. Bare integer from common dose set {5,10,15,20,25,30,40,50,100,150,200,250,300,400,500,600,800,1200,1600,2400,3600} when TableCategory=PK → field=ParameterName newValue=NULL, field=DoseRegimen newValue={integer}
 4. Drug name (not a PK param) when TableCategory=DrugInteraction → field=ParameterName newValue=NULL, field=ParameterSubtype newValue={drug_name}
 5. HTML entities (&gt; &lt; &amp;) → decode to > < &
 
@@ -121,7 +119,7 @@ Valid units (≤15 chars typical): % %CV h min days mg mcg µg g kg mcg/mL ng/mL
 4. Value is Comparison|Treatment|PD|SAD → NULL (generic label)
 5. All-caps short study name (SPRING-2, SINGLE, SAILING, ATLAS, ECHO, TRIO) → field=TreatmentArm newValue=NULL, field=StudyContext newValue={name}
 
-## ParameterCategory — AdverseEvent and Laboratory tables only
+## ParameterCategory — AdverseEvent tables only
 Must be a canonical MedDRA SOC name. Correct OCR variants and informal names:
 - cardiac disorders → Cardiac Disorders
 - gastrointestinal|gastrointestinal disorders|digestive system → Gastrointestinal Disorders
@@ -139,11 +137,11 @@ Must be a canonical MedDRA SOC name. Correct OCR variants and informal names:
 - hepatobiliary|liver and biliary → Hepatobiliary Disorders
 - ear disorders|ear and labyrinth → Ear and Labyrinth Disorders
 - eye disorders|special senses → Eye Disorders
-For non-AdverseEvent/Laboratory tables: ParameterCategory should be NULL (do not correct to SOC).
+For non-AdverseEvent tables: ParameterCategory should be NULL (do not correct to SOC).
 
 ## BoundType — infer when bounds present but BoundType is NULL
 - TableCategory=PK or DrugInteraction → "90CI"
-- TableCategory=Efficacy or BMD → "95CI"
+- TableCategory=Efficacy → "95CI"
 - Any other category with bounds → "95CI" (safe default)
 
 ## Also check
