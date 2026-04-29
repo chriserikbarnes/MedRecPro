@@ -3423,3 +3423,51 @@ Implemented the Phase 3 follow-up remediation from the 2026-04-28 standardizatio
 **Verification.** `dotnet build MedRecProImportClass` passed clean. Focused parser/standardization tests passed **8/8** after a small regression fix that prevented Efficacy sub-header rows from being mistaken for body arm-name rows. Full `dotnet test MedRecProTest` passed **1802/1802 in 2.4185m** using SDK 9.0.305, elevated access for NuGet/user-secrets, and a temporary alternate `BaseOutputPath` because the default console bin was locked by Visual Studio / `MedRecProConsole`.
 
 ---
+
+### 2026-04-28 6:49 PM EST — Deterministic Parse QC: Phase 3.5 Handoff
+Captured the latest AE smoke-test validation findings in a durable Phase 3.5 handoff note so the next session can resume from the actual artifact evidence rather than reconstructing the run.
+
+**Handoff file.** [deterministic-parse-qc-phase-3-5-smoke-test-20260428.md](Plans/deterministic-parse-qc-phase-3-5-smoke-test-20260428.md) records the latest and prior report paths, the AE-only scope caveat, objective before/after deltas, positive validation from the Phase 3 arm-recovery work, and concrete repro table IDs for the remaining defects.
+
+**Smoke-test conclusion.** The latest artifact shows Phase 3 moving in the right direction: missing `TreatmentArm` rows fell from 8,614 to 4,274, low-quality AE rows fell from 12,955 to 9,961, and generic/value-axis arm leakage fell from 3,321 to 189. The major remaining issue is still `DoseUnit = "%"`, with 6,253 AE rows across 168 tables carrying percent as dose metadata even though percent is usually only the AE incidence `Unit`.
+
+**Next remediation plan.** The handoff identifies `DoseExtractor.ScanAllColumnsForDose()` and placebo dose backfill as the likely source of percent dose-unit leakage, recommends category/source-aware dose extraction for `ADVERSE_EVENT`, guards against `%` becoming `DoseUnit` outside explicit dosing contexts, and separately tracks the smaller severity-axis arm leakage tail such as `Grade 3 or Higher (%)`.
+
+**Verification.** Spot-checked the new markdown file head and tail after writing. No parser or test code was changed in this step, and no test suite was run.
+
+---
+
+### 2026-04-29 9:08 AM EST — Deterministic Parse QC: Phase 3.5 Percent Dose and Severity Axis Remediation
+Implemented the Phase 3.5 smoke-test remediation plan for AE percent dose metadata leakage and remaining severity-axis treatment-arm leakage.
+
+**AE percent dose guardrails.** [DoseExtractor.cs](MedRecProImportClass/Service/TransformationServices/DoseExtractor.cs) now uses category-aware source scanning for `ADVERSE_EVENT`: it no longer scans `StudyContext`, `ParameterName`, `ParameterCategory`, or `ParameterSubtype` for dose rescue; it rejects `%` as an AE `DoseUnit`; and it only recovers treatment-arm dose values from an explicit allowlist of drug-dose units. AE placebo dose backfill now skips inherited `%` majority units so placebo rows do not receive synthetic `Dose=0` / `DoseUnit="%"` from incidence context.
+
+**Dose unit preservation.** [UnitDictionary.cs](MedRecProImportClass/Service/TransformationServices/Dictionaries/UnitDictionary.cs) adds `mg/mL` and `mg/m^2` to composed dose units so the new regression tests preserve recent extractor coverage while keeping AE percent leakage blocked.
+
+**Severity-axis arm recovery.** [BaseTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableParser.cs) expands value-axis detection for labels like `Grade 3 or Higher (%)` and `Grades >=3 (%)`, preserving them as `ParameterSubtype` while recovering the nearest real parent arm. Multi-level arm extraction also avoids echoing the recovered arm itself back into `StudyContext`.
+
+**Fixtures.** [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs) adds Phase 3.5 coverage for AE percent-bearing captions, `5-FU/LV`, parameter/category percent labels, placebo percent backfill, and non-AE dose-unit extraction regressions (`2g/day`, `mg/mL`, `mg/m^2`, `g/dL`, `mg/dL`, `mg/5 mL`). [AeArmRecoveryParserTests.cs](MedRecProTest/AeArmRecoveryParserTests.cs) adds a multilevel AE severity-axis fixture matching the `IMBRUVICA` / `Chlorambucil` shape from the smoke-test handoff.
+
+**Verification.** Sandbox `dotnet test` initially hit the known first-run/NuGet cache restrictions, so tests were run with approved elevated access. Focused `ColumnStandardizationServiceTests` + `AeArmRecoveryParserTests` passed **205/205**. Full `dotnet test MedRecProTest --no-restore --verbosity minimal` passed **1813/1813** in about 2m23s. Existing warnings remain, including the `Microsoft.CodeAnalysis` version conflict and pre-existing nullable/XML-doc warnings.
+
+---
+
+### 2026-04-29 10:01 AM EST - Table Standardization Check Query Cleanup
+Deduped, cleaned, and documented the transient table-standardization diagnostics script so it can be reused for parser and QC audits instead of maintained as a scratchpad.
+
+**Query cleanup.** [TableStandardizationChecks.sql](MedRecPro/SQL/Transient/TableStandardizationChecks.sql) now has a single settings block, section headers, consistent schema qualification, semicolon-terminated statements, and category/table variables for the common ADVERSE_EVENT, PK, and TextTableID drill-down paths. The previous cursor-based pipe export was replaced with a set-based projection, and the repeated review-reason queries were collapsed into one tabular aggregate plus one JSON-line projection from the same temp result.
+
+**QC audit safety.** The script now builds reusable `#QcScoreTokens` and `#QcReviewReasons` temp tables, extracts the full `QC_PARSE_QUALITY:{score}` token without fixed offsets, escapes underscore characters in LIKE/PATINDEX patterns, and explicitly joins review reasons to sub-threshold score rows before counting Claude-forwarded reason burden.
+
+**Verification.** `git diff --check -- MedRecPro/SQL/Transient/TableStandardizationChecks.sql` passed. A `sqlcmd` parse-only attempt could not connect to the local SQL Server instance because the ODBC client failed the encryption/SSL handshake before parsing; no database changes were executed.
+
+---
+
+### 2026-04-29 10:11 AM EST - Table Standardization Check Query Syntax Fix
+Fixed the SSMS syntax errors reported in the cleaned table-standardization diagnostics script.
+
+**Fix.** [TableStandardizationChecks.sql](MedRecPro/SQL/Transient/TableStandardizationChecks.sql) now brackets every `RowCount` alias and reference, including CTE output columns, histogram columns, temp-table columns, and `ORDER BY` expressions. SQL Server was treating the unbracketed alias as the `ROWCOUNT` keyword in several result sets.
+
+**Verification.** `git diff --check -- MedRecPro/SQL/Transient/TableStandardizationChecks.sql` passed. The fix targets the exact line numbers reported by the full-script SSMS trace.
+
+---

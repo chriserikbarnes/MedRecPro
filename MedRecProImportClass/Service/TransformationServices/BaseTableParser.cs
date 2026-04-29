@@ -238,8 +238,8 @@ namespace MedRecProImportClass.Service.TransformationServices
               @"Any(?:\s+(?:Grade|Grades?))?(?:\s+Adverse\s+(?:Reactions?|Events?))?|" +
               @"All\s+(?:CTC\s+)?Grades?|" +
               @"(?:CTC|CTCAE)\s+Grades?.*|" +
-              @"Grades?\s*(?:\d+|[IVX]+)(?:\s*(?:[-/\u2013,&]|and|or|to)\s*(?:\d+|[IVX]+))*|" +
-              @"Grade\s*(?:(?:>=|>|\u2265)\s*)?\d+(?:\s*(?:[-/\u2013,&]|and|or|to)\s*\d+)?(?:\s+Adverse\s+(?:Reactions?|Events?))?|" +
+              @"Grades?\s*(?:(?:>=|>|\u2265)\s*)?(?:\d+|[IVX]+)(?:\s*(?:[-/\u2013,&]|and|or|to)\s*(?:\d+|[IVX]+)|\s+or\s+(?:Higher|Greater))*" +
+                  @"(?:\s+Adverse\s+(?:Reactions?|Events?))?|" +
               @"(?:Number|No\.?|Percent(?:age)?)\s*(?:\(\s*%\s*\))?\s*(?:of\s+)?(?:Patients|Subjects|Participants|Reporting)?(?:\s+.*)?|" +
               @"%\s+of\s+(?:Patients|Subjects|Participants)(?:\s+.*)?|" +
               @"Incidence\s+of\s+adverse\s+(?:reactions?|events?)" +
@@ -388,7 +388,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     // Assign study context from parent header path if multi-level
                     if (col.HeaderPath != null && col.HeaderPath.Count > 1)
                     {
-                        arm.StudyContext = col.HeaderPath[0];
+                        var contextCandidate = col.HeaderPath[0]?.Trim();
+                        if (!string.Equals(contextCandidate, leafText, StringComparison.OrdinalIgnoreCase))
+                            arm.StudyContext = contextCandidate;
                     }
 
                     applyAxisMetadata(col.LeafHeaderText, arm);
@@ -407,8 +409,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                         Name = armName,
                         FormatHint = formatHint,
                         ColumnIndex = col.ColumnIndex,
-                        StudyContext = col.HeaderPath != null && col.HeaderPath.Count > 1
-                            ? col.HeaderPath[0]
+                        StudyContext = col.HeaderPath != null &&
+                                       col.HeaderPath.Count > 1 &&
+                                       !string.Equals(col.HeaderPath[0]?.Trim(), armName, StringComparison.OrdinalIgnoreCase)
+                            ? col.HeaderPath[0]?.Trim()
                             : null
                     };
                     applyAxisMetadata(col.LeafHeaderText, fallbackArm);

@@ -1,3 +1,4 @@
+using System.Globalization;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices;
 using MedRecProImportClass.Service.TransformationServices.Dictionaries;
@@ -48,7 +49,7 @@ namespace MedRecProTest
             "LYTGOBI", "Risperidone", "Cetirizine", "Diltiazem",
             "Warfarin", "VIAGRA", "Alogliptin", "Venlafaxine",
             "Metformin", "Progesterone", "Clarithromycin", "Amoxicillin",
-            "MYCAPSSA"
+            "MYCAPSSA", "VARITHENA"
         };
 
         private static readonly string[] _seedSubstanceNames = new[]
@@ -1008,6 +1009,171 @@ namespace MedRecProTest
         }
 
         #endregion Rule 6 Tests
+
+        #region Phase 3.5 Tests - AE Percent Dose Leakage
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that AE caption/context percentages remain incidence context
+        /// and do not populate <see cref="ParsedObservation.DoseUnit"/>.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.ScanAllColumnsForDose"/>
+        [TestMethod]
+        public async Task Phase35_AeStudyContextPercent_DoesNotPopulateDoseUnit()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation(
+                "VARITHENA",
+                "Table 1: Treatment-emergent adverse reactions (3% more on VARITHENA 1% than on placebo) through Week 8");
+            obs.Unit = "%";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Dose,
+                "AE StudyContext percentages should not populate Dose.");
+            Assert.IsNull(result[0].DoseUnit,
+                "AE StudyContext percentages should not populate DoseUnit.");
+            Assert.AreEqual("%", result[0].Unit,
+                "AE incidence Unit should remain available for percentage values.");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that chemotherapy shorthand such as <c>5-FU/LV</c> is treated
+        /// as regimen text rather than a synthetic percent dose.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.ScanAllColumnsForDose"/>
+        [TestMethod]
+        public async Task Phase35_AeFiveFuLvArm_DoesNotPopulatePercentDose()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("5-FU/LV", "Combination regimen");
+            obs.Unit = "%";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("5-FU/LV", result[0].TreatmentArm);
+            Assert.IsNull(result[0].Dose,
+                "5-FU/LV should not create a synthetic Dose=5.");
+            Assert.IsNull(result[0].DoseUnit,
+                "5-FU/LV should not create a synthetic percent DoseUnit.");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that AE parameter or category percentage labels do not drive
+        /// dose extraction.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.ScanAllColumnsForDose"/>
+        [TestMethod]
+        public async Task Phase35_AeParameterPercentLabel_DoesNotPopulateDoseUnit()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Dofetilide");
+            obs.ParameterName = "Adverse Reactions (%)";
+            obs.ParameterCategory = "Adverse Reactions (%)";
+            obs.Unit = "%";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].Dose);
+            Assert.IsNull(result[0].DoseUnit);
+            Assert.AreEqual("%", result[0].Unit);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that placebo rows in AE tables do not inherit percent dose
+        /// metadata from non-placebo rows.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.BackfillPlaceboArms"/>
+        [TestMethod]
+        public async Task Phase35_AePlaceboBackfill_SkipsPercentDoseUnit()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var active = createObservation("VARITHENA");
+            active.TextTableID = 40777;
+            active.Dose = 1.0m;
+            active.DoseUnit = "%";
+            active.Unit = "%";
+
+            var placebo = createObservation("Placebo");
+            placebo.TextTableID = 40777;
+            placebo.Unit = "%";
+
+            var result = service.Standardize(new List<ParsedObservation> { active, placebo });
+            var placeboResult = result.Single(o => string.Equals(o.TreatmentArm, "Placebo", StringComparison.OrdinalIgnoreCase));
+
+            Assert.IsNull(placeboResult.Dose,
+                "AE placebo rows should not receive Dose=0 when the inherited unit would be percent.");
+            Assert.IsNull(placeboResult.DoseUnit,
+                "AE placebo rows should not inherit DoseUnit=%.");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that non-AE dose extraction still recognizes the dosing units
+        /// protected by recent extractor work.
+        /// </summary>
+        /// <param name="input">Dose text to parse.</param>
+        /// <param name="expectedDose">Expected decimal dose value.</param>
+        /// <param name="expectedUnit">Expected dose unit.</param>
+        /// <seealso cref="DoseExtractor.Extract"/>
+        [DataTestMethod]
+        [DataRow("2g/day", "2", "g")]
+        [DataRow("5 mg/mL", "5", "mg/mL")]
+        [DataRow("10 mg/m^2", "10", "mg/m^2")]
+        [DataRow("8 g/dL", "8", "g/dL")]
+        [DataRow("1.5 mg/dL", "1.5", "mg/dL")]
+        [DataRow("250 mg/5 mL", "250", "mg/5 mL")]
+        public void Phase35_DoseExtractor_NonAeUnitsStillExtract(
+            string input,
+            string expectedDose,
+            string expectedUnit)
+        {
+            #region implementation
+
+            var (dose, doseUnit) = DoseExtractor.Extract(input);
+
+            Assert.AreEqual(decimal.Parse(expectedDose, CultureInfo.InvariantCulture), dose);
+            Assert.AreEqual(expectedUnit, doseUnit);
+
+            #endregion
+        }
+
+        #endregion Phase 3.5 Tests - AE Percent Dose Leakage
 
         #region Rule 7 Tests — StudyContext Contains Arm+N
 

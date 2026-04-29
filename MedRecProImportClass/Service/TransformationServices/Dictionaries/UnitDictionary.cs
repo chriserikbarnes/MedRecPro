@@ -90,7 +90,9 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /// </remarks>
         public static readonly HashSet<string> DoseComposedUnits = new(StringComparer.OrdinalIgnoreCase)
         {
+            "mg/mL",         // concentration dosing (e.g., injectable solution strength)
             "mg/5 mL",       // suspension concentration (e.g., "250 mg/5 mL")
+            "mg/m^2",        // ASCII caret variant of body-surface-area dosing
             "mL/kg",         // volume per body weight
             "mL/h", "mL/hr", // hourly volume
             "mcg/d"          // (mg/d, mg/day, mcg/day are in KnownUnits; mcg/d is not)

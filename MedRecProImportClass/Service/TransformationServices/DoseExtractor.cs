@@ -110,6 +110,25 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"\s*\b\d[\d,]*(?:\.\d+)?\s*(?:mg|mcg|\u00B5g|\u03BCg|g|ng|kg|mL|units?|U|IU)\b.*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /**************************************************************/
+        /// <summary>
+        /// Dose units that are safe to recover from AE treatment-arm labels.
+        /// </summary>
+        /// <remarks>
+        /// AE arm scanning is intentionally narrower than PK/dosing extraction:
+        /// percentage, time, count, and lab-threshold units are not valid arm-dose
+        /// evidence. Explicit <see cref="ParsedObservation.DoseRegimen"/> values
+        /// still use the broader extractor, except that percent units are rejected
+        /// for AE rows.
+        /// </remarks>
+        private static readonly HashSet<string> _aeTreatmentArmDoseUnits = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "mg", "mg/d", "mg/day", "mg/kg", "mg/kg/day", "mg/mL", "mg/m²", "mg/m^2",
+            "mcg", "mcg/d", "mcg/day", "mcg/kg", "mcg/kg/min",
+            "g", "ng", "mL", "mL/kg", "mL/h", "mL/hr", "mg/5 mL",
+            "IU", "IU/mL", "U"
+        };
+
         #endregion Compiled Regex Patterns
 
         #region Public Methods
@@ -252,6 +271,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Backfills placebo arms with Dose=0.0 and DoseUnit inherited from
         /// non-placebo treatment arms in the same table.
         /// </summary>
+        /// <remarks>
+        /// AE incidence percentages must not become placebo dose metadata. When
+        /// the majority unit in an adverse-event table is <c>%</c>, placebo rows
+        /// are left without a synthetic dose.
+        /// </remarks>
         /// <param name="observations">All observations in the batch, modified in place.</param>
         public static void BackfillPlaceboArms(List<ParsedObservation> observations)
         {
@@ -263,6 +287,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             foreach (var group in tableGroups)
             {
+                var isAdverseEventGroup = group.Any(o => isAdverseEvent(o.TableCategory));
                 var nonPlaceboUnits = group
                     .Where(o => !isPlaceboArm(o.TreatmentArm) && !string.IsNullOrEmpty(o.DoseUnit))
                     .Select(o => o.DoseUnit!)
@@ -277,6 +302,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     .First()
                     .Key;
 
+                if (isAdverseEventGroup && isPercentDoseUnit(majorityUnit))
+                    continue;
+
                 foreach (var obs in group.Where(o => isPlaceboArm(o.TreatmentArm) && !o.Dose.HasValue))
                 {
                     obs.Dose = 0.0m;
@@ -289,8 +317,14 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Scans all text columns of an observation for misplaced dose patterns.
+        /// Scans text columns of an observation for misplaced dose patterns.
         /// </summary>
+        /// <remarks>
+        /// ADVERSE_EVENT rows use a narrower source policy: never scan
+        /// StudyContext, ParameterName, ParameterCategory, or ParameterSubtype;
+        /// reject percent dose units; and only recover treatment-arm doses when
+        /// the unit is an explicit drug-dose unit.
+        /// </remarks>
         /// <param name="obs">Observation to scan, modified in place when a dose is found.</param>
         /// <returns>True if Dose/DoseUnit were populated; otherwise false.</returns>
         public static bool ScanAllColumnsForDose(ParsedObservation obs)
@@ -302,6 +336,29 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (isPlaceboArm(obs.TreatmentArm))
                 return false;
+
+            if (isAdverseEvent(obs.TableCategory))
+            {
+                if (tryApplyExtractedDose(
+                    obs,
+                    obs.DoseRegimen,
+                    allowPercentDoseUnit: false,
+                    requireAeTreatmentArmDoseUnit: false))
+                {
+                    return true;
+                }
+
+                if (tryApplyExtractedDose(
+                    obs,
+                    obs.TreatmentArm,
+                    allowPercentDoseUnit: false,
+                    requireAeTreatmentArmDoseUnit: true))
+                {
+                    return true;
+                }
+
+                return false;
+            }
 
             var columnsToScan = new (string? value, string label)[]
             {
@@ -317,11 +374,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(value))
                     continue;
 
-                var (dose, doseUnit) = Extract(value);
-                if (dose.HasValue)
+                if (tryApplyExtractedDose(
+                    obs,
+                    value,
+                    allowPercentDoseUnit: true,
+                    requireAeTreatmentArmDoseUnit: false))
                 {
-                    obs.Dose = dose;
-                    obs.DoseUnit = doseUnit;
                     return true;
                 }
             }
@@ -334,6 +392,84 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion Public Methods
 
         #region Private Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts dose data from a candidate source and applies the row-specific
+        /// guardrails before mutating the observation.
+        /// </summary>
+        /// <param name="obs">Observation to populate.</param>
+        /// <param name="value">Candidate text source.</param>
+        /// <param name="allowPercentDoseUnit">Whether <c>%</c> may populate DoseUnit.</param>
+        /// <param name="requireAeTreatmentArmDoseUnit">Whether to require the AE treatment-arm unit allowlist.</param>
+        /// <returns>True when Dose and DoseUnit were assigned.</returns>
+        private static bool tryApplyExtractedDose(
+            ParsedObservation obs,
+            string? value,
+            bool allowPercentDoseUnit,
+            bool requireAeTreatmentArmDoseUnit)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            var (dose, doseUnit) = Extract(value);
+            if (!dose.HasValue)
+                return false;
+
+            if (!allowPercentDoseUnit && isPercentDoseUnit(doseUnit))
+                return false;
+
+            if (requireAeTreatmentArmDoseUnit && !isAeTreatmentArmDoseUnit(doseUnit))
+                return false;
+
+            obs.Dose = dose;
+            obs.DoseUnit = doseUnit;
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when a normalized dose unit is a percent sign.
+        /// </summary>
+        private static bool isPercentDoseUnit(string? doseUnit)
+        {
+            #region implementation
+
+            return string.Equals(doseUnit, "%", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when a dose unit is safe evidence inside an AE treatment arm.
+        /// </summary>
+        private static bool isAeTreatmentArmDoseUnit(string? doseUnit)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(doseUnit) &&
+                   _aeTreatmentArmDoseUnits.Contains(doseUnit);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when the observation belongs to the adverse-event contract.
+        /// </summary>
+        private static bool isAdverseEvent(string? tableCategory)
+        {
+            #region implementation
+
+            return string.Equals(tableCategory, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

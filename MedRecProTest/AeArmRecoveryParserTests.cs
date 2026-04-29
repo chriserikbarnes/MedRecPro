@@ -154,6 +154,47 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Severity-axis leaf headers such as <c>Grade 3 or Higher (%)</c> and
+        /// <c>Grades &gt;=3 (%)</c> should recover their parent treatment arm and
+        /// remain as <see cref="ParsedObservation.ParameterSubtype"/>.
+        /// </summary>
+        [TestMethod]
+        public void MultilevelSeverityAxisLeavesRecoverParentArmAndSubtype()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "All Grades (%)", "Grade 3 or Higher (%)", "All Grades (%)", "Grades >=3 (%)" },
+                new List<string?[]>
+                {
+                    new[] { "Neutropenia", "10 (7%)", "2 (1%)", "8 (6%)", "1 (1%)" }
+                });
+
+            var header = table.Header!;
+            var columns = header.Columns!;
+            header.HeaderRowCount = 2;
+            columns[1].HeaderPath = new List<string> { "IMBRUVICA (N=135)", "All Grades (%)" };
+            columns[2].HeaderPath = new List<string> { "IMBRUVICA (N=135)", "Grade 3 or Higher (%)" };
+            columns[3].HeaderPath = new List<string> { "Chlorambucil (N=132)", "All Grades (%)" };
+            columns[4].HeaderPath = new List<string> { "Chlorambucil (N=132)", "Grades >=3 (%)" };
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.IsFalse(results.Any(r =>
+                string.Equals(r.TreatmentArm, "Grade 3 or Higher (%)", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(r.TreatmentArm, "Grades >=3 (%)", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(r.TreatmentArm, "All Grades (%)", StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "IMBRUVICA"));
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Chlorambucil"));
+            Assert.AreEqual(2, results.Count(r => r.ParameterSubtype == "All Grades"));
+            Assert.AreEqual(1, results.Count(r => r.ParameterSubtype == "Grade 3 or Higher"));
+            Assert.AreEqual(1, results.Count(r => r.ParameterSubtype == "Grades >=3"));
+            Assert.IsTrue(results.Where(r => r.TreatmentArm == "IMBRUVICA").All(r => r.ArmN == 135));
+            Assert.IsTrue(results.Where(r => r.TreatmentArm == "Chlorambucil").All(r => r.ArmN == 132));
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Study headers plus body-row arm headers and value-axis rows should produce
         /// treatment arms, study context, and subtype instead of missing-arm rows.
         /// </summary>
