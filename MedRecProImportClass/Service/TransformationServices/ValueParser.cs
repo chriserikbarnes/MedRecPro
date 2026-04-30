@@ -154,7 +154,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         // drug suffixes or isolated characters. Only fires AFTER all other
         // numeric-literal patterns have failed, so "71.8" alone still falls through
         // to Pattern 12 (plain_number), not here.
-        private static readonly Regex _valueTrailingUnitPattern = buildValueTrailingUnitPattern();
 
         /// <summary>
         /// Builds the trailing-unit regex from the curated PK unit alternation. Shares
@@ -942,16 +941,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             result = null!;
-            var match = _valueTrailingUnitPattern.Match(text);
-
-            if (!match.Success)
+            if (!UnitDictionary.TryParseStandaloneNumberWithUnit(text, out var primary, out var normalized))
                 return false;
-
-            if (!double.TryParse(match.Groups[1].Value, out var primary))
-                return false;
-
-            var rawUnit = match.Groups[2].Value;
-            var normalized = UnitDictionary.TryNormalize(rawUnit) ?? rawUnit;
 
             result = new ParsedValue
             {

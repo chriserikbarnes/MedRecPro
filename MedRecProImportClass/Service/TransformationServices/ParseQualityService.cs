@@ -99,6 +99,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"(\d)|^.{26,}$|age\s*range|ages?\s+\d|weeks?\b|years?\b|n\s*=\s*\d",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly Regex _efficacyRateDenominatorUnitPattern = new(
+            @"^\s*per\s+\d[\d,]*(?:\s+[A-Za-z][A-Za-z-]*){0,4}\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         /**************************************************************/
         /// <summary>
         /// Matches ParameterSubtype field content that is clearly not a subtype qualifier:
@@ -270,7 +274,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             // Structural garbage — field present, wrong content
-            if (!string.IsNullOrWhiteSpace(obs.Unit) && _badUnitPattern.IsMatch(obs.Unit))
+            if (!string.IsNullOrWhiteSpace(obs.Unit) &&
+                _badUnitPattern.IsMatch(obs.Unit) &&
+                !isAllowedEfficacyRateDenominatorUnit(obs))
             {
                 score *= 0.5;
                 reasons.Add("BadUnit");
@@ -416,6 +422,24 @@ namespace MedRecProImportClass.Service.TransformationServices
                 || string.Equals(pvt, "GeometricMean", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(pvt, "Percentage", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(pvt, "Count", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true for valid Efficacy rate-denominator units such as
+        /// <c>per 10,000 Women-Years</c> so the generic digit-based bad-unit
+        /// guard does not false-fire.
+        /// </summary>
+        /// <param name="obs">Observation being scored.</param>
+        private static bool isAllowedEfficacyRateDenominatorUnit(ParsedObservation obs)
+        {
+            #region implementation
+
+            return string.Equals(obs.TableCategory, TableCategory.EFFICACY.ToString(), StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(obs.Unit)
+                && _efficacyRateDenominatorUnitPattern.IsMatch(obs.Unit);
 
             #endregion
         }

@@ -30,6 +30,7 @@ namespace MedRecPro.Service.Test
         [DataRow("ng·h/mL")]
         [DataRow("mg/kg")]
         [DataRow("mL/min/kg")]
+        [DataRow("mL/hr/kg")]
         [DataRow("hr")]
         [DataRow("h")]
         [DataRow("min")]
@@ -46,6 +47,7 @@ namespace MedRecPro.Service.Test
         [DataRow("mcg⋅hr/mL")]  // U+22C5 variant — must fold and match
         [DataRow("ng⋅h/mL")]
         [DataRow("ug/mL")]       // spelling variant
+        [DataRow("mL/hour/kg")]
         [DataRow("hrs")]
         [DataRow("percent")]
         public void UnitDictionary_IsRecognized_Variants_ReturnsTrue(string candidate)
@@ -79,6 +81,8 @@ namespace MedRecPro.Service.Test
         [DataRow("hr", "h")]
         [DataRow("percent", "%")]
         [DataRow("ug/mL", "mcg/mL")]
+        [DataRow("mL/hr/kg", "mL/h/kg")]
+        [DataRow("mL/hour/kg", "mL/h/kg")]
         [DataRow("mcg⋅hr/mL", "mcg·h/mL")]  // U+22C5 fold + normalization
         [DataRow("ng⋅h/mL", "ng·h/mL")]
         public void UnitDictionary_TryNormalize_ReturnsCanonical(string input, string expected)
@@ -117,6 +121,7 @@ namespace MedRecPro.Service.Test
         [DataRow("1,800 mcg·h/mL", "mcg·h/mL")]
         [DataRow("0.5 L/kg", "L/kg")]
         [DataRow("10 mg/kg/day", "mg/kg/day")]
+        [DataRow("1.2 mL/hr/kg", "mL/h/kg")]
         [DataRow("32 %", "%")]
         public void UnitDictionary_TryExtractFromCellText_InlineUnit_Returned(string cellText, string expected)
         {
@@ -152,6 +157,41 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion TryExtractFromCellText
+
+        #region TryParseStandaloneNumberWithUnit
+
+        /**************************************************************/
+        /// <summary>
+        /// Standalone numeric PK values with supported units parse through the shared
+        /// dictionary surface used by <see cref="ValueParser"/>.
+        /// </summary>
+        [TestMethod]
+        [DataRow("71.8 hr", 71.8, "h")]
+        [DataRow("1.2 mL/hr/kg", 1.2, "mL/h/kg")]
+        [DataRow("1800 ng\u00B7h/mL", 1800.0, "ng\u00B7h/mL")]
+        public void UnitDictionary_TryParseStandaloneNumberWithUnit_ReturnsCanonical(string cellText, double expectedValue, string expectedUnit)
+        {
+            var parsed = UnitDictionary.TryParseStandaloneNumberWithUnit(cellText, out var actualValue, out var actualUnit);
+
+            Assert.IsTrue(parsed, $"Cell '{cellText}' should parse as a standalone numeric unit value.");
+            Assert.AreEqual(expectedValue, actualValue);
+            Assert.AreEqual(expectedUnit, actualUnit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unknown trailing unit words do not parse as deterministic numeric-unit cells.
+        /// </summary>
+        [TestMethod]
+        public void UnitDictionary_TryParseStandaloneNumberWithUnit_UnknownUnit_ReturnsFalse()
+        {
+            var parsed = UnitDictionary.TryParseStandaloneNumberWithUnit("71.8 hello", out _, out var unit);
+
+            Assert.IsFalse(parsed);
+            Assert.IsNull(unit);
+        }
+
+        #endregion TryParseStandaloneNumberWithUnit
 
         #region TryExtractFromHeaderLikeText
 

@@ -23,8 +23,12 @@ namespace MedRecPro.Service.Test
         /// </summary>
         /// <param name="headerTexts">Resolved leaf header texts.</param>
         /// <param name="dataRows">Body rows to parse.</param>
+        /// <param name="title">Optional document/product title.</param>
         /// <returns>Reconstructed table ready for parser tests.</returns>
-        private static ReconstructedTable createAeTable(string?[] headerTexts, List<string?[]> dataRows)
+        private static ReconstructedTable createAeTable(
+            string?[] headerTexts,
+            List<string?[]> dataRows,
+            string? title = null)
         {
             #region implementation
 
@@ -69,7 +73,7 @@ namespace MedRecPro.Service.Test
             {
                 TextTableID = 1,
                 DocumentGUID = Guid.NewGuid(),
-                Title = "Test Drug",
+                Title = title ?? "Test Drug",
                 VersionNumber = 1,
                 ParentSectionCode = "34084-4",
                 ParentSectionTitle = "6 ADVERSE REACTIONS",
@@ -264,6 +268,128 @@ namespace MedRecPro.Service.Test
             Assert.IsFalse(results.Any(r => r.TreatmentArm == "Comparison"));
             Assert.IsTrue(results.Any(r => r.TreatmentArm!.StartsWith("Minocycline Hydrochloride", StringComparison.Ordinal)));
             Assert.IsTrue(results.Any(r => r.TreatmentArm == "PLACEBO"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Context-axis labels should stay out of TreatmentArm and use a
+        /// conservative product-title fallback when exactly one product arm is
+        /// available.
+        /// </summary>
+        [TestMethod]
+        public void ContextAxisColumnsUseSingleProductFallback()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "60-day Treatment", "90-day Treatment" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "12 (8%)", "18 (9%)" }
+                },
+                title: "ZYBAN");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.TreatmentArm == "ZYBAN"));
+            Assert.IsTrue(results.Any(r => r.StudyContext == "60-day Treatment"));
+            Assert.IsTrue(results.Any(r => r.StudyContext == "90-day Treatment"));
+            Assert.IsFalse(results.Any(r => r.TreatmentArm == "60-day Treatment" || r.TreatmentArm == "90-day Treatment"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Structural AE rows and cells should be suppressed before observation
+        /// emission so they do not become low-quality text/null rows.
+        /// </summary>
+        [TestMethod]
+        public void StructuralAeRowsAndCellsAreSuppressed()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Drug A" },
+                new List<string?[]>
+                {
+                    new[] { "Adverse Drug Reaction", "n=991" },
+                    new[] { "Mean Duration of Therapy (days)", "42" },
+                    new[] { "Nausea", "---" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(0, results.Count);
+            Assert.AreEqual(3, ((ITableParserDiagnostics)parser).SuppressedRows.Count);
+            Assert.IsTrue(((ITableParserDiagnostics)parser).SuppressedRows.All(
+                r => r.ValidationFlag == "SUPPRESSED_STRUCTURAL_ROW"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// SOC/body-system rows that appear as DataBody rows should be preserved
+        /// as category context for following observations, not emitted themselves.
+        /// </summary>
+        [TestMethod]
+        public void DataBodySocRowIsSuppressedAndPreservedAsCategoryContext()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Drug A" },
+                new List<string?[]>
+                {
+                    new[] { "Respiratory, thoracic, and mediastinal disorders", "Respiratory, thoracic, and mediastinal disorders" },
+                    new[] { "Cough", "12" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Respiratory, thoracic, and mediastinal disorders", results[0].ParameterCategory);
+            Assert.AreEqual(1, suppressed.Count);
+            Assert.AreEqual("SUPPRESSED_STRUCTURAL_ROW", suppressed[0].ValidationFlag);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Expanded grade and severity axis labels should remain subtypes while
+        /// the real parent treatment arm is recovered.
+        /// </summary>
+        [TestMethod]
+        public void ExpandedGradeAxisLabelsRouteToParameterSubtype()
+        {
+            var table = createAeTable(
+                new[]
+                {
+                    "Adverse Reactions",
+                    "\u2265Grade 3",
+                    "NCI Grades 1-4",
+                    "NCI Grades 3 & 4",
+                    "Toxicity Grade >= 4n (%)",
+                    "Severity Grade"
+                },
+                new List<string?[]>
+                {
+                    new[] { "Neutropenia", "4 (2%)", "12 (6%)", "5 (3%)", "1 (1%)", "8 (4%)" }
+                });
+
+            var header = table.Header!;
+            var columns = header.Columns!;
+            header.HeaderRowCount = 2;
+            for (int i = 1; i < columns.Count; i++)
+                columns[i].HeaderPath = new List<string> { "IMBRUVICA (N=135)", columns[i].LeafHeaderText ?? string.Empty };
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(5, results.Count);
+            Assert.IsTrue(results.All(r => r.TreatmentArm == "IMBRUVICA"));
+            Assert.IsTrue(results.All(r => r.ArmN == 135));
+            Assert.IsTrue(results.Any(r => r.ParameterSubtype == "\u2265Grade 3"));
+            Assert.IsTrue(results.Any(r => r.ParameterSubtype == "NCI Grades 1-4"));
+            Assert.IsTrue(results.Any(r => r.ParameterSubtype == "NCI Grades 3 & 4"));
+            Assert.IsTrue(results.Any(r => r.ParameterSubtype == "Toxicity Grade >= 4n"));
+            Assert.IsTrue(results.Any(r => r.ParameterSubtype == "Severity Grade"));
+            Assert.IsFalse(results.Any(r => r.TreatmentArm != null && r.TreatmentArm.Contains("Grade", StringComparison.OrdinalIgnoreCase)));
         }
 
         #endregion Recovery Tests

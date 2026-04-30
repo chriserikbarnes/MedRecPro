@@ -1292,6 +1292,9 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            if (string.Equals(obs.TableCategory, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase))
+                return false;
+
             if (armType != ContentType.DrugPlusDose)
                 return false;
 

@@ -188,7 +188,8 @@ namespace MedRecProConsole.Services
                 AnsiConsole.Write(new Rule("[bold blue]Stage 3: Standardize[/]").RuleStyle("grey"));
                 AnsiConsole.WriteLine();
 
-                var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(table);
+                var (category, parserName, observations, suppressedRows) = orchestrator.RouteAndParseSingleTable(table);
+                var columnStandardizer = scope.ServiceProvider.GetService<IColumnStandardizationService>();
 
                 displayRoutingResult(category, parserName);
 
@@ -204,13 +205,20 @@ namespace MedRecProConsole.Services
                     if (reportSink != null || jsonSink != null)
                     {
                         var emptyEntry = BuildReportEntry(
-                            table, category, parserName, observations, beforeFlags, claudeSkipped: true);
+                            table, category, parserName, observations, beforeFlags, claudeSkipped: true,
+                            suppressedRows: suppressedRows);
                         if (reportSink != null)
                             await reportSink.AppendAsync(emptyEntry);
                         if (jsonSink != null)
                             await jsonSink.AppendAsync(emptyEntry);
                     }
                     return 0;
+                }
+
+                if (columnStandardizer != null && observations.Count > 0)
+                {
+                    await columnStandardizer.InitializeAsync();
+                    observations = columnStandardizer.Standardize(observations);
                 }
 
                 displayParseSingleResults(observations, textTableId);
@@ -237,10 +245,16 @@ namespace MedRecProConsole.Services
                     AnsiConsole.WriteLine();
                 }
 
+                if (columnStandardizer != null && observations.Count > 0)
+                {
+                    observations = columnStandardizer.PostProcessExtraction(observations);
+                }
+
                 if (reportSink != null || jsonSink != null)
                 {
                     var finalEntry = BuildReportEntry(
-                        table, category, parserName, observations, beforeFlags, claudeSkipped: !useClaude);
+                        table, category, parserName, observations, beforeFlags, claudeSkipped: !useClaude,
+                        suppressedRows: suppressedRows);
                     if (reportSink != null)
                         await reportSink.AppendAsync(finalEntry);
                     if (jsonSink != null)
@@ -1604,6 +1618,8 @@ namespace MedRecProConsole.Services
         /// <param name="beforeClaudeFlags">Snapshot of ValidationFlags before Stage 3.5, or null when
         /// Claude was skipped or observations were empty.</param>
         /// <param name="claudeSkipped">True when Stage 3.5 did not run (disabled, --no-claude, or empty obs).</param>
+        /// <param name="suppressedRows">Structural row/cell suppressions captured during Stage 3.</param>
+        /// <param name="routeReason">Router skip or downgrade reason, when available.</param>
         /// <seealso cref="TableReportEntry"/>
         public static TableReportEntry BuildReportEntry(
             ReconstructedTable table,
@@ -1611,7 +1627,9 @@ namespace MedRecProConsole.Services
             string? parserName,
             IReadOnlyList<ParsedObservation> observations,
             IReadOnlyDictionary<int, string?>? beforeClaudeFlags,
-            bool claudeSkipped)
+            bool claudeSkipped,
+            IReadOnlyList<TableSuppressionAuditRecord>? suppressedRows = null,
+            string? routeReason = null)
         {
             #region implementation
 
@@ -1620,7 +1638,9 @@ namespace MedRecProConsole.Services
                 Table = table,
                 Category = category,
                 ParserName = parserName,
+                RouteReason = routeReason,
                 Observations = observations,
+                SuppressedRows = suppressedRows ?? Array.Empty<TableSuppressionAuditRecord>(),
                 BeforeClaudeFlags = claudeSkipped ? null : beforeClaudeFlags,
                 ClaudeSkipped = claudeSkipped
             };
@@ -1671,6 +1691,11 @@ namespace MedRecProConsole.Services
                 .Where(d => d.TextTableID > 0)
                 .ToDictionary(d => d.TextTableID, d => d);
 
+            var suppressedByTable = stageResult.SuppressedRows
+                .Where(s => s.TextTableID.HasValue)
+                .GroupBy(s => s.TextTableID!.Value)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<TableSuppressionAuditRecord>)g.ToList());
+
             foreach (var table in stageResult.ReconstructedTables)
             {
                 if (!table.TextTableID.HasValue)
@@ -1681,6 +1706,8 @@ namespace MedRecProConsole.Services
                 routingByTable.TryGetValue(tableId, out var routing);
                 var category = routing?.Category ?? TableCategory.SKIP;
                 var parserName = routing?.ParserName;
+                suppressedByTable.TryGetValue(tableId, out var suppressedRows);
+                suppressedRows ??= Array.Empty<TableSuppressionAuditRecord>();
 
                 postByTable.TryGetValue(tableId, out var postObs);
                 postObs ??= new List<ParsedObservation>();
@@ -1696,7 +1723,9 @@ namespace MedRecProConsole.Services
                 }
 
                 var entry = BuildReportEntry(
-                    table, category, parserName, postObs, beforeFlags, claudeSkipped: claudeDisabled);
+                    table, category, parserName, postObs, beforeFlags, claudeSkipped: claudeDisabled,
+                    suppressedRows: suppressedRows,
+                    routeReason: routing?.RouteReason);
 
                 if (markdownSink != null)
                     await markdownSink.AppendAsync(entry, ct);

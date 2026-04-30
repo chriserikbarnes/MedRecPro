@@ -61,6 +61,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            ClearDiagnostics();
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
 
@@ -85,6 +86,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 dataRows = dataRows.Skip(skipRows).ToList();
             }
+            applySingleProductArmFallback(table, arms);
 
             foreach (var row in dataRows)
             {
@@ -98,6 +100,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var (paramName, fnMarkers) = getParameterName(row);
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
+
+                if (isStructuralContextRow(row, arms, paramName, TableCategory.ADVERSE_EVENT))
+                {
+                    currentSoc = paramName;
+                    recordSuppressedStructuralRow(
+                        table, row, null, TableCategory.ADVERSE_EVENT,
+                        paramName, null, paramName, paramName, "ParameterCategory",
+                        "Structural AE/SOC row captured as category context");
+                    continue;
+                }
 
                 // Fault-tolerant row processing: if any cell throws, the entire table is skipped
                 parseRowSafe(table, row, observations, (r, obs) =>
@@ -135,6 +147,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
 
                         applyParsedValue(o, parsed);
+                        if (shouldSuppressAeStructuralObservation(o, parsed))
+                        {
+                            recordSuppressedStructuralRow(
+                                table, r, cell, TableCategory.ADVERSE_EVENT,
+                                paramName, arm.Name, cell.CleanedText, paramName,
+                                "ParameterCategory",
+                                "Structural AE cell suppressed before observation emission");
+                            continue;
+                        }
+
                         obs.Add(o);
                     }
                 });

@@ -213,7 +213,7 @@ namespace MedRecPro.Service.Test
             var (orchestrator, _, _) = createTestOrchestrator();
             var pkTable = createPkTestTable();
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             Assert.AreEqual(TableCategory.PK, category);
             Assert.IsNotNull(parserName);
@@ -236,7 +236,7 @@ namespace MedRecPro.Service.Test
             var (orchestrator, _, _) = createTestOrchestrator();
             var skipTable = createSkipTable();
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(skipTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(skipTable);
 
             Assert.AreEqual(TableCategory.SKIP, category);
             Assert.IsNull(parserName);
@@ -278,7 +278,7 @@ namespace MedRecPro.Service.Test
                 Rows = new List<ReconstructedRow>()
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(emptyTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(emptyTable);
 
             Assert.AreEqual(TableCategory.PK, category);
             Assert.IsNotNull(parserName);
@@ -1346,7 +1346,7 @@ namespace MedRecPro.Service.Test
                 }
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             Assert.AreEqual(TableCategory.PK, category);
             Assert.AreEqual(4, observations.Count);
@@ -1431,7 +1431,7 @@ namespace MedRecPro.Service.Test
                 }
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             Assert.AreEqual(1, observations.Count);
             var obs = observations[0];
@@ -1496,7 +1496,7 @@ namespace MedRecPro.Service.Test
                 }
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             Assert.AreEqual(1, observations.Count);
             var obs = observations[0];
@@ -1588,7 +1588,7 @@ namespace MedRecPro.Service.Test
                 }
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             Assert.AreEqual(TableCategory.PK, category);
 
@@ -1665,7 +1665,7 @@ namespace MedRecPro.Service.Test
                 }
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             var ciObs = observations.Where(o => o.LowerBound != null).ToList();
             Assert.AreEqual(1, ciObs.Count);
@@ -1737,7 +1737,7 @@ namespace MedRecPro.Service.Test
                 }
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             Assert.AreEqual(2, observations.Count);
 
@@ -1806,7 +1806,7 @@ namespace MedRecPro.Service.Test
                 }
             };
 
-            var (category, parserName, observations) = orchestrator.RouteAndParseSingleTable(pkTable);
+            var (category, parserName, observations, _) = orchestrator.RouteAndParseSingleTable(pkTable);
 
             Assert.AreEqual(1, observations.Count);
             var obs = observations[0];

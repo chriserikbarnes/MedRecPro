@@ -352,6 +352,38 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Efficacy rate-denominator units with numeric denominators are valid contract
+        /// units and do not receive the generic digit-bearing <c>BadUnit</c> penalty.
+        /// </summary>
+        [TestMethod]
+        public void Evaluate_EfficacyRateDenominatorUnit_DoesNotApplyBadUnitPenalty()
+        {
+            #region implementation
+
+            var service = buildService();
+            var obs = new ParsedObservation
+            {
+                TableCategory = "Efficacy",
+                ParameterName = "CHD events",
+                TreatmentArm = "Drug X",
+                PrimaryValue = 12.3,
+                PrimaryValueType = "Rate",
+                Unit = "per 10,000 Women-Years",
+                ParseConfidence = 1.0,
+                SourceRowSeq = 1,
+                SourceCellSeq = 1,
+            };
+
+            var result = service.Evaluate(obs);
+
+            Assert.IsFalse(result.Reasons.Contains("BadUnit"),
+                $"Valid Efficacy rate denominator should not fire BadUnit; reasons: {string.Join("|", result.Reasons)}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Unit field holding an age-range caption fragment ("Ages 27-58 yrs") fires the
         /// <c>BadUnit</c> penalty.
         /// </summary>

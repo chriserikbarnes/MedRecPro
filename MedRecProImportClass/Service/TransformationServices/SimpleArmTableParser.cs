@@ -81,6 +81,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            ClearDiagnostics();
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
             var captionHint = detectCaptionValueHint(table.Caption);
@@ -128,6 +129,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 dataRows = dataRows.Skip(skipRows).ToList();
             }
+            applySingleProductArmFallback(table, arms);
 
             foreach (var row in dataRows)
             {
@@ -138,6 +140,26 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var (paramName, fnMarkers) = getParameterName(row);
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
+
+                if (isStructuralContextRow(row, arms, paramName, category))
+                {
+                    if (category == TableCategory.ADVERSE_EVENT)
+                    {
+                        currentCategory = paramName;
+                        currentSubtype = null;
+                    }
+                    else
+                    {
+                        currentSubtype = paramName;
+                    }
+
+                    recordSuppressedStructuralRow(
+                        table, row, null, category,
+                        paramName, null, paramName, paramName,
+                        category == TableCategory.ADVERSE_EVENT ? "ParameterCategory" : "ParameterSubtype",
+                        "Structural arm-table row captured as context");
+                    continue;
+                }
 
                 // Subtype detection: row with parameter name but all arm cells empty
                 var hasData = arms.Where(hasUsableTreatmentArm).Any(arm =>
@@ -201,6 +223,15 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                         parsed = applyTypePromotion(parsed, category, arm);
                         applyParsedValue(o, parsed);
+                        if (shouldSuppressStructuralObservation(o, parsed))
+                        {
+                            recordSuppressedStructuralRow(
+                                table, r, cell, category,
+                                paramName, arm.Name, cell.CleanedText, paramName,
+                                category == TableCategory.ADVERSE_EVENT ? "ParameterCategory" : "ParameterSubtype",
+                                "Structural arm-table cell suppressed before observation emission");
+                            continue;
+                        }
 
                         obs.Add(o);
                     }

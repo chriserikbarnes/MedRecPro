@@ -48,6 +48,14 @@ namespace MedRecProImportClass.Models
         /// </summary>
         public List<ParsedObservation> PreCorrectionObservations { get; set; } = new();
 
+        /**************************************************************/
+        /// <summary>
+        /// Structural rows/cells suppressed by parsers before observation emission.
+        /// These records are diagnostic metadata only and are not written to the DB.
+        /// </summary>
+        /// <seealso cref="TableSuppressionAuditRecord"/>
+        public List<TableSuppressionAuditRecord> SuppressedRows { get; set; } = new();
+
         #endregion Stage 3 — Standardize
 
         #region Stage 3.5 — Claude Enhance
@@ -110,5 +118,13 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>Number of observations produced by this table's parser.</summary>
         public int ObservationCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of structural rows/cells suppressed by this table's parser.</summary>
+        public int SuppressedRowCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Router downgrade or skip reason, when available.</summary>
+        public string? RouteReason { get; set; }
     }
 }

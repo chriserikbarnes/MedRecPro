@@ -30,8 +30,33 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// <seealso cref="ValueParser"/>
     /// <seealso cref="PopulationDetector"/>
     /// <seealso cref="ReconstructedTable"/>
-    public abstract class BaseTableParser : ITableParser
+    public abstract class BaseTableParser : ITableParser, ITableParserDiagnostics
     {
+        #region Diagnostics
+
+        /**************************************************************/
+        /// <summary>
+        /// Suppressed structural rows captured during the current parse.
+        /// </summary>
+        private readonly List<TableSuppressionAuditRecord> _suppressedRows = new();
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        public IReadOnlyList<TableSuppressionAuditRecord> SuppressedRows => _suppressedRows;
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        public void ClearDiagnostics()
+        {
+            #region implementation
+
+            _suppressedRows.Clear();
+
+            #endregion
+        }
+
+        #endregion Diagnostics
+
         #region Caption Value Hint Types
 
         /**************************************************************/
@@ -237,13 +262,61 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^\s*(?:" +
               @"Any(?:\s+(?:Grade|Grades?))?(?:\s+Adverse\s+(?:Reactions?|Events?))?|" +
               @"All\s+(?:CTC\s+)?Grades?|" +
-              @"(?:CTC|CTCAE)\s+Grades?.*|" +
+              @"(?:CTC|CTCAE|NCI)\s+Grades?.*|" +
+              @"(?:>=|>|\u2265)\s*Grade\s*\d+(?:\s+.*)?|" +
+              @"(?:Toxicity|Severity)\s+Grades?\s*(?:(?:>=|>|\u2265)\s*)?(?:\d+|[IVX]+)?(?:\s+.*)?|" +
               @"Grades?\s*(?:(?:>=|>|\u2265)\s*)?(?:\d+|[IVX]+)(?:\s*(?:[-/\u2013,&]|and|or|to)\s*(?:\d+|[IVX]+)|\s+or\s+(?:Higher|Greater))*" +
                   @"(?:\s+Adverse\s+(?:Reactions?|Events?))?|" +
               @"(?:Number|No\.?|Percent(?:age)?)\s*(?:\(\s*%\s*\))?\s*(?:of\s+)?(?:Patients|Subjects|Participants|Reporting)?(?:\s+.*)?|" +
               @"%\s+of\s+(?:Patients|Subjects|Participants)(?:\s+.*)?|" +
               @"Incidence\s+of\s+adverse\s+(?:reactions?|events?)" +
             @")\s*(?:\(\s*%\s*\)|%)?\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // AE column labels that describe a study/population/context axis rather
+        // than a true treatment arm. These may be retained as StudyContext when
+        // a product arm can be recovered from title evidence.
+        private static readonly Regex _contextAxisLabelPattern = new(
+            @"^\s*(?:" +
+              @"\d+\s*[-\u2013]\s*day\s+Treatment|" +
+              @"(?:Kidney|Heart|Liver)\s+Stud(?:y|ies)|" +
+              @"(?:MDD|OCD|GAD)(?:\s*/\s*(?:MDD|OCD|GAD))*|" +
+              @"Age\s+Group|" +
+              @"Study\s+\d+[A-Z]?|" +
+              @"Treatment\s+Regimen|" +
+              @"Overall|" +
+              @"All\s+Adverse\s+Reactions?|" +
+              @"Grade\s+\d+(?:\s*/\s*\d+)?\s+Adverse\s+Reactions?|" +
+              @"(?:HDD|NDD|PDD)\s*-\s*CKD|" +
+              @"OXC\s+\d+(?:\s*/\s*\d+)*" +
+            @")\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // AE non-observation cells that were previously emitted as null/text rows.
+        private static readonly Regex _structuralAeValueCellPattern = new(
+            @"^\s*(?:-{1,}|[–—]+|\(?\s*[Nn]\s*=\s*\d[\d,]*\s*\)?)\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex _aeHeaderEchoParameterPattern = new(
+            @"^\s*Adverse\s+(?:Drug\s+)?(?:Reaction|Reactions|Event|Events)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _aeNonObservationMetricPattern = new(
+            @"^\s*Mean\s+Duration\s+of\s+Therapy(?:\s*\(.*\))?\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _knownStructuralRowLabelPattern = new(
+            @"^\s*(?:" +
+              @"Patients\s+with\s+any\s+adverse\s+reaction|" +
+              @"Respiratory,\s*thoracic,\s*and\s*mediastinal\s+disorders|" +
+              @"CHD\s+events|" +
+              @"System\s+Organ\s+Class|SOC|Body\s+System(?:\s*[\(/\-].*)?|" +
+              @"(?:Cardiac|Congenital|Ear|Endocrine|Eye|Gastrointestinal|General|Hepatobiliary|Immune\s+system|Infections\s+and\s+infestations|Injury,\s*poisoning\s+and\s+procedural\s+complications|Investigations|Metabolism\s+and\s+nutrition|Musculoskeletal\s+and\s+connective\s+tissue|Neoplasms\s+benign,\s*malignant\s+and\s+unspecified|Nervous\s+system|Pregnancy,\s*puerperium\s+and\s+perinatal|Psychiatric|Renal\s+and\s+urinary|Reproductive\s+system\s+and\s+breast|Respiratory,\s*thoracic\s+and\s+mediastinal|Skin\s+and\s+subcutaneous\s+tissue|Social\s+circumstances|Surgical\s+and\s+medical\s+procedures|Vascular)\s+disorders" +
+            @")\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _eventPseudoArmPattern = new(
+            @"^\s*Events?\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Pattern for dose regimen cells: "10 mg", "20 mg oral", "50 mcg once daily"
@@ -541,7 +614,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             var arm = new ArmDefinition
             {
                 ColumnIndex = col.ColumnIndex,
-                StudyContext = getHeaderStudyContext(col)
+                StudyContext = getHeaderStudyContext(col) ?? getContextAxisLabel(col.LeafHeaderText)
             };
             applyAxisMetadata(col.LeafHeaderText, arm);
             return arm;
@@ -607,6 +680,26 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Returns a context-axis label that should be preserved outside
+        /// <c>TreatmentArm</c>.
+        /// </summary>
+        /// <param name="text">Header text to inspect.</param>
+        /// <returns>Trimmed context label, or <c>null</c> when not recognized.</returns>
+        private static string? getContextAxisLabel(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            var trimmed = text.Trim();
+            return _contextAxisLabelPattern.IsMatch(trimmed) ? trimmed : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Phase 3 helper: returns <c>true</c> when the given header text is null,
         /// whitespace, or matches the generic-axis-label pattern
         /// (<see cref="_genericArmLabelPattern"/>). Used by
@@ -623,7 +716,23 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(text))
                 return true;
             return _genericArmLabelPattern.IsMatch(text) ||
-                   _armAxisLabelPattern.IsMatch(text);
+                   _armAxisLabelPattern.IsMatch(text) ||
+                   _contextAxisLabelPattern.IsMatch(text);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Router-facing wrapper for the shared generic arm-label detector.
+        /// </summary>
+        /// <param name="text">Header text to evaluate.</param>
+        /// <returns><c>true</c> when the text is structural rather than a treatment arm.</returns>
+        internal static bool LooksLikeGenericArmLabelForRouting(string? text)
+        {
+            #region implementation
+
+            return looksLikeGenericArmLabel(text);
 
             #endregion
         }
@@ -642,6 +751,333 @@ namespace MedRecProImportClass.Service.TransformationServices
             return arm != null &&
                    !string.IsNullOrWhiteSpace(arm.Name) &&
                    !looksLikeGenericArmLabel(arm.Name);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies a conservative single-product fallback when no column has a
+        /// usable treatment arm.
+        /// </summary>
+        /// <remarks>
+        /// This fallback only trusts concise product-title evidence and preserves
+        /// structural/context header labels in <see cref="ArmDefinition.StudyContext"/>.
+        /// It is intentionally skipped as soon as any real arm has already been
+        /// recovered from the header or body metadata rows.
+        /// </remarks>
+        /// <param name="table">Reconstructed source table.</param>
+        /// <param name="arms">Arm definitions to update in place.</param>
+        /// <returns><c>true</c> when a product arm was applied.</returns>
+        /// <seealso cref="ArmDefinition"/>
+        protected static bool applySingleProductArmFallback(ReconstructedTable table, List<ArmDefinition> arms)
+        {
+            #region implementation
+
+            if (arms.Count == 0 || arms.Any(hasUsableTreatmentArm))
+                return false;
+
+            var productArm = inferSingleProductArmFromTitle(table);
+            if (string.IsNullOrWhiteSpace(productArm))
+                return false;
+
+            foreach (var arm in arms)
+            {
+                if (string.IsNullOrWhiteSpace(arm.StudyContext))
+                    arm.StudyContext = getContextAxisLabel(arm.Name);
+
+                arm.Name = productArm;
+            }
+
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a parsed AE row is structural metadata rather than
+        /// a reportable observation.
+        /// </summary>
+        /// <param name="obs">Observation candidate after value parsing.</param>
+        /// <param name="parsed">Parsed value decomposition.</param>
+        /// <returns><c>true</c> when the row should be suppressed.</returns>
+        /// <seealso cref="ParsedObservation"/>
+        protected static bool shouldSuppressAeStructuralObservation(ParsedObservation obs, ParsedValue parsed)
+        {
+            #region implementation
+
+            return shouldSuppressStructuralObservation(obs, parsed);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a parsed AE or Efficacy row is structural metadata
+        /// rather than a reportable observation.
+        /// </summary>
+        /// <param name="obs">Observation candidate after value parsing.</param>
+        /// <param name="parsed">Parsed value decomposition.</param>
+        /// <returns><c>true</c> when the row should be suppressed.</returns>
+        /// <seealso cref="ParsedObservation"/>
+        protected static bool shouldSuppressStructuralObservation(ParsedObservation obs, ParsedValue parsed)
+        {
+            #region implementation
+
+            var isAe = string.Equals(obs.TableCategory, TableCategory.ADVERSE_EVENT.ToString(), StringComparison.OrdinalIgnoreCase);
+            var isEfficacy = string.Equals(obs.TableCategory, TableCategory.EFFICACY.ToString(), StringComparison.OrdinalIgnoreCase);
+            if (!isAe && !isEfficacy)
+                return false;
+
+            var rawValue = obs.RawValue?.Trim();
+            var parameterName = obs.ParameterName?.Trim();
+            if (!string.IsNullOrWhiteSpace(rawValue) &&
+                _structuralAeValueCellPattern.IsMatch(rawValue) &&
+                isAe)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(parameterName) &&
+                _aeNonObservationMetricPattern.IsMatch(parameterName))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(parameterName) &&
+                parsed.PrimaryValue == null &&
+                parsed.SecondaryValue == null &&
+                parsed.PValue == null &&
+                _aeHeaderEchoParameterPattern.IsMatch(parameterName))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(rawValue) &&
+                !string.IsNullOrWhiteSpace(parameterName) &&
+                string.Equals(rawValue, parameterName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(rawValue) && isStructuralRowLabel(rawValue))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(parameterName) &&
+                _eventPseudoArmPattern.IsMatch(obs.TreatmentArm ?? string.Empty) &&
+                isStructuralRowLabel(parameterName))
+            {
+                return true;
+            }
+
+            return parsed.PrimaryValue == null &&
+                   string.Equals(parsed.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase) &&
+                   (_aeHeaderEchoParameterPattern.IsMatch(rawValue ?? string.Empty) ||
+                    isStructuralRowLabel(rawValue) ||
+                    string.Equals(rawValue, parameterName, StringComparison.OrdinalIgnoreCase));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether text is a known structural row label such as an
+        /// adverse-event SOC/body-system label or Efficacy event-group label.
+        /// </summary>
+        /// <param name="text">Candidate row or cell text.</param>
+        /// <returns><c>true</c> when the text should be retained as context only.</returns>
+        protected static bool isStructuralRowLabel(string? text)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(text) &&
+                   _knownStructuralRowLabelPattern.IsMatch(text.Trim());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a data-body row is structural context only and
+        /// should update the current category/group instead of emitting observations.
+        /// </summary>
+        /// <param name="row">Candidate data row.</param>
+        /// <param name="arms">Resolved arm definitions for the table.</param>
+        /// <param name="parameterName">Cleaned row label from column 0.</param>
+        /// <param name="category">Parser category evaluating the row.</param>
+        /// <returns><c>true</c> when the row carries context and no reportable value cells.</returns>
+        /// <seealso cref="isStructuralRowLabel"/>
+        /// <seealso cref="shouldSuppressStructuralObservation"/>
+        protected static bool isStructuralContextRow(
+            ReconstructedRow row,
+            IEnumerable<ArmDefinition> arms,
+            string? parameterName,
+            TableCategory category)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(parameterName))
+                return false;
+
+            var rowLabelIsStructural =
+                isStructuralRowLabel(parameterName) ||
+                _aeHeaderEchoParameterPattern.IsMatch(parameterName) ||
+                _aeNonObservationMetricPattern.IsMatch(parameterName);
+
+            if (!rowLabelIsStructural)
+                return false;
+
+            var usableArms = arms.Where(hasUsableTreatmentArm).ToList();
+            if (usableArms.Count == 0)
+                return true;
+
+            return !usableArms.Any(arm =>
+            {
+                var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
+                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                    return false;
+
+                var text = cell.CleanedText.Trim();
+                if (_structuralAeValueCellPattern.IsMatch(text) ||
+                    isStructuralRowLabel(text) ||
+                    string.Equals(text, parameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                var parsed = ValueParser.Parse(text, arm.SampleSize);
+                return parsed.PrimaryValue.HasValue ||
+                       parsed.SecondaryValue.HasValue ||
+                       parsed.PValue.HasValue;
+            });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Records an audit entry for a structural row or cell suppressed before
+        /// observation emission.
+        /// </summary>
+        /// <param name="table">Source reconstructed table.</param>
+        /// <param name="row">Source row.</param>
+        /// <param name="cell">Source cell, or null for row-level suppression.</param>
+        /// <param name="category">Parser category.</param>
+        /// <param name="parameterName">Parameter label or row label.</param>
+        /// <param name="treatmentArm">Treatment arm, when available.</param>
+        /// <param name="rawValue">Raw value text suppressed.</param>
+        /// <param name="structuralLabel">Structural label preserved as context.</param>
+        /// <param name="contextTarget">Context field that received the label.</param>
+        /// <param name="reason">Human-readable suppression reason.</param>
+        /// <seealso cref="TableSuppressionAuditRecord"/>
+        protected void recordSuppressedStructuralRow(
+            ReconstructedTable table,
+            ReconstructedRow row,
+            ProcessedCell? cell,
+            TableCategory category,
+            string? parameterName,
+            string? treatmentArm,
+            string? rawValue,
+            string? structuralLabel,
+            string? contextTarget,
+            string reason)
+        {
+            #region implementation
+
+            _suppressedRows.Add(new TableSuppressionAuditRecord
+            {
+                TextTableID = table.TextTableID,
+                SourceRowSeq = row.SequenceNumberTextTableRow,
+                SourceCellSeq = cell?.SequenceNumber,
+                TableCategory = category.ToString(),
+                ParserName = GetType().Name,
+                ParameterName = parameterName,
+                TreatmentArm = treatmentArm,
+                RawValue = rawValue,
+                StructuralLabel = structuralLabel,
+                ContextTarget = contextTarget,
+                Reason = reason
+            });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Infers a single product arm from concise product-title evidence.
+        /// </summary>
+        /// <param name="table">Reconstructed table carrying document title metadata.</param>
+        /// <returns>Product arm candidate, or <c>null</c> when ambiguous or unavailable.</returns>
+        private static string? inferSingleProductArmFromTitle(ReconstructedTable table)
+        {
+            #region implementation
+
+            var title = TextUtil.RemoveTags(table.Title ?? string.Empty);
+            title = Regex.Replace(title, @"\s+", " ").Trim();
+            if (string.IsNullOrWhiteSpace(title))
+                return null;
+
+            var candidate = extractProductTitleCandidate(title);
+            return candidate != null && isProductTitleCandidate(candidate) ? candidate : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts a concise product-name candidate from a document title.
+        /// </summary>
+        /// <param name="title">Cleaned document title.</param>
+        /// <returns>Candidate product name, or <c>null</c> if the title is not product-shaped.</returns>
+        private static string? extractProductTitleCandidate(string title)
+        {
+            #region implementation
+
+            var firstSentence = Regex.Split(title, @"[\r\n.]")
+                .Select(p => p.Trim())
+                .FirstOrDefault(p => !string.IsNullOrWhiteSpace(p));
+            if (string.IsNullOrWhiteSpace(firstSentence))
+                return null;
+
+            var productMatch = Regex.Match(firstSentence,
+                @"^([A-Z][A-Za-z0-9-]{2,}(?:\s+[A-Z][A-Za-z0-9-]{2,}){0,3})(?=\s*(?:\(|-|,|:|$|\b(?:Tablets?|Capsules?|Injection|Nasal|Oral|Solution|Gel)\b))");
+            if (productMatch.Success)
+                return productMatch.Groups[1].Value.Trim();
+
+            return firstSentence;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates that a title-derived candidate is specific enough to use as
+        /// a treatment arm.
+        /// </summary>
+        /// <param name="candidate">Title-derived product candidate.</param>
+        /// <returns><c>true</c> when the candidate is safe to use.</returns>
+        private static bool isProductTitleCandidate(string candidate)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(candidate))
+                return false;
+
+            var trimmed = candidate.Trim();
+            if (trimmed.Length > 80)
+                return false;
+
+            if (Regex.IsMatch(trimmed,
+                    @"^(?:Test\s+Drug|Drug|Treatment|Placebo|These\s+Highlights|Highlights\s+of\s+Prescribing\s+Information|Full\s+Prescribing\s+Information)\b",
+                    RegexOptions.IgnoreCase))
+            {
+                return false;
+            }
+
+            return Regex.IsMatch(trimmed, @"^[A-Za-z][A-Za-z0-9'\-]*(?:\s+[A-Za-z0-9'\-]+){0,4}$");
 
             #endregion
         }
@@ -707,7 +1143,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             var clean = Regex.Replace(trimmed, @"\s*(?:\(\s*%\s*\)|%)\s*$", "", RegexOptions.IgnoreCase).Trim();
-            if (Regex.IsMatch(clean, @"^(?:Any|All\s+(?:CTC\s+)?Grades?|(?:CTC|CTCAE)\s+Grades?|Grades?|Grade)\b",
+            if (Regex.IsMatch(clean, @"^(?:Any|All\s+(?:CTC\s+)?Grades?|(?:CTC|CTCAE|NCI)\s+Grades?|Grades?|Grade|(?:>=|>|\u2265)\s*Grade|Toxicity\s+Grade|Severity\s+Grade)\b",
                     RegexOptions.IgnoreCase))
             {
                 subtype = clean;

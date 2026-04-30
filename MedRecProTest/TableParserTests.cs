@@ -555,7 +555,7 @@ namespace MedRecPro.Service.Test
         /**************************************************************/
         /// <summary>
         /// Unit correctly extracted from sub-header parentheticals:
-        /// "h" from "Tmax (h)", "mcg/mL" from "Cmax (mcg/mL)", "mcgh/mL" from "AUC(0-96h)(mcgh/mL)".
+        /// "h" from "Tmax (h)", "mcg/mL" from "Cmax (mcg/mL)", "mcg·h/mL" from "AUC(0-96h)(mcgh/mL)".
         /// </summary>
         [TestMethod]
         public void PkParser_CompoundHeader_UnitExtraction()
@@ -571,7 +571,7 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("mcg/mL", cmaxObs.Unit);
 
             var aucObs = results.First(r => r.ParameterName == "AUC");
-            Assert.AreEqual("mcgh/mL", aucObs.Unit);
+            Assert.AreEqual("mcg·h/mL", aucObs.Unit);
         }
 
         /**************************************************************/
@@ -663,7 +663,7 @@ namespace MedRecPro.Service.Test
         {
             var (name, unit, subtype) = PkTableParser.parseCompoundParameterHeader("AUC(0-96h)(mcgh/mL)");
             Assert.AreEqual("AUC", name);
-            Assert.AreEqual("mcgh/mL", unit);
+            Assert.AreEqual("mcg·h/mL", unit);
             Assert.AreEqual("AUC(0-96h)", subtype);
         }
 
@@ -849,10 +849,10 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(3, results.Count(r => r.ParameterName == "Tmax"));
 
             // DoseRegimen carries the dose header, and Dose/DoseUnit are extracted.
-            // Pick the pg·hr/mL-unit AUC row for the 0.025 mg/day dose (came from AUC84 row).
+            // Pick the pg·h/mL-unit AUC row for the 0.025 mg/day dose (came from AUC84 row).
             var aucLow = results.First(r => r.ParameterName == "AUC"
                                          && r.DoseRegimen == "0.025 mg/day"
-                                         && r.Unit == "pg·hr/mL");
+                                         && r.Unit == "pg·h/mL");
             Assert.AreEqual(0.025m, aucLow.Dose);
             Assert.AreEqual("mg/d", aucLow.DoseUnit);
             Assert.IsTrue(aucLow.ValidationFlags?.Contains("PK_TRANSPOSED_LAYOUT_SWAP") == true,

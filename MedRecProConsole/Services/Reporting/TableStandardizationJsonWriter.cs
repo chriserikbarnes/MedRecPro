@@ -79,9 +79,19 @@ namespace MedRecProConsole.Services.Reporting
             ArgumentNullException.ThrowIfNull(entry);
 
             var sb = new StringBuilder();
+            var suppressedRows = entry.SuppressedRows ?? Array.Empty<TableSuppressionAuditRecord>();
 
             if (entry.Observations == null || entry.Observations.Count == 0)
             {
+                if (suppressedRows.Count > 0)
+                {
+                    foreach (var suppressed in suppressedRows)
+                    {
+                        writeSuppressionLine(sb, entry, suppressed);
+                    }
+                    return sb.ToString();
+                }
+
                 // Emit one meta line so skipped / empty tables are still visible in
                 // the JSON log — mirrors the markdown writer which emits a "No
                 // observations produced." note in that case.
@@ -92,6 +102,11 @@ namespace MedRecProConsole.Services.Reporting
             foreach (var obs in entry.Observations)
             {
                 writeObservationLine(sb, entry, obs);
+            }
+
+            foreach (var suppressed in suppressedRows)
+            {
+                writeSuppressionLine(sb, entry, suppressed);
             }
 
             return sb.ToString();
@@ -120,8 +135,11 @@ namespace MedRecProConsole.Services.Reporting
                 SectionTitle = entry.Table.SectionTitle,
                 Category = entry.Category,
                 Parser = entry.ParserName,
+                RouteReason = entry.RouteReason,
                 ObservationCount = entry.Observations?.Count ?? 0,
+                SuppressionCount = entry.SuppressedRows?.Count ?? 0,
                 Observation = obs,
+                Suppression = null,
                 BeforeClaudeFlags = resolveBeforeFlags(entry, obs),
                 ClaudeSkipped = entry.ClaudeSkipped
             };
@@ -149,8 +167,45 @@ namespace MedRecProConsole.Services.Reporting
                 SectionTitle = entry.Table.SectionTitle,
                 Category = entry.Category,
                 Parser = entry.ParserName,
+                RouteReason = entry.RouteReason,
                 ObservationCount = 0,
+                SuppressionCount = entry.SuppressedRows?.Count ?? 0,
                 Observation = null,
+                Suppression = null,
+                BeforeClaudeFlags = null,
+                ClaudeSkipped = entry.ClaudeSkipped
+            };
+
+            sb.AppendLine(JsonSerializer.Serialize(payload, _serializerOptions));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Writes one suppression-level JSON line for structural rows/cells that were
+        /// kept out of observation emission.
+        /// </summary>
+        private static void writeSuppressionLine(
+            StringBuilder sb,
+            TableReportEntry entry,
+            TableSuppressionAuditRecord suppressed)
+        {
+            #region implementation
+
+            var payload = new JsonLinePayload
+            {
+                TextTableId = entry.Table.TextTableID,
+                Caption = entry.Table.Caption,
+                ParentSectionCode = entry.Table.ParentSectionCode,
+                SectionTitle = entry.Table.SectionTitle,
+                Category = entry.Category,
+                Parser = entry.ParserName,
+                RouteReason = entry.RouteReason,
+                ObservationCount = entry.Observations?.Count ?? 0,
+                SuppressionCount = entry.SuppressedRows?.Count ?? 0,
+                Observation = null,
+                Suppression = suppressed,
                 BeforeClaudeFlags = null,
                 ClaudeSkipped = entry.ClaudeSkipped
             };
@@ -215,11 +270,20 @@ namespace MedRecProConsole.Services.Reporting
             /// <summary>Parser name, or null when the table was skipped.</summary>
             public string? Parser { get; set; }
 
+            /// <summary>Router skip or downgrade reason, when available.</summary>
+            public string? RouteReason { get; set; }
+
             /// <summary>Number of observations the parser produced for this table.</summary>
             public int ObservationCount { get; set; }
 
+            /// <summary>Number of structural rows/cells suppressed for this table.</summary>
+            public int SuppressionCount { get; set; }
+
             /// <summary>The full ParsedObservation payload, or null when no observations were produced.</summary>
             public ParsedObservation? Observation { get; set; }
+
+            /// <summary>The full suppression-audit payload, or null on observation/meta lines.</summary>
+            public TableSuppressionAuditRecord? Suppression { get; set; }
 
             /// <summary>Pre-Stage-3.5 ValidationFlags snapshot, or null when Claude was skipped / this row was new.</summary>
             public string? BeforeClaudeFlags { get; set; }

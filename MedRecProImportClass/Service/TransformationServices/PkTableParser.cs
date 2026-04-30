@@ -31,6 +31,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(.+?)\s*\((.+?)\)\s*$",
             RegexOptions.Compiled);
 
+        private static readonly Regex _unitTokenPattern = new(
+            @"(?:%CV|%|(?:mcg|ug|ng|pg|\u03BCg|µg|mg|mL|L|IU)(?:[\u00B7\.\*]?(?:h|hr|day))?/(?:mL|L|kg|m\u00B2|m2|min|h|hr)(?:/(?:kg|mL|L|min|h|hr))?)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         // Pattern for "x 7 days", "x 14 days", "x 4 weeks" — multiplier schedules
         private static readonly Regex _durationMultiplierPattern = new(
             @"x\s*(\d+)\s*(days?|weeks?|months?|hours?)",
@@ -815,6 +819,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (!unitsByColumn.TryGetValue(p.columnIndex, out var newUnit))
                     continue;
 
+                newUnit = normalizePkUnit(newUnit) ?? newUnit;
                 var isTime = _timeUnitStrings.Contains(newUnit);
                 paramDefs[i] = (p.columnIndex, p.name, newUnit, isTime, p.isSampleSize);
                 augmented++;
@@ -868,6 +873,13 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Group by ParameterName — case-sensitive because canonical names
             // (Cmax, AUC0-inf, t½) are the authoritative key.
+            foreach (var observation in observations)
+            {
+                var normalized = normalizePkUnit(observation.Unit);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                    observation.Unit = normalized;
+            }
+
             var groups = observations
                 .Where(o => !string.IsNullOrWhiteSpace(o.ParameterName))
                 .GroupBy(o => o.ParameterName!, StringComparer.Ordinal);
@@ -932,6 +944,66 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return backfilled;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Raises parser confidence for PK rows whose required spine is complete after
+        /// deterministic unit recovery.
+        /// </summary>
+        /// <param name="observations">PK observations to update in place.</param>
+        /// <returns>Number of rows whose confidence was raised.</returns>
+        /// <seealso cref="ParsedValue.ConfidenceTier.ValidatedMatch"/>
+        internal static int applyCompletePkConfidenceFloor(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            if (observations == null || observations.Count == 0)
+                return 0;
+
+            var raised = 0;
+            foreach (var observation in observations)
+            {
+                if (!isCompletePkSpine(observation))
+                    continue;
+
+                if (!observation.ParseConfidence.HasValue ||
+                    observation.ParseConfidence.Value >= ParsedValue.ConfidenceTier.ValidatedMatch)
+                {
+                    continue;
+                }
+
+                observation.ParseConfidence = ParsedValue.ConfidenceTier.ValidatedMatch;
+                observation.ValidationFlags = appendFlag(
+                    observation.ValidationFlags,
+                    "PK_COMPLETE_SPINE_CONFIDENCE");
+                raised++;
+            }
+
+            return raised;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when a PK observation has all required spine fields needed
+        /// for deterministic downstream use.
+        /// </summary>
+        /// <param name="observation">Observation to inspect.</param>
+        /// <returns><c>true</c> when the PK spine is complete.</returns>
+        private static bool isCompletePkSpine(ParsedObservation observation)
+        {
+            #region implementation
+
+            return string.Equals(observation.TableCategory, TableCategory.PK.ToString(), StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(observation.ParameterName)
+                && observation.PrimaryValue.HasValue
+                && !string.IsNullOrWhiteSpace(observation.PrimaryValueType)
+                && !string.Equals(observation.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(observation.Unit);
 
             #endregion
         }
@@ -1127,6 +1199,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            ClearDiagnostics();
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
             var captionHint = detectCaptionValueHint(table.Caption);
@@ -1506,6 +1579,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             // ParameterName / Unit state. Backfills null units from same-name
             // sibling observations within this table only (never cross-table).
             applySiblingUnitVote(observations);
+            applyCompletePkConfidenceFloor(observations);
 
             return observations;
 
@@ -1702,17 +1776,148 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (match.Success)
                 {
                     var name = match.Groups[1].Value.Trim();
-                    var unit = match.Groups[2].Value.Trim();
-                    var isTime = _timeUnitStrings.Contains(unit);
+                    var unit = normalizePkUnit(match.Groups[2].Value)
+                        ?? recoverUnitFromParameterContext(table, col, name);
+                    var isTime = _timeUnitStrings.Contains(unit ?? string.Empty);
                     defs.Add((col.ColumnIndex ?? i, name, unit, isTime, isSampleSize));
                 }
                 else
                 {
-                    defs.Add((col.ColumnIndex ?? i, text, null, false, isSampleSize));
+                    var unit = recoverUnitFromParameterContext(table, col, text);
+                    var isTime = _timeUnitStrings.Contains(unit ?? string.Empty);
+                    defs.Add((col.ColumnIndex ?? i, text, unit, isTime, isSampleSize));
                 }
             }
 
             return defs;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recovers a PK unit from header path, combined header text, and caption
+        /// context for a parameter column whose leaf header did not carry a usable unit.
+        /// </summary>
+        /// <param name="table">Source reconstructed table.</param>
+        /// <param name="column">Header column for the PK parameter.</param>
+        /// <param name="parameterName">PK parameter name or leaf header text.</param>
+        /// <returns>Canonical unit, or null when no deterministic context unit exists.</returns>
+        /// <seealso cref="Dictionaries.UnitDictionary.TryExtractFromHeaderLikeText"/>
+        private static string? recoverUnitFromParameterContext(
+            ReconstructedTable table,
+            HeaderColumn column,
+            string? parameterName)
+        {
+            #region implementation
+
+            var candidates = new List<string?>();
+
+            if (column.HeaderPath != null)
+            {
+                for (int i = column.HeaderPath.Count - 1; i >= 0; i--)
+                {
+                    candidates.Add(column.HeaderPath[i]);
+                }
+            }
+
+            candidates.Add(column.CombinedHeaderText);
+            candidates.Add(column.LeafHeaderText);
+
+            foreach (var candidate in candidates)
+            {
+                var unit = extractUnitFromHeaderLikeContext(candidate);
+                if (!string.IsNullOrWhiteSpace(unit))
+                    return unit;
+            }
+
+            return recoverUnitFromCaption(table.Caption, parameterName);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Extracts a canonical unit from header-like context text.
+        /// </summary>
+        /// <param name="text">Header path, leaf header, or caption fragment.</param>
+        /// <returns>Canonical unit, or null when none is found.</returns>
+        private static string? extractUnitFromHeaderLikeContext(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            var pure = Dictionaries.UnitDictionary.TryExtractFromHeaderLikeText(text);
+            if (!string.IsNullOrWhiteSpace(pure))
+                return pure;
+
+            foreach (Match match in _allParentheticalsPattern.Matches(text))
+            {
+                var unit = Dictionaries.UnitDictionary.TryExtractFromHeaderLikeText(match.Groups[1].Value);
+                if (!string.IsNullOrWhiteSpace(unit))
+                    return unit;
+            }
+
+            foreach (Match match in _unitTokenPattern.Matches(text))
+            {
+                var unit = normalizePkUnit(match.Value);
+                if (!string.IsNullOrWhiteSpace(unit))
+                    return unit;
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recovers a caption-level unit when the caption references the parameter
+        /// and carries exactly one recognized unit candidate.
+        /// </summary>
+        /// <param name="caption">Table caption text.</param>
+        /// <param name="parameterName">PK parameter name being resolved.</param>
+        /// <returns>Canonical unit, or null when the caption is ambiguous.</returns>
+        private static string? recoverUnitFromCaption(string? caption, string? parameterName)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(caption) || string.IsNullOrWhiteSpace(parameterName))
+                return null;
+
+            if (!caption.Contains(parameterName, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var units = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var parentheticalUnit = extractUnitFromHeaderLikeContext(caption);
+            if (!string.IsNullOrWhiteSpace(parentheticalUnit))
+                units.Add(parentheticalUnit);
+
+            foreach (Match match in _unitTokenPattern.Matches(caption))
+            {
+                var unit = normalizePkUnit(match.Value);
+                if (!string.IsNullOrWhiteSpace(unit))
+                    units.Add(unit);
+            }
+
+            return units.Count == 1 ? units.First() : null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes a PK unit candidate through the shared unit dictionary.
+        /// </summary>
+        /// <param name="unit">Candidate unit text.</param>
+        /// <returns>Canonical unit, or null when unrecognized.</returns>
+        private static string? normalizePkUnit(string? unit)
+        {
+            #region implementation
+
+            return Dictionaries.UnitDictionary.TryNormalize(unit);
 
             #endregion
         }
@@ -2274,6 +2479,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             // guarantees as the standard-path call: same-table only, > 50%
             // majority required, flag PK_UNIT_SIBLING_VOTED on backfilled rows.
             applySiblingUnitVote(observations);
+            applyCompletePkConfidenceFloor(observations);
 
             return observations;
 
@@ -2316,15 +2522,18 @@ namespace MedRecProImportClass.Service.TransformationServices
             var firstParenIndex = text.IndexOf('(');
             var name = text[..firstParenIndex].Trim();
 
-            // Last parenthetical = unit
-            var unit = matches[^1].Groups[1].Value.Trim();
+            // Last parenthetical is a unit only when the shared dictionary
+            // recognizes it. Otherwise all parentheticals remain subtype context.
+            var unitCandidate = matches[^1].Groups[1].Value.Trim();
+            var unit = normalizePkUnit(unitCandidate);
 
             // If multiple parentheticals, build subtype from name + all but last
             string? subtype = null;
-            if (matches.Count > 1)
+            var subtypeParenCount = unit != null ? matches.Count - 1 : matches.Count;
+            if (subtypeParenCount > 0)
             {
                 var subtypeParts = new List<string> { name };
-                for (int i = 0; i < matches.Count - 1; i++)
+                for (int i = 0; i < subtypeParenCount; i++)
                     subtypeParts.Add($"({matches[i].Groups[1].Value})");
                 subtype = string.Join("", subtypeParts);
             }

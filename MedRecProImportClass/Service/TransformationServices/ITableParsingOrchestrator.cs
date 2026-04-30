@@ -141,15 +141,17 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <param name="table">A reconstructed table from <see cref="ReconstructSingleTableAsync"/>.</param>
         /// <returns>
-        /// Tuple of (category, parserName, observations):
+        /// Tuple of (category, parserName, observations, suppressedRows):
         /// - category: the <see cref="TableCategory"/> determined by the router
         /// - parserName: the concrete parser type name, or null if SKIP
         /// - observations: parsed observations, or empty list if skipped
+        /// - suppressedRows: structural rows/cells suppressed before observation emission
         /// </returns>
         /// <seealso cref="ITableParserRouter.Route"/>
         /// <seealso cref="ReconstructSingleTableAsync"/>
         /// <seealso cref="CorrectObservationsAsync"/>
-        (TableCategory category, string? parserName, List<ParsedObservation> observations) RouteAndParseSingleTable(ReconstructedTable table);
+        (TableCategory category, string? parserName, List<ParsedObservation> observations, List<TableSuppressionAuditRecord> suppressedRows)
+            RouteAndParseSingleTable(ReconstructedTable table);
 
         /**************************************************************/
         /// <summary>

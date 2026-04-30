@@ -49,7 +49,7 @@ namespace MedRecProTest
             "LYTGOBI", "Risperidone", "Cetirizine", "Diltiazem",
             "Warfarin", "VIAGRA", "Alogliptin", "Venlafaxine",
             "Metformin", "Progesterone", "Clarithromycin", "Amoxicillin",
-            "MYCAPSSA", "VARITHENA"
+            "MYCAPSSA", "VARITHENA", "Vivelle", "Natesto"
         };
 
         private static readonly string[] _seedSubstanceNames = new[]
@@ -963,7 +963,7 @@ namespace MedRecProTest
 
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
-            var obs = createObservation("Mycophenolate Mofetil 2g/day", "Kidney Studies");
+            var obs = createObservation("Mycophenolate Mofetil 2g/day", "Kidney Studies", category: "EFFICACY");
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             Assert.AreEqual("Mycophenolate Mofetil", result[0].TreatmentArm);
@@ -993,7 +993,8 @@ namespace MedRecProTest
             var (service, context, sentinel) = await createInitializedServiceAsync();
 
             var obs = createObservation("Mycophenolate Mofetil 2g/day", "Kidney Studies",
-                doseRegimen: "existing dose");
+                doseRegimen: "existing dose",
+                category: "EFFICACY");
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
             // Should not split because DoseRegimen already populated
@@ -1135,6 +1136,117 @@ namespace MedRecProTest
                 "AE placebo rows should not receive Dose=0 when the inherited unit would be percent.");
             Assert.IsNull(placeboResult.DoseUnit,
                 "AE placebo rows should not inherit DoseUnit=%.");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that Vivelle AE arm labels with spaced daily units retain the
+        /// original arm text while downstream dose fields are populated.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.ScanAllColumnsForDose"/>
+        [TestMethod]
+        public async Task Phase35_AeVivelleArmDose_PopulatesDoseFieldsAndPreservesArm()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Vivelle 0.025 mg/ day\u2020");
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Vivelle 0.025 mg/ day\u2020", result[0].TreatmentArm);
+            Assert.AreEqual(0.025m, result[0].Dose);
+            Assert.AreEqual("mg/d", result[0].DoseUnit);
+            Assert.AreEqual("0.025 mg/day", result[0].DoseRegimen);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that long-form three-times-daily AE arm labels retain
+        /// frequency in DoseRegimen without collapsing the unit to <c>mg/d</c>.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.ScanAllColumnsForDose"/>
+        [TestMethod]
+        public async Task Phase35_AeNatestoThreeTimesDaily_PopulatesDoseRegimenAndKeepsMg()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Natesto (11 mg of Testosterone) Three Times Daily");
+            obs.Dose = 11m;
+            obs.DoseUnit = "mg/d";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Natesto (11 mg of Testosterone) Three Times Daily", result[0].TreatmentArm);
+            Assert.AreEqual(11m, result[0].Dose);
+            Assert.AreEqual("mg", result[0].DoseUnit);
+            Assert.AreEqual("11 mg of Testosterone Three Times Daily", result[0].DoseRegimen);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that shorthand TID AE arm labels populate DoseRegimen and
+        /// keep the simple dose unit.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.ScanAllColumnsForDose"/>
+        [TestMethod]
+        public async Task Phase35_AeNatestoTid_PopulatesDoseRegimenAndKeepsMg()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Natesto 11 mg TID");
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Natesto 11 mg TID", result[0].TreatmentArm);
+            Assert.AreEqual(11m, result[0].Dose);
+            Assert.AreEqual("mg", result[0].DoseUnit);
+            Assert.AreEqual("11 mg TID", result[0].DoseRegimen);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that once-daily AE arm dose extraction still promotes simple
+        /// units to daily form.
+        /// </summary>
+        /// <seealso cref="DoseExtractor.ScanAllColumnsForDose"/>
+        [TestMethod]
+        public async Task Phase35_AeOnceDailyArmDose_StillPromotesDailyUnit()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Natesto 11 mg once daily");
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Natesto 11 mg once daily", result[0].TreatmentArm);
+            Assert.AreEqual(11m, result[0].Dose);
+            Assert.AreEqual("mg/d", result[0].DoseUnit);
+            Assert.AreEqual("11 mg once daily", result[0].DoseRegimen);
 
             context.Dispose();
             sentinel.Dispose();

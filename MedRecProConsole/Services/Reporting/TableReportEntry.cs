@@ -41,9 +41,24 @@ namespace MedRecProConsole.Services.Reporting
 
         /**************************************************************/
         /// <summary>
+        /// Router skip or downgrade reason, when available.
+        /// </summary>
+        public string? RouteReason { get; init; }
+
+        /**************************************************************/
+        /// <summary>
         /// Post-Stage-3 observations. Already includes any Stage 3.5 (Claude) corrections applied.
         /// </summary>
         public IReadOnlyList<ParsedObservation> Observations { get; init; } = Array.Empty<ParsedObservation>();
+
+        /**************************************************************/
+        /// <summary>
+        /// Structural row/cell suppressions captured during Stage 3. These are
+        /// diagnostic metadata only and are not persisted as observations.
+        /// </summary>
+        /// <seealso cref="TableSuppressionAuditRecord"/>
+        public IReadOnlyList<TableSuppressionAuditRecord> SuppressedRows { get; init; } =
+            Array.Empty<TableSuppressionAuditRecord>();
 
         /**************************************************************/
         /// <summary>

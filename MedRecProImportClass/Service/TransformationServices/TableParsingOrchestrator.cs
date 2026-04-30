@@ -336,6 +336,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return new List<ParsedObservation>();
             }
 
+            clearParserDiagnostics(parser);
             return parser.Parse(table);
 
             #endregion
@@ -709,7 +710,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     TextTableID = table.TextTableID ?? 0,
                     Category = category,
-                    ParserName = parser?.GetType().Name
+                    ParserName = parser?.GetType().Name,
+                    RouteReason = getRouterRouteReason()
                 };
 
                 if (category == TableCategory.SKIP || parser == null)
@@ -719,7 +721,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     if (table.TextTableID.HasValue)
                     {
-                        result.SkipReasons[table.TextTableID.Value] = $"SKIP:{category}";
+                        result.SkipReasons[table.TextTableID.Value] =
+                            decision.RouteReason ?? $"SKIP:{category}";
                     }
 
                     _logger.LogDebug("Skipping TextTableID={Id} — category={Category}",
@@ -733,7 +736,11 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 try
                 {
+                    clearParserDiagnostics(parser);
                     var observations = parser.Parse(table);
+                    var suppressedRows = snapshotParserDiagnostics(parser);
+                    decision.SuppressedRowCount = suppressedRows.Count;
+                    result.SuppressedRows.AddRange(suppressedRows);
                     decision.ObservationCount = observations.Count;
                     result.RoutingDecisions.Add(decision);
 
@@ -755,6 +762,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 catch (TableParseException tpx)
                 {
                     decision.ObservationCount = 0;
+                    var suppressedRows = snapshotParserDiagnostics(parser);
+                    decision.SuppressedRowCount = suppressedRows.Count;
+                    result.SuppressedRows.AddRange(suppressedRows);
                     result.RoutingDecisions.Add(decision);
 
                     if (table.TextTableID.HasValue)
@@ -770,6 +780,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 catch (Exception ex)
                 {
                     decision.ObservationCount = 0;
+                    var suppressedRows = snapshotParserDiagnostics(parser);
+                    decision.SuppressedRowCount = suppressedRows.Count;
+                    result.SuppressedRows.AddRange(suppressedRows);
                     result.RoutingDecisions.Add(decision);
 
                     if (table.TextTableID.HasValue)
@@ -788,6 +801,58 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return (allObservations, tablesProcessed, tableCount);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Clears optional parser diagnostics before invoking a parser.
+        /// </summary>
+        /// <param name="parser">Parser about to run.</param>
+        /// <seealso cref="ITableParserDiagnostics"/>
+        private static void clearParserDiagnostics(ITableParser parser)
+        {
+            #region implementation
+
+            if (parser is ITableParserDiagnostics diagnostics)
+                diagnostics.ClearDiagnostics();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Copies optional parser diagnostics after a parser completes or faults.
+        /// </summary>
+        /// <param name="parser">Parser that just ran.</param>
+        /// <returns>Suppressed-row audit records captured by the parser.</returns>
+        /// <seealso cref="TableSuppressionAuditRecord"/>
+        private static List<TableSuppressionAuditRecord> snapshotParserDiagnostics(ITableParser parser)
+        {
+            #region implementation
+
+            return parser is ITableParserDiagnostics diagnostics
+                ? diagnostics.SuppressedRows.ToList()
+                : new List<TableSuppressionAuditRecord>();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns the most recent router diagnostic reason, when the router exposes
+        /// one.
+        /// </summary>
+        /// <returns>Router skip or downgrade reason, or null.</returns>
+        /// <seealso cref="ITableParserRouterDiagnostics"/>
+        private string? getRouterRouteReason()
+        {
+            #region implementation
+
+            return _router is ITableParserRouterDiagnostics diagnostics
+                ? diagnostics.LastRouteReason
+                : null;
 
             #endregion
         }
@@ -1154,7 +1219,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </returns>
         /// <seealso cref="ReconstructSingleTableAsync"/>
         /// <seealso cref="CorrectObservationsAsync"/>
-        public (TableCategory category, string? parserName, List<ParsedObservation> observations) RouteAndParseSingleTable(ReconstructedTable table)
+        public (TableCategory category, string? parserName, List<ParsedObservation> observations, List<TableSuppressionAuditRecord> suppressedRows)
+            RouteAndParseSingleTable(ReconstructedTable table)
         {
             #region implementation
 
@@ -1164,11 +1230,13 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 _logger.LogDebug("TextTableID={Id} categorized as {Category} — no parser",
                     table.TextTableID, category);
-                return (category, null, new List<ParsedObservation>());
+                return (category, null, new List<ParsedObservation>(), new List<TableSuppressionAuditRecord>());
             }
 
+            clearParserDiagnostics(parser);
             var observations = parser.Parse(table);
-            return (category, parser.GetType().Name, observations);
+            var suppressedRows = snapshotParserDiagnostics(parser);
+            return (category, parser.GetType().Name, observations, suppressedRows);
 
             #endregion
         }

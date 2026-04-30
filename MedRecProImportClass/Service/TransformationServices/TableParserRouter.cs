@@ -34,7 +34,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// </remarks>
     /// <seealso cref="ITableParserRouter"/>
     /// <seealso cref="ITableParser"/>
-    public class TableParserRouter : ITableParserRouter
+    public class TableParserRouter : ITableParserRouter, ITableParserRouterDiagnostics
     {
         #region LOINC Section Code Constants
 
@@ -60,7 +60,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         // Skip caption keywords
         private static readonly string[] _skipCaptionKeywords = new[]
         {
-            "NDC", "How Supplied", "Inactive Ingredients", "Storage", "Package"
+            "NDC", "How Supplied", "Inactive Ingredients", "Storage", "Package",
+            "Dosage and Administration", "Recommended Dosage", "Dose Modification",
+            "Drug Exposure", "Patient Exposure", "Medication Guide",
+            "Patient Information", "Instructions for Use", "Packaging",
+            "Package Insert", "Preparation Instructions", "Administration Instructions"
         };
 
         #endregion LOINC Section Code Constants
@@ -72,6 +76,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Registered parsers grouped by category and sorted by priority.
         /// </summary>
         private readonly Dictionary<TableCategory, List<ITableParser>> _parsersByCategory;
+
+        /**************************************************************/
+        /// <inheritdoc/>
+        public string? LastRouteReason { get; private set; }
 
         #endregion Fields
 
@@ -110,15 +118,24 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            LastRouteReason = null;
+
             // Skip detection
-            if (shouldSkip(table))
+            var skipReason = getSkipReason(table);
+            if (skipReason != null)
+            {
+                LastRouteReason = skipReason;
                 return (TableCategory.SKIP, null);
+            }
 
             // Determine category from section code
             var category = categorizeTable(table);
 
             if (category == TableCategory.SKIP)
+            {
+                LastRouteReason ??= "SKIP:No viable parser category";
                 return (TableCategory.SKIP, null);
+            }
 
             // Select parser by priority within category
             var parser = selectParser(table, category);
@@ -136,18 +153,18 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Determines if a table should be skipped entirely.
         /// </summary>
-        private static bool shouldSkip(ReconstructedTable table)
+        private static string? getSkipReason(ReconstructedTable table)
         {
             #region implementation
 
             // Patient info leaflet section
             if (table.SectionCode == CODE_PATIENT_INFO ||
                 table.ParentSectionCode == CODE_PATIENT_INFO)
-                return true;
+                return "SKIP:Patient information section";
 
             // Single-column or no-column tables
             if (table.TotalColumnCount <= 1)
-                return true;
+                return "SKIP:Single-column table";
 
             // Skip based on caption keywords
             if (!string.IsNullOrWhiteSpace(table.Caption))
@@ -155,11 +172,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                 foreach (var keyword in _skipCaptionKeywords)
                 {
                     if (table.Caption.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                        return true;
+                        return $"SKIP:CaptionKeyword:{keyword}";
                 }
             }
 
-            return false;
+            return null;
 
             #endregion
         }
@@ -168,7 +185,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Maps ParentSectionCode to TableCategory.
         /// </summary>
-        private static TableCategory categorizeTable(ReconstructedTable table)
+        private TableCategory categorizeTable(ReconstructedTable table)
         {
             #region implementation
 
@@ -178,11 +195,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 CODE_CLINICAL_PHARMACOLOGY => validatePkOrDowngrade(table),
                 CODE_PHARMACOKINETICS => validatePkOrDowngrade(table),
-                CODE_ADVERSE_REACTIONS => TableCategory.ADVERSE_EVENT,
-                CODE_CLINICAL_STUDIES => TableCategory.EFFICACY,
+                CODE_ADVERSE_REACTIONS => validateAeOrDowngrade(table),
+                CODE_CLINICAL_STUDIES => validateEfficacyOrDowngrade(table),
                 CODE_PRECAUTIONS => categorizeFromCaption(table),
                 CODE_UNCLASSIFIED => categorizeFromSectionTitle(table),
-                null => categorizeFromCaption(table),
+                null => categorizeFromSectionTitle(table),
                 _ => categorizeFromCaption(table)
             };
 
@@ -193,7 +210,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Fallback categorization from SectionTitle keywords.
         /// </summary>
-        private static TableCategory categorizeFromSectionTitle(ReconstructedTable table)
+        private TableCategory categorizeFromSectionTitle(ReconstructedTable table)
         {
             #region implementation
 
@@ -204,12 +221,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (title.Contains("Pharmacokinetics", StringComparison.OrdinalIgnoreCase))
                 return validatePkOrDowngrade(table);
             if (title.Contains("Adverse", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.ADVERSE_EVENT;
+                return validateAeOrDowngrade(table);
             if (title.Contains("Drug Interaction", StringComparison.OrdinalIgnoreCase))
                 return TableCategory.DRUG_INTERACTION;
             if (title.Contains("Clinical Studies", StringComparison.OrdinalIgnoreCase) ||
                 title.Contains("Efficacy", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.EFFICACY;
+                return validateEfficacyOrDowngrade(table);
 
             return categorizeFromCaption(table);
 
@@ -220,7 +237,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Fallback categorization from Caption keywords.
         /// </summary>
-        private static TableCategory categorizeFromCaption(ReconstructedTable table)
+        private TableCategory categorizeFromCaption(ReconstructedTable table)
         {
             #region implementation
 
@@ -236,15 +253,260 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (caption.Contains("Adverse", StringComparison.OrdinalIgnoreCase) ||
                 caption.Contains("Side Effect", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.ADVERSE_EVENT;
+                return validateAeOrDowngrade(table);
             if (caption.Contains("Pharmacokinetic", StringComparison.OrdinalIgnoreCase) ||
                 caption.Contains("PK Parameter", StringComparison.OrdinalIgnoreCase))
                 return validatePkOrDowngrade(table);
             if (caption.Contains("Efficacy", StringComparison.OrdinalIgnoreCase) ||
                 caption.Contains("Clinical", StringComparison.OrdinalIgnoreCase))
-                return TableCategory.EFFICACY;
+                return validateEfficacyOrDowngrade(table);
 
             return TableCategory.SKIP;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates an adverse-event section or caption hint against minimum
+        /// arm-table structure before assigning the AE parser category.
+        /// </summary>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns>ADVERSE_EVENT when viable, otherwise SKIP.</returns>
+        /// <seealso cref="validateArmBasedOrDowngrade"/>
+        private TableCategory validateAeOrDowngrade(ReconstructedTable table)
+        {
+            #region implementation
+
+            return validateArmBasedOrDowngrade(table, TableCategory.ADVERSE_EVENT);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates an efficacy section or caption hint against minimum arm-table
+        /// structure before assigning the Efficacy parser category.
+        /// </summary>
+        /// <param name="table">The reconstructed table.</param>
+        /// <returns>EFFICACY when viable, otherwise SKIP.</returns>
+        /// <seealso cref="validateArmBasedOrDowngrade"/>
+        private TableCategory validateEfficacyOrDowngrade(ReconstructedTable table)
+        {
+            #region implementation
+
+            return validateArmBasedOrDowngrade(table, TableCategory.EFFICACY);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Shared AE/Efficacy validator for arm-based parsers. Requires at least
+        /// one recoverable arm, at least one parseable outcome cell, and no dominant
+        /// header-like/text-only body pattern.
+        /// </summary>
+        /// <param name="table">The reconstructed table.</param>
+        /// <param name="category">Target category under validation.</param>
+        /// <returns>The target category when viable, otherwise SKIP.</returns>
+        private TableCategory validateArmBasedOrDowngrade(ReconstructedTable table, TableCategory category)
+        {
+            #region implementation
+
+            if (!hasRecoverableTreatmentArm(table))
+            {
+                LastRouteReason = $"DOWNGRADE:{category}:No recoverable treatment arm";
+                return TableCategory.SKIP;
+            }
+
+            var dataRows = table.DataRows().ToList();
+            if (!hasParseableOutcomeCell(dataRows))
+            {
+                LastRouteReason = $"DOWNGRADE:{category}:No parseable outcome cell";
+                return TableCategory.SKIP;
+            }
+
+            if (hasDominantStructuralBodyPattern(dataRows))
+            {
+                LastRouteReason = $"DOWNGRADE:{category}:Dominant structural text-only body";
+                return TableCategory.SKIP;
+            }
+
+            LastRouteReason = null;
+            return category;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when any non-label header column can yield a real treatment
+        /// arm from its leaf or parent header path.
+        /// </summary>
+        /// <param name="table">Table whose header should be inspected.</param>
+        private static bool hasRecoverableTreatmentArm(ReconstructedTable table)
+        {
+            #region implementation
+
+            if (table.Header?.Columns == null || table.Header.Columns.Count <= 1)
+                return false;
+
+            foreach (var column in table.Header.Columns.Skip(1))
+            {
+                var candidate = recoverHeaderArmCandidate(column);
+                if (!string.IsNullOrWhiteSpace(candidate))
+                    return true;
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recovers a treatment-arm candidate from a leaf or parent header.
+        /// </summary>
+        /// <param name="column">Header column to inspect.</param>
+        private static string? recoverHeaderArmCandidate(HeaderColumn column)
+        {
+            #region implementation
+
+            var leaf = column.LeafHeaderText?.Trim();
+            if (!BaseTableParser.LooksLikeGenericArmLabelForRouting(leaf))
+                return ValueParser.ParseArmHeader(leaf)?.Name ?? leaf;
+
+            if (column.HeaderPath != null)
+            {
+                for (int i = column.HeaderPath.Count - 1; i >= 0; i--)
+                {
+                    var candidate = column.HeaderPath[i]?.Trim();
+                    if (BaseTableParser.LooksLikeGenericArmLabelForRouting(candidate))
+                        continue;
+
+                    return ValueParser.ParseArmHeader(candidate)?.Name ?? candidate;
+                }
+            }
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when any body cell outside column 0 parses as a numeric or
+        /// comparison outcome.
+        /// </summary>
+        /// <param name="dataRows">Candidate body rows.</param>
+        private static bool hasParseableOutcomeCell(List<ReconstructedRow> dataRows)
+        {
+            #region implementation
+
+            foreach (var row in dataRows)
+            {
+                if (row.Cells == null)
+                    continue;
+
+                foreach (var cell in row.Cells)
+                {
+                    if ((cell.ResolvedColumnStart ?? 0) == 0 || string.IsNullOrWhiteSpace(cell.CleanedText))
+                        continue;
+
+                    var parsed = ValueParser.Parse(cell.CleanedText);
+                    if (parsed.PrimaryValue.HasValue || parsed.SecondaryValue.HasValue || parsed.PValue.HasValue)
+                        return true;
+                }
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects tables whose body is mostly structural/header-like text rows
+        /// rather than observations.
+        /// </summary>
+        /// <param name="dataRows">Candidate body rows.</param>
+        private static bool hasDominantStructuralBodyPattern(List<ReconstructedRow> dataRows)
+        {
+            #region implementation
+
+            if (dataRows.Count == 0)
+                return true;
+
+            var structuralRows = 0;
+            var outcomeRows = 0;
+            var outcomeCells = 0;
+            foreach (var row in dataRows)
+            {
+                if (row.Classification == RowClassification.SocDivider)
+                {
+                    structuralRows++;
+                    continue;
+                }
+
+                var nonLabelCells = row.Cells?
+                    .Where(c => (c.ResolvedColumnStart ?? 0) > 0 && !string.IsNullOrWhiteSpace(c.CleanedText))
+                    .ToList() ?? new List<ProcessedCell>();
+
+                if (nonLabelCells.Count == 0)
+                {
+                    structuralRows++;
+                    continue;
+                }
+
+                var numericCells = nonLabelCells.Count(c =>
+                {
+                    var parsed = ValueParser.Parse(c.CleanedText);
+                    return parsed.PrimaryValue.HasValue ||
+                           parsed.SecondaryValue.HasValue ||
+                           parsed.PValue.HasValue ||
+                           looksLikeOutcomeBearingCell(c.CleanedText);
+                });
+
+                if (numericCells == 0)
+                {
+                    structuralRows++;
+                    continue;
+                }
+
+                outcomeRows++;
+                outcomeCells += numericCells;
+            }
+
+            if (outcomeRows >= 2 && outcomeCells >= 2)
+                return false;
+
+            return structuralRows >= Math.Max(2, (int)Math.Ceiling(dataRows.Count * 0.6));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects compact outcome strings that the validator should treat as
+        /// data-bearing even when the parser later decomposes them with richer
+        /// table context.
+        /// </summary>
+        /// <param name="text">Cell text to inspect.</param>
+        private static bool looksLikeOutcomeBearingCell(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var normalized = text.Trim();
+            if (normalized is "-" or "—" or "–" or "↔")
+                return false;
+
+            return Regex.IsMatch(
+                normalized,
+                @"(?:[<>≤≥=]\s*)?\d[\d,.]*(?:\s*/\s*\d[\d,.]*)?(?:\s*(?:%|percent|patients?|subjects?|events?))?|(?:\d[\d,.]*\s+){1,}\d[\d,.]*",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
             #endregion
         }

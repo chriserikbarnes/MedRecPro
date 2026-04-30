@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
@@ -57,7 +58,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             "mg", "mcg", "\u03BCg", "g", "kg",
             "mcg/mL", "ng/mL", "pg/mL", "\u03BCg/mL", "mg/L", "ng/dL", "mg/dL",
             "mcg·h/mL", "ng·h/mL", "\u03BCg·h/mL", "pg·h/mL", "mg·h/L",
-            "mL/min", "mL/min/kg", "L/h", "L/h/kg", "L/kg/h", "L/h/m", "mL/h/kg",
+            "mL/min", "mL/min/kg", "mL/h", "L/h", "L/h/kg", "L/kg/h", "L/h/m", "mL/h/kg",
             "L", "mL", "L/kg",
             "mcg/kg/min", "mg/h", "IU/mL",
             "mg/kg", "mcg/kg", "mg/m²", "mg/kg/day",
@@ -226,6 +227,10 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
             // R11 — L/h family (post-NormalizeUnicode keys: ⋅•∙× all → ·)
             ["L/hr"] = "L/h",
             ["L/hour"] = "L/h",
+            ["mL/hr/kg"] = "mL/h/kg",
+            ["mL/hour/kg"] = "mL/h/kg",
+            ["mL/hr"] = "mL/h",
+            ["mL/hour"] = "mL/h",
             ["L/kg/hr"] = "L/kg/h",
             ["L/kg·hr"] = "L/kg/h",  // post-bullet-fold of "L/kg•hr"
             ["L/kg·h"] = "L/kg/h",
@@ -327,6 +332,16 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
         /// </remarks>
         private static readonly Regex _inlineUnitPattern = buildInlineUnitPattern();
 
+        /**************************************************************/
+        /// <summary>
+        /// Whole-cell parser for <c>number + unit</c> cells. Unit validation is
+        /// delegated to <see cref="TryNormalize"/> so this parser stays aligned with
+        /// the shared PK unit dictionary instead of carrying its own unit alternation.
+        /// </summary>
+        private static readonly Regex _standaloneNumberUnitPattern = new(
+            @"^\s*(-?\d[\d,]*(?:\.\d+)?)\s+(.+?)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         /// <summary>
         /// Builds the inline-unit regex by ordering candidates longest-first so the
         /// regex engine prefers <c>mcg·h/mL</c> over <c>mcg</c> when both match at
@@ -347,7 +362,7 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
                 // U+03BC (GREEK MU) to match post-NormalizeUnicode input.
                 "mcg·h/mL", "ng·h/mL", "pg·h/mL", "\u03BCg·h/mL",
                 "mcg·hr/mL", "ng·hr/mL", "pg·hr/mL", "\u03BCg·hr/mL",
-                "mL/min/kg", "mg/kg/day", "mcg/kg/min",
+                "mL/min/kg", "mL/hr/kg", "mL/hour/kg", "mg/kg/day", "mcg/kg/min",
                 "mL/h/kg", "L/h/kg", "L/kg/h",
                 "mcg/mL", "ng/mL", "pg/mL", "\u03BCg/mL",
                 "mg/dL", "ng/dL", "mg/L", "mg·h/L",
@@ -535,6 +550,59 @@ namespace MedRecProImportClass.Service.TransformationServices.Dictionaries
 
             var raw = match.Groups[1].Value;
             return TryNormalize(raw) ?? raw;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a whole cell containing one numeric literal followed by a
+        /// recognized unit, returning the number and canonical unit.
+        /// </summary>
+        /// <param name="cellText">Raw or cleaned cell text.</param>
+        /// <param name="value">Parsed numeric value when successful.</param>
+        /// <param name="unit">Canonical unit when successful.</param>
+        /// <returns><c>true</c> when the full cell is a number-plus-unit value.</returns>
+        /// <seealso cref="TryNormalize"/>
+        /// <seealso cref="TryExtractFromCellText"/>
+        public static bool TryParseStandaloneNumberWithUnit(
+            string? cellText,
+            out double value,
+            out string? unit)
+        {
+            #region implementation
+
+            value = 0;
+            unit = null;
+
+            if (string.IsNullOrWhiteSpace(cellText))
+                return false;
+
+            var folded = PkParameterDictionary.NormalizeUnicode(cellText);
+            var match = _standaloneNumberUnitPattern.Match(folded);
+            if (!match.Success)
+                return false;
+
+            var rawUnit = match.Groups[2].Value.Trim();
+            if (rawUnit.Length == 1 && rawUnit != "%")
+                return false;
+
+            var canonical = TryNormalize(rawUnit);
+            if (string.IsNullOrWhiteSpace(canonical))
+                return false;
+
+            var rawNumber = match.Groups[1].Value.Replace(",", "");
+            if (!double.TryParse(
+                    rawNumber,
+                    NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture,
+                    out value))
+            {
+                return false;
+            }
+
+            unit = canonical;
+            return true;
 
             #endregion
         }

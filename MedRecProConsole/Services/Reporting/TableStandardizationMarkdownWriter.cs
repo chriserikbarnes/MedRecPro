@@ -288,6 +288,13 @@ namespace MedRecProConsole.Services.Reporting
                 : "_(none — skipped)_");
             sb.AppendLine();
 
+            if (!string.IsNullOrWhiteSpace(entry.RouteReason))
+            {
+                sb.Append("- **Route Reason:** ");
+                sb.AppendLine(GfmEscape.Inline(entry.RouteReason));
+                sb.AppendLine();
+            }
+
             writeObservationsTable(sb, entry);
 
             #endregion
@@ -316,6 +323,7 @@ namespace MedRecProConsole.Services.Reporting
             {
                 sb.AppendLine("_No observations produced._");
                 sb.AppendLine();
+                writeSuppressionAuditTable(sb, entry);
                 return;
             }
 
@@ -338,6 +346,51 @@ namespace MedRecProConsole.Services.Reporting
                 sb.Append(obs.ParseConfidence?.ToString("F2") ?? "-");
                 sb.Append(" | ");
                 sb.Append(GfmEscape.Inline(obs.ParseRule));
+                sb.AppendLine(" |");
+            }
+
+            sb.AppendLine();
+            writeSuppressionAuditTable(sb, entry);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Writes suppressed structural-row diagnostics for the table, when present.
+        /// </summary>
+        /// <param name="sb">Markdown builder.</param>
+        /// <param name="entry">Report entry carrying suppression diagnostics.</param>
+        /// <seealso cref="TableSuppressionAuditRecord"/>
+        private static void writeSuppressionAuditTable(StringBuilder sb, TableReportEntry entry)
+        {
+            #region implementation
+
+            var suppressed = entry.SuppressedRows ?? Array.Empty<TableSuppressionAuditRecord>();
+            if (suppressed.Count == 0)
+                return;
+
+            sb.Append("**Suppressed structural rows: ");
+            sb.Append(suppressed.Count);
+            sb.AppendLine("**");
+            sb.AppendLine();
+            sb.AppendLine("| Row | Cell | Label | Raw Value | Context | Flag |");
+            sb.AppendLine("|---|---|---|---|---|---|");
+
+            foreach (var item in suppressed)
+            {
+                sb.Append("| ");
+                sb.Append(item.SourceRowSeq?.ToString() ?? "-");
+                sb.Append(" | ");
+                sb.Append(item.SourceCellSeq?.ToString() ?? "-");
+                sb.Append(" | ");
+                sb.Append(GfmEscape.Inline(item.StructuralLabel ?? item.ParameterName));
+                sb.Append(" | ");
+                sb.Append(GfmEscape.Inline(item.RawValue));
+                sb.Append(" | ");
+                sb.Append(GfmEscape.Inline(item.ContextTarget));
+                sb.Append(" | ");
+                sb.Append(GfmEscape.Inline(item.ValidationFlag));
                 sb.AppendLine(" |");
             }
 

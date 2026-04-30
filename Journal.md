@@ -3471,3 +3471,31 @@ Fixed the SSMS syntax errors reported in the cleaned table-standardization diagn
 **Verification.** `git diff --check -- MedRecPro/SQL/Transient/TableStandardizationChecks.sql` passed. The fix targets the exact line numbers reported by the full-script SSMS trace.
 
 ---
+
+### 2026-04-29 10:44 AM EST — AE Deterministic Parser Dose and Arm Recovery Improvements
+Implemented additive AE treatment-arm dose extraction for Vivelle and Natesto without changing the preserved `TreatmentArm` text. The extractor now handles spaced `mg/ day` labels with footnotes, long-form `Three Times Daily`, shorthand `TID`, and multi-daily schedules without collapsing them into daily units. AE parser arm recovery was also tightened with conservative single-product fallback, context-axis routing, structural AE observation suppression, and expanded grade/severity axis handling.
+
+Updated the `parse-single` debug path to initialize and run deterministic column standardization so JSON diagnostics match the batch standardization behavior. Final targeted parse-single JSON checks for TextTableID 84, 528, and 529 verified Vivelle/Natesto `Dose`, `DoseUnit`, and `DoseRegimen` population with zero percent `DoseUnit` rows in those repro tables.
+
+Verification passed: focused Phase 3.5 `ColumnStandardizationServiceTests`, full `ColumnStandardizationServiceTests`, `AeArmRecoveryParserTests`, `MedRecProConsole` build, `git diff --check`, and full `dotnet test MedRecProTest --no-restore --verbosity minimal` with 1,820/1,820 tests passing.
+
+---
+
+### 2026-04-29 1:48 PM EST — Parser Gate Remediation
+Implemented structural-row suppression and audit plumbing for AE and Efficacy parsers, preserving useful structural labels as category/group context while excluding them from observation emission and quality gating. Added suppression metadata to batch/report outputs, JSON diagnostics, and markdown reporting.
+
+Recovered and normalized PK units through `UnitDictionary` before missing-unit quality flags are evaluated, including slash-chain units from headers, captions, sub-headers, inline values, and sibling PK parameter definitions. Complete PK spine rows with context-backed units now receive deterministic confidence support while existing `PVT_MIGRATED` and missing-unit penalties remain intact.
+
+Added AE/Efficacy router downgrade gates for incompatible arm-based tables, expanded skip-caption routing for non-observational content, and exempted valid Efficacy rate-denominator units from generic `BadUnit` handling. Focused parser/router/quality/unit suites passed, `TableParserTests` passed, and the broad suite passed 1,819/1,819 when excluding only sandbox-blocked `ProductRenderingServiceTests` user-secret access.
+
+---
+
+
+### 2026-04-29 3:56 PM EST — Parser Gate Data Validation Follow-Up
+Validated `standardization-report-20260429-152048.jsonl` and `standardization-report-20260429-152043.md` after the parser gate remediation. The report artifacts were present under `MedRecProConsole/bin/Debug/net8.0`; the `MedRecProConsole/Services/Reporting` folder is the source-code folder for the report writers and is not an output directory.
+
+The latest JSONL was structurally valid and showed intended quality movement in AE structural suppression, but validation found over-aggressive routing: missing-parent section 14 clinical-study tables were falling to `SKIP:No viable parser category`, and the dominant structural-body gate was rejecting tables that still contained multiple numeric outcome rows. Updated `TableParserRouter` to use `SectionTitle` fallback when `ParentSectionCode` is missing and to avoid structural downgrade when enough outcome-bearing rows are present. Updated `EfficacyMultilevelTableParser` so simple clinical-study arm tables with a single header row can parse after routing.
+
+Added router regression fixtures for section-title-only Efficacy routing and AE structural-divider tables with numeric outcomes. Focused router/orchestrator/parser checks passed 53/53, `git diff --check` passed, and the broad suite passed 1,821/1,821 when excluding only sandbox-blocked `ProductRenderingServiceTests` user-secret access.
+
+---

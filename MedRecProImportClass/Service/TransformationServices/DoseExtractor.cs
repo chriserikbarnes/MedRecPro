@@ -46,7 +46,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <c>"5 mgxyz"</c>.
         /// </summary>
         private static readonly string DoseUnitPattern =
-            $@"(?:{UnitDictionary.DoseUnitAlternation})(?=$|[\s,;.)\]]|/d(?:ay)?\b)";
+            $@"(?:{UnitDictionary.DoseUnitAlternation})(?=$|[\s,;.)\]]|/\s*d(?:ay)?\b)";
 
 
         /**************************************************************/
@@ -73,7 +73,43 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// dose+unit. Promotes simple mg/mcg units to daily form.
         /// </summary>
         private static readonly Regex _dailyFrequencyPattern = new(
-            @"\b(?:once\s+daily|daily|per\s+day|QD|q\.?d\.?|every\s+day|each\s+day|/day)\b",
+            @"\b(?:once\s+daily|daily|per\s+day|QD|q\.?d\.?|every\s+day|each\s+day)\b|/\s*(?:d|day)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects multi-dose daily schedules that must not collapse into a
+        /// daily unit such as <c>mg/d</c>.
+        /// </summary>
+        private static readonly Regex _multiDailyFrequencyPattern = new(
+            @"\b(?:BID|b\.?i\.?d\.?|TID|t\.?i\.?d\.?|QID|q\.?i\.?d\.?|twice\s+daily|two\s+times\s+daily|three\s+times\s+daily|four\s+times\s+daily|[234]\s+times\s+(?:a\s+)?day)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Matches trailing frequency text that should be retained in a
+        /// recovered <see cref="ParsedObservation.DoseRegimen"/>.
+        /// </summary>
+        private static readonly Regex _doseRegimenFrequencyPattern = new(
+            @"^\s*(?:once\s+daily|daily|per\s+day|QD|q\.?d\.?|every\s+day|each\s+day|BID|b\.?i\.?d\.?|TID|t\.?i\.?d\.?|QID|q\.?i\.?d\.?|twice\s+daily|two\s+times\s+daily|three\s+times\s+daily|four\s+times\s+daily|[234]\s+times\s+(?:a\s+)?day)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Matches an ingredient phrase immediately following a dose unit, such
+        /// as <c>of Testosterone</c> in a treatment-arm label.
+        /// </summary>
+        private static readonly Regex _doseRegimenIngredientPhrasePattern = new(
+            @"^\s+of\s+(.+?)(?=(?:\)\s*)?\s+(?:once\s+daily|daily|per\s+day|QD|q\.?d\.?|every\s+day|each\s+day|BID|b\.?i\.?d\.?|TID|t\.?i\.?d\.?|QID|q\.?i\.?d\.?|twice\s+daily|two\s+times\s+daily|three\s+times\s+daily|four\s+times\s+daily|[234]\s+times\s+(?:a\s+)?day)\b|$|[,;.])",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Matches explicit per-day suffixes that may be separated from the unit
+        /// by whitespace in SPL headers.
+        /// </summary>
+        private static readonly Regex _perDaySuffixPattern = new(
+            @"^\s*/\s*(?:d|day)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /**************************************************************/
@@ -326,12 +362,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// the unit is an explicit drug-dose unit.
         /// </remarks>
         /// <param name="obs">Observation to scan, modified in place when a dose is found.</param>
-        /// <returns>True if Dose/DoseUnit were populated; otherwise false.</returns>
+        /// <returns>True if Dose, DoseUnit, or DoseRegimen were populated; otherwise false.</returns>
         public static bool ScanAllColumnsForDose(ParsedObservation obs)
         {
             #region implementation
 
-            if (obs.Dose.HasValue)
+            if (obs.Dose.HasValue && !isAdverseEvent(obs.TableCategory))
                 return false;
 
             if (isPlaceboArm(obs.TreatmentArm))
@@ -343,7 +379,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     obs,
                     obs.DoseRegimen,
                     allowPercentDoseUnit: false,
-                    requireAeTreatmentArmDoseUnit: false))
+                    requireAeTreatmentArmDoseUnit: false,
+                    populateDoseRegimen: false,
+                    allowDoseUnitCorrection: false))
                 {
                     return true;
                 }
@@ -352,7 +390,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     obs,
                     obs.TreatmentArm,
                     allowPercentDoseUnit: false,
-                    requireAeTreatmentArmDoseUnit: true))
+                    requireAeTreatmentArmDoseUnit: true,
+                    populateDoseRegimen: true,
+                    allowDoseUnitCorrection: true))
                 {
                     return true;
                 }
@@ -378,7 +418,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     obs,
                     value,
                     allowPercentDoseUnit: true,
-                    requireAeTreatmentArmDoseUnit: false))
+                    requireAeTreatmentArmDoseUnit: false,
+                    populateDoseRegimen: false,
+                    allowDoseUnitCorrection: false))
                 {
                     return true;
                 }
@@ -402,12 +444,16 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="value">Candidate text source.</param>
         /// <param name="allowPercentDoseUnit">Whether <c>%</c> may populate DoseUnit.</param>
         /// <param name="requireAeTreatmentArmDoseUnit">Whether to require the AE treatment-arm unit allowlist.</param>
-        /// <returns>True when Dose and DoseUnit were assigned.</returns>
+        /// <param name="populateDoseRegimen">Whether to recover a regimen fragment from the candidate text.</param>
+        /// <param name="allowDoseUnitCorrection">Whether to correct an existing DoseUnit from treatment-arm evidence.</param>
+        /// <returns>True when any dose field was assigned or corrected.</returns>
         private static bool tryApplyExtractedDose(
             ParsedObservation obs,
             string? value,
             bool allowPercentDoseUnit,
-            bool requireAeTreatmentArmDoseUnit)
+            bool requireAeTreatmentArmDoseUnit,
+            bool populateDoseRegimen,
+            bool allowDoseUnitCorrection)
         {
             #region implementation
 
@@ -424,9 +470,65 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (requireAeTreatmentArmDoseUnit && !isAeTreatmentArmDoseUnit(doseUnit))
                 return false;
 
-            obs.Dose = dose;
-            obs.DoseUnit = doseUnit;
-            return true;
+            var changed = false;
+            if (!obs.Dose.HasValue)
+            {
+                obs.Dose = dose;
+                changed = true;
+            }
+
+            if (shouldApplyDoseUnit(obs.DoseUnit, doseUnit, value, allowDoseUnitCorrection))
+            {
+                obs.DoseUnit = doseUnit;
+                changed = true;
+            }
+
+            if (populateDoseRegimen &&
+                string.IsNullOrWhiteSpace(obs.DoseRegimen) &&
+                tryExtractDoseRegimenFragment(value, out var doseRegimen))
+            {
+                obs.DoseRegimen = doseRegimen;
+                changed = true;
+            }
+
+            return changed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an extracted dose unit should be applied to the
+        /// observation.
+        /// </summary>
+        /// <param name="currentDoseUnit">Existing dose unit.</param>
+        /// <param name="extractedDoseUnit">Dose unit extracted from source text.</param>
+        /// <param name="sourceText">Source text used for extraction.</param>
+        /// <param name="allowDoseUnitCorrection">Whether existing units may be corrected.</param>
+        /// <returns><c>true</c> when the extracted unit should replace the current value.</returns>
+        private static bool shouldApplyDoseUnit(
+            string? currentDoseUnit,
+            string? extractedDoseUnit,
+            string sourceText,
+            bool allowDoseUnitCorrection)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(extractedDoseUnit))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(currentDoseUnit))
+                return true;
+
+            if (!allowDoseUnitCorrection ||
+                string.Equals(currentDoseUnit, extractedDoseUnit, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return isDailyDoseUnit(currentDoseUnit) &&
+                   !isDailyDoseUnit(extractedDoseUnit) &&
+                   _multiDailyFrequencyPattern.IsMatch(sourceText);
 
             #endregion
         }
@@ -460,6 +562,22 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Returns true when the dose unit already encodes a per-day denominator.
+        /// </summary>
+        /// <param name="doseUnit">Candidate dose unit.</param>
+        /// <returns><c>true</c> for <c>mg/d</c>, <c>mg/day</c>, and equivalents.</returns>
+        private static bool isDailyDoseUnit(string? doseUnit)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(doseUnit) &&
+                   Regex.IsMatch(doseUnit, @"/\s*d(?:ay)?\b", RegexOptions.IgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Returns true when the observation belongs to the adverse-event contract.
         /// </summary>
         private static bool isAdverseEvent(string? tableCategory)
@@ -467,6 +585,148 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             return string.Equals(tableCategory, "ADVERSE_EVENT", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recovers the dose-regimen fragment embedded in an AE treatment-arm label.
+        /// </summary>
+        /// <param name="value">Treatment-arm source text.</param>
+        /// <param name="doseRegimen">Recovered regimen fragment.</param>
+        /// <returns><c>true</c> when a regimen fragment was recovered.</returns>
+        private static bool tryExtractDoseRegimenFragment(string? value, out string? doseRegimen)
+        {
+            #region implementation
+
+            doseRegimen = null;
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            var cleaned = _footnotePattern.Replace(value, "").Trim();
+            var coreMatch = _coreDosePattern.Match(cleaned);
+            if (!coreMatch.Success || !tryParseDose(coreMatch.Groups[1].Value, out _))
+                return false;
+
+            var numberText = coreMatch.Groups[1].Value.Replace(",", "");
+            var unit = NormalizeUnit(coreMatch.Groups[2].Value) ?? coreMatch.Groups[2].Value.Trim();
+            var cursor = coreMatch.Index + coreMatch.Length;
+            var remainder = cleaned[cursor..];
+
+            if (tryConsumePerDaySuffix(remainder, out var perDayConsumed))
+            {
+                unit = normalizeDailyUnitForRegimen(unit);
+                cursor += perDayConsumed;
+                remainder = cleaned[cursor..];
+            }
+
+            var parts = new List<string> { $"{numberText} {unit}" };
+            if (tryConsumeIngredientPhrase(remainder, out var ingredientPhrase, out var ingredientConsumed))
+            {
+                parts.Add(ingredientPhrase!);
+                cursor += ingredientConsumed;
+                remainder = cleaned[cursor..];
+            }
+
+            if (tryConsumeFrequencyPhrase(remainder, out var frequencyPhrase))
+                parts.Add(frequencyPhrase!);
+
+            doseRegimen = Regex.Replace(string.Join(" ", parts), @"\s+", " ").Trim();
+            return !string.IsNullOrWhiteSpace(doseRegimen);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Consumes a spaced or compact per-day suffix after a simple dose unit.
+        /// </summary>
+        /// <param name="text">Trailing source text.</param>
+        /// <param name="consumed">Character count consumed.</param>
+        /// <returns><c>true</c> when a per-day suffix was consumed.</returns>
+        private static bool tryConsumePerDaySuffix(string text, out int consumed)
+        {
+            #region implementation
+
+            consumed = 0;
+            var match = _perDaySuffixPattern.Match(text);
+            if (!match.Success)
+                return false;
+
+            consumed = match.Length;
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes a regimen-display unit to an explicit <c>/day</c> suffix.
+        /// </summary>
+        /// <param name="unit">Dose unit from the embedded regimen.</param>
+        /// <returns>Display unit suitable for <see cref="ParsedObservation.DoseRegimen"/>.</returns>
+        private static string normalizeDailyUnitForRegimen(string unit)
+        {
+            #region implementation
+
+            var normalized = NormalizeUnit(unit) ?? unit.Trim();
+            return Regex.IsMatch(normalized, @"/\s*d(?:ay)?\b", RegexOptions.IgnoreCase)
+                ? Regex.Replace(normalized, @"/\s*d\b", "/day", RegexOptions.IgnoreCase)
+                : $"{normalized}/day";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Consumes an ingredient phrase that appears between a dose unit and a
+        /// frequency phrase.
+        /// </summary>
+        /// <param name="text">Trailing source text.</param>
+        /// <param name="ingredientPhrase">Recovered phrase.</param>
+        /// <param name="consumed">Character count consumed.</param>
+        /// <returns><c>true</c> when an ingredient phrase was consumed.</returns>
+        private static bool tryConsumeIngredientPhrase(string text, out string? ingredientPhrase, out int consumed)
+        {
+            #region implementation
+
+            ingredientPhrase = null;
+            consumed = 0;
+            var match = _doseRegimenIngredientPhrasePattern.Match(text);
+            if (!match.Success)
+                return false;
+
+            ingredientPhrase = $"of {match.Groups[1].Value.Trim().TrimEnd(')')}";
+            consumed = match.Length;
+
+            var closingMatch = Regex.Match(text[consumed..], @"^\s*\)");
+            if (closingMatch.Success)
+                consumed += closingMatch.Length;
+
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Consumes a frequency phrase after a dose unit or ingredient phrase.
+        /// </summary>
+        /// <param name="text">Trailing source text.</param>
+        /// <param name="frequencyPhrase">Recovered frequency phrase.</param>
+        /// <returns><c>true</c> when a frequency phrase was consumed.</returns>
+        private static bool tryConsumeFrequencyPhrase(string text, out string? frequencyPhrase)
+        {
+            #region implementation
+
+            frequencyPhrase = null;
+            var match = _doseRegimenFrequencyPattern.Match(text);
+            if (!match.Success)
+                return false;
+
+            frequencyPhrase = Regex.Replace(match.Value.Trim(), @"\s+", " ");
+            return true;
 
             #endregion
         }
@@ -501,6 +761,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return unit;
 
             if (unit.Contains('/'))
+                return unit;
+
+            if (_multiDailyFrequencyPattern.IsMatch(trailingText))
                 return unit;
 
             if (_dailyFrequencyPattern.IsMatch(trailingText))

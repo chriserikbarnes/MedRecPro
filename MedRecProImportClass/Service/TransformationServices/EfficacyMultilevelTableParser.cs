@@ -93,7 +93,59 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Check if header contains stat labels
             if (table.Header?.Columns != null)
             {
-                return table.Header.Columns.Any(c => isStatColumn(c.LeafHeaderText));
+                if (table.Header.Columns.Any(c => isStatColumn(c.LeafHeaderText)))
+                    return true;
+
+                return hasSimpleEfficacyArmShape(table);
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Recognizes single-header clinical-study arm tables whose row labels carry
+        /// the endpoint hierarchy while arm headers carry treatment context.
+        /// </summary>
+        /// <param name="table">Candidate efficacy table.</param>
+        /// <returns>True when the table has arm headers and parseable body outcomes.</returns>
+        private static bool hasSimpleEfficacyArmShape(ReconstructedTable table)
+        {
+            #region implementation
+
+            if (table.Header?.Columns == null || table.Header.Columns.Count <= 1)
+                return false;
+
+            var hasArm = table.Header.Columns
+                .Skip(1)
+                .Any(c =>
+                {
+                    var leaf = c.LeafHeaderText?.Trim();
+                    return !string.IsNullOrWhiteSpace(leaf) &&
+                           !isStatColumn(leaf) &&
+                           !BaseTableParser.LooksLikeGenericArmLabelForRouting(leaf);
+                });
+
+            if (!hasArm)
+                return false;
+
+            foreach (var row in table.DataRows())
+            {
+                var cells = row.Cells?
+                    .Where(c => (c.ResolvedColumnStart ?? 0) > 0 && !string.IsNullOrWhiteSpace(c.CleanedText))
+                    .ToList();
+
+                if (cells == null)
+                    continue;
+
+                foreach (var cell in cells)
+                {
+                    var parsed = ValueParser.Parse(cell.CleanedText);
+                    if (parsed.PrimaryValue.HasValue || parsed.SecondaryValue.HasValue || parsed.PValue.HasValue)
+                        return true;
+                }
             }
 
             return false;
@@ -111,6 +163,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            ClearDiagnostics();
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
 
@@ -171,6 +224,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
 
+                if (isStructuralContextRow(row, arms, paramName, TableCategory.EFFICACY))
+                {
+                    currentGroup = paramName;
+                    pendingNs.Clear();
+                    recordSuppressedStructuralRow(
+                        table, row, null, TableCategory.EFFICACY,
+                        paramName, null, paramName, paramName, "ParameterCategory",
+                        "Structural Efficacy row captured as group context");
+                    continue;
+                }
+
                 // Fault-tolerant row processing: if any cell throws, the entire table is skipped
                 parseRowSafe(table, row, observations, (r, obs) =>
                 {
@@ -218,6 +282,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                             {
                                 o.Unit = unit;
                             }
+                        }
+
+                        if (shouldSuppressStructuralObservation(o, parsed))
+                        {
+                            recordSuppressedStructuralRow(
+                                table, r, cell, TableCategory.EFFICACY,
+                                paramName, arm.Name, cell.CleanedText, paramName,
+                                "ParameterCategory",
+                                "Structural Efficacy cell suppressed before observation emission");
+                            continue;
                         }
 
                         obs.Add(o);

@@ -989,6 +989,20 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// R12 Pattern 12b supports PK slash-chain clearance units through
+        /// <see cref="UnitDictionary"/>.
+        /// </summary>
+        [TestMethod]
+        public void Parse_R12_ValueTrailingUnit_SlashChainUnit()
+        {
+            var r = ValueParser.Parse("1.2 mL/hr/kg");
+            Assert.AreEqual("value_trailing_unit", r.ParseRule);
+            Assert.AreEqual(1.2, r.PrimaryValue);
+            Assert.AreEqual("mL/h/kg", r.Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// R12 Pattern 12b — integer leading with compound AUC-style unit.
         /// </summary>
         [TestMethod]
