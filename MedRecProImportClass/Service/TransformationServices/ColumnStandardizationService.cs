@@ -1013,6 +1013,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                    string.Equals(obs.PrimaryValueType, "RelativeRiskReduction", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(obs.PrimaryValueType, "HazardRatio", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(obs.PrimaryValueType, "OddsRatio", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(obs.PrimaryValueType, "PValue", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(obs.PrimaryValueType, "Ratio", StringComparison.OrdinalIgnoreCase);
 
             #endregion

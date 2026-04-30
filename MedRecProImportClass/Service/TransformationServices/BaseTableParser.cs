@@ -319,6 +319,30 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^\s*Events?\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly Regex _placeholderStatValuePattern = new(
+            @"^\s*(?:[-–—]+|↔|→|←|⟷|N/?A|No\.\s*Analyzed|No\.\s*Erad\.\s*\(%\))\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _standaloneLtOnePattern = new(
+            @"^\s*[<≤]\s*1\s*%?\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex _pValueRowLabelPattern = new(
+            @"^\s*[Pp]\s*[- ]?\s*value\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _comparisonRowLabelPattern = new(
+            @"^\s*(?:[Pp]\s*[- ]?\s*value|Difference\s+from\s+placebo.*|95\s*%\s*CI|Risk\s+Difference.*|Hazard\s+Ratio.*|Relative\s+Risk.*|Odds\s+Ratio.*)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _percentContextPattern = new(
+            @"(?:%|percent|percentage|responders?|response\s+rate|incidence|rate)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _countContextPattern = new(
+            @"(?:^|\b)(?:n/N|Number|No\.?|Count|Events?|Patients?|Subjects?|Total)(?:\b|$)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         // Pattern for dose regimen cells: "10 mg", "20 mg oral", "50 mcg once daily"
         private static readonly Regex _doseRegimenPattern = new(
             @"^\d+\s*(?:mg|mcg|µg|g|ml|mL)\b",
@@ -833,6 +857,12 @@ namespace MedRecProImportClass.Service.TransformationServices
             var rawValue = obs.RawValue?.Trim();
             var parameterName = obs.ParameterName?.Trim();
             if (!string.IsNullOrWhiteSpace(rawValue) &&
+                _placeholderStatValuePattern.IsMatch(rawValue))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(rawValue) &&
                 _structuralAeValueCellPattern.IsMatch(rawValue) &&
                 isAe)
             {
@@ -1345,6 +1375,407 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion Protected Helpers — Type Promotion
 
         #region Protected Helpers — Caption Value Hint
+
+        #region Protected Helpers - AE/Efficacy Value Context
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses an AE or Efficacy value with row, arm, and table context.
+        /// </summary>
+        /// <remarks>
+        /// Raw value parsing intentionally remains context-neutral in
+        /// <see cref="ValueParser"/>. This helper applies the domain-specific
+        /// corrections that require row labels, arm sample sizes, and percent/stat
+        /// hints, such as standalone less-than-one incidence cells and p-value rows.
+        /// </remarks>
+        /// <param name="rawText">Raw cell text.</param>
+        /// <param name="category">Parser category.</param>
+        /// <param name="rowLabel">Current row label or promoted parameter name.</param>
+        /// <param name="parameterCategory">Current category/group context.</param>
+        /// <param name="arm">Arm definition supplying sample size and format hints.</param>
+        /// <param name="caption">Source table caption.</param>
+        /// <param name="forcePValue">Whether the row is known to be a p-value row.</param>
+        /// <returns>Context-adjusted parsed value.</returns>
+        /// <seealso cref="ValueParser"/>
+        /// <seealso cref="ParsedValue"/>
+        protected static ParsedValue parseValueWithAeEfficacyContext(
+            string? rawText,
+            TableCategory category,
+            string? rowLabel,
+            string? parameterCategory,
+            ArmDefinition? arm,
+            string? caption,
+            bool forcePValue = false)
+        {
+            #region implementation
+
+            var parsed = ValueParser.Parse(rawText, arm?.SampleSize);
+            if (category != TableCategory.ADVERSE_EVENT && category != TableCategory.EFFICACY)
+                return parsed;
+
+            var isPValueContext = forcePValue ||
+                isPValueRowLabel(rowLabel) ||
+                isPValueRowLabel(arm?.Name);
+
+            if (isPValueContext)
+                return coerceToPValue(parsed);
+
+            if (_standaloneLtOnePattern.IsMatch(rawText ?? string.Empty) &&
+                isPercentValueContext(category, rowLabel, parameterCategory, arm, caption))
+            {
+                return coerceStandaloneLtOneToPercentage(parsed, arm?.SampleSize);
+            }
+
+            if (string.Equals(parsed.PrimaryValueType, "Numeric", StringComparison.OrdinalIgnoreCase) &&
+                isCountValueContext(rowLabel, arm, caption))
+            {
+                parsed.PrimaryValueType = "Count";
+                parsed.Unit = null;
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, "COUNT_CONTEXT_PROMOTION");
+            }
+
+            if (string.Equals(parsed.PrimaryValueType, "Numeric", StringComparison.OrdinalIgnoreCase) &&
+                isPercentValueContext(category, rowLabel, parameterCategory, arm, caption))
+            {
+                parsed.PrimaryValueType = "Percentage";
+                parsed.Unit = "%";
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, "PCT_CONTEXT_PROMOTION");
+            }
+
+            if (string.Equals(parsed.PrimaryValueType, "Percentage", StringComparison.OrdinalIgnoreCase) &&
+                parsed.PrimaryValue.HasValue &&
+                parsed.PrimaryValue.Value > 100)
+            {
+                parsed = rejectPercentageOverOneHundred(parsed, rowLabel, arm, caption);
+            }
+
+            return parsed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when the row label describes a comparison/statistic row.
+        /// </summary>
+        /// <param name="rowLabel">Candidate row label.</param>
+        /// <returns><c>true</c> for p-value, difference, CI, and ratio rows.</returns>
+        protected static bool isComparisonRowLabel(string? rowLabel)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(rowLabel) &&
+                   _comparisonRowLabelPattern.IsMatch(rowLabel.Trim());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns true when the supplied text is a p-value row label.
+        /// </summary>
+        /// <param name="text">Candidate label.</param>
+        /// <returns><c>true</c> when the label is p-value.</returns>
+        protected static bool isPValueRowLabel(string? text)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(text) &&
+                   _pValueRowLabelPattern.IsMatch(text.Trim());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether row/header/table context supports percentage semantics.
+        /// </summary>
+        /// <param name="category">Parser category.</param>
+        /// <param name="rowLabel">Current row label.</param>
+        /// <param name="parameterCategory">Current category/group label.</param>
+        /// <param name="arm">Arm definition.</param>
+        /// <param name="caption">Source table caption.</param>
+        /// <returns><c>true</c> when a bare number or less-than-one value is a percentage.</returns>
+        private static bool isPercentValueContext(
+            TableCategory category,
+            string? rowLabel,
+            string? parameterCategory,
+            ArmDefinition? arm,
+            string? caption)
+        {
+            #region implementation
+
+            if (isPValueRowLabel(rowLabel))
+                return false;
+
+            if (isCountValueContext(rowLabel, arm, caption))
+                return false;
+
+            if (containsPercentHint(rowLabel) ||
+                containsPercentHint(parameterCategory) ||
+                containsPercentHint(arm?.FormatHint) ||
+                containsPercentHint(arm?.Name) ||
+                containsPercentHint(caption))
+            {
+                return true;
+            }
+
+            return category == TableCategory.ADVERSE_EVENT;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether row/header/table context indicates counts rather than percentages.
+        /// </summary>
+        /// <param name="rowLabel">Current row label.</param>
+        /// <param name="arm">Arm definition.</param>
+        /// <param name="caption">Source table caption.</param>
+        /// <returns><c>true</c> when the context is explicitly count-oriented.</returns>
+        private static bool isCountValueContext(string? rowLabel, ArmDefinition? arm, string? caption)
+        {
+            #region implementation
+
+            return isCountText(rowLabel) ||
+                   isCountText(arm?.FormatHint) ||
+                   isCountText(arm?.Name) ||
+                   isCountText(caption);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks for percentage hints in free text.
+        /// </summary>
+        /// <param name="text">Candidate text.</param>
+        /// <returns><c>true</c> when the text suggests percentage reporting.</returns>
+        private static bool containsPercentHint(string? text)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(text) &&
+                   _percentContextPattern.IsMatch(text);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks for count hints that are not themselves n-percent format hints.
+        /// </summary>
+        /// <param name="text">Candidate text.</param>
+        /// <returns><c>true</c> when text indicates count semantics.</returns>
+        private static bool isCountText(string? text)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (containsPercentHint(text) && !text.Contains("n/N", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return _countContextPattern.IsMatch(text);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Reinterprets a numeric value as a p-value under p-value row context.
+        /// </summary>
+        /// <param name="parsed">Parsed value to adjust.</param>
+        /// <returns>Adjusted p-value parse.</returns>
+        private static ParsedValue coerceToPValue(ParsedValue parsed)
+        {
+            #region implementation
+
+            if (parsed.PrimaryValue.HasValue)
+            {
+                parsed.PrimaryValueType = "PValue";
+                parsed.PValue = parsed.PrimaryValue;
+                parsed.Unit = null;
+                parsed.PValueQualifier ??= "=";
+                if (!string.Equals(parsed.ParseRule, "pvalue", StringComparison.OrdinalIgnoreCase))
+                    parsed.ParseRule = $"{parsed.ParseRule}+row_pvalue";
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, "P_VALUE_ROW_CONTEXT");
+            }
+
+            return parsed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts a standalone <c>&lt;1</c> incidence cell to a percentage.
+        /// </summary>
+        /// <param name="parsed">Original parsed value.</param>
+        /// <param name="armN">Optional arm denominator.</param>
+        /// <returns>Percentage parse derived from arm size or fallback threshold.</returns>
+        private static ParsedValue coerceStandaloneLtOneToPercentage(ParsedValue parsed, int? armN)
+        {
+            #region implementation
+
+            var hasArmN = armN.HasValue && armN.Value > 0;
+            var resolvedArmN = armN.GetValueOrDefault();
+            parsed.PrimaryValue = hasArmN
+                ? Math.Round(1.0 / resolvedArmN * 100, 1)
+                : 0.1;
+            parsed.PrimaryValueType = "Percentage";
+            parsed.PValue = null;
+            parsed.PValueQualifier = null;
+            parsed.Unit = "%";
+            parsed.ParseRule = $"{parsed.ParseRule}+lt_one_percent_context";
+            parsed.ValidationFlags = appendFlag(
+                parsed.ValidationFlags,
+                hasArmN
+                    ? $"PCT_DERIVED_FROM_LT_ONE:ArmN={resolvedArmN}"
+                    : "PCT_DERIVED_FROM_LT_ONE:fallback=0.1");
+            return parsed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Demotes percentages greater than 100 to count or numeric evidence.
+        /// </summary>
+        /// <param name="parsed">Parsed percentage candidate.</param>
+        /// <param name="rowLabel">Current row label.</param>
+        /// <param name="arm">Arm definition.</param>
+        /// <param name="caption">Source table caption.</param>
+        /// <returns>Demoted parsed value with an audit flag.</returns>
+        private static ParsedValue rejectPercentageOverOneHundred(
+            ParsedValue parsed,
+            string? rowLabel,
+            ArmDefinition? arm,
+            string? caption)
+        {
+            #region implementation
+
+            var rejectedPercentage = parsed.PrimaryValue;
+            if (string.Equals(parsed.ParseRule, "n_pct", StringComparison.OrdinalIgnoreCase) &&
+                parsed.SecondaryValue.HasValue)
+            {
+                parsed.PrimaryValue = parsed.SecondaryValue;
+                parsed.SecondaryValue = rejectedPercentage;
+                parsed.SecondaryValueType = null;
+            }
+
+            parsed.PrimaryValueType = isCountValueContext(rowLabel, arm, caption) ? "Count" : "Numeric";
+            parsed.Unit = null;
+            parsed.ParseRule = $"{parsed.ParseRule}+pct_gt100_rejected";
+            parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, $"PCT_GT100_REJECTED:{rejectedPercentage}");
+            return parsed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects a row-label cell interspersed before the numeric arm cells.
+        /// </summary>
+        /// <param name="row">Source body row.</param>
+        /// <param name="arms">Resolved arm definitions.</param>
+        /// <param name="rowLabel">Current column-zero row label.</param>
+        /// <param name="category">Parser category.</param>
+        /// <param name="recoveredName">Recovered parameter name from the interspersed label cell.</param>
+        /// <param name="categoryLabel">Optional category label preserved from column zero.</param>
+        /// <param name="labelCellSequence">Source cell sequence to suppress.</param>
+        /// <returns><c>true</c> when a text cell should become the parameter name.</returns>
+        /// <seealso cref="ParsedObservation.ParameterName"/>
+        /// <seealso cref="ParsedObservation.ParameterCategory"/>
+        protected static bool tryRecoverInterspersedRowLabel(
+            ReconstructedRow row,
+            IReadOnlyList<ArmDefinition> arms,
+            string? rowLabel,
+            TableCategory category,
+            out string? recoveredName,
+            out string? categoryLabel,
+            out int? labelCellSequence)
+        {
+            #region implementation
+
+            recoveredName = null;
+            categoryLabel = null;
+            labelCellSequence = null;
+
+            if (category != TableCategory.ADVERSE_EVENT && category != TableCategory.EFFICACY)
+                return false;
+
+            var orderedArms = arms
+                .Where(a => a.ColumnIndex.HasValue)
+                .OrderBy(a => a.ColumnIndex!.Value)
+                .ToList();
+
+            var usableArms = orderedArms
+                .Where(hasUsableTreatmentArm)
+                .ToList();
+
+            if (orderedArms.Count < 2 || usableArms.Count == 0)
+                return false;
+
+            var labelCandidate = orderedArms
+                .FirstOrDefault(a =>
+                {
+                    var candidateCell = getCellAtColumn(row, a.ColumnIndex!.Value);
+                    if (candidateCell == null || string.IsNullOrWhiteSpace(candidateCell.CleanedText))
+                        return false;
+
+                    var candidateText = candidateCell.CleanedText.Trim();
+                    var candidateParsed = ValueParser.Parse(candidateText, a.SampleSize);
+                    return string.Equals(candidateParsed.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase) &&
+                           Regex.IsMatch(candidateText, @"[A-Za-z]") &&
+                           !_placeholderStatValuePattern.IsMatch(candidateText) &&
+                           !string.Equals(candidateText, rowLabel, StringComparison.OrdinalIgnoreCase);
+                });
+
+            if (labelCandidate == null)
+                return false;
+
+            var firstCell = getCellAtColumn(row, labelCandidate.ColumnIndex!.Value);
+            if (firstCell == null || string.IsNullOrWhiteSpace(firstCell.CleanedText))
+                return false;
+
+            var text = firstCell.CleanedText.Trim();
+            var labelColumn = labelCandidate.ColumnIndex!.Value;
+            var laterNumeric = usableArms
+                .Where(arm => arm.ColumnIndex!.Value > labelColumn)
+                .Any(arm =>
+            {
+                var cell = getCellAtColumn(row, arm.ColumnIndex!.Value);
+                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                    return false;
+
+                var later = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
+                return later.PrimaryValue.HasValue ||
+                       later.SecondaryValue.HasValue ||
+                       later.PValue.HasValue;
+            });
+
+            if (!laterNumeric)
+                return false;
+
+            var (cleaned, _) = ValueParser.CleanParameterName(text);
+            recoveredName = cleaned;
+            labelCellSequence = firstCell.SequenceNumber;
+
+            if (!string.IsNullOrWhiteSpace(rowLabel) &&
+                !_structuralAeValueCellPattern.IsMatch(rowLabel) &&
+                !_aeHeaderEchoParameterPattern.IsMatch(rowLabel))
+            {
+                categoryLabel = rowLabel.Trim();
+            }
+
+            return !string.IsNullOrWhiteSpace(recoveredName);
+
+            #endregion
+        }
+
+        #endregion Protected Helpers - AE/Efficacy Value Context
 
         /**************************************************************/
         /// <summary>

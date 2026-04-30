@@ -184,9 +184,37 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
                 }
 
+                var effectiveParamName = paramName;
+                var interspersedLabelCellSequence = (int?)null;
+                if (tryRecoverInterspersedRowLabel(
+                    row, arms, paramName, category,
+                    out var recoveredParamName,
+                    out var recoveredCategory,
+                    out var recoveredLabelCellSequence))
+                {
+                    effectiveParamName = recoveredParamName ?? paramName;
+                    interspersedLabelCellSequence = recoveredLabelCellSequence;
+                    if (category == TableCategory.ADVERSE_EVENT && !string.IsNullOrWhiteSpace(recoveredCategory))
+                    {
+                        currentCategory = recoveredCategory;
+                    }
+                    else if (category == TableCategory.EFFICACY && !string.IsNullOrWhiteSpace(recoveredCategory))
+                    {
+                        currentSubtype = recoveredCategory;
+                    }
+                }
+
                 // Fault-tolerant row processing: if any cell throws, the entire table is skipped
                 parseRowSafe(table, row, observations, (r, obs) =>
                 {
+                    if (category == TableCategory.EFFICACY && isComparisonRowLabel(effectiveParamName))
+                    {
+                        emitRowLabelComparisonRows(
+                            table, r, category, effectiveParamName, currentSubtype,
+                            population, arms, obs);
+                        return;
+                    }
+
                     // Extract p-value from stat column if present
                     double? rowPValue = extractPValue(r, statColumns);
 
@@ -199,9 +227,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
                         if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
                             continue;
+                        if (interspersedLabelCellSequence.HasValue &&
+                            cell.SequenceNumber == interspersedLabelCellSequence.Value)
+                            continue;
 
                         var o = createBaseObservation(table, r, cell, category);
-                        o.ParameterName = paramName;
+                        o.ParameterName = effectiveParamName;
                         o.ParameterCategory = currentCategory;
                         o.ParameterSubtype = currentSubtype ?? arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
@@ -213,7 +244,13 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.Population = population;
                         o.PValue = rowPValue;
 
-                        var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
+                        var parsed = parseValueWithAeEfficacyContext(
+                            cell.CleanedText,
+                            category,
+                            effectiveParamName,
+                            currentCategory ?? currentSubtype,
+                            arm,
+                            table.Caption);
 
                         // Caption-based type inference (e.g., "Mean (SD)" in efficacy tables)
                         if (!captionHint.IsEmpty)
@@ -221,7 +258,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                             parsed = applyCaptionHint(parsed, captionHint);
                         }
 
-                        parsed = applyTypePromotion(parsed, category, arm);
                         applyParsedValue(o, parsed);
                         if (shouldSuppressStructuralObservation(o, parsed))
                         {
@@ -237,7 +273,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     }
 
                     // Stat/comparison columns
-                    emitComparisonRows(table, r, category, paramName, currentSubtype,
+                    emitComparisonRows(table, r, category, effectiveParamName, currentSubtype,
                         population, rowPValue, statColumns, obs);
                 });
             }
@@ -268,6 +304,128 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var parsed = ValueParser.Parse(cell.CleanedText);
             return parsed.PValue ?? parsed.PrimaryValue;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Emits Comparison observations for statistic rows whose labels appear in
+        /// the first column rather than in dedicated statistic columns.
+        /// </summary>
+        /// <remarks>
+        /// Efficacy tables often encode p-values and placebo differences as ordinary
+        /// body rows, with the actual value in the first treatment column and a
+        /// placeholder in the reference arm. These rows describe a comparison, so the
+        /// value should not be emitted under the treatment/reference arm name.
+        /// </remarks>
+        /// <param name="table">Source reconstructed table.</param>
+        /// <param name="row">Current data row.</param>
+        /// <param name="category">Parser category.</param>
+        /// <param name="paramName">Statistic row label.</param>
+        /// <param name="subtype">Current efficacy subtype/group.</param>
+        /// <param name="population">Detected population context.</param>
+        /// <param name="arms">Treatment arms used only to locate source cells.</param>
+        /// <param name="observations">Observation sink.</param>
+        /// <seealso cref="BaseTableParser"/>
+        private void emitRowLabelComparisonRows(
+            ReconstructedTable table, ReconstructedRow row, TableCategory category,
+            string paramName, string? subtype, string? population,
+            IEnumerable<ArmDefinition> arms, List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            var emittedCellSequences = new HashSet<int?>();
+            foreach (var arm in arms.Where(hasUsableTreatmentArm))
+            {
+                var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
+                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                    continue;
+                if (!emittedCellSequences.Add(cell.SequenceNumber))
+                    continue;
+
+                var obs = createBaseObservation(table, row, cell, category);
+                obs.ParameterName = paramName;
+                obs.ParameterSubtype = subtype;
+                obs.TreatmentArm = "Comparison";
+                obs.Population = population;
+
+                var parsed = parseValueWithAeEfficacyContext(
+                    cell.CleanedText,
+                    category,
+                    paramName,
+                    subtype,
+                    arm,
+                    table.Caption,
+                    forcePValue: isPValueRowLabel(paramName));
+                parsed = applyRowLabelComparisonType(paramName, parsed);
+
+                applyParsedValue(obs, parsed);
+                if (shouldSuppressStructuralObservation(obs, parsed))
+                {
+                    recordSuppressedStructuralRow(
+                        table, row, cell, category,
+                        paramName, "Comparison", cell.CleanedText, paramName,
+                        "ParameterSubtype",
+                        "Structural comparison-row cell suppressed before observation emission");
+                    continue;
+                }
+
+                if (obs.PrimaryValue == null && obs.SecondaryValue == null && obs.PValue == null)
+                    continue;
+
+                observations.Add(obs);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies statistic-row value types to parsed row-label comparison values.
+        /// </summary>
+        /// <param name="rowLabel">Statistic row label.</param>
+        /// <param name="parsed">Parsed value to adjust.</param>
+        /// <returns>Adjusted parsed value.</returns>
+        /// <seealso cref="ParsedValue"/>
+        private static ParsedValue applyRowLabelComparisonType(string? rowLabel, ParsedValue parsed)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(rowLabel) || !parsed.PrimaryValue.HasValue)
+                return parsed;
+
+            if (isPValueRowLabel(rowLabel))
+                return parsed;
+
+            if (rowLabel.Contains("Difference", StringComparison.OrdinalIgnoreCase) ||
+                rowLabel.Contains("Risk Difference", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.PrimaryValueType = "RiskDifference";
+                if (rowLabel.Contains("%", StringComparison.OrdinalIgnoreCase) ||
+                    rowLabel.Contains("percent", StringComparison.OrdinalIgnoreCase))
+                {
+                    parsed.Unit = "%";
+                }
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, "COMPARISON_ROW_CONTEXT");
+            }
+            else if (rowLabel.Contains("Hazard", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.PrimaryValueType = "HazardRatio";
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, "COMPARISON_ROW_CONTEXT");
+            }
+            else if (rowLabel.Contains("Odds", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.PrimaryValueType = "OddsRatio";
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, "COMPARISON_ROW_CONTEXT");
+            }
+            else if (rowLabel.Contains("Relative Risk", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.PrimaryValueType = "RelativeRisk";
+                parsed.ValidationFlags = appendFlag(parsed.ValidationFlags, "COMPARISON_ROW_CONTEXT");
+            }
+
+            return parsed;
 
             #endregion
         }

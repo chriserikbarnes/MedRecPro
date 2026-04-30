@@ -286,9 +286,9 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Phase 2 fix: <c>27 (&lt;1%)</c> compound shape is now decomposed into count +
-        /// percentage upper-limit. The count goes to SecondaryValue (matching Pattern 4
-        /// n_pct conventions), and the percentage upper-bound goes to PrimaryValue.
+        /// Phase 2/AE remediation: <c>27 (&lt;1%)</c> compound shape is decomposed into
+        /// count plus derived percentage evidence. Without ArmN, the percentage uses
+        /// the conservative less-than-one fallback.
         /// </summary>
         [TestMethod]
         public void Phase2_CountInequalityPercent_DecomposesCleanly()
@@ -296,12 +296,13 @@ namespace MedRecPro.Service.Test
             var parsed = ValueParser.Parse("27 (<1%)");
 
             Assert.AreEqual("Percentage", parsed.PrimaryValueType);
-            Assert.AreEqual(1.0, parsed.PrimaryValue);
+            Assert.AreEqual(0.1, parsed.PrimaryValue);
             Assert.AreEqual("Count", parsed.SecondaryValueType);
             Assert.AreEqual(27.0, parsed.SecondaryValue);
             Assert.AreEqual("%", parsed.Unit);
             Assert.AreEqual("count_inequality_percent", parsed.ParseRule);
-            Assert.AreEqual("INEQUALITY_UPPER:<", parsed.ValidationFlags);
+            Assert.IsTrue(parsed.ValidationFlags!.Contains("INEQUALITY_UPPER:<"));
+            Assert.IsTrue(parsed.ValidationFlags!.Contains("PCT_DERIVED_FROM_COUNT_LT:fallback=0.1"));
         }
 
         /**************************************************************/

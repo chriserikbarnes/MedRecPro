@@ -113,6 +113,20 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
                 }
 
+                var effectiveParamName = paramName;
+                var interspersedLabelCellSequence = (int?)null;
+                if (tryRecoverInterspersedRowLabel(
+                    row, arms, paramName, TableCategory.ADVERSE_EVENT,
+                    out var recoveredParamName,
+                    out var recoveredCategory,
+                    out var recoveredLabelCellSequence))
+                {
+                    effectiveParamName = recoveredParamName ?? paramName;
+                    interspersedLabelCellSequence = recoveredLabelCellSequence;
+                    if (!string.IsNullOrWhiteSpace(recoveredCategory))
+                        currentSoc = recoveredCategory;
+                }
+
                 // Fault-tolerant row processing: if any cell throws, the entire table is skipped
                 parseRowSafe(table, row, observations, (r, obs) =>
                 {
@@ -125,9 +139,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
                         if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
                             continue;
+                        if (interspersedLabelCellSequence.HasValue &&
+                            cell.SequenceNumber == interspersedLabelCellSequence.Value)
+                            continue;
 
                         var o = createBaseObservation(table, r, cell, TableCategory.ADVERSE_EVENT);
-                        o.ParameterName = paramName;
+                        o.ParameterName = effectiveParamName;
                         o.ParameterCategory = currentSoc;
                         o.ParameterSubtype = arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
@@ -141,21 +158,20 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.DoseUnit = arm.DoseUnit;
                         o.Population = population;
 
-                        var parsed = ValueParser.Parse(cell.CleanedText, arm.SampleSize);
-
-                        // AE type promotion: Numeric → Percentage
-                        if (parsed.PrimaryValueType == "Numeric")
-                        {
-                            parsed.PrimaryValueType = "Percentage";
-                            parsed.Unit = "%";
-                        }
+                        var parsed = parseValueWithAeEfficacyContext(
+                            cell.CleanedText,
+                            TableCategory.ADVERSE_EVENT,
+                            effectiveParamName,
+                            currentSoc,
+                            arm,
+                            table.Caption);
 
                         applyParsedValue(o, parsed);
                         if (shouldSuppressAeStructuralObservation(o, parsed))
                         {
                             recordSuppressedStructuralRow(
                                 table, r, cell, TableCategory.ADVERSE_EVENT,
-                                paramName, arm.Name, cell.CleanedText, paramName,
+                                effectiveParamName, arm.Name, cell.CleanedText, effectiveParamName,
                                 "ParameterCategory",
                                 "Structural AE cell suppressed before observation emission");
                             continue;

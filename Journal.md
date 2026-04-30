@@ -3499,3 +3499,27 @@ The latest JSONL was structurally valid and showed intended quality movement in 
 Added router regression fixtures for section-title-only Efficacy routing and AE structural-divider tables with numeric outcomes. Focused router/orchestrator/parser checks passed 53/53, `git diff --check` passed, and the broad suite passed 1,821/1,821 when excluding only sandbox-blocked `ProductRenderingServiceTests` user-secret access.
 
 ---
+
+### 2026-04-30 9:40 AM EST — AE/Efficacy Value-Context Remediation Plan
+Refreshed the local AE/Efficacy remediation handoff so the next parser session can resume from the current standardization artifacts without overwriting the older kit-product parsing plan.
+
+**Plan artifact.** Updated [AE-Efficacy-Value-Context-Remediation.md](Plans/(pending) AE-Efficacy-Value-Context-Remediation.md) with a canonical handoff path, an explicit conflict note for the existing [Fix-Kit-Part-Parsing-Issues.md](Plans/(pending) Fix-Kit-Part-Parsing-Issues.md), and a verification snapshot tied to `standardization-report-20260430-082538.jsonl`.
+
+**Artifact validation.** Confirmed the latest markdown and JSONL reports exist under `MedRecProConsole/bin/Debug/net8.0`. A compact JSONL rollup verified `105,284` total observations, `29,758` Efficacy observations, `6,259` Efficacy null primary values, `5,549` Efficacy text primary-value types, `2,207` Efficacy missing treatment arms, `183` count-inequality text failures, and `957` AE/Efficacy `<1` cells currently typed as `PValue`.
+
+**Verification.** Read back the updated plan head after patching. No parser or test code was changed, and no test suite was run for this planning-only handoff.
+
+---
+
+### 2026-04-30 10:29 AM EST - AE/Efficacy Value-Context Parser Remediation
+Implemented the AE/Efficacy value-context remediation plan across the deterministic table parsers so count-plus-inequality cells, standalone less-than-one percentage cells, interspersed row labels, Efficacy statistic rows, `n/N` evidence rows, and invalid percentage values are handled before observations are emitted.
+
+**Parser wiring.** Added context-aware AE/Efficacy value interpretation in [BaseTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableParser.cs) and expanded [ValueParser.cs](MedRecProImportClass/Service/TransformationServices/ValueParser.cs) for `1 (<1)` / `1 (<1%)` derivation and `n/N` numerator-denominator parsing. Updated [SimpleArmTableParser.cs](MedRecProImportClass/Service/TransformationServices/SimpleArmTableParser.cs), [EfficacyMultilevelTableParser.cs](MedRecProImportClass/Service/TransformationServices/EfficacyMultilevelTableParser.cs), [AeWithSocTableParser.cs](MedRecProImportClass/Service/TransformationServices/AeWithSocTableParser.cs), and [MultilevelAeTableParser.cs](MedRecProImportClass/Service/TransformationServices/MultilevelAeTableParser.cs) to use that context, recover interspersed labels, suppress placeholder stat cells, emit comparison statistic rows under `TreatmentArm=Comparison`, and prevent count-oriented totals from becoming percentages. [ColumnStandardizationService.cs](MedRecProImportClass/Service/TransformationServices/ColumnStandardizationService.cs) now preserves comparison `PValue` rows instead of trying to repair the arm.
+
+**Fixtures.** Added targeted coverage in [ValueParserTests.cs](MedRecProTest/ValueParserTests.cs), [TableParserTests.cs](MedRecProTest/TableParserTests.cs), [TableParserBaselineFixtureTests.cs](MedRecProTest/TableParserBaselineFixtureTests.cs), and [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs) for count-inequality derivation, standalone `<1` incidence cells, invalid `n (%)` percentages over 100, plain total-event counts, interspersed labels, `n/N`, p-values, difference-from-placebo rows, and comparison p-value preservation through column standardization.
+
+**Validation.** Real-table `parse-single` canaries verified `TextTableID 44947` now emits 12 observations with no duplicate source-cell rows, `n/N` typed as `Count` plus `Denominator`, and p-value rows preserved as `TreatmentArm=Comparison`; `TextTableID 22529` derives `1 (< 1)` vehicle rows to `0.4%` with secondary count `1`; `TextTableID 39147` keeps standalone `<1` AE incidence cells as percentages; and `TextTableID 12706` now has `pct_gt_100=0` with all four `Total number of AEs` rows typed as `Count`.
+
+**Verification.** Focused parser/standardization tests passed 475/475, then after the final count-context patch the focused `TableParserTests`, `ValueParserTests`, and `ColumnStandardizationServiceTests` subset passed 440/440. The broad non-rendering suite `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore -v minimal /m:1 --filter "FullyQualifiedName!~ProductRenderingServiceTests"` passed 1,831/1,831. Dotnet commands needed sandbox escalation because the sandboxed profile could not create `C:\Users\CodexSandboxOffline\.dotnet`; the run still reported pre-existing XML/nullability/MSB3277 warnings.
+
+---

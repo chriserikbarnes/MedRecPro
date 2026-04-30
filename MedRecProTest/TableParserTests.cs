@@ -1398,6 +1398,209 @@ namespace MedRecPro.Service.Test
 
         #endregion EfficacyMultilevelTableParser Tests
 
+        #region AE/Efficacy Value Context Regression Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// AE count-plus-less-than-one cells derive percentage from ArmN while preserving count.
+        /// </summary>
+        [TestMethod]
+        public void AeValueContext_CountInequalityPercent_DerivesFromArmN()
+        {
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug (N=180) n (%)", "Placebo (N=176) n (%)" },
+                new List<string?[]>
+                {
+                    new[] { "Headache", "1 (<1)", "1 (<1%)" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.PrimaryValueType == "Percentage"));
+            Assert.IsTrue(results.All(r => r.SecondaryValue == 1.0));
+            Assert.IsTrue(results.All(r => r.SecondaryValueType == "Count"));
+            Assert.AreEqual(0.6, results.Single(r => r.TreatmentArm == "Drug").PrimaryValue);
+            Assert.AreEqual(0.6, results.Single(r => r.TreatmentArm == "Placebo").PrimaryValue);
+            Assert.IsTrue(results.All(r => r.ValidationFlags!.Contains("PCT_DERIVED_FROM_COUNT_LT")));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Standalone less-than-one AE percentage cells stay percentages, not p-values.
+        /// </summary>
+        [TestMethod]
+        public void AeValueContext_StandaloneLtOnePercent_DoesNotBecomePValue()
+        {
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug (N=258) %" },
+                new List<string?[]>
+                {
+                    new[] { "Dyspepsia", "<1" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Percentage", results[0].PrimaryValueType);
+            Assert.AreEqual(0.4, results[0].PrimaryValue);
+            Assert.IsNull(results[0].PValue);
+            Assert.IsTrue(results[0].ValidationFlags!.Contains("PCT_DERIVED_FROM_LT_ONE:ArmN=258"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parenthesized values over 100 are rejected as percentages and demoted.
+        /// </summary>
+        [TestMethod]
+        public void AeValueContext_InvalidPercentOver100_IsDemoted()
+        {
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug (N=100)" },
+                new List<string?[]>
+                {
+                    new[] { "Total events", "1811 (1693)" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Count", results[0].PrimaryValueType);
+            Assert.AreEqual(1811.0, results[0].PrimaryValue);
+            Assert.AreNotEqual("Percentage", results[0].PrimaryValueType);
+            Assert.IsTrue(results[0].ValidationFlags!.Contains("PCT_GT100_REJECTED:1693"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Plain numeric AE total-event rows are typed as counts while percentage rows stay percentages.
+        /// </summary>
+        [TestMethod]
+        public void AeValueContext_TotalEventRowsRemainCounts()
+        {
+            var table = createTestTable(
+                new[] { "Col 0", "Drug (N=100)" },
+                new List<string?[]>
+                {
+                    new[] { "Total number of AEs", "145" },
+                    new[] { "% of patients with >=1 AE", "30" },
+                    new[] { "Gastrointestinal disorders", "" },
+                    new[] { "Nausea", "15" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            var totalEvents = results.Single(r => r.ParameterName == "Total number of AEs");
+            var patientsWithAe = results.Single(r => r.ParameterName == "% of patients with >=1 AE");
+
+            Assert.AreEqual("Count", totalEvents.PrimaryValueType);
+            Assert.AreEqual(145.0, totalEvents.PrimaryValue);
+            Assert.IsNull(totalEvents.Unit);
+            Assert.IsTrue(totalEvents.ValidationFlags!.Contains("COUNT_CONTEXT_PROMOTION"));
+            Assert.AreEqual("Percentage", patientsWithAe.PrimaryValueType);
+            Assert.AreEqual(30.0, patientsWithAe.PrimaryValue);
+            Assert.AreEqual("%", patientsWithAe.Unit);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Interspersed text cells become row labels while column-zero text remains category context.
+        /// </summary>
+        [TestMethod]
+        public void AeValueContext_InterspersedLabelPromotesParameterName()
+        {
+            var table = createTestTable(
+                new[]
+                {
+                    "Body System/ Adverse Event (Preferred Term)",
+                    "Body System/ Adverse Event (Preferred Term)",
+                    "Drug (N=100) %",
+                    "Placebo (N=100) %"
+                },
+                new List<string?[]>
+                {
+                    new[] { "Gastrointestinal", "Dyspepsia", "7.9", "3.2" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.ParameterName == "Dyspepsia"));
+            Assert.IsTrue(results.All(r => r.ParameterCategory == "Gastrointestinal"));
+            Assert.IsFalse(results.Any(r => r.RawValue == "Dyspepsia"));
+            Assert.IsTrue(results.All(r => r.PrimaryValueType == "Percentage"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Efficacy n/N, p-value, and difference rows are typed and emitted as comparison rows.
+        /// </summary>
+        [TestMethod]
+        public void EfficacyValueContext_NNAndStatisticRows_AreTypedAndCompared()
+        {
+            var table = createTestTable(
+                new[] { "Endpoint", "ZAVZPRET 10 mg (N=623)", "Placebo (N=646)" },
+                new List<string?[]>
+                {
+                    new[] { "Pain Free at 2 hours", null, null },
+                    new[] { "n/N", "147/623", "96/646" },
+                    new[] { "% Responders", "23.6", "14.9" },
+                    new[] { "Difference from placebo (%)", "8.8", "\u2194" },
+                    new[] { "p-value", "<0.001", "\u2194" },
+                    new[] { "MBS Free at 2 hours", null, null },
+                    new[] { "n/N", "247/623", "201/646" },
+                    new[] { "% Responders", "39.6", "31.1" },
+                    new[] { "Difference from placebo (%)", "8.7", "\u2194" },
+                    new[] { "p-value", "0.001", "\u2194" }
+                },
+                parentSectionCode: "34092-7",
+                headerRowCount: 2);
+
+            var parser = new EfficacyMultilevelTableParser();
+            var results = parser.Parse(table);
+
+            var nn = results.Single(r =>
+                r.ParameterCategory == "Pain Free at 2 hours" &&
+                r.ParameterName == "n/N" &&
+                r.TreatmentArm == "ZAVZPRET 10 mg");
+            Assert.AreEqual("Count", nn.PrimaryValueType);
+            Assert.AreEqual(147.0, nn.PrimaryValue);
+            Assert.AreEqual("Denominator", nn.SecondaryValueType);
+            Assert.AreEqual(623.0, nn.SecondaryValue);
+
+            var responder = results.Single(r =>
+                r.ParameterCategory == "Pain Free at 2 hours" &&
+                r.ParameterName == "% Responders" &&
+                r.TreatmentArm == "Placebo");
+            Assert.AreEqual("Percentage", responder.PrimaryValueType);
+            Assert.AreEqual(14.9, responder.PrimaryValue);
+
+            var pRows = results.Where(r => r.ParameterName == "p-value").ToList();
+            Assert.AreEqual(2, pRows.Count);
+            Assert.IsTrue(pRows.All(r => r.TreatmentArm == "Comparison"));
+            Assert.IsTrue(pRows.All(r => r.PrimaryValueType == "PValue"));
+            Assert.AreEqual(0.001, pRows.Single(r => r.RawValue == "0.001").PValue);
+
+            var diffRows = results.Where(r => r.ParameterName == "Difference from placebo (%)").ToList();
+            Assert.AreEqual(2, diffRows.Count);
+            Assert.IsTrue(diffRows.All(r => r.TreatmentArm == "Comparison"));
+            Assert.IsTrue(diffRows.All(r => r.PrimaryValueType == "RiskDifference"));
+            Assert.IsTrue(diffRows.All(r => r.Unit == "%"));
+            Assert.IsFalse(results.Any(r => r.RawValue == "\u2194"));
+        }
+
+        #endregion AE/Efficacy Value Context Regression Tests
+
 
         #region TableParserRouter Tests
 

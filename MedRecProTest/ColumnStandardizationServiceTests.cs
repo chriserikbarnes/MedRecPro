@@ -443,6 +443,37 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that EFFICACY p-value rows emitted as comparison statistics keep the
+        /// comparison arm during column standardization.
+        /// </summary>
+        [TestMethod]
+        public async Task Standardize_ComparisonPValueRow_Unchanged()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Comparison", "Placebo", category: "EFFICACY");
+            obs.ParameterName = "p-value";
+            obs.RawValue = "0.001";
+            obs.PrimaryValue = 0.001;
+            obs.PrimaryValueType = "PValue";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Comparison", result[0].TreatmentArm);
+            Assert.AreEqual("Placebo", result[0].StudyContext);
+            Assert.AreEqual("PValue", result[0].PrimaryValueType);
+            assertNoFlags(result[0]);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies that non-stat rows mislabeled as Comparison still go through arm cleanup.
         /// </summary>
         [TestMethod]

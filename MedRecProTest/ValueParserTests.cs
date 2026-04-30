@@ -173,6 +173,27 @@ namespace MedRecPro.Service.Test
 
         #endregion Fraction Percent Tests
 
+        #region Fraction Count Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// "147/623" returns Count with denominator evidence rather than text.
+        /// </summary>
+        [TestMethod]
+        public void Parse_FractionCount_ReturnsCountAndDenominator()
+        {
+            var result = ValueParser.Parse("147/623");
+
+            Assert.AreEqual(147.0, result.PrimaryValue);
+            Assert.AreEqual("Count", result.PrimaryValueType);
+            Assert.AreEqual(623.0, result.SecondaryValue);
+            Assert.AreEqual("Denominator", result.SecondaryValueType);
+            Assert.AreEqual(623, result.SampleSize);
+            Assert.AreEqual("fraction_count", result.ParseRule);
+        }
+
+        #endregion Fraction Count Tests
+
         #region N Percent Tests
 
         /**************************************************************/
@@ -230,6 +251,44 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion N Percent Tests
+
+        #region Count Inequality Percent Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Count plus less-than-one percentage derives a displayed percentage from ArmN.
+        /// </summary>
+        [TestMethod]
+        public void Parse_CountInequalityPercent_WithArmN_DerivesPercentageWithCount()
+        {
+            var result = ValueParser.Parse("1 (<1)", armN: 180);
+
+            Assert.AreEqual(0.6, result.PrimaryValue);
+            Assert.AreEqual("Percentage", result.PrimaryValueType);
+            Assert.AreEqual(1.0, result.SecondaryValue);
+            Assert.AreEqual("Count", result.SecondaryValueType);
+            Assert.AreEqual("%", result.Unit);
+            Assert.AreEqual("count_inequality_percent", result.ParseRule);
+            Assert.IsTrue(result.ValidationFlags!.Contains("PCT_DERIVED_FROM_COUNT_LT:ArmN=180"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Count plus less-than-one percentage uses the audit fallback without ArmN.
+        /// </summary>
+        [TestMethod]
+        public void Parse_CountInequalityPercent_WithoutArmN_UsesFallbackPercentage()
+        {
+            var result = ValueParser.Parse("1 (<1%)");
+
+            Assert.AreEqual(0.1, result.PrimaryValue);
+            Assert.AreEqual("Percentage", result.PrimaryValueType);
+            Assert.AreEqual(1.0, result.SecondaryValue);
+            Assert.AreEqual("Count", result.SecondaryValueType);
+            Assert.IsTrue(result.ValidationFlags!.Contains("PCT_DERIVED_FROM_COUNT_LT:fallback=0.1"));
+        }
+
+        #endregion Count Inequality Percent Tests
 
         #region RR with CI Tests
 

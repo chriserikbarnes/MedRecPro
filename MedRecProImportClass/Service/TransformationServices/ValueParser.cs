@@ -48,6 +48,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"^(\d+)\s*/\s*(\d+)\s*\((\d+\.?\d*)\s*%?\s*\)$",
             RegexOptions.Compiled);
 
+        // Pattern 3b: n/N count fraction - 147/623.
+        private static readonly Regex _fractionCountPattern = new(
+            @"^(\d[\d,]*)\s*/\s*(\d[\d,]*)$",
+            RegexOptions.Compiled);
+
         // Pattern 4: n(%) — 33 (17.6) or 33 (17.6%)
         private static readonly Regex _nPctPattern = new(
             @"^(\d+)\s*\((\d+\.?\d*)\s*%?\s*\)$",
@@ -125,7 +130,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         // Decomposes to PrimaryValue=percentage with INEQUALITY_UPPER flag and
         // SecondaryValue=count, mirroring Pattern 4 (n_pct) for clean compound shape.
         private static readonly Regex _countInequalityPercentPattern = new(
-            @"^(\d+)\s*\(\s*([<≤])\s*(\d+\.?\d*)\s*%\s*\)$",
+            @"^(\d+)\s*\(\s*([<≤])\s*(\d+\.?\d*)\s*%?\s*\)$",
             RegexOptions.Compiled);
 
         // Pattern 10: n= — n=1401 or N=188 or N=5,310 (footnote markers tolerated:
@@ -280,6 +285,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (tryParseFractionPercent(text, out var fracResult))
                 return fracResult;
 
+            // Pattern 3b: n/N count fraction — 147/623
+            if (tryParseFractionCount(text, out var fracCountResult))
+                return fracCountResult;
+
             // Pattern 4: n(%) — 33 (17.6)
             if (tryParseNPercent(text, armN, out var nPctResult))
                 return nPctResult;
@@ -288,7 +297,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Runs immediately after Pattern 4 because both share the n(?) outer shape;
             // Pattern 4 requires a numeric inner group so the inequality form falls
             // through cleanly.
-            if (tryParseCountInequalityPercent(text, out var countIneqResult))
+            if (tryParseCountInequalityPercent(text, armN, out var countIneqResult))
                 return countIneqResult;
 
             // Pattern 5: RR with CI — 55%(29%, 71%)
@@ -567,6 +576,42 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "frac_pct",
                 ValidationFlags = flag
+            };
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses a count-over-denominator fraction such as <c>147/623</c>.
+        /// </summary>
+        /// <param name="text">Cell text to parse.</param>
+        /// <param name="result">Structured count and denominator value.</param>
+        /// <returns><c>true</c> when <paramref name="text"/> is an n/N fraction.</returns>
+        /// <seealso cref="ParsedValue"/>
+        internal static bool tryParseFractionCount(string text, out ParsedValue result)
+        {
+            #region implementation
+
+            result = null!;
+            var match = _fractionCountPattern.Match(text);
+
+            if (!match.Success)
+                return false;
+
+            var numerator = int.Parse(match.Groups[1].Value.Replace(",", ""));
+            var denominator = int.Parse(match.Groups[2].Value.Replace(",", ""));
+
+            result = new ParsedValue
+            {
+                PrimaryValue = numerator,
+                PrimaryValueType = "Count",
+                SecondaryValue = denominator,
+                SecondaryValueType = "Denominator",
+                SampleSize = denominator,
+                ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
+                ParseRule = "fraction_count"
             };
             return true;
 
@@ -1108,7 +1153,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// bound. Mirrors Pattern 4 (n_pct) for clean count-with-percentage shape but
         /// preserves the inequality semantics in <see cref="ParsedValue.ValidationFlags"/>.
         /// </summary>
-        internal static bool tryParseCountInequalityPercent(string text, out ParsedValue result)
+        /// <param name="text">Cell text to parse.</param>
+        /// <param name="armN">Optional treatment-arm denominator.</param>
+        /// <param name="result">Structured count and derived percentage value.</param>
+        /// <returns><c>true</c> when <paramref name="text"/> is a count plus inequality percentage.</returns>
+        /// <seealso cref="ParsedValue"/>
+        internal static bool tryParseCountInequalityPercent(string text, int? armN, out ParsedValue result)
         {
             #region implementation
 
@@ -1123,16 +1173,25 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (!double.TryParse(match.Groups[3].Value, out var bound))
                 return false;
 
+            var hasArmN = armN.HasValue && armN.Value > 0;
+            var resolvedArmN = armN.GetValueOrDefault();
+            var derived = hasArmN
+                ? Math.Round((double)count / resolvedArmN * 100, 1)
+                : 0.1;
+            var sourceFlag = hasArmN
+                ? $"PCT_DERIVED_FROM_COUNT_LT:ArmN={resolvedArmN}"
+                : "PCT_DERIVED_FROM_COUNT_LT:fallback=0.1";
+
             result = new ParsedValue
             {
-                PrimaryValue = bound,
+                PrimaryValue = derived,
                 PrimaryValueType = "Percentage",
                 SecondaryValue = count,
                 SecondaryValueType = "Count",
                 Unit = "%",
                 ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "count_inequality_percent",
-                ValidationFlags = "INEQUALITY_UPPER:" + match.Groups[2].Value
+                ValidationFlags = $"INEQUALITY_UPPER:{match.Groups[2].Value}; {sourceFlag}; PCT_LT_DISPLAY:{bound}"
             };
             return true;
 
