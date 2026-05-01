@@ -474,6 +474,37 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that expanded EFFICACY p-value phrase rows keep the comparison arm.
+        /// </summary>
+        [TestMethod]
+        public async Task Standardize_ComparisonPValuePhraseRow_Unchanged()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Comparison", "Placebo", category: "EFFICACY");
+            obs.ParameterName = "P-value versus Placebo";
+            obs.RawValue = "0.0164";
+            obs.PrimaryValue = 0.0164;
+            obs.PValue = 0.0164;
+            obs.PrimaryValueType = "PValue";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Comparison", result[0].TreatmentArm);
+            Assert.AreEqual("Placebo", result[0].StudyContext);
+            Assert.AreEqual("PValue", result[0].PrimaryValueType);
+            assertNoFlags(result[0]);
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies that non-stat rows mislabeled as Comparison still go through arm cleanup.
         /// </summary>
         [TestMethod]

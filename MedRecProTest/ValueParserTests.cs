@@ -288,6 +288,41 @@ namespace MedRecPro.Service.Test
             Assert.IsTrue(result.ValidationFlags!.Contains("PCT_DERIVED_FROM_COUNT_LT:fallback=0.1"));
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Decimal leading count-like values are accepted only when the parenthetical value is an inequality.
+        /// </summary>
+        [TestMethod]
+        public void Parse_CountInequalityPercent_DecimalLeadingValue_DerivesPercentageWithCount()
+        {
+            var result = ValueParser.Parse("3.0 (<0.1)", armN: 3000);
+
+            Assert.AreEqual(0.1, result.PrimaryValue);
+            Assert.AreEqual("Percentage", result.PrimaryValueType);
+            Assert.AreEqual(3.0, result.SecondaryValue);
+            Assert.AreEqual("Count", result.SecondaryValueType);
+            Assert.AreEqual("%", result.Unit);
+            Assert.AreEqual("count_inequality_percent", result.ParseRule);
+            Assert.IsTrue(result.ValidationFlags!.Contains("PCT_DERIVED_FROM_COUNT_LT:ArmN=3000"));
+            Assert.IsTrue(result.ValidationFlags.Contains("PCT_LT_DISPLAY:0.1"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Decimal parenthetical dispersion without an inequality keeps its existing parser shape.
+        /// </summary>
+        [TestMethod]
+        public void Parse_CountInequalityPercent_DecimalDispersionWithoutInequality_NotReclassified()
+        {
+            var result = ValueParser.Parse("3.9 (1.9)");
+
+            Assert.AreEqual(3.9, result.PrimaryValue);
+            Assert.AreEqual("Numeric", result.PrimaryValueType);
+            Assert.AreEqual(1.9, result.SecondaryValue);
+            Assert.IsNull(result.SecondaryValueType);
+            Assert.AreEqual("value_paren_dispersion", result.ParseRule);
+        }
+
         #endregion Count Inequality Percent Tests
 
         #region RR with CI Tests

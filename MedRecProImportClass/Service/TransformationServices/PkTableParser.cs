@@ -401,6 +401,15 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Matches PK parenthetical statistic cells that ValueParser may initially see
+        /// as n(%) when the parenthesized statistic is greater than 100.
+        /// </summary>
+        private static readonly Regex _pkParentheticalStatisticPattern = new(
+            @"^\s*(-?\d+(?:\.\d+)?)\s*\(\s*(-?\d+(?:\.\d+)?)\s*\)\s*[*\u2020\u2021\u00A7\u00B6#]?\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
         /// Pattern for extracting all parenthetical groups from compound headers
         /// like "AUC(0-96h)(mcgh/mL)". Used by <see cref="parseCompoundParameterHeader"/>
         /// to separate subtype qualifiers from units.
@@ -1626,6 +1635,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 parsed = applyCaptionHint(parsed, captionHint);
             }
 
+            parsed = demotePkPercentageOverOneHundred(parsed, cell.CleanedText, param.isSampleSize);
+
             // PK fallback: bare Numeric → Mean (only if caption didn't already set it)
             // Skip for Count (sample size) — should not be promoted to Mean
             if (parsed.PrimaryValueType == "Numeric")
@@ -1677,6 +1688,62 @@ namespace MedRecProImportClass.Service.TransformationServices
                 o.Time = o.PrimaryValue;
                 o.TimeUnit = normalizeTimeUnit(param.unit ?? "hours");
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Demotes PK-only parenthetical statistic cells when an n(%) parse would emit an
+        /// impossible percentage greater than 100.
+        /// </summary>
+        /// <remarks>
+        /// This helper is intentionally isolated to PK parsing. It only fires for whole-cell
+        /// parenthetical numeric statistics such as <c>1086 (556)</c>; AE/Efficacy n(%)
+        /// handling remains governed by the category-aware parser context.
+        /// </remarks>
+        /// <param name="parsed">Current parsed value.</param>
+        /// <param name="rawText">Original cell text.</param>
+        /// <param name="isSampleSize">Whether the target PK column is a sample-size column.</param>
+        /// <returns>Demoted PK parse when appropriate; otherwise the original parse.</returns>
+        /// <seealso cref="ValueParser"/>
+        /// <seealso cref="ParsedValue"/>
+        private static ParsedValue demotePkPercentageOverOneHundred(
+            ParsedValue parsed,
+            string? rawText,
+            bool isSampleSize)
+        {
+            #region implementation
+
+            if (!string.Equals(parsed.PrimaryValueType, "Percentage", StringComparison.OrdinalIgnoreCase) ||
+                !parsed.PrimaryValue.HasValue ||
+                parsed.PrimaryValue.Value <= 100)
+            {
+                return parsed;
+            }
+
+            var match = _pkParentheticalStatisticPattern.Match(rawText ?? string.Empty);
+            if (!match.Success)
+                return parsed;
+
+            if (!double.TryParse(match.Groups[1].Value, out var primary) ||
+                !double.TryParse(match.Groups[2].Value, out var secondary))
+            {
+                return parsed;
+            }
+
+            var rejectedPercentage = parsed.PrimaryValue.Value;
+            parsed.PrimaryValue = primary;
+            parsed.PrimaryValueType = isSampleSize ? "Count" : "Numeric";
+            parsed.SecondaryValue = secondary;
+            parsed.SecondaryValueType = null;
+            parsed.Unit = null;
+            parsed.ParseRule = $"{parsed.ParseRule}+pk_pct_gt100_demoted";
+            parsed.ValidationFlags = appendFlag(
+                parsed.ValidationFlags,
+                $"PCT_GT100_REJECTED:{rejectedPercentage}; PK_PCT_GT100_DEMOTED");
+
+            return parsed;
 
             #endregion
         }

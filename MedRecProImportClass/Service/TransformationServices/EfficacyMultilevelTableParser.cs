@@ -347,6 +347,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         statColumns, obs, arms, pendingNs);
                 });
             }
+            // NOTE: This call is currently design only; the method does nothing. It is
+            // a placeholder for future logic to suppress duplicate comparison observations.
+            suppressDuplicateComparisonEmissions(observations);
 
             return observations;
 

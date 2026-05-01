@@ -278,6 +278,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                 });
             }
 
+            // NOTE: This call is currently design only; the method does nothing. It is
+            // a placeholder for future logic to suppress duplicate comparison observations.
+            if (category == TableCategory.EFFICACY)
+                suppressDuplicateComparisonEmissions(observations);
+
             return observations;
 
             #endregion

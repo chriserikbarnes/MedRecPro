@@ -126,11 +126,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             RegexOptions.Compiled);
 
         // Pattern 4c (Phase 2): Compound count + inequality percent — 27 (<1%) or
-        // 5 (≤0.5%). The count is the observed n; the percentage is an upper bound.
+        // 3.0 (<0.1%). The leading value is the observed count-like n; the percentage is an upper bound.
         // Decomposes to PrimaryValue=percentage with INEQUALITY_UPPER flag and
         // SecondaryValue=count, mirroring Pattern 4 (n_pct) for clean compound shape.
         private static readonly Regex _countInequalityPercentPattern = new(
-            @"^(\d+)\s*\(\s*([<≤])\s*(\d+\.?\d*)\s*%?\s*\)$",
+            @"^(\d+(?:\.\d+)?)\s*\(\s*([<≤])\s*(\d+\.?\d*)\s*%?\s*\)$",
             RegexOptions.Compiled);
 
         // Pattern 10: n= — n=1401 or N=188 or N=5,310 (footnote markers tolerated:
@@ -1168,7 +1168,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (!match.Success)
                 return false;
 
-            if (!int.TryParse(match.Groups[1].Value, out var count))
+            if (!double.TryParse(match.Groups[1].Value, out var count))
                 return false;
             if (!double.TryParse(match.Groups[3].Value, out var bound))
                 return false;
@@ -1176,7 +1176,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             var hasArmN = armN.HasValue && armN.Value > 0;
             var resolvedArmN = armN.GetValueOrDefault();
             var derived = hasArmN
-                ? Math.Round((double)count / resolvedArmN * 100, 1)
+                ? Math.Round(count / resolvedArmN * 100, 1)
                 : 0.1;
             var sourceFlag = hasArmN
                 ? $"PCT_DERIVED_FROM_COUNT_LT:ArmN={resolvedArmN}"

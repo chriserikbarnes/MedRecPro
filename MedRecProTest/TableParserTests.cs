@@ -219,6 +219,43 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Test harness exposing protected duplicate-comparison suppression for exact-key checks.
+        /// </summary>
+        private sealed class DuplicateComparisonHarness : BaseTableParser
+        {
+            /**************************************************************/
+            /// <inheritdoc/>
+            public override TableCategory SupportedCategory => TableCategory.EFFICACY;
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public override int Priority => 0;
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public override bool CanParse(ReconstructedTable table) => false;
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public override List<ParsedObservation> Parse(ReconstructedTable table) => new();
+
+            /**************************************************************/
+            /// <summary>
+            /// Applies the duplicate-comparison suppressor to the supplied observations.
+            /// </summary>
+            /// <param name="observations">Observation list to mutate.</param>
+            public static void Suppress(List<ParsedObservation> observations)
+            {
+                #region implementation
+
+                suppressDuplicateComparisonEmissions(observations);
+
+                #endregion
+            }
+        }
+
         #endregion Test Helpers
 
         #region PkTableParser Tests
@@ -1009,6 +1046,33 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("mcg/mL", results[0].Unit);
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// PK parenthetical statistics over 100 are not emitted as percentages.
+        /// </summary>
+        [TestMethod]
+        public void PkParser_ParentheticalStatisticOver100_IsDemotedFromPercentage()
+        {
+            var table = createTestTable(
+                new[] { "Dose", "Cmax (ng/mL)" },
+                new List<string?[]>
+                {
+                    new[] { "10 mg", "1086 (556)" }
+                },
+                parentSectionCode: "34090-1");
+
+            var parser = new PkTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual(1086.0, results[0].PrimaryValue);
+            Assert.AreEqual("Mean", results[0].PrimaryValueType);
+            Assert.AreEqual(556.0, results[0].SecondaryValue);
+            Assert.AreNotEqual("Percentage", results[0].PrimaryValueType);
+            Assert.IsTrue(results[0].ValidationFlags!.Contains("PCT_GT100_REJECTED:556"));
+            Assert.IsTrue(results[0].ValidationFlags.Contains("PK_PCT_GT100_DEMOTED"));
+        }
+
         #endregion PkTableParser Compound Layout Tests
 
         #region SimpleArmTableParser Tests
@@ -1429,6 +1493,32 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// AE decimal count-plus-inequality residual cells keep the derived percentage shape.
+        /// </summary>
+        [TestMethod]
+        public void AeValueContext_DecimalCountInequalityPercent_DerivesFromArmN()
+        {
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug (N=3000) n (%)", "Placebo (N=1200) n (%)" },
+                new List<string?[]>
+                {
+                    new[] { "Somnolence", "3.0 (<0.1)", "1.2 (<0.1)" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.PrimaryValueType == "Percentage"));
+            Assert.AreEqual(3.0, results.Single(r => r.TreatmentArm == "Drug").SecondaryValue);
+            Assert.AreEqual(1.2, results.Single(r => r.TreatmentArm == "Placebo").SecondaryValue);
+            Assert.IsTrue(results.All(r => r.SecondaryValueType == "Count"));
+            Assert.IsTrue(results.All(r => r.ValidationFlags!.Contains("PCT_DERIVED_FROM_COUNT_LT")));
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Standalone less-than-one AE percentage cells stay percentages, not p-values.
         /// </summary>
         [TestMethod]
@@ -1436,6 +1526,31 @@ namespace MedRecPro.Service.Test
         {
             var table = createTestTable(
                 new[] { "Adverse Reaction", "Drug (N=258) %" },
+                new List<string?[]>
+                {
+                    new[] { "Dyspepsia", "<1" }
+                },
+                parentSectionCode: "34084-4");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Percentage", results[0].PrimaryValueType);
+            Assert.AreEqual(0.4, results[0].PrimaryValue);
+            Assert.IsNull(results[0].PValue);
+            Assert.IsTrue(results[0].ValidationFlags!.Contains("PCT_DERIVED_FROM_LT_ONE:ArmN=258"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Standalone less-than-one AE cells remain percentages even when the header is count-like.
+        /// </summary>
+        [TestMethod]
+        public void AeValueContext_StandaloneLtOneCountHeader_FallsBackToPercentage()
+        {
+            var table = createTestTable(
+                new[] { "Adverse Reaction", "Drug (N=258) n" },
                 new List<string?[]>
                 {
                     new[] { "Dyspepsia", "<1" }
@@ -1597,6 +1712,92 @@ namespace MedRecPro.Service.Test
             Assert.IsTrue(diffRows.All(r => r.PrimaryValueType == "RiskDifference"));
             Assert.IsTrue(diffRows.All(r => r.Unit == "%"));
             Assert.IsFalse(results.Any(r => r.RawValue == "\u2194"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Explicit p-value phrase variants are emitted as comparison PValue rows.
+        /// </summary>
+        [TestMethod]
+        public void EfficacyValueContext_PValuePhraseVariants_AreComparisonRows()
+        {
+            var table = createTestTable(
+                new[] { "Endpoint", "Drug (N=100)", "Placebo (N=100)" },
+                new List<string?[]>
+                {
+                    new[] { "Primary endpoint", null, null },
+                    new[] { "P-value versus Placebo", "0.0164", "\u2194" },
+                    new[] { "Log rank p-value", "<0.001", "-" },
+                    new[] { "p-value for difference", "0.004", "--" }
+                },
+                parentSectionCode: "34092-7",
+                headerRowCount: 2);
+
+            var parser = new EfficacyMultilevelTableParser();
+            var results = parser.Parse(table);
+
+            var pRows = results.Where(r => r.ParameterName!.Contains("p-value", StringComparison.OrdinalIgnoreCase)).ToList();
+            Assert.AreEqual(3, pRows.Count);
+            Assert.IsTrue(pRows.All(r => r.TreatmentArm == "Comparison"));
+            Assert.IsTrue(pRows.All(r => r.PrimaryValueType == "PValue"));
+            Assert.IsTrue(pRows.All(r => r.ValidationFlags!.Contains("P_VALUE_ROW_CONTEXT")));
+            Assert.IsFalse(results.Any(r => r.TreatmentArm != "Comparison" &&
+                                            r.ParameterName!.Contains("p-value", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Duplicate comparison suppression removes only exact same-source ordinary-arm rows.
+        /// </summary>
+        [TestMethod]
+        public void EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly()
+        {
+            var observations = new List<ParsedObservation>
+            {
+                new()
+                {
+                    TextTableID = 30055,
+                    TableCategory = "EFFICACY",
+                    SourceRowSeq = 7,
+                    SourceCellSeq = 2,
+                    ParameterName = "p-value compared to placebo",
+                    RawValue = "0.01",
+                    TreatmentArm = "Comparison",
+                    PrimaryValue = 0.01,
+                    PrimaryValueType = "PValue"
+                },
+                new()
+                {
+                    TextTableID = 30055,
+                    TableCategory = "EFFICACY",
+                    SourceRowSeq = 7,
+                    SourceCellSeq = 2,
+                    ParameterName = "p-value compared to placebo",
+                    RawValue = "0.01",
+                    TreatmentArm = "Drug",
+                    PrimaryValue = 0.01,
+                    PrimaryValueType = "PValue"
+                },
+                new()
+                {
+                    TextTableID = 30055,
+                    TableCategory = "EFFICACY",
+                    SourceRowSeq = 7,
+                    SourceCellSeq = 3,
+                    ParameterName = "p-value compared to placebo",
+                    RawValue = "0.01",
+                    TreatmentArm = "Placebo",
+                    PrimaryValue = 0.01,
+                    PrimaryValueType = "PValue"
+                }
+            };
+
+            DuplicateComparisonHarness.Suppress(observations);
+
+            Assert.AreEqual(2, observations.Count);
+            Assert.IsTrue(observations.Any(r => r.TreatmentArm == "Comparison"));
+            Assert.IsFalse(observations.Any(r => r.TreatmentArm == "Drug"));
+            Assert.IsTrue(observations.Any(r => r.TreatmentArm == "Placebo"));
         }
 
         #endregion AE/Efficacy Value Context Regression Tests

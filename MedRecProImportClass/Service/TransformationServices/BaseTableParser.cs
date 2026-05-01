@@ -328,11 +328,11 @@ namespace MedRecProImportClass.Service.TransformationServices
             RegexOptions.Compiled);
 
         private static readonly Regex _pValueRowLabelPattern = new(
-            @"^\s*[Pp]\s*[- ]?\s*value\s*$",
+            @"\bp\s*[- ]?\s*value\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex _comparisonRowLabelPattern = new(
-            @"^\s*(?:[Pp]\s*[- ]?\s*value|Difference\s+from\s+placebo.*|95\s*%\s*CI|Risk\s+Difference.*|Hazard\s+Ratio.*|Relative\s+Risk.*|Odds\s+Ratio.*)\s*$",
+            @"^\s*(?:.*\bp\s*[- ]?\s*value\b.*|Difference\s+from\s+placebo.*|95\s*%\s*CI|Risk\s+Difference.*|Hazard\s+Ratio.*|Relative\s+Risk.*|Odds\s+Ratio.*)\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex _percentContextPattern = new(
@@ -1421,7 +1421,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return coerceToPValue(parsed);
 
             if (_standaloneLtOnePattern.IsMatch(rawText ?? string.Empty) &&
-                isPercentValueContext(category, rowLabel, parameterCategory, arm, caption))
+                (isPercentValueContext(category, rowLabel, parameterCategory, arm, caption) ||
+                 category == TableCategory.ADVERSE_EVENT))
             {
                 return coerceStandaloneLtOneToPercentage(parsed, arm?.SampleSize);
             }
@@ -1482,6 +1483,100 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             return !string.IsNullOrWhiteSpace(text) &&
                    _pValueRowLabelPattern.IsMatch(text.Trim());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Removes duplicate ordinary-arm efficacy observations when the exact same source
+        /// cell was also emitted as a comparison statistic row.
+        /// </summary>
+        /// <remarks>
+        /// The comparison suppressor is deliberately narrow: it requires identical table,
+        /// source row, source cell, parameter name, and raw value. This preserves valid
+        /// arm-specific efficacy rows that merely share labels such as median, survival,
+        /// response, or CI with comparison rows in neighboring cells.
+        /// 
+        /// NOTE: 05/01/2026 This is disabled because the GroupBy clause is insufficently 
+        /// unique -- it removes tables where the rows are likely not duplicative.
+        /// 
+        /// Possible Fix:
+        /// 
+        /// var duplicateKeys = observations
+        /// .Where(IsDefiniteComparisonStatEmission)
+        /// .GroupBy(o => new
+        /// {
+        ///    o.TextTableID,
+        ///    o.SourceRowSeq,
+        ///    o.SourceCellSeq,
+        ///    ParameterName = normalizeDuplicateKeyText(o.ParameterName),
+        ///    RawValue = normalizeDuplicateKeyText(o.RawValue),
+        ///    o.PrimaryValueType,
+        ///    o.PrimaryValue,
+        ///    o.PValue,
+        ///    o.SecondaryValue
+        /// })
+        /// 
+        /// </remarks>
+        /// <param name="observations">Mutable observation list to deduplicate.</param>
+        /// <seealso cref="ParsedObservation"/>
+        protected static void suppressDuplicateComparisonEmissions(List<ParsedObservation> observations)
+        {
+            #region implementation
+
+            //if (observations.Count < 2)
+            //    return;
+
+            //var duplicateKeys = observations
+            //    .Where(o =>
+            //        string.Equals(o.TableCategory, TableCategory.EFFICACY.ToString(), StringComparison.OrdinalIgnoreCase) &&
+            //        o.SourceRowSeq.HasValue &&
+            //        o.SourceCellSeq.HasValue)
+            //    .GroupBy(o => new
+            //    {
+            //        o.TextTableID,
+            //        o.SourceRowSeq,
+            //        o.SourceCellSeq,
+            //        ParameterName = normalizeDuplicateKeyText(o.ParameterName),
+            //        RawValue = normalizeDuplicateKeyText(o.RawValue)
+            //    })
+            //    .Where(g =>
+            //        g.Any(o => string.Equals(o.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase)) &&
+            //        g.Any(o => !string.Equals(o.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase)))
+            //    .Select(g => g.Key)
+            //    .ToHashSet();
+
+            //if (duplicateKeys.Count == 0)
+            //    return;
+
+            //observations.RemoveAll(o =>
+            //    o.SourceRowSeq.HasValue &&
+            //    o.SourceCellSeq.HasValue &&
+            //    !string.Equals(o.TreatmentArm, "Comparison", StringComparison.OrdinalIgnoreCase) &&
+            //    duplicateKeys.Contains(new
+            //    {
+            //        o.TextTableID,
+            //        o.SourceRowSeq,
+            //        o.SourceCellSeq,
+            //        ParameterName = normalizeDuplicateKeyText(o.ParameterName),
+            //        RawValue = normalizeDuplicateKeyText(o.RawValue)
+            //    }));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes nullable text fields for duplicate comparison-row keying.
+        /// </summary>
+        /// <param name="text">Source text.</param>
+        /// <returns>Trimmed text, or empty string for null values.</returns>
+        private static string normalizeDuplicateKeyText(string? text)
+        {
+            #region implementation
+
+            return text?.Trim() ?? string.Empty;
 
             #endregion
         }
