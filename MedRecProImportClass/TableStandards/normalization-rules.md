@@ -489,3 +489,205 @@ COL_STD:PK_POPULATION_ROUTED         Displaced Name matched population dictionar
 COL_STD:PK_POPULATION_ROUTED_REGEX   Displaced Name matched population regex second-pass
 COL_STD:PK_NON_PK_MARKER_DETECTED    IPA / VASP-PRI etc. flagged for review
 ```
+
+---
+
+## 7. Stage 5 — AE Denormalization (RR / DNRR / 95% CI)
+
+Rules for populating `tmp_FlattenedAdverseEventTable`. These run **after**
+Stage 4 validation has completed and `tmp_FlattenedStandardizedTable` is fully
+written. Phase 1 (the SQL DDL) is shipped; Phase 2 (the population service
+`AdverseEventDenormalizationService`) is planned.
+
+For column-level contracts, see `column-contracts.md` §tmp_FlattenedAdverseEventTable.
+
+### 7.0 NULL Preservation Rule (governs every rule in §7)
+
+Stage 5 is purely additive — it never overwrites or NULLs values in the source
+`tmp_FlattenedStandardizedTable`. Source columns are projected verbatim; only
+the new columns (`RR`, `DNRR`, `CI bounds`, `Log*`, `IsPlaceboControlled`,
+`Comparator*`, `Events*`, `Calculation*`) are populated by Stage 5.
+
+When Stage 5 cannot compute a statistic, the relevant column is set NULL and a
+flag is appended to `CalculationFlags`. The row itself is always preserved with
+full provenance — Stage 5 never drops AE source rows except the one chosen as
+comparator within its study group (no self-comparison).
+
+### 7.1 Row Inclusion
+
+Every row in `tmp_FlattenedStandardizedTable` with `TableCategory = 'ADVERSE_EVENT'`
+produces exactly one row in `tmp_FlattenedAdverseEventTable`, **except** the row
+chosen as the comparator within its study group.
+
+Source-projection columns (`tmp_FlattenedStandardizedTableID`, `DocumentGUID`,
+`UNII`, `ParameterName`, `ParameterCategory`, `ArmN`, `Dose`, `DoseUnit`,
+`PrimaryValue`, `PrimaryValueType`, `TreatmentArm`) are copied verbatim.
+
+### 7.2 Comparator Pairing Cascade
+
+Group all AE rows by `(DocumentGUID, ParameterName, ParameterSubtype)`. Within
+each group, pick **one** comparator using priority order:
+
+```
+PRI  TEST                                                 ACTION
+───  ──────────────────────────────────────────────────   ──────────────────────────
+1    TreatmentArm matches /placebo|sham|vehicle/i         → Use as comparator
+       (case-insensitive)                                   Set CalculationFlags |= 'PLACEBO_COMPARATOR'
+     OR Dose = 0 (existing parser convention)              ComparatorArm = TreatmentArm
+                                                            ComparatorN = ArmN
+
+2    Lowest non-zero Dose in the group                    → Use as comparator
+                                                            Determine ACTIVE_COMPARATOR vs LOW_DOSE_COMPARATOR
+                                                            (see §7.3 IsPlaceboControlled rules)
+
+3    No other rows in group (single-arm)                  → No comparator
+                                                            CalculationFlags |= 'NO_COMPARATOR'
+                                                            RR/CI/DNRR remain NULL
+                                                            Row still emitted with provenance
+```
+
+The chosen comparator row is **excluded from output** (no self-comparison row).
+
+### 7.3 IsPlaceboControlled — Trial-Design Classification
+
+`IsPlaceboControlled` is a **Document-level** property, not a row-level pairing
+artifact. Set the same value on every row for a given DocumentGUID. Compute
+once per Document by inspecting the full set of distinct `TreatmentArm` values
+across that Document's AE rows:
+
+```
+DOCUMENT ARM COMPOSITION                                          IsPlaceboControlled
+────────────────────────────────────────────────────────────────  ──────────────────
+Index drug arm(s) + placebo arm(s) only                                  1
+Index drug arm(s) + placebo arm(s) + active comparator arm(s)            0
+Index drug arm(s) + active comparator only (no placebo)                  0
+Stepped-dose monotherapy (no placebo, no other drug)                     0
+Single-arm                                                                0
+```
+
+**"Active comparator"** = a treatment arm that is neither placebo (per §7.2 #1
+heuristic) nor the index drug. **"Index drug"** is detected from the document's
+UNII column (or in a multi-UNII document, the most-frequent UNII among
+non-placebo arms).
+
+`CalculationFlags` separately records the **row's** comparator type
+(`PLACEBO_COMPARATOR`, `ACTIVE_COMPARATOR`, `LOW_DOSE_COMPARATOR`, `NO_COMPARATOR`)
+— orthogonal to the Document-level `IsPlaceboControlled` flag.
+
+### 7.4 Like-Typed Comparison Constraint
+
+`PrimaryValueType` is **copied verbatim from source — never derived**. RR/CI/DNRR
+are computed only when treatment and comparator share the same
+`PrimaryValueType`:
+
+```
+TREATMENT TYPE       COMPARATOR TYPE      ACTION
+──────────────────   ──────────────────   ─────────────────────────────────────
+Percentage           Percentage           Compute. events = ArmN × PrimaryValue / 100
+Numeric (count)      Numeric (count)      Compute. events = PrimaryValue
+any other            same any other       NULL stats. CalculationFlags |= 'UNCOMPARABLE_VALUE_TYPE'
+                     (Mean, Median, etc)  (row still emitted with provenance)
+mismatch             mismatch             NULL stats. CalculationFlags |= 'MIXED_VALUE_TYPES'
+```
+
+### 7.5 Event Count Derivation
+
+When §7.4 says "Compute":
+
+```
+PRIMARY VALUE TYPE   DERIVATION
+──────────────────   ───────────────────────────────────
+Percentage           events = ArmN × (PrimaryValue / 100)
+Numeric (count)      events = PrimaryValue
+```
+
+Populate `EventsTreatment` (a in 2x2) and `EventsComparator` (c in 2x2).
+
+### 7.6 Relative Risk — Katz Log-Method
+
+Standard 2x2 cohort RR with log-scale CI. Let `a` = `EventsTreatment`,
+`n1` = `ArmN`, `c` = `EventsComparator`, `n2` = `ComparatorN`:
+
+```
+RR        = (a / n1) / (c / n2)
+SE(logRR) = sqrt(1/a − 1/n1 + 1/c − 1/n2)
+RRLower   = exp(ln(RR) − 1.96 × SE)
+RRUpper   = exp(ln(RR) + 1.96 × SE)
+```
+
+Set `CalculationMethod = 'KATZ_LOG'`.
+
+#### Zero-Cell Correction (Haldane-Anscombe)
+
+If `a == 0` or `c == 0`: add 0.5 to **both** `a` and `c`, and add 1 to **both**
+`n1` and `n2`. Apply only for the SE step (RR point estimate uses the
+corrected values too, by convention). Set `CalculationMethod = 'HALDANE_ANSCOMBE'`
+and `CalculationFlags |= 'ZERO_CELL_CORRECTED'`.
+
+### 7.7 Dose-Normalized RR (DNRR) — Log-Linear with Intra-Study Reference Dose
+
+```
+D_ref = MIN(Dose) over rows in same (DocumentGUID, ParameterName, ParameterSubtype)
+        group WHERE Dose > 0
+
+logDNRR        = ln(RR)        / ln(Dose / D_ref)
+logDNRR_lower  = ln(RRLower)   / ln(Dose / D_ref)
+logDNRR_upper  = ln(RRUpper)   / ln(Dose / D_ref)
+
+DNRR        = exp(logDNRR)
+DNRRLower   = exp(logDNRR_lower)
+DNRRUpper   = exp(logDNRR_upper)
+```
+
+**Skip DNRR (set NULL) when:**
+
+```
+CONDITION                                        FLAG
+──────────────────────────────────────────────   ──────────────────────────
+Dose IS NULL OR Dose = 0                         (placebo — already excluded as comparator)
+Dose = D_ref (denominator ln(1) = 0)             CalculationFlags |= 'IS_REFERENCE_DOSE'
+D_ref undefined (only one non-zero dose in group) CalculationFlags |= 'NO_DOSE_RANGE'
+RR IS NULL (no upstream value to normalize)      (no flag — inherits from RR)
+```
+
+### 7.8 Log-Scale Companions (database-side, not service-side)
+
+The six `Log*` columns are SQL Server `PERSISTED` computed columns — they are
+maintained by the database engine, not by the population service. The DDL
+defines them as:
+
+```sql
+LogRR             AS (CASE WHEN RR             > 0 THEN LOG(RR)             END) PERSISTED
+LogRRLowerBound   AS (CASE WHEN RRLowerBound   > 0 THEN LOG(RRLowerBound)   END) PERSISTED
+LogRRUpperBound   AS (CASE WHEN RRUpperBound   > 0 THEN LOG(RRUpperBound)   END) PERSISTED
+LogDNRR           AS (CASE WHEN DNRR           > 0 THEN LOG(DNRR)           END) PERSISTED
+LogDNRRLowerBound AS (CASE WHEN DNRRLowerBound > 0 THEN LOG(DNRRLowerBound) END) PERSISTED
+LogDNRRUpperBound AS (CASE WHEN DNRRUpperBound > 0 THEN LOG(DNRRUpperBound) END) PERSISTED
+```
+
+The `CASE WHEN > 0` guards make them safe even when source columns are 0 or
+NULL — `LOG(0)` and `LOG(NULL)` would otherwise error or return NULL with
+warnings. `DNRR < 1` (protective effects) is fine — `LOG(0.5) ≈ -0.693`; the
+guard is strictly for zero/null safety.
+
+The Phase 2 service writes only the linear `RR`/`DNRR`/`CI bound` columns; the
+`Log*` columns are populated by SQL Server automatically.
+
+### 7.9 Calculation Flags — Complete Catalog
+
+```
+FLAG                       TRIGGER
+─────────────────────────  ──────────────────────────────────────────────
+PLACEBO_COMPARATOR         Comparator was a placebo/sham/vehicle arm or Dose=0
+ACTIVE_COMPARATOR          Comparator was an active-control drug (different UNII)
+LOW_DOSE_COMPARATOR        Comparator was lowest non-zero Dose (stepped-dose fallback)
+NO_COMPARATOR              Single-arm trial; no comparator could be paired
+ZERO_CELL_CORRECTED        Haldane-Anscombe continuity correction applied
+UNCOMPARABLE_VALUE_TYPE    Both rows have a PrimaryValueType that doesn't yield events
+MIXED_VALUE_TYPES          Treatment and comparator have different PrimaryValueType
+IS_REFERENCE_DOSE          This row's Dose equals D_ref; DNRR denominator is ln(1)=0
+NO_DOSE_RANGE              Only one non-zero Dose exists in the group; DNRR undefined
+```
+
+`CalculationMethod` (separate column, not a flag) holds either `KATZ_LOG` or
+`HALDANE_ANSCOMBE`.

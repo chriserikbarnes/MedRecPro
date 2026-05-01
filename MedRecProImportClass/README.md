@@ -11,7 +11,8 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **SPL XML Parsing**: Complete parsing infrastructure for FDA SPL documents
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
-- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 38-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product meta-analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, 8 section-aware parsers, 4-phase column standardization with per-category contract enforcement, deterministic parse-quality gate, Claude AI correction (gated by quality score), post-processing extraction, and automated validation
+- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 41-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, five concrete section-aware parsers, structural-row suppression audit, category downgrade gates, 4-phase column standardization with per-category contract enforcement, deterministic parse-quality gate, shadow-mode QCNet diagnostics, Claude AI correction (gated by quality score), post-processing extraction, and automated validation
+- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) is shipped; Phase 2 (the population service) is planned
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -47,6 +48,7 @@ MedRecProImportClass/
 |   +-- OrangeBook.cs       # Orange Book entity classes (Applicant, Product, Patent, etc.)
 |   +-- Import.cs           # Import result types
 |   +-- ImportData.cs       # SplData entity
+|   +-- TableSuppressionAuditRecord.cs # Structural row/cell suppression audit record
 |   +-- ...
 +-- Resources/              # Embedded assembly resources
 |   +-- OrangeBookPatentUseCodes.json  # Patent use code definitions (4,409 entries)
@@ -73,6 +75,7 @@ MedRecProImportClass/
         +-- PopulationDetector.cs               # Stage 3: population auto-detection
         +-- DoseExtractor.cs                    # Stage 3: dose number + unit extraction
         +-- BaseTableParser.cs                  # Stage 3: shared parser helpers
+        +-- ITableParserDiagnostics.cs          # Stage 3: optional suppressed-row diagnostic surface
         +-- PkTableParser.cs                    # Stage 3: pharmacokinetic tables
         +-- SimpleArmTableParser.cs             # Stage 3: single-header AE/efficacy
         +-- MultilevelAeTableParser.cs          # Stage 3: two-row header AE tables
@@ -90,6 +93,9 @@ MedRecProImportClass/
         +-- RowValidationService.cs             # Stage 4: per-observation checks
         +-- TableValidationService.cs           # Stage 4: cross-row checks
         +-- BatchValidationService.cs           # Stage 4: aggregate reporting
+        +-- AdverseEventDenormalizationService.cs # Stage 5 (Phase 2, planned): RR/DNRR/CI population
+        +-- Statistics/
+        |   +-- RelativeRiskCalculator.cs       # Stage 5 (Phase 2, planned): Katz log-method RR/CI + log-linear DNRR
         +-- Dictionaries/                       # Shared single-source-of-truth lookups
             +-- CategoryProfileRegistry.cs      # Per-TableCategory profiles (consolidates 6 prior dicts)
             +-- CategoryProfile.cs              # Profile record (wraps CategoryContract + extras)
@@ -235,7 +241,7 @@ Phase D is idempotent -- existing records with changed definitions are updated, 
 
 ## SPL Table Standardization Pipeline
 
-A multi-stage pipeline that transforms heterogeneous FDA drug label table data into a uniform 38-column analytical schema for cross-product meta-analysis with classical ML. The full corpus is 250K+ labels; the pipeline supports batch processing by TextTableID range.
+A multi-stage pipeline that transforms heterogeneous FDA drug label table data into a uniform 41-column analytical schema for cross-product analysis, deterministic QC, and optional Claude correction. The full corpus is 250K+ labels; the pipeline supports batch processing by TextTableID range.
 
 ### Architecture
 
@@ -250,13 +256,20 @@ Stage 2: Table Reconstruction
   TableReconstructionService -> ReconstructedTable (classified rows, resolved spans, multi-level headers)
         |
 Stage 3: Section-Aware Parsing
-  TableParserRouter -> ITableParser (8 parsers) -> List<ParsedObservation>
+  TableParserRouter -> ITableParser (5 concrete parsers) -> List<ParsedObservation> + suppression audit
         |
 Stage 3.25: Column Standardization (deterministic)
   ColumnStandardizationService -> 4-phase pipeline (all categories)
         |
-Stage 3.4: Parse-Quality Gate (deterministic, rule-based)
+Stage 3.35: PK Analyzability Filter
+  TableParsingOrchestrator -> drops non-analyzable PK rows before correction/write
+        |
+Stage 3.4: QCNet Shadow Diagnostics + Parse-Quality Gate
+  QCNetCorrectionService -> diagnostic classifier flags only by default
   ParseQualityService -> score in [0,1] per observation; rows below threshold (0.75) forward to Claude
+        |
+Stage 3.45: Post-QC PK Analyzability Filter
+  TableParsingOrchestrator -> defense-in-depth recheck before Claude/write
         |
 Stage 3.5: Claude AI Correction (gated by Stage 3.4 quality score)
   ClaudeApiCorrectionService -> semantic review + field correction
@@ -268,6 +281,11 @@ Stage 3.6: Post-Processing Extraction
         |
 Stage 4: Validation
   RowValidationService + TableValidationService + BatchValidationService -> BatchValidationReport
+        |
+Stage 5: AE Denormalization (Phase 2 — service planned; Phase 1 SQL DDL shipped)
+  AdverseEventDenormalizationService -> tmp_FlattenedAdverseEventTable
+        (one row per AE source row + comparator pairing, RR/DNRR/CI pre-computed,
+         PERSISTED log columns auto-maintained by SQL Server)
 ```
 
 ### Stage 0: Bioequivalent Label Dedup
@@ -277,7 +295,7 @@ Stage 4: Validation
 - **Group key**: `Ingredient + DosageForm + Route` from Orange Book (all strengths collapse).
 - **Selection priority**: NDA preferred over ANDA; within the chosen tier, the DocumentGUID with the most recent `LabelEffectiveDate` wins, tie-breaking on higher `VersionNumber` then lower DocumentGUID (ordinal).
 - **Unclassifiable handling**: drops DocumentGUIDs that cannot be resolved to an Orange Book `(ApplType, ApplNo)` pair, with three distinct reason codes: `no_application_number`, `unrecognized_prefix`, `no_orange_book_match`.
-- **UNII walk-order preserved**: kept rows retain their original UNII ordering — important because the Stage 3.4 ML training accumulator relies on UNII locality.
+- **UNII walk-order preserved**: kept rows retain their original UNII ordering -- important because the QCNet training accumulator and diagnostic output rely on UNII locality.
 - **Default on**; bypass via `--no-dedup-bioequivalent` on the CLI (applies to `parse` and `validate` modes).
 
 ### Stage 1: Source View Assembly
@@ -296,7 +314,9 @@ Stage 4: Validation
 
 ### Stage 3: Section-Aware Parsing
 
-`TableParserRouter` maps `ParentSectionCode` to a `TableCategory` and selects the most specific parser via priority ordering. `TableParsingOrchestrator` runs the batch loop: reconstruct -> route -> parse -> standardize -> ML correct -> Claude correct -> post-process -> write to `tmp_FlattenedStandardizedTable`.
+`TableParserRouter` maps `ParentSectionCode`, `SectionTitle`, caption text, and table shape to a `TableCategory`, then selects the most specific parser for the reconstructed layout. `TableParsingOrchestrator` runs the batch loop: reconstruct -> route -> parse -> standardize -> QCNet shadow diagnostics / parse-quality score -> Claude correction -> post-process -> write to `tmp_FlattenedStandardizedTable`.
+
+Parsers can expose `ITableParserDiagnostics` so structural rows or cells suppressed before observation emission are preserved as audit records. The console markdown and JSONL reports surface those suppressions alongside emitted observations, which makes parser-gate changes auditable without forcing non-observational labels into `tmp_FlattenedStandardizedTable`.
 
 ### Table Categories
 
@@ -305,20 +325,20 @@ The `TableCategory` column is the single most important classification value -- 
 | Category | Description | Typical Source Section |
 |----------|-------------|------------------------|
 | `ADVERSE_EVENT` | Incidence/frequency of adverse events by treatment arm | 34084-4 Adverse Reactions |
-| `PK` | Pharmacokinetic parameters (Cmax, AUC, t1/2, etc.) | 43685-7 Clinical Pharmacology |
+| `PK` | Pharmacokinetic parameters (Cmax, AUC, t1/2, etc.) | 34090-1 Clinical Pharmacology / 43682-4 Pharmacokinetics |
 | `DRUG_INTERACTION` | Co-admin drug effects on PK parameters (geometric mean ratios) | 34073-7 Drug Interactions |
-| `EFFICACY` | Comparative efficacy outcomes with risk measures and CIs | 34076-0 Clinical Studies |
+| `EFFICACY` | Comparative efficacy outcomes with risk measures and CIs | 34092-7 Clinical Studies |
 | `SKIP` | Tables to exclude (patient info, NDC, formulas, and any table that does not classify into the four parsed categories) | Various |
 
 #### Classification Decision Tree
 
-Tables are classified by applying tests in priority order against all rows sharing a TextTableID, plus Caption and ParentSectionCode. First match wins:
+Tables are classified conservatively. Section and caption signals propose a category, then category-specific viability gates decide whether the table is safe to parse or should be downgraded to `SKIP`:
 
-1. MedDRA PT dictionary match (>=3 ParameterNames or >=2 SOC categories) -> **AdverseEvent**
-2. PK parameter dictionary match (Cmax, AUC, t1/2, CL/F, Vss, etc.) -> **PK** or **DrugInteraction** (DDI if caption contains "drug interaction", "co-administered", "in the presence of")
-3. PrimaryValueType contains RelativeRiskReduction or RiskDifference -> **Efficacy**
-4. ParentSectionCode fallback (34084-4 -> AE, 43685-7 -> PK, 34073-7 -> DDI, 34076-0 -> Efficacy)
-5. No match -> **SKIP**
+1. Hard skip checks run first: patient information sections, single-column tables, and captions such as NDC, How Supplied, inactive ingredients, storage, packaging, and formulas.
+2. Clinical pharmacology / pharmacokinetics sections route to PK only when PK-like content is present; strong drug-interaction wording routes to `DRUG_INTERACTION`; otherwise the table downgrades to `SKIP`.
+3. Adverse reaction sections route to `ADVERSE_EVENT` only when at least one recoverable arm and at least one parseable outcome cell are present.
+4. Clinical studies sections route to `EFFICACY` only when the arm-based shape is viable and the body is not dominated by structural text-only rows.
+5. Missing or unclassified parent section codes fall back to `SectionTitle` and caption keywords before returning `SKIP`.
 
 ### Parsers
 
@@ -332,7 +352,16 @@ Tables are classified by applying tests in priority order against all rows shari
 
 ### Value Decomposition
 
-`ValueParser` applies 13 regex patterns in priority order to decompose cell text into structured components: PrimaryValue, SecondaryValue, CI bounds, P-value, unit, and confidence score. Includes PCT_CHECK validation when arm sample size is available.
+`ValueParser` applies ordered regex patterns to decompose cell text into structured components: PrimaryValue, SecondaryValue, CI bounds, P-value, unit, and confidence score. Includes `PCT_CHECK` validation when arm sample size is available.
+
+Recent parser work added category-aware value interpretation before values are copied into observations:
+
+- AE/Efficacy count-plus-inequality cells such as `1 (<1)`, `1 (< 1%)`, `3.0 (<0.1)`, and `1.2 (<0.1)` parse as `PrimaryValueType=Percentage`, keep the presented count as `SecondaryValue` / `SecondaryValueType=Count`, and emit `PCT_DERIVED_FROM_COUNT_LT`.
+- Standalone `<1` in AE percentage contexts is treated as incidence percentage rather than p-value; explicit p-value row/header text is still required for `PrimaryValueType=PValue`.
+- Efficacy `n/N` rows parse as `PrimaryValueType=Count` with `SecondaryValueType=Denominator`, and the denominator can populate or cross-check `ArmN`.
+- Explicit Efficacy p-value/stat rows can emit `TreatmentArm=Comparison`, but broad post-parse duplicate comparison suppression is intentionally disabled because the same source cell can contain valid ordinary-arm and comparison evidence. Future duplicate prevention should happen at the parser decision point, not via list-wide removal.
+- Percentages greater than 100 are rejected in context. AE/Efficacy rows demote to count or numeric evidence; PK rows apply isolated parenthetical-stat demotion with `PCT_GT100_REJECTED` / `PK_PCT_GT100_DEMOTED`.
+- Interspersed body labels are recovered as `ParameterName` while category-like parent labels remain in `ParameterCategory`; the label text cell itself is not emitted as an observation.
 
 ### Population Detection
 
@@ -393,7 +422,7 @@ Maps old PrimaryValueType strings to a tightened 15-value enum using TableCatego
 | `RelativeRiskReduction` | `OddsRatio` | Caption contains "odds" |
 | `RelativeRiskReduction` | `RelativeRisk` | Default |
 | `Ratio` | `GeometricMeanRatio` | DDI category |
-| `Numeric` | context-resolved | AE+% -> Percentage, AE+int -> Count, PK -> ArithmeticMean, DDI -> GeometricMeanRatio, BMD -> PercentChange, Efficacy+bounds -> HazardRatio |
+| `Numeric` | context-resolved | AE+% -> Percentage, AE+int -> Count, PK -> ArithmeticMean, DDI -> GeometricMeanRatio, Efficacy+bounds -> HazardRatio |
 
 #### Phase 4: Column Contract Enforcement (ALL categories)
 
@@ -401,7 +430,7 @@ Enforces per-TableCategory contracts defining which columns are Required (R), Ex
 
 - **NULL enforcement**: Columns marked N/A are set to null (e.g., Timepoint for AdverseEvent, ParameterCategory for PK)
 - **Missing required flagging**: Columns marked Required that are empty produce `COL_STD:MISSING_R_{Column}` flags
-- **Default BoundType**: When LowerBound/UpperBound are populated but BoundType is null, applies category defaults (90CI for PK/DDI, 95CI for Efficacy/BMD)
+- **Default BoundType**: When LowerBound/UpperBound are populated but BoundType is null, applies category defaults (90CI for PK/DDI, 95CI for Efficacy)
 
 All corrections across all phases are flagged in `ValidationFlags` with `COL_STD:` prefixed audit flags.
 
@@ -471,6 +500,104 @@ Three validation services run post-parse:
 
 Validation results are returned as in-memory DTOs (`BatchValidationReport`) and logged via ILogger. The orchestrator's `ProcessAllWithValidationAsync` integrates validation into the batch pipeline.
 
+### Stage 5: Adverse Event Denormalization
+
+Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering) bind directly without runtime joins or stats. The DDL is at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`.
+
+**Status:** Phase 1 (SQL DDL) is shipped. Phase 2 (the `AdverseEventDenormalizationService` population service, EF entity, DTO, `RelativeRiskCalculator` utility, orchestrator hook, DI registration) is planned.
+
+#### Output Schema
+
+`tmp_FlattenedAdverseEventTable` -- 31 columns:
+
+- **Surrogate PK (1)**: `tmp_FlattenedAdverseEventTableID` (IDENTITY)
+- **Source projection (10)**: `tmp_FlattenedStandardizedTableID` (FK), `DocumentGUID`, `UNII`, `ParameterName`, `ParameterCategory`, `ArmN`, `Dose`, `DoseUnit`, `PrimaryValue`, `PrimaryValueType` -- copied verbatim from source; `PrimaryValueType` is never derived
+- **Comparator metadata (4)**: `TreatmentArm`, `ComparatorArm`, `ComparatorN`, `IsPlaceboControlled` (BIT, NOT NULL DEFAULT 0)
+- **Derived event counts (2)**: `EventsTreatment` (a in 2x2), `EventsComparator` (c in 2x2)
+- **Risk statistics (6)**: `RR`, `DNRR`, `RRLowerBound`, `RRUpperBound`, `DNRRLowerBound`, `DNRRUpperBound`
+- **Log-scale companions (6, PERSISTED computed)**: `LogRR`, `LogRRLowerBound`, `LogRRUpperBound`, `LogDNRR`, `LogDNRRLowerBound`, `LogDNRRUpperBound` -- materialized on disk, auto-maintained by SQL Server, indexable; `CASE WHEN > 0 THEN LOG(...)` guards prevent `LOG(0)` / `LOG(NULL)` errors
+- **Calculation provenance (2)**: `CalculationMethod` (e.g. `KATZ_LOG`), `CalculationFlags` (semicolon-delimited audit, e.g. `ZERO_CELL_CORRECTED;PLACEBO_COMPARATOR`)
+
+Five nonclustered indexes: `DocumentGUID`, `UNII`, `ParameterName`, `ParameterCategory`, and the source FK column.
+
+#### Statistical Contract (what Phase 2 must produce)
+
+**Row inclusion.** Every source row with `TableCategory = 'ADVERSE_EVENT'` produces exactly one row, except the row chosen as the comparator within its study group (no self-comparison). RR/CI/DNRR may be NULL when prerequisites aren't met; the row itself is always preserved with full provenance.
+
+**Comparator pairing** (per study group `DocumentGUID + ParameterName + ParameterSubtype`):
+
+1. **Placebo arm** -- `TreatmentArm` matches `%placebo%`, `%sham%`, or `%vehicle%` (case-insensitive), OR `Dose = 0`
+2. **Lowest non-zero `Dose`** in the group -- covers active-controlled and stepped-dose trials
+3. **Single-arm** -- no comparator possible; stats remain NULL, flag `NO_COMPARATOR`
+
+**`IsPlaceboControlled` semantics -- trial-design flag (Document-level, set the same on every row for a given DocumentGUID):**
+
+| Document arm composition                                              | `IsPlaceboControlled` |
+|-----------------------------------------------------------------------|:---:|
+| Index drug arm(s) + placebo arm(s) **only**                           | `1` |
+| Index drug arm(s) + placebo arm(s) **+ active comparator arm(s)**     | `0` |
+| Index drug arm(s) + active comparator only (no placebo)               | `0` |
+| Stepped-dose monotherapy (no placebo, no other drug)                  | `0` |
+| Single-arm                                                             | `0` |
+
+**"Active comparator"** = a treatment arm that is neither placebo (per heuristic above) nor the index drug. Detection of "index drug" comes from the document's UNII. `CalculationFlags` separately records the row's actual comparator type (`PLACEBO_COMPARATOR`, `ACTIVE_COMPARATOR`, `LOW_DOSE_COMPARATOR`) for downstream filtering -- orthogonal to `IsPlaceboControlled`, which describes the trial design overall.
+
+**Like-typed comparison constraint.** RR/CI/DNRR are computed only when treatment and comparator share the same `PrimaryValueType`:
+
+| Treatment | Comparator | Action |
+|-----------|------------|--------|
+| `Percentage` | `Percentage` | Compute (events = `ArmN x PrimaryValue / 100`) |
+| `Numeric` (count) | `Numeric` (count) | Compute (events = `PrimaryValue`) |
+| any other (`Mean`, `Median`, etc.) | same | NULL stats, flag `UNCOMPARABLE_VALUE_TYPE` |
+| mismatch | mismatch | NULL stats, flag `MIXED_VALUE_TYPES` |
+
+**Relative Risk (Katz log-method).** Let `a` = `EventsTreatment`, `n1` = `ArmN`, `c` = `EventsComparator`, `n2` = `ComparatorN`:
+
+```
+RR        = (a / n1) / (c / n2)
+SE(logRR) = sqrt(1/a - 1/n1 + 1/c - 1/n2)
+RRLower   = exp(ln(RR) - 1.96 x SE)
+RRUpper   = exp(ln(RR) + 1.96 x SE)
+```
+
+**Zero-cell correction (Haldane-Anscombe):** if `a == 0` or `c == 0`, add 0.5 to both `a` and `c`, and add 1 to both `n1` and `n2` (continuity correction, applied only for the SE step). Flag `ZERO_CELL_CORRECTED`.
+
+**Dose-Normalized RR (DNRR) -- log-linear with intra-study reference dose:**
+
+```
+D_ref = MIN(Dose) over rows in same group WHERE Dose > 0
+
+logDNRR        = ln(RR)        / ln(Dose / D_ref)
+logDNRR_lower  = ln(RRLower)   / ln(Dose / D_ref)
+logDNRR_upper  = ln(RRUpper)   / ln(Dose / D_ref)
+
+DNRR        = exp(logDNRR)
+DNRRLower   = exp(logDNRR_lower)
+DNRRUpper   = exp(logDNRR_upper)
+```
+
+Skip DNRR (NULL) when: `Dose IS NULL OR Dose = 0` (placebo, already excluded as comparator), `Dose = D_ref` (denominator `ln(1) = 0`; flag `IS_REFERENCE_DOSE`), `D_ref` undefined (only one non-zero dose in group; flag `NO_DOSE_RANGE`), or `RR IS NULL`.
+
+#### Why PERSISTED Computed Columns
+
+The six `Log*` columns are SQL Server `PERSISTED` computed columns (materialized on disk, auto-maintained, indexable) rather than calculated in C#. This gives single-source-of-truth math and zero per-query overhead for the heatmap clustering case (which today calls `Math.log(rr)` at runtime). The `CASE WHEN > 0` guards make them safe even when source columns are 0 or NULL.
+
+#### Stage 5 ValidationFlags (CalculationFlags column)
+
+| Flag | Meaning |
+|------|---------|
+| `KATZ_LOG` | Standard 2x2 Katz log-method was applied (set in `CalculationMethod`, not `CalculationFlags`) |
+| `HALDANE_ANSCOMBE` | Standard Katz with Haldane-Anscombe zero-cell correction (set in `CalculationMethod`) |
+| `ZERO_CELL_CORRECTED` | Treatment or comparator events count was 0; continuity correction added 0.5 to both event counts and 1 to both arm Ns for the SE step |
+| `PLACEBO_COMPARATOR` | The chosen comparator row was a placebo/sham/vehicle arm or had `Dose = 0` |
+| `ACTIVE_COMPARATOR` | The chosen comparator row was an active-control drug (different UNII than index drug) |
+| `LOW_DOSE_COMPARATOR` | The chosen comparator row was the lowest non-zero `Dose` in the group (stepped-dose fallback) |
+| `NO_COMPARATOR` | Single-arm trial; no comparator could be paired. RR/CI/DNRR are NULL |
+| `UNCOMPARABLE_VALUE_TYPE` | Both rows share a `PrimaryValueType` that doesn't yield event counts (e.g. both `Mean`); RR not computable |
+| `MIXED_VALUE_TYPES` | Treatment and comparator have different `PrimaryValueType`; calculation requires like-typed pairs |
+| `IS_REFERENCE_DOSE` | This row's `Dose` equals the group's `D_ref`, so DNRR denominator `ln(1) = 0`; DNRR is NULL |
+| `NO_DOSE_RANGE` | Only one non-zero `Dose` exists in the group; DNRR is undefined |
+
 ### Column Contracts by Table Category
 
 Each observation context column has a strict, context-dependent definition locked to the row's TableCategory. The same column name carries different semantic meaning depending on the table type.
@@ -503,11 +630,11 @@ Each observation context column has a strict, context-dependent definition locke
 
 ### Output Schema
 
-`tmp_FlattenedStandardizedTable` -- 38 columns organized into 5 groups:
+`tmp_FlattenedStandardizedTable` -- 41 non-key columns organized into 5 groups:
 
-- **Provenance (8)**: DocumentGUID, LabelerName, ProductTitle, VersionNumber, TextTableID, Caption, SourceRowSeq, SourceCellSeq
+- **Provenance (9)**: DocumentGUID, LabelerName, ProductTitle, VersionNumber, UNII, TextTableID, Caption, SourceRowSeq, SourceCellSeq
 - **Classification (4)**: TableCategory, ParentSectionCode, ParentSectionTitle, SectionTitle
-- **Observation Context (11)**: ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm, ArmN, StudyContext, DoseRegimen, Population, Timepoint, Time, TimeUnit
+- **Observation Context (13)**: ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm, ArmN, StudyContext, DoseRegimen, Dose, DoseUnit, Population, Timepoint, Time, TimeUnit
 - **Decomposed Values (10)**: RawValue, PrimaryValue, PrimaryValueType, SecondaryValue, SecondaryValueType, LowerBound, UpperBound, BoundType, PValue, Unit
 - **Validation (5)**: ParseConfidence, ParseRule, FootnoteMarkers, FootnoteText, ValidationFlags
 
@@ -518,13 +645,14 @@ Each observation context column has a strict, context-dependent definition locke
 ```
 ArithmeticMean - GeometricMean - GeometricMeanRatio - Median -
 Percentage - Count - PercentChange - HazardRatio - OddsRatio -
-RelativeRisk - RiskDifference - LSMean - Numeric - Text - PValue
+RelativeRisk - RiskDifference - LSMean - Numeric - Text - PValue -
+CodedExclusion
 ```
 
 #### SecondaryValueType
 
 ```
-SD - CV - Count
+SD - SE - CV_Percent - Count - Denominator
 ```
 
 #### BoundType
@@ -536,10 +664,12 @@ SD - CV - Count
 #### ParseRule
 
 ```
-empty_or_na - pvalue - frac_pct - n_pct - caption_mean_sd -
-value_cv - value_plusminus - value_plusminus_sample - value_ci - rr_ci - diff_ci -
-range_to - percentage - plain_number - text_descriptive -
-plain_number+caption - value_ci+caption
+empty_or_na - pvalue - frac_pct - fraction_count - n_equals - n_pct -
+inequality_percent - count_inequality_percent - value_cv - value_plusminus -
+value_plusminus_sample - value_paren_dispersion - value_ci - rr_ci - diff_ci -
+range_to - percentage - plain_number - value_trailing_unit - letter_code -
+text_descriptive - plus contextual suffixes such as +caption, +row_pvalue,
++lt_one_percent_context, +pct_gt100_rejected, and +pk_pct_gt100_demoted
 ```
 
 ## ValidationFlags Dictionary
@@ -557,6 +687,14 @@ These flags are set by `BaseTableParser` and `ValueParser` during initial parsin
 | `PLUSMINUS_TYPE_INFERRED:SD` | The ± dispersion type could not be resolved from caption, header path, or footnotes. Defaulted to SD (most common in PK tables). Observations with this flag should be reviewed if the actual type matters. |
 | `PCT_CHECK:PASS` | Percentage cross-validation passed -- the derived percentage from count/ArmN matches the reported percentage within 1.5 points. |
 | `PCT_CHECK:WARN:{derived}` | Percentage cross-validation failed -- the derived percentage differs from the reported value by more than 1.5 points. `{derived}` is the calculated percentage. |
+| `INEQUALITY_UPPER:{symbol}` | Parsed value is an upper-bound inequality, usually from `<` or `<=` percentage text. |
+| `PCT_DERIVED_FROM_COUNT_LT:ArmN={n}` | Count-plus-less-than percentage was converted to an incidence percentage using the arm denominator. |
+| `PCT_DERIVED_FROM_COUNT_LT:fallback=0.1` | Count-plus-less-than percentage was converted with the conservative fallback when no arm denominator was available. |
+| `PCT_LT_DISPLAY:{bound}` | Original less-than percentage bound displayed in a count-plus-inequality cell. |
+| `PCT_CONTEXT_PROMOTION` | Bare numeric value was promoted to percentage because AE/Efficacy row/header/caption context indicates percent reporting. |
+| `P_VALUE_ROW_CONTEXT` | Explicit p-value row/header context forced the parsed value to `PrimaryValueType=PValue`. |
+| `PCT_GT100_REJECTED:{value}` | A would-be percentage greater than 100 was rejected and demoted to a safer type. |
+| `PK_PCT_GT100_DEMOTED` | PK-specific parenthetical-stat demotion handled a percentage-over-100 shape without changing AE/Efficacy `n (%)` behavior. |
 
 ### Stage 3.25: Column Standardization Flags (COL_STD)
 
@@ -614,7 +752,7 @@ These flags are set by `ColumnStandardizationService` during the 4-phase determi
 |------|---------|
 | `COL_STD:NULL_{Column}` | Column was set to null because it is Not Applicable (N) for this TableCategory (e.g., Timepoint nulled for ADVERSE_EVENT). |
 | `COL_STD:MISSING_R_{Column}` | A Required (R) column for this TableCategory is empty. Flagged for review. |
-| `COL_STD:BOUND_TYPE_INFERRED` | BoundType was inferred from the TableCategory default because LowerBound/UpperBound were populated but BoundType was null (90CI for PK/DDI, 95CI for Efficacy/BMD). |
+| `COL_STD:BOUND_TYPE_INFERRED` | BoundType was inferred from the TableCategory default because LowerBound/UpperBound were populated but BoundType was null (90CI for PK/DDI, 95CI for Efficacy). |
 
 #### Confidence Provenance
 
@@ -728,9 +866,9 @@ The pipeline relies on several single-source-of-truth lookups housed under `Serv
 
 | Dictionary | Source | Purpose |
 |-----------|--------|---------|
-| `CategoryProfileRegistry` | static class | Per-`TableCategory` profile bundling column contract (R/E/O/N), row-required fields, completeness fields, allowed `PrimaryValueType` set, default `BoundType`, and arm/time validation switches. Consumed by `RowValidationService` (and prepared for `TableValidationService` / `ColumnStandardizationService` migration) |
-| `ColumnContractRegistry` | `IColumnContractRegistry` | Per-`TableCategory` Required / Expected / Optional / NullExpected column sets transcribed from `TableStandards/column-contracts.md`. Consumed by `ParseQualityService` and (via `CategoryProfile`) by `RowValidationService` |
-| `CategoryNameNormalizer` | static class | Resolves `ADVERSE_EVENT` <-> `AdverseEvent` and equivalent forms across the 8 known categories |
+| `CategoryProfileRegistry` | static class | Per-`TableCategory` profile bundling column contract (R/E/O/N), row-required fields, completeness fields, allowed `PrimaryValueType` set, default `BoundType`, and arm/time validation switches for the four parsed categories plus `SKIP`. Consumed by `RowValidationService` (and prepared for `TableValidationService` / `ColumnStandardizationService` migration) |
+| `ColumnContractRegistry` | `IColumnContractRegistry` | Required / Expected / Optional / NullExpected column sets for the four parsed categories (`ADVERSE_EVENT`, `PK`, `DRUG_INTERACTION`, `EFFICACY`) transcribed from `TableStandards/column-contracts.md`. Consumed by `ParseQualityService` and (via `CategoryProfile`) by `RowValidationService` |
+| `CategoryNameNormalizer` | static class | Resolves `ADVERSE_EVENT` <-> `AdverseEvent` and equivalent forms across the current `TableCategory` enum values |
 | `PkParameterDictionary` | static class | ~35 canonical PK parameter names + aliases (Cmax, AUC, t½, Tmax, Cl, Vd) with Unicode folding |
 | `UnitDictionary` | static class | ~80 known PK unit strings + ~16 variant-spelling normalizations (`mcg h/mL` -> `mcg*h/mL`) |
 | `PdMarkerDictionary` | static class | 9 pharmacodynamic markers (IPA, VASP-PRI, Platelet Aggregation, etc.) for parser routing |

@@ -235,3 +235,134 @@ value_cv · value_plusminus · value_ci · rr_ci · diff_ci ·
 range_to · percentage · plain_number · text_descriptive ·
 plain_number+caption · value_ci+caption
 ```
+
+---
+
+## tmp_FlattenedAdverseEventTable (Stage 5 AE Denormalization)
+
+Downstream denormalized AE-only projection of `tmp_FlattenedStandardizedTable`.
+Each row carries pre-computed risk statistics (RR, DNRR, 95% CI) plus PERSISTED
+log-scale companions so visualizations bind without runtime stats. The contract
+below applies only to this table — it does **not** override any contract above.
+
+For the calculation rules (comparator pairing, Katz log-method, Haldane-Anscombe
+correction, log-linear DNRR, IsPlaceboControlled trial-design classification),
+see `normalization-rules.md` §7.
+
+### Surrogate Key
+
+| Column | Type | Content |
+|--------|------|---------|
+| tmp_FlattenedAdverseEventTableID | INT IDENTITY | Surrogate PK (required for EF Core change tracking) |
+
+### Source Projection (copied verbatim from `tmp_FlattenedStandardizedTable`)
+
+| Column | Req | Contains | Notes |
+|--------|-----|----------|-------|
+| tmp_FlattenedStandardizedTableID | R | FK to source row | No FK constraint — source is truncate/rebuilt |
+| DocumentGUID | E | SPL document identity | |
+| UNII | E | Active ingredient code(s) | May be `+`-concatenated |
+| ParameterName | R | MedDRA Preferred Term | AE term, e.g. `Nausea` |
+| ParameterCategory | E | Canonical MedDRA SOC | e.g. `Nervous System Disorders` |
+| ArmN | R | Treatment arm sample size | Required for RR computation |
+| Dose | E | Numeric dose for treatment arm | 0 for placebo (excluded from output as comparator) |
+| DoseUnit | E | Normalized dose unit | `mg`, `mg/d`, `mg/kg` |
+| PrimaryValue | R | Source value (incidence % or count) | Required for RR computation |
+| PrimaryValueType | R | What PrimaryValue represents | **Copied verbatim — never derived.** Computation requires like-typed comparator. |
+
+### Comparator Metadata (Phase 2 service populates)
+
+| Column | Req | Contains | Legal Values |
+|--------|-----|----------|--------------|
+| TreatmentArm | R | Drug name from source row | |
+| ComparatorArm | E | Name of the comparator row this RR is calculated against | NULL when no comparator could be paired |
+| ComparatorN | E | Sample size for the comparator arm | |
+| IsPlaceboControlled | R | **Trial-design flag (Document-level)** | `1` only when document arms = drug + placebo (no active comparator); `0` for mixed placebo+active, active-only, stepped-dose, or single-arm. Same value on every row for a given DocumentGUID. |
+
+### Derived Event Counts (Phase 2 service populates)
+
+| Column | Req | Contains | Notes |
+|--------|-----|----------|-------|
+| EventsTreatment | E | Event count derived from PrimaryValue | `a` in 2x2; for `Percentage`: `ArmN x PrimaryValue / 100`. For `Numeric` (count): `PrimaryValue` directly. |
+| EventsComparator | E | Comparator event count | `c` in 2x2 |
+
+### Risk Statistics (point estimates)
+
+| Column | Req | Contains | Method |
+|--------|-----|----------|--------|
+| RR | E | Relative Risk | Katz: `(a/n1) / (c/n2)` |
+| DNRR | O | Dose-Normalized RR | Log-linear with intra-study reference dose: `exp(ln(RR) / ln(Dose / D_ref))` |
+
+### 95% CI Bounds (linear scale)
+
+| Column | Req | Contains |
+|--------|-----|----------|
+| RRLowerBound | E | `exp(ln(RR) - 1.96 x SE(logRR))` |
+| RRUpperBound | E | `exp(ln(RR) + 1.96 x SE(logRR))` |
+| DNRRLowerBound | O | Log-bound divided by `ln(Dose / D_ref)`, then exponentiated |
+| DNRRUpperBound | O | Same |
+
+### Log-Scale Companions (PERSISTED computed columns)
+
+| Column | Computed As | Notes |
+|--------|-------------|-------|
+| LogRR | `CASE WHEN RR > 0 THEN LOG(RR) END PERSISTED` | Materialized; auto-maintained |
+| LogRRLowerBound | `CASE WHEN RRLowerBound > 0 THEN LOG(RRLowerBound) END PERSISTED` | |
+| LogRRUpperBound | `CASE WHEN RRUpperBound > 0 THEN LOG(RRUpperBound) END PERSISTED` | |
+| LogDNRR | `CASE WHEN DNRR > 0 THEN LOG(DNRR) END PERSISTED` | |
+| LogDNRRLowerBound | `CASE WHEN DNRRLowerBound > 0 THEN LOG(DNRRLowerBound) END PERSISTED` | |
+| LogDNRRUpperBound | `CASE WHEN DNRRUpperBound > 0 THEN LOG(DNRRUpperBound) END PERSISTED` | |
+
+The `CASE WHEN > 0` guards prevent `LOG(0)` and `LOG(NULL)` errors. `DNRR` may
+be < 1 for protective effects, which is mathematically valid (`LOG(0.5) ≈ -0.693`);
+the guard is strictly for zero/null safety.
+
+### Calculation Provenance
+
+| Column | Req | Contains | Legal Values |
+|--------|-----|----------|--------------|
+| CalculationMethod | E | Method label | `KATZ_LOG`, `HALDANE_ANSCOMBE` |
+| CalculationFlags | O | Semicolon-delimited audit | See flag dictionary below |
+
+### CalculationFlags Dictionary
+
+| Flag | Meaning |
+|------|---------|
+| `ZERO_CELL_CORRECTED` | Treatment or comparator events count was 0; Haldane-Anscombe continuity correction applied for the SE step |
+| `PLACEBO_COMPARATOR` | Comparator was a placebo/sham/vehicle arm or had `Dose = 0` |
+| `ACTIVE_COMPARATOR` | Comparator was an active-control drug (different UNII than index drug) |
+| `LOW_DOSE_COMPARATOR` | Comparator was the lowest non-zero `Dose` in the group (stepped-dose fallback) |
+| `NO_COMPARATOR` | Single-arm trial; no comparator could be paired. RR/CI/DNRR are NULL |
+| `UNCOMPARABLE_VALUE_TYPE` | Both rows share a `PrimaryValueType` that doesn't yield event counts (e.g. both `Mean`); RR not computable |
+| `MIXED_VALUE_TYPES` | Treatment and comparator have different `PrimaryValueType`; calculation requires like-typed pairs |
+| `IS_REFERENCE_DOSE` | This row's `Dose` equals the group's `D_ref`, so DNRR denominator `ln(1) = 0`; DNRR is NULL |
+| `NO_DOSE_RANGE` | Only one non-zero `Dose` exists in the group; DNRR is undefined |
+
+### Indexes
+
+```
+PK_tmp_FlattenedAdverseEventTable                clustered on tmp_FlattenedAdverseEventTableID
+IX_FAE_DocumentGUID                              nonclustered on DocumentGUID
+IX_FAE_UNII                                      nonclustered on UNII
+IX_FAE_ParameterName                             nonclustered on ParameterName
+IX_FAE_ParameterCategory                         nonclustered on ParameterCategory
+IX_FAE_SourceID                                  nonclustered on tmp_FlattenedStandardizedTableID
+```
+
+### Visualization Field-Shape Mapping
+
+```
+ae_explorer.jsx               rr_heatmap.jsx
+─────────────────────         ───────────────────────
+drug → ProductTitle*          drug → ProductTitle*
+sys  → ParameterCategory      sys  → ParameterCategory
+ae   → ParameterName          ae   → ParameterName
+rr   → RR                     rr   → RR
+lo   → RRLowerBound           lo   → RRLowerBound
+hi   → RRUpperBound           hi   → RRUpperBound
+n    → ArmN                   n    → ArmN
+                              (clustering on LogRR — no runtime Math.log)
+```
+
+\* `ProductTitle` and `cls` (drug class) are not yet sourced into this table; downstream
+joins or enrichment may add them in a future iteration.
