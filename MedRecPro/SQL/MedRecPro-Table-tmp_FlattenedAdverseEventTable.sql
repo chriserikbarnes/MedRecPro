@@ -71,13 +71,24 @@ BEGIN
 
         -- Provenance metadata for the calculation pass (Phase 2 populates)
         CalculationMethod                   NVARCHAR(50)     NULL,    -- e.g. 'KATZ_LOG'
-        CalculationFlags                    NVARCHAR(500)    NULL     -- e.g. 'ZERO_CELL_CORRECTED;PLACEBO_COMPARATOR'
+        CalculationFlags                    NVARCHAR(500)    NULL,    -- e.g. 'ZERO_CELL_CORRECTED;PLACEBO_COMPARATOR'
+
+        -- Index keys: shortened PERSISTED computed columns for UNII and ParameterName.
+        -- Raw NVARCHAR(1000) columns (2000 bytes) exceed SQL Server's 1700-byte
+        -- nonclustered-index key limit. 450 chars (900 bytes) is well under the
+        -- limit, and the leading prefix is sufficiently selective for these
+        -- equality/LIKE-prefix lookups (UNII codes are 10 chars; AE terms ~50 chars).
+        UNII_IndexKey                       AS (CONVERT(NVARCHAR(450), LEFT(UNII, 450))) PERSISTED,
+        ParameterName_IndexKey              AS (CONVERT(NVARCHAR(450), LEFT(ParameterName, 450))) PERSISTED
     );
 
-    -- Nonclustered indexes for common query patterns
+    -- Nonclustered indexes for common query patterns.
+    -- IX_FAE_UNII and IX_FAE_ParameterName key on shortened computed columns to
+    -- stay under the 1700-byte index-key limit; INCLUDE clauses surface the
+    -- full-length source columns for covering-index lookups.
     CREATE NONCLUSTERED INDEX IX_FAE_DocumentGUID      ON tmp_FlattenedAdverseEventTable(DocumentGUID);
-    CREATE NONCLUSTERED INDEX IX_FAE_UNII              ON tmp_FlattenedAdverseEventTable(UNII);
-    CREATE NONCLUSTERED INDEX IX_FAE_ParameterName     ON tmp_FlattenedAdverseEventTable(ParameterName);
+    CREATE NONCLUSTERED INDEX IX_FAE_UNII              ON tmp_FlattenedAdverseEventTable(UNII_IndexKey)          INCLUDE (UNII);
+    CREATE NONCLUSTERED INDEX IX_FAE_ParameterName     ON tmp_FlattenedAdverseEventTable(ParameterName_IndexKey) INCLUDE (ParameterName);
     CREATE NONCLUSTERED INDEX IX_FAE_ParameterCategory ON tmp_FlattenedAdverseEventTable(ParameterCategory);
     CREATE NONCLUSTERED INDEX IX_FAE_SourceID          ON tmp_FlattenedAdverseEventTable(tmp_FlattenedStandardizedTableID);
 END
@@ -147,13 +158,46 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_Flatte
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'CalculationFlags')
     ALTER TABLE tmp_FlattenedAdverseEventTable ADD CalculationFlags NVARCHAR(500) NULL;
 
--- Idempotent index creation for existing databases
+-- Shortened PERSISTED computed key columns for UNII and ParameterName indexes.
+-- The full NVARCHAR(1000) columns exceed SQL Server's 1700-byte nonclustered-
+-- index key limit (2000 bytes). 450 chars = 900 bytes, well under the limit.
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'UNII_IndexKey')
+    ALTER TABLE tmp_FlattenedAdverseEventTable ADD UNII_IndexKey AS (CONVERT(NVARCHAR(450), LEFT(UNII, 450))) PERSISTED;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'ParameterName_IndexKey')
+    ALTER TABLE tmp_FlattenedAdverseEventTable ADD ParameterName_IndexKey AS (CONVERT(NVARCHAR(450), LEFT(ParameterName, 450))) PERSISTED;
+
+-- Idempotent index creation for existing databases.
+-- Drop+recreate IX_FAE_UNII and IX_FAE_ParameterName if they were created with the
+-- oversized full-column keys (legacy DDL); the computed-key replacements stay
+-- under the 1700-byte limit.
+IF EXISTS (
+    SELECT 1 FROM sys.indexes i
+    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+    JOIN sys.columns c        ON c.object_id  = ic.object_id AND c.column_id = ic.column_id
+    WHERE i.object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable')
+      AND i.name = 'IX_FAE_UNII'
+      AND c.name = 'UNII'
+      AND ic.is_included_column = 0
+)
+    DROP INDEX IX_FAE_UNII ON tmp_FlattenedAdverseEventTable;
+
+IF EXISTS (
+    SELECT 1 FROM sys.indexes i
+    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+    JOIN sys.columns c        ON c.object_id  = ic.object_id AND c.column_id = ic.column_id
+    WHERE i.object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable')
+      AND i.name = 'IX_FAE_ParameterName'
+      AND c.name = 'ParameterName'
+      AND ic.is_included_column = 0
+)
+    DROP INDEX IX_FAE_ParameterName ON tmp_FlattenedAdverseEventTable;
+
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'IX_FAE_DocumentGUID')
     CREATE NONCLUSTERED INDEX IX_FAE_DocumentGUID      ON tmp_FlattenedAdverseEventTable(DocumentGUID);
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'IX_FAE_UNII')
-    CREATE NONCLUSTERED INDEX IX_FAE_UNII              ON tmp_FlattenedAdverseEventTable(UNII);
+    CREATE NONCLUSTERED INDEX IX_FAE_UNII              ON tmp_FlattenedAdverseEventTable(UNII_IndexKey)          INCLUDE (UNII);
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'IX_FAE_ParameterName')
-    CREATE NONCLUSTERED INDEX IX_FAE_ParameterName     ON tmp_FlattenedAdverseEventTable(ParameterName);
+    CREATE NONCLUSTERED INDEX IX_FAE_ParameterName     ON tmp_FlattenedAdverseEventTable(ParameterName_IndexKey) INCLUDE (ParameterName);
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'IX_FAE_ParameterCategory')
     CREATE NONCLUSTERED INDEX IX_FAE_ParameterCategory ON tmp_FlattenedAdverseEventTable(ParameterCategory);
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'IX_FAE_SourceID')
