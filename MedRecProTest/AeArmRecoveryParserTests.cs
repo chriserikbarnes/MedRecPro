@@ -299,8 +299,10 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Structural AE rows and cells should be suppressed before observation
-        /// emission so they do not become low-quality text/null rows.
+        /// Structural AE rows (header echoes and non-observation metrics) are
+        /// suppressed before observation emission, but real AE rows whose value
+        /// cell is a dash placeholder are preserved as sub-threshold (&lt;1%)
+        /// observations so treatment/placebo arm pairing is not broken.
         /// </summary>
         [TestMethod]
         public void StructuralAeRowsAndCellsAreSuppressed()
@@ -317,8 +319,22 @@ namespace MedRecPro.Service.Test
             var parser = new SimpleArmTableParser();
             var results = parser.Parse(table);
 
-            Assert.AreEqual(0, results.Count);
-            Assert.AreEqual(3, ((ITableParserDiagnostics)parser).SuppressedRows.Count);
+            // Only the two structural rows ("Adverse Drug Reaction" header echo and
+            // "Mean Duration of Therapy" non-observation metric) are suppressed.
+            // "Nausea | ---" emits a sub-threshold observation derived from the
+            // arm denominator recovered from the header-echo row (n=991).
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Nausea", results[0].ParameterName);
+            Assert.AreEqual("---", results[0].RawValue);
+            Assert.AreEqual("Percentage", results[0].PrimaryValueType);
+            Assert.IsTrue(results[0].PrimaryValue.HasValue && results[0].PrimaryValue!.Value > 0,
+                "Dash-placeholder cell should derive a positive sub-threshold midpoint.");
+            Assert.IsTrue(results[0].ParseRule != null && results[0].ParseRule!.Contains("dash_placeholder"),
+                "Parse rule should record dash_placeholder origin.");
+            Assert.IsTrue(results[0].ValidationFlags != null && results[0].ValidationFlags!.Contains("PCT_DERIVED_FROM_DASH"),
+                "Validation flags should record dash-derived percentage provenance.");
+
+            Assert.AreEqual(2, ((ITableParserDiagnostics)parser).SuppressedRows.Count);
             Assert.IsTrue(((ITableParserDiagnostics)parser).SuppressedRows.All(
                 r => r.ValidationFlag == "SUPPRESSED_STRUCTURAL_ROW"));
         }

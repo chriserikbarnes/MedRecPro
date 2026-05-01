@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Humanizer;
 using MedRecProImportClass.Data;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.AdverseEventTableFlattening;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -61,6 +62,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Optional Stage 4 batch validation service. Null if validation is not configured.
         /// </summary>
         private readonly IBatchValidationService? _batchValidator;
+
+        /**************************************************************/
+        /// <summary>
+        /// Optional Stage 5 (Phase 2) AdverseEvent denormalization service. When non-null,
+        /// invoked at the end of <see cref="ProcessAllWithValidationAsync"/> after Stage 4
+        /// validation completes. Null when AE denormalization is not configured.
+        /// </summary>
+        private readonly IAdverseEventDenormalizationService? _aeDenormalizer;
 
         /**************************************************************/
         /// <summary>
@@ -142,6 +151,11 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <see cref="ProcessAllAsync"/> and <see cref="ProcessAllWithValidationAsync"/>
         /// unless the caller passes <c>disableBioequivalentDedup: true</c>.
         /// </param>
+        /// <param name="aeDenormalizer">
+        /// Optional Stage 5 (Phase 2) AdverseEvent denormalization service. When non-null,
+        /// invoked at the end of <see cref="ProcessAllWithValidationAsync"/> to populate
+        /// <c>tmp_FlattenedAdverseEventTable</c>. Pass null to skip Stage 5.
+        /// </param>
         public TableParsingOrchestrator(
             ITableReconstructionService reconstructionService,
             ITableCellContextService cellContextService,
@@ -153,7 +167,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             IQCNetCorrectionService? qcNetCorrectionService = null,
             IClaudeApiCorrectionService? correctionService = null,
             bool dropRowsMissingArmNOrPrimaryValue = false,
-            IBioequivalentLabelDedupService? bioequivalentDedup = null)
+            IBioequivalentLabelDedupService? bioequivalentDedup = null,
+            IAdverseEventDenormalizationService? aeDenormalizer = null)
         {
             #region implementation
 
@@ -168,6 +183,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _correctionService = correctionService;
             _dropRowsMissingArmNOrPrimaryValue = dropRowsMissingArmNOrPrimaryValue;
             _bioequivalentDedup = bioequivalentDedup;
+            _aeDenormalizer = aeDenormalizer;
 
             // Bulk-insert only — no read-modify-write — so change detection is pure overhead.
             // Paired with explicit Clear() after SaveChanges so the tracker never grows.
@@ -302,9 +318,23 @@ namespace MedRecProImportClass.Service.TransformationServices
                 });
             }
 
-            stopwatch.Stop();
             _logger.LogInformation("Stage 3 — Complete: {Total} total observations in {Batches} batches ({Elapsed})",
                 totalObservations, batchNumber, stopwatch.Elapsed);
+
+            // Stage 5 (Phase 2): denormalize AE rows with pre-computed RR/DNRR/CI.
+            // Optional — runs only when an IAdverseEventDenormalizationService instance
+            // was provided to the orchestrator constructor. Mirrors the hook in
+            // ProcessAllWithValidationAsync so Stage 5 runs from both the parse-only
+            // and parse-with-validation entry points.
+            if (_aeDenormalizer != null)
+            {
+                _logger.LogInformation("Stage 5 — Starting AdverseEvent denormalization");
+                var aeRows = await _aeDenormalizer.PopulateAsync(ct: ct);
+                _logger.LogInformation("Stage 5 — Complete: {Rows} AE rows denormalized ({Elapsed})",
+                    aeRows, stopwatch.Elapsed);
+            }
+
+            stopwatch.Stop();
 
             return totalObservations;
 
@@ -483,9 +513,21 @@ namespace MedRecProImportClass.Service.TransformationServices
             var discrepancies = await _batchValidator.CheckCrossVersionConcordanceAsync(ct);
             report.CrossVersionDiscrepancies = discrepancies;
 
-            stopwatch.Stop();
             _logger.LogInformation("Stage 4 — Validation complete. {Discrepancies} cross-version discrepancies ({Elapsed})",
                 discrepancies.Count, stopwatch.Elapsed);
+
+            // Stage 5 (Phase 2): denormalize AE rows with pre-computed RR/DNRR/CI.
+            // Optional — runs only when an IAdverseEventDenormalizationService instance
+            // was provided to the orchestrator constructor.
+            if (_aeDenormalizer != null)
+            {
+                _logger.LogInformation("Stage 5 — Starting AdverseEvent denormalization");
+                var aeRows = await _aeDenormalizer.PopulateAsync(ct: ct);
+                _logger.LogInformation("Stage 5 — Complete: {Rows} AE rows denormalized ({Elapsed})",
+                    aeRows, stopwatch.Elapsed);
+            }
+
+            stopwatch.Stop();
 
             return report;
 

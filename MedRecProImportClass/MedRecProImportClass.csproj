@@ -63,7 +63,6 @@
 
   <ItemGroup>
     <Folder Include="TableStandards\" />
-    <Folder Include="Service\TransformationServices\" />
   </ItemGroup>
 
   <ItemGroup>

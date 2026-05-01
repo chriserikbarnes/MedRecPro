@@ -3,6 +3,7 @@ using MedRecProImportClass.DataAccess;
 using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices;
+using MedRecProImportClass.Service.TransformationServices.AdverseEventTableFlattening;
 using MedRecProConsole.Helpers;
 using MedRecProConsole.Models;
 using MedRecProConsole.Services.Reporting;
@@ -99,7 +100,19 @@ namespace MedRecProConsole.Services
 
             try
             {
+                // Truncate the Stage 3 output table.
                 await orchestrator.TruncateAsync();
+
+                // Truncate the Stage 5 (Phase 2) output table too — when the Stage 3 source
+                // is wiped, the AE denormalization is stale by definition. Resolved from DI
+                // (rather than constructed inline) so the InMemory-provider fallback inside
+                // AdverseEventDenormalizationService.TruncateAsync remains usable.
+                var aeDenormalizer = scope.ServiceProvider
+                    .GetService<IAdverseEventDenormalizationService>();
+                if (aeDenormalizer != null)
+                {
+                    await aeDenormalizer.TruncateAsync();
+                }
 
                 // Also clean up any progress file since we're starting fresh
                 var progressTracker = new StandardizationProgressTracker();
@@ -111,7 +124,10 @@ namespace MedRecProConsole.Services
 
                 if (!quiet)
                 {
-                    AnsiConsole.MarkupLine("[green]tmp_FlattenedStandardizedTable truncated successfully.[/]");
+                    AnsiConsole.MarkupLine(
+                        aeDenormalizer != null
+                            ? "[green]tmp_FlattenedStandardizedTable and tmp_FlattenedAdverseEventTable truncated successfully.[/]"
+                            : "[green]tmp_FlattenedStandardizedTable truncated successfully.[/]");
                 }
 
                 return 0;
@@ -559,6 +575,24 @@ namespace MedRecProConsole.Services
                         statusTask.Description = "Done";
                         statusTask.IsIndeterminate = false;
                         statusTask.Value = 100;
+
+                        // Stage 5 (Phase 2): denormalize AE rows. ExecuteParseWithStagesAsync
+                        // drives its own batch loop via ProcessBatchWithStagesAsync, so the
+                        // orchestrator's ProcessAll* Stage 5 hooks never fire here. Resolve
+                        // the AE denormalizer from DI directly and invoke it after the parse
+                        // batch loop completes.
+                        var aeDenormalizer = ctx.Scope.ServiceProvider
+                            .GetService<IAdverseEventDenormalizationService>();
+                        if (aeDenormalizer != null)
+                        {
+                            var aeTask = pctx.AddTask("Stage 5: AE Denormalization", maxValue: 100);
+                            aeTask.IsIndeterminate = true;
+                            var aeRows = await aeDenormalizer.PopulateAsync(
+                                batchSize: 5000, progress: null, ct: ctx.Cts.Token);
+                            aeTask.IsIndeterminate = false;
+                            aeTask.Value = 100;
+                            aeTask.Description = $"Stage 5: {aeRows:N0} AE rows denormalized";
+                        }
                     });
 
                 // Display stage detail after progress bar completes (if requested)
@@ -992,7 +1026,14 @@ namespace MedRecProConsole.Services
             // disableBioequivalentDedup parameter on Execute*/ProcessAll* methods.
             services.AddScoped<IBioequivalentLabelDedupService, BioequivalentLabelDedupService>();
 
-            // Orchestrator — IBatchValidationService and IClaudeApiCorrectionService are optional (nullable constructor params).
+            // Stage 5 (Phase 2): AdverseEvent denormalization. Registered unconditionally
+            // because Stage 5 runs from BOTH ProcessAllAsync and ProcessAllWithValidationAsync —
+            // Phase 2 reads only the already-populated Stage 3 output table and has no
+            // dependency on Stage 4 validation services.
+            services.AddScoped<IAdverseEventDenormalizationService, AdverseEventDenormalizationService>();
+
+            // Orchestrator — IBatchValidationService, IClaudeApiCorrectionService, and
+            // IAdverseEventDenormalizationService are optional (nullable constructor params).
             // Use an explicit factory so we can forward the Stage 3.25 quality gate flag
             // to the orchestrator's constructor. sp.GetService<T>() returns null for services
             // that were not registered (e.g. IBatchValidationService when includeValidation = false),
@@ -1008,7 +1049,8 @@ namespace MedRecProConsole.Services
                 qcNetCorrectionService: sp.GetService<IQCNetCorrectionService>(),
                 correctionService: sp.GetService<IClaudeApiCorrectionService>(),
                 dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue,
-                bioequivalentDedup: sp.GetService<IBioequivalentLabelDedupService>()));
+                bioequivalentDedup: sp.GetService<IBioequivalentLabelDedupService>(),
+                aeDenormalizer: sp.GetService<IAdverseEventDenormalizationService>()));
 
             return services.BuildServiceProvider();
 

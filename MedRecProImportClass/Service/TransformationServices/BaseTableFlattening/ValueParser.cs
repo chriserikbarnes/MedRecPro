@@ -231,11 +231,21 @@ namespace MedRecProImportClass.Service.TransformationServices
             @"([*†‡§¶#](?:\s*,\s*[a-g*†‡§¶#])*|(?<=[^a-zA-Z])[a-g](?:\s*,\s*[a-g*†‡§¶#])*)$",
             RegexOptions.Compiled);
 
-        // Empty/NA values
+        // Empty/NA values — genuine "no data / not applicable" markers
         private static readonly HashSet<string> _emptyValues = new(StringComparer.OrdinalIgnoreCase)
         {
-            "", "N/A", "NA", "ND", "NR", "NC", "--", "—", "–", "-", "NDd"
+            "", "N/A", "NA", "ND", "NR", "NC", "NDd"
         };
+
+        // Dash placeholders — distinct from empty/NA because in AE/Efficacy tables
+        // a dash conventionally signals "below the table's reporting threshold"
+        // (typically &lt; 1%) rather than "not measured." Matches any non-empty
+        // sequence of hyphen-minus, en-dash, and em-dash characters (e.g. "-",
+        // "--", "---", "—", "–", "——") so downstream coercion can apply &lt;1%
+        // midpoint substitution.
+        private static readonly Regex _dashPlaceholderPattern = new(
+            @"^[-–—]+$",
+            RegexOptions.Compiled);
 
         #endregion Compiled Regex Patterns
 
@@ -496,6 +506,21 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             result = null!;
+
+            // Dash placeholders are checked first and tagged distinctly so AE/Efficacy
+            // contexts can later coerce them to a <1% midpoint estimate. Without this
+            // distinction, dashes would be indistinguishable from genuine "not measured"
+            // cells like N/A or ND.
+            if (_dashPlaceholderPattern.IsMatch(text))
+            {
+                result = new ParsedValue
+                {
+                    IsExcluded = true,
+                    ParseConfidence = ParsedValue.ConfidenceTier.KnownExclusion,
+                    ParseRule = "dash_placeholder"
+                };
+                return true;
+            }
 
             if (_emptyValues.Contains(text))
             {

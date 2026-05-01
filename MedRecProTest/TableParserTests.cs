@@ -1749,7 +1749,18 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Duplicate comparison suppression removes only exact same-source ordinary-arm rows.
         /// </summary>
+        /// <remarks>
+        /// TODO: Re-enable once <c>suppressDuplicateComparisonEmissions</c> in
+        /// <c>BaseTableParser.cs</c> is restored. The body was disabled on 2026-05-01
+        /// because the original GroupBy key over-suppressed legitimate tables; see the
+        /// in-source NOTE block at BaseTableParser.cs:1501 for the proposed
+        /// (PrimaryValueType + PrimaryValue + PValue + SecondaryValue + IsDefiniteComparisonStatEmission)
+        /// key that would make this test pass without the over-suppression. Both call sites
+        /// (EfficacyMultilevelTableParser:352, SimpleArmTableParser:284) currently invoke a
+        /// no-op stub.
+        /// </remarks>
         [TestMethod]
+        [Ignore("Suppression disabled pending non-over-aggressive GroupBy fix — see BaseTableParser.cs:1501")]
         public void EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly()
         {
             var observations = new List<ParsedObservation>

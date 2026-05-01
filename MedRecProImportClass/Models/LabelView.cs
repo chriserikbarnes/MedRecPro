@@ -2940,6 +2940,250 @@ namespace MedRecProImportClass.Models
             #endregion properties
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Entity for tmp_FlattenedAdverseEventTable — Stage 5 (Phase 2) output of the SPL Table
+        /// Standardization pipeline. Each row is a denormalized projection of one
+        /// <see cref="FlattenedStandardizedTable"/> AE row enriched with pre-computed Relative
+        /// Risk (RR), Dose-Normalized RR (DNRR), 95% confidence-interval bounds, and
+        /// PERSISTED log-scale companions so visualizations bind without runtime statistics.
+        /// </summary>
+        /// <remarks>
+        /// ## Pipeline Position
+        /// tmp_FlattenedStandardizedTable (Stage 3 output, AE rows only)
+        ///   -> AdverseEventDenormalizationService (Stage 5, Phase 2)
+        ///   -> tmp_FlattenedAdverseEventTable
+        ///
+        /// ## Calculation Method
+        /// - RR/CI: Katz log-method with Haldane-Anscombe continuity correction (a+0.5,
+        ///   c+0.5, n1+1, n2+1 applied to BOTH the point estimate and the CI when a==0
+        ///   or c==0). Raw event counts are still stored in <see cref="EventsTreatment"/>
+        ///   and <see cref="EventsComparator"/> for audit.
+        /// - DNRR: log-linear extrapolation with intra-study reference dose
+        ///   (D_ref = MIN(Dose) WHERE Dose > 0 within the study group).
+        ///
+        /// ## Computed Columns
+        /// The six Log* properties are PERSISTED computed columns in SQL Server. They are
+        /// auto-maintained from the linear-scale RR/DNRR/bounds; EF Core treats them as
+        /// read-only via <see cref="DatabaseGeneratedAttribute"/> with
+        /// <see cref="DatabaseGeneratedOption.Computed"/>.
+        ///
+        /// ## Table Characteristics
+        /// - Idempotent DDL (IF NOT EXISTS) — see Create_tmp_FlattenedAdverseEventTable.sql
+        /// - Truncate-on-rerun semantics via <c>AdverseEventDenormalizationService.PopulateAsync</c>
+        /// - Surrogate IDENTITY PK for EF Core change tracking on AddRange bulk inserts
+        /// - Configured explicitly in ApplicationDbContext.OnModelCreating, not via the
+        ///   reflection-based keyless registration loop
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var aeRows = await db.Set&lt;LabelView.FlattenedAdverseEventTable&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(r =&gt; r.IsPlaceboControlled &amp;&amp; r.RR &gt; 1.5)
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="FlattenedStandardizedTable"/>
+        [System.ComponentModel.DataAnnotations.Schema.Table("tmp_FlattenedAdverseEventTable")]
+        public class FlattenedAdverseEventTable
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Surrogate primary key (IDENTITY). Required for EF Core change tracking on
+            /// AddRange bulk inserts. Auto-generated on insert; reset on TRUNCATE TABLE.
+            /// </summary>
+            [System.ComponentModel.DataAnnotations.Key]
+            [System.ComponentModel.DataAnnotations.Schema.Column("tmp_FlattenedAdverseEventTableID")]
+            public int Id { get; set; }
+
+            #region Source Linkage Properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Provenance link to the source row in tmp_FlattenedStandardizedTable.
+            /// Stored verbatim from <see cref="FlattenedStandardizedTable.Id"/>.
+            /// </summary>
+            [System.ComponentModel.DataAnnotations.Schema.Column("tmp_FlattenedStandardizedTableID")]
+            public int FlattenedStandardizedTableId { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source SPL document identifier. Copied verbatim.</summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Plus-delimited active-ingredient UNIIs. Copied verbatim.</summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>AE term (e.g., "Nausea"). Copied verbatim.</summary>
+            public string? ParameterName { get; set; }
+
+            /**************************************************************/
+            /// <summary>SOC group (e.g., "Nervous System"). Copied verbatim.</summary>
+            public string? ParameterCategory { get; set; }
+
+            /**************************************************************/
+            /// <summary>Sample size for the treatment arm. Copied verbatim.</summary>
+            public int? ArmN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Numeric dose for the treatment arm. Copied verbatim.</summary>
+            public decimal? Dose { get; set; }
+
+            /**************************************************************/
+            /// <summary>Normalized dose unit. Copied verbatim.</summary>
+            public string? DoseUnit { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source PrimaryValue. Copied verbatim — never derived.</summary>
+            public double? PrimaryValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source PrimaryValueType. Copied verbatim — never derived.</summary>
+            public string? PrimaryValueType { get; set; }
+
+            #endregion Source Linkage Properties
+
+            #region Comparator Metadata Properties
+
+            /**************************************************************/
+            /// <summary>Treatment arm name. Copied verbatim from source row.</summary>
+            public string? TreatmentArm { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Comparator arm name selected by the comparator cascade (placebo &gt; lowest
+            /// non-zero dose &gt; single-arm fallback). NULL for single-arm groups.
+            /// </summary>
+            public string? ComparatorArm { get; set; }
+
+            /**************************************************************/
+            /// <summary>Comparator arm sample size. NULL when no comparator was selected.</summary>
+            public int? ComparatorN { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Document-level trial-design flag. <c>true</c> only when the document has placebo
+            /// arm(s) plus drug arm(s) of a single drug; <c>false</c> when an active comparator
+            /// is also present (per user spec), when the trial is single-arm, or when the
+            /// design is ambiguous. The same value is set on every row of a given DocumentGUID.
+            /// </summary>
+            public bool IsPlaceboControlled { get; set; }
+
+            #endregion Comparator Metadata Properties
+
+            #region Derived Event Counts (audit)
+
+            /**************************************************************/
+            /// <summary>
+            /// Raw derived events for the treatment arm (a in 2x2). When zero-cell continuity
+            /// correction is applied, the adjusted local (a+0.5) is used for the math but
+            /// only the raw value is persisted here.
+            /// </summary>
+            public double? EventsTreatment { get; set; }
+
+            /**************************************************************/
+            /// <summary>Raw derived events for the comparator arm (c in 2x2). See
+            /// <see cref="EventsTreatment"/> for the audit-trail rationale.</summary>
+            public double? EventsComparator { get; set; }
+
+            #endregion Derived Event Counts (audit)
+
+            #region Risk Statistics Properties
+
+            /**************************************************************/
+            /// <summary>Relative Risk point estimate (Katz log-method).</summary>
+            public double? RR { get; set; }
+
+            /**************************************************************/
+            /// <summary>Dose-Normalized Relative Risk (log-linear with intra-study D_ref).</summary>
+            public double? DNRR { get; set; }
+
+            /**************************************************************/
+            /// <summary>Lower bound of 95% CI for RR.</summary>
+            public double? RRLowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Upper bound of 95% CI for RR.</summary>
+            public double? RRUpperBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Lower bound of 95% CI for DNRR.</summary>
+            public double? DNRRLowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Upper bound of 95% CI for DNRR.</summary>
+            public double? DNRRUpperBound { get; set; }
+
+            #endregion Risk Statistics Properties
+
+            #region Log-scale Computed Columns (PERSISTED)
+
+            /**************************************************************/
+            /// <summary>
+            /// Server-computed natural log of <see cref="RR"/>, NULL when RR &lt;= 0.
+            /// PERSISTED in SQL Server; read-only from EF Core.
+            /// </summary>
+            [System.ComponentModel.DataAnnotations.Schema.DatabaseGenerated(
+                System.ComponentModel.DataAnnotations.Schema.DatabaseGeneratedOption.Computed)]
+            public double? LogRR { get; set; }
+
+            /**************************************************************/
+            /// <summary>Server-computed natural log of <see cref="RRLowerBound"/>.</summary>
+            [System.ComponentModel.DataAnnotations.Schema.DatabaseGenerated(
+                System.ComponentModel.DataAnnotations.Schema.DatabaseGeneratedOption.Computed)]
+            public double? LogRRLowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Server-computed natural log of <see cref="RRUpperBound"/>.</summary>
+            [System.ComponentModel.DataAnnotations.Schema.DatabaseGenerated(
+                System.ComponentModel.DataAnnotations.Schema.DatabaseGeneratedOption.Computed)]
+            public double? LogRRUpperBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Server-computed natural log of <see cref="DNRR"/>.</summary>
+            [System.ComponentModel.DataAnnotations.Schema.DatabaseGenerated(
+                System.ComponentModel.DataAnnotations.Schema.DatabaseGeneratedOption.Computed)]
+            public double? LogDNRR { get; set; }
+
+            /**************************************************************/
+            /// <summary>Server-computed natural log of <see cref="DNRRLowerBound"/>.</summary>
+            [System.ComponentModel.DataAnnotations.Schema.DatabaseGenerated(
+                System.ComponentModel.DataAnnotations.Schema.DatabaseGeneratedOption.Computed)]
+            public double? LogDNRRLowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Server-computed natural log of <see cref="DNRRUpperBound"/>.</summary>
+            [System.ComponentModel.DataAnnotations.Schema.DatabaseGenerated(
+                System.ComponentModel.DataAnnotations.Schema.DatabaseGeneratedOption.Computed)]
+            public double? LogDNRRUpperBound { get; set; }
+
+            #endregion Log-scale Computed Columns (PERSISTED)
+
+            #region Calculation Provenance Properties
+
+            /**************************************************************/
+            /// <summary>
+            /// Statistical method used to compute the row. Currently always "KATZ_LOG"
+            /// when statistics are populated; NULL when stats are NULL.
+            /// </summary>
+            public string? CalculationMethod { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Semicolon-delimited diagnostic flags (e.g.,
+            /// "PLACEBO_COMPARATOR;ZERO_CELL_CORRECTED"). See README for the full taxonomy.
+            /// Comparator-kind flag appears first by convention.
+            /// </summary>
+            public string? CalculationFlags { get; set; }
+
+            #endregion Calculation Provenance Properties
+
+            #endregion properties
+        }
+
         #endregion SPL Table Normalization Views
     }
 }

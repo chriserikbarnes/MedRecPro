@@ -856,15 +856,29 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var rawValue = obs.RawValue?.Trim();
             var parameterName = obs.ParameterName?.Trim();
+
+            // Dash/em-dash and "(N=…)" cells are structural ONLY when the row's
+            // parameter is itself a structural divider (SOC label, header echo, or
+            // non-observation metric). For real AE/Efficacy rows like
+            // "Amnesia | 1 | -" the dash placebo cell is a legitimate sub-threshold
+            // marker that downstream coercion converts to a <1% midpoint estimate.
+            var parameterIsStructural =
+                string.IsNullOrWhiteSpace(parameterName) ||
+                isStructuralRowLabel(parameterName) ||
+                _aeHeaderEchoParameterPattern.IsMatch(parameterName) ||
+                _aeNonObservationMetricPattern.IsMatch(parameterName);
+
             if (!string.IsNullOrWhiteSpace(rawValue) &&
-                _placeholderStatValuePattern.IsMatch(rawValue))
+                _placeholderStatValuePattern.IsMatch(rawValue) &&
+                parameterIsStructural)
             {
                 return true;
             }
 
             if (!string.IsNullOrWhiteSpace(rawValue) &&
                 _structuralAeValueCellPattern.IsMatch(rawValue) &&
-                isAe)
+                isAe &&
+                parameterIsStructural)
             {
                 return true;
             }
@@ -1427,6 +1441,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return coerceStandaloneLtOneToPercentage(parsed, arm?.SampleSize);
             }
 
+            // Dash placeholders in AE/Efficacy percent contexts share the same
+            // semantics as a "<1" cell — the value lies below the table's reporting
+            // threshold. Coerce to a midpoint estimate so treatment/placebo pairing
+            // is preserved and downstream comparison queries keep both arms.
+            if (string.Equals(parsed.ParseRule, "dash_placeholder", StringComparison.Ordinal) &&
+                (isPercentValueContext(category, rowLabel, parameterCategory, arm, caption) ||
+                 category == TableCategory.ADVERSE_EVENT))
+            {
+                return coerceDashPlaceholderToPercentage(parsed, arm?.SampleSize);
+            }
+
             if (string.Equals(parsed.PrimaryValueType, "Numeric", StringComparison.OrdinalIgnoreCase) &&
                 isCountValueContext(rowLabel, arm, caption))
             {
@@ -1729,6 +1754,49 @@ namespace MedRecProImportClass.Service.TransformationServices
                 hasArmN
                     ? $"PCT_DERIVED_FROM_LT_ONE:ArmN={resolvedArmN}"
                     : "PCT_DERIVED_FROM_LT_ONE:fallback=0.1");
+            return parsed;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts a dash-placeholder cell (<c>-</c>, <c>--</c>, <c>—</c>, <c>–</c>)
+        /// in an AE/Efficacy percent context to a sub-threshold midpoint estimate.
+        /// </summary>
+        /// <remarks>
+        /// AE tables that follow the "report only at ≥1%" convention render
+        /// sub-threshold incidences as a dash. Treating those cells as missing
+        /// breaks treatment/placebo arm pairing. This helper mirrors
+        /// <see cref="coerceStandaloneLtOneToPercentage"/>: it preserves the raw
+        /// dash in <c>RawValue</c>, promotes the observation out of the excluded
+        /// state, and emits a midpoint estimate (<c>1/ArmN * 100</c>, or <c>0.1</c>
+        /// fallback) so downstream comparison queries can still pair the row.
+        /// </remarks>
+        /// <param name="parsed">Original parsed value tagged <c>dash_placeholder</c>.</param>
+        /// <param name="armN">Optional arm denominator.</param>
+        /// <returns>Percentage parse derived from arm size or fallback threshold.</returns>
+        /// <seealso cref="coerceStandaloneLtOneToPercentage"/>
+        private static ParsedValue coerceDashPlaceholderToPercentage(ParsedValue parsed, int? armN)
+        {
+            #region implementation
+
+            var hasArmN = armN.HasValue && armN.Value > 0;
+            var resolvedArmN = armN.GetValueOrDefault();
+            parsed.PrimaryValue = hasArmN
+                ? Math.Round(1.0 / resolvedArmN * 100, 1)
+                : 0.1;
+            parsed.PrimaryValueType = "Percentage";
+            parsed.IsExcluded = false;
+            parsed.PValue = null;
+            parsed.PValueQualifier = null;
+            parsed.Unit = "%";
+            parsed.ParseRule = $"{parsed.ParseRule}+lt_one_percent_context";
+            parsed.ValidationFlags = appendFlag(
+                parsed.ValidationFlags,
+                hasArmN
+                    ? $"PCT_DERIVED_FROM_DASH:ArmN={resolvedArmN}"
+                    : "PCT_DERIVED_FROM_DASH:fallback=0.1");
             return parsed;
 
             #endregion

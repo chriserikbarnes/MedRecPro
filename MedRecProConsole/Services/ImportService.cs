@@ -4,6 +4,7 @@ using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service;
 using MedRecProImportClass.Service.TransformationServices;
+using MedRecProImportClass.Service.TransformationServices.AdverseEventTableFlattening;
 using MedRecProConsole.Helpers;
 using MedRecProConsole.Models;
 using Microsoft.EntityFrameworkCore;
@@ -948,6 +949,9 @@ namespace MedRecProConsole.Services
             services.AddScoped<ITableParser, EfficacyMultilevelTableParser>();
             services.AddScoped<ITableParserRouter, TableParserRouter>();
             services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();
+
+            // Stage 5 (Phase 2): AdverseEvent Denormalization — pre-computes RR/DNRR/CI per AE row
+            services.AddScoped<IAdverseEventDenormalizationService, AdverseEventDenormalizationService>();
 
             return services.BuildServiceProvider();
 

@@ -134,6 +134,27 @@ namespace MedRecPro.Data
             {
                 foreach (var entityType in nestedViewEntityTypes)
                 {
+                    // FlattenedAdverseEventTable (Stage 5 Phase 2 output) has a surrogate
+                    // IDENTITY PK and is a regular table, not a keyless view. The six Log*
+                    // properties are PERSISTED computed columns; the entity declares them
+                    // with [DatabaseGenerated(Computed)] so EF Core knows not to write them.
+                    if (entityType == typeof(LabelView.FlattenedAdverseEventTable))
+                    {
+                        builder.Entity<LabelView.FlattenedAdverseEventTable>(e =>
+                        {
+                            e.ToTable("tmp_FlattenedAdverseEventTable");
+                            e.HasKey(x => x.Id);
+                            e.Property(x => x.Id)
+                                .HasColumnName("tmp_FlattenedAdverseEventTableID")
+                                .ValueGeneratedOnAdd();
+
+                            // Match DDL DECIMAL(18,6).
+                            e.Property(x => x.Dose)
+                                .HasColumnType("decimal(18, 6)");
+                        });
+                        continue;
+                    }
+
                     var entityBuilder = builder.Entity(entityType);
 
                     // Check for [Table] attribute to get view name

@@ -12,7 +12,7 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
 - **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 41-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, five concrete section-aware parsers, structural-row suppression audit, category downgrade gates, 4-phase column standardization with per-category contract enforcement, deterministic parse-quality gate, shadow-mode QCNet diagnostics, Claude AI correction (gated by quality score), post-processing extraction, and automated validation
-- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) is shipped; Phase 2 (the population service) is planned
+- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service + `RelativeRiskCalculator` utility) are both shipped
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -93,9 +93,10 @@ MedRecProImportClass/
         +-- RowValidationService.cs             # Stage 4: per-observation checks
         +-- TableValidationService.cs           # Stage 4: cross-row checks
         +-- BatchValidationService.cs           # Stage 4: aggregate reporting
-        +-- AdverseEventDenormalizationService.cs # Stage 5 (Phase 2, planned): RR/DNRR/CI population
-        +-- Statistics/
-        |   +-- RelativeRiskCalculator.cs       # Stage 5 (Phase 2, planned): Katz log-method RR/CI + log-linear DNRR
+        +-- AdverseEventTableFlattening/        # Stage 5 (Phase 2): AE denormalization
+        |   +-- IAdverseEventDenormalizationService.cs # Service contract
+        |   +-- AdverseEventDenormalizationService.cs  # Population service (truncate + stream + classify + write)
+        |   +-- RelativeRiskCalculator.cs              # Pure-function Katz log-method RR/CI + log-linear DNRR + trial-design classifier
         +-- Dictionaries/                       # Shared single-source-of-truth lookups
             +-- CategoryProfileRegistry.cs      # Per-TableCategory profiles (consolidates 6 prior dicts)
             +-- CategoryProfile.cs              # Profile record (wraps CategoryContract + extras)
@@ -282,10 +283,10 @@ Stage 3.6: Post-Processing Extraction
 Stage 4: Validation
   RowValidationService + TableValidationService + BatchValidationService -> BatchValidationReport
         |
-Stage 5: AE Denormalization (Phase 2 — service planned; Phase 1 SQL DDL shipped)
+Stage 5: AE Denormalization (Phase 1 SQL DDL + Phase 2 service both shipped)
   AdverseEventDenormalizationService -> tmp_FlattenedAdverseEventTable
-        (one row per AE source row + comparator pairing, RR/DNRR/CI pre-computed,
-         PERSISTED log columns auto-maintained by SQL Server)
+        (one row per AE source row except the comparator chosen per study group;
+         RR/DNRR/CI pre-computed; PERSISTED log columns auto-maintained by SQL Server)
 ```
 
 ### Stage 0: Bioequivalent Label Dedup
@@ -504,7 +505,30 @@ Validation results are returned as in-memory DTOs (`BatchValidationReport`) and 
 
 Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering) bind directly without runtime joins or stats. The DDL is at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`.
 
-**Status:** Phase 1 (SQL DDL) is shipped. Phase 2 (the `AdverseEventDenormalizationService` population service, EF entity, DTO, `RelativeRiskCalculator` utility, orchestrator hook, DI registration) is planned.
+**Status:** Phase 1 (SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service, EF entity, DTO, `RelativeRiskCalculator` utility, orchestrator hook, DI registration) are both shipped.
+
+**Entry points:**
+
+- Pipeline-integrated: `TableParsingOrchestrator.ProcessAllWithValidationAsync` invokes `IAdverseEventDenormalizationService.PopulateAsync` after Stage 4 validation when the dependency was provided.
+- Standalone: resolve `IAdverseEventDenormalizationService` from DI and call `PopulateAsync` directly to re-run AE denormalization without re-doing Stage 3/4.
+
+**Study group key:** `(DocumentGUID, TextTableID, ParameterName, ParameterSubtype)`. `TextTableID` is included so the same AE term appearing in multiple study tables of one document does not get a single comparator cross-paired across unrelated studies. Rows with NULL `DocumentGUID` are skipped with a warning log.
+
+**Comparator cascade** (deterministic tie-breakers: `Dose` nulls-first, then `SourceRowSeq`, `SourceCellSeq`, source `Id`):
+
+1. Placebo arm — `placebo`/`sham`/`vehicle` (case-insensitive) OR `Dose == 0` → `PLACEBO_COMPARATOR`
+2. Lowest non-zero `Dose` → `LOW_DOSE_COMPARATOR`
+3. Single-arm fallback → `NO_COMPARATOR` (stats NULL)
+
+`ACTIVE_COMPARATOR` is reserved for a future phase that has arm-level UNII; the current source row carries only document-level UNII so active-comparator detection is not implementable.
+
+**`IsPlaceboControlled`** is a Document-level flag (same value on every output row of a given DocumentGUID). It is `1` only when the document has placebo arm(s) plus drug arm(s) of a single drug (one distinct arm-name root after dose-token stripping). Mixed designs (drug + active comparator + placebo, distinct roots) and ambiguous classifications default to `0`. The `AMBIGUOUS_TRIAL_DESIGN` flag is added to `CalculationFlags` when the classifier could not extract usable arm-name roots.
+
+**Math:**
+
+- RR + 95% CI: Katz log-method. When `EventsTreatment == 0` or `EventsComparator == 0`, the Haldane-Anscombe continuity correction (`a' = a + 0.5`, `c' = c + 0.5`, `n1' = n1 + 1`, `n2' = n2 + 1`) is applied to BOTH the point estimate and the CI. Raw event counts are still persisted in `EventsTreatment` / `EventsComparator` for audit; the adjusted locals are scope-local to the calculation.
+- DNRR: log-linear with intra-study reference dose `D_ref = MIN(Dose) WHERE Dose > 0` over the study group. `logDNRR = ln(RR) / ln(rowDose / D_ref)`.
+- Percentage-only fallback: when both arms have `PrimaryValueType = 'Percentage'` but `ArmN` is missing on either side, the service computes `RR = pTreatment / pComparator` as a point estimate, leaves CIs NULL, and emits the `NO_ARMN` flag. CIs always require ArmN per user direction.
 
 #### Output Schema
 
@@ -584,19 +608,49 @@ The six `Log*` columns are SQL Server `PERSISTED` computed columns (materialized
 
 #### Stage 5 ValidationFlags (CalculationFlags column)
 
+**Comparator-kind** (always emitted first, exactly one):
+
 | Flag | Meaning |
 |------|---------|
-| `KATZ_LOG` | Standard 2x2 Katz log-method was applied (set in `CalculationMethod`, not `CalculationFlags`) |
-| `HALDANE_ANSCOMBE` | Standard Katz with Haldane-Anscombe zero-cell correction (set in `CalculationMethod`) |
-| `ZERO_CELL_CORRECTED` | Treatment or comparator events count was 0; continuity correction added 0.5 to both event counts and 1 to both arm Ns for the SE step |
 | `PLACEBO_COMPARATOR` | The chosen comparator row was a placebo/sham/vehicle arm or had `Dose = 0` |
-| `ACTIVE_COMPARATOR` | The chosen comparator row was an active-control drug (different UNII than index drug) |
-| `LOW_DOSE_COMPARATOR` | The chosen comparator row was the lowest non-zero `Dose` in the group (stepped-dose fallback) |
+| `LOW_DOSE_COMPARATOR` | The chosen comparator row was the lowest non-zero `Dose` in the group |
 | `NO_COMPARATOR` | Single-arm trial; no comparator could be paired. RR/CI/DNRR are NULL |
-| `UNCOMPARABLE_VALUE_TYPE` | Both rows share a `PrimaryValueType` that doesn't yield event counts (e.g. both `Mean`); RR not computable |
-| `MIXED_VALUE_TYPES` | Treatment and comparator have different `PrimaryValueType`; calculation requires like-typed pairs |
+
+`ACTIVE_COMPARATOR` is reserved for a future phase that has arm-level UNII (the current source row's `UNII` is document-level, plus-delimited).
+
+**Math diagnostics:**
+
+| Flag | Meaning |
+|------|---------|
+| `ZERO_CELL_CORRECTED` | Treatment or comparator events count was 0; Haldane-Anscombe continuity correction applied to BOTH point estimate and CI |
 | `IS_REFERENCE_DOSE` | This row's `Dose` equals the group's `D_ref`, so DNRR denominator `ln(1) = 0`; DNRR is NULL |
-| `NO_DOSE_RANGE` | Only one non-zero `Dose` exists in the group; DNRR is undefined |
+| `NO_DOSE_RANGE` | The study group has no non-zero `Dose`; DNRR is undefined |
+| `DOSE_UNIT_MISMATCH` | Treatment row's `DoseUnit` differs from the reference-dose row's `DoseUnit`; log-linear extrapolation across units is meaningless, DNRR is NULL |
+
+**Type-mismatch:**
+
+| Flag | Meaning |
+|------|---------|
+| `UNCOMPARABLE_VALUE_TYPE` | Both rows share a `PrimaryValueType` that doesn't yield event counts (e.g. both `Mean`); RR is NULL |
+| `MIXED_VALUE_TYPES` | Treatment and comparator have different `PrimaryValueType`; calculation requires like-typed pairs |
+
+**Hard guards:**
+
+| Flag | Meaning |
+|------|---------|
+| `NO_ARMN` | Treatment `ArmN` is NULL or ≤ 0 — CIs cannot be computed. (Percentage path: RR point estimate may still be present.) |
+| `NO_COMPARATOR_N` | Comparator `ArmN` is NULL or ≤ 0 |
+| `INVALID_EVENT_COUNT` | `PrimaryValue` is NULL or negative on at least one side |
+| `EVENTS_EXCEED_ARMN` | Derived event count exceeds `ArmN` (sanity-check failure) |
+| `PERCENT_OUT_OF_RANGE` | `PrimaryValueType = 'Percentage'` and `PrimaryValue > 100` (defense-in-depth; parser rejects upstream) |
+
+**Trial-design:**
+
+| Flag | Meaning |
+|------|---------|
+| `AMBIGUOUS_TRIAL_DESIGN` | The classifier could not extract usable arm-name roots (e.g., arms named only by dose). `IsPlaceboControlled` defaults to `0`. |
+
+`CalculationMethod` is `KATZ_LOG` whenever a numeric RR was produced (including the Percentage-fallback path); NULL when stats remain NULL.
 
 ### Column Contracts by Table Category
 
