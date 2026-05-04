@@ -3556,7 +3556,7 @@ namespace MedRecPro.Models
         ///
         /// ## Schema Groups (32 columns + 6 PERSISTED computed)
         /// - **Source linkage / projection (10)**: copied verbatim from the source AE row
-        /// - **Comparator metadata (4)**: comparator arm + Document-level trial-design flag
+        /// - **Comparator metadata (4)**: comparator arm + row-level placebo-comparator flag
         /// - **Derived event counts (2)**: a / c in the 2×2 (raw, audit-only)
         /// - **Risk statistics (6)**: RR, DNRR, ±CI bounds (linear scale)
         /// - **Log-scale companions (6)**: PERSISTED computed columns; LOG(0)/LOG(NULL) safe
@@ -3698,11 +3698,13 @@ namespace MedRecPro.Models
 
             /**************************************************************/
             /// <summary>
-            /// Document-level trial-design flag. <c>true</c> only when the document has
-            /// placebo arm(s) plus drug arm(s) of a single drug. <c>false</c> when an
-            /// active comparator is also present (per user spec), when the trial is
-            /// single-arm, or when the design is ambiguous. The same value is set on
-            /// every row of a given DocumentGUID.
+            /// Row-level placebo-comparator flag. <c>true</c> iff the row's chosen
+            /// comparator was a placebo arm (matches <c>placebo</c>/<c>sham</c>/<c>vehicle</c>
+            /// regex, or has Dose=0). Equivalent to
+            /// <c>CalculationFlags LIKE 'PLACEBO_COMPARATOR%'</c> but indexable as a bit.
+            /// May vary across rows of the same DocumentGUID — a Document can carry
+            /// multiple sub-trials with different comparator structures (e.g., one table
+            /// is drug-vs-placebo, another is drug-vs-active-comparator).
             /// </summary>
             public bool IsPlaceboControlled { get; set; }
 

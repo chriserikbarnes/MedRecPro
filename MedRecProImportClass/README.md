@@ -522,7 +522,7 @@ Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only pr
 
 `ACTIVE_COMPARATOR` is reserved for a future phase that has arm-level UNII; the current source row carries only document-level UNII so active-comparator detection is not implementable.
 
-**`IsPlaceboControlled`** is a Document-level flag (same value on every output row of a given DocumentGUID). It is `1` only when the document has placebo arm(s) plus drug arm(s) of a single drug (one distinct arm-name root after dose-token stripping). Mixed designs (drug + active comparator + placebo, distinct roots) and ambiguous classifications default to `0`. The `AMBIGUOUS_TRIAL_DESIGN` flag is added to `CalculationFlags` when the classifier could not extract usable arm-name roots.
+**`IsPlaceboControlled`** is a row-level placebo-comparator flag. It is `1` iff the row's chosen comparator was a placebo arm (matches `placebo`/`sham`/`vehicle` regex or has Dose=0) — equivalent to `CalculationFlags LIKE 'PLACEBO_COMPARATOR%'` but indexable as a bit. May vary across rows of the same DocumentGUID and even within one TextTableID when a parameter group lacks a placebo row. Independent of the bit, the per-`(DocumentGUID, TextTableID)` trial-design classifier emits `AMBIGUOUS_TRIAL_DESIGN` into `CalculationFlags` when arm names cannot be reduced to a usable root.
 
 **Math:**
 
@@ -536,7 +536,7 @@ Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only pr
 
 - **Surrogate PK (1)**: `tmp_FlattenedAdverseEventTableID` (IDENTITY)
 - **Source projection (10)**: `tmp_FlattenedStandardizedTableID` (FK), `DocumentGUID`, `UNII`, `ParameterName`, `ParameterCategory`, `ArmN`, `Dose`, `DoseUnit`, `PrimaryValue`, `PrimaryValueType` -- copied verbatim from source; `PrimaryValueType` is never derived
-- **Comparator metadata (4)**: `TreatmentArm`, `ComparatorArm`, `ComparatorN`, `IsPlaceboControlled` (BIT, NOT NULL DEFAULT 0)
+- **Comparator metadata (4)**: `TreatmentArm`, `ComparatorArm`, `ComparatorN`, `IsPlaceboControlled` (BIT, NOT NULL DEFAULT 0; row-level placebo-comparator flag)
 - **Derived event counts (2)**: `EventsTreatment` (a in 2x2), `EventsComparator` (c in 2x2)
 - **Risk statistics (6)**: `RR`, `DNRR`, `RRLowerBound`, `RRUpperBound`, `DNRRLowerBound`, `DNRRUpperBound`
 - **Log-scale companions (6, PERSISTED computed)**: `LogRR`, `LogRRLowerBound`, `LogRRUpperBound`, `LogDNRR`, `LogDNRRLowerBound`, `LogDNRRUpperBound` -- materialized on disk, auto-maintained by SQL Server, indexable; `CASE WHEN > 0 THEN LOG(...)` guards prevent `LOG(0)` / `LOG(NULL)` errors
@@ -548,23 +548,30 @@ Five nonclustered indexes: `DocumentGUID`, `UNII`, `ParameterName`, `ParameterCa
 
 **Row inclusion.** Every source row with `TableCategory = 'ADVERSE_EVENT'` produces exactly one row, except the row chosen as the comparator within its study group (no self-comparison). RR/CI/DNRR may be NULL when prerequisites aren't met; the row itself is always preserved with full provenance.
 
-**Comparator pairing** (per study group `DocumentGUID + ParameterName + ParameterSubtype`):
+**Comparator pairing** (per study group `TextTableID + ParameterName + ParameterSubtype + StudyContext + Population + Subpopulation`, with normalized casing/whitespace; all keys are scoped within one DocumentGUID):
 
 1. **Placebo arm** -- `TreatmentArm` matches `%placebo%`, `%sham%`, or `%vehicle%` (case-insensitive), OR `Dose = 0`
 2. **Lowest non-zero `Dose`** in the group -- covers active-controlled and stepped-dose trials
 3. **Single-arm** -- no comparator possible; stats remain NULL, flag `NO_COMPARATOR`
 
-**`IsPlaceboControlled` semantics -- trial-design flag (Document-level, set the same on every row for a given DocumentGUID):**
+**`IsPlaceboControlled` semantics -- row-level placebo-comparator flag:**
 
-| Document arm composition                                              | `IsPlaceboControlled` |
-|-----------------------------------------------------------------------|:---:|
-| Index drug arm(s) + placebo arm(s) **only**                           | `1` |
-| Index drug arm(s) + placebo arm(s) **+ active comparator arm(s)**     | `0` |
-| Index drug arm(s) + active comparator only (no placebo)               | `0` |
-| Stepped-dose monotherapy (no placebo, no other drug)                  | `0` |
-| Single-arm                                                             | `0` |
+The bit is `1` iff the row's chosen comparator (per the cascade above) was a placebo arm. It is equivalent to `CalculationFlags LIKE 'PLACEBO_COMPARATOR%'` but persisted as an indexable BIT. It can vary across rows of the same DocumentGUID, and even within one TextTableID when a parameter group lacks a placebo row.
 
-**"Active comparator"** = a treatment arm that is neither placebo (per heuristic above) nor the index drug. Detection of "index drug" comes from the document's UNII. `CalculationFlags` separately records the row's actual comparator type (`PLACEBO_COMPARATOR`, `ACTIVE_COMPARATOR`, `LOW_DOSE_COMPARATOR`) for downstream filtering -- orthogonal to `IsPlaceboControlled`, which describes the trial design overall.
+**Diagnostic-only:** the per-`(DocumentGUID, TextTableID)` trial-design classifier categorizes the table's arm composition into one of the kinds below. The kind itself is *not persisted* on the row; only the `AMBIGUOUS_TRIAL_DESIGN` case adds a flag to `CalculationFlags`. None of these kinds drive the `IsPlaceboControlled` bit.
+
+| Per-table arm composition                                              | `TrialDesignKind` |
+|------------------------------------------------------------------------|:------------------|
+| Drug arm(s) of one root + placebo arm(s)                               | `PLACEBO_ONLY` (or `STEPPED_DOSE_PLUS_PLACEBO` for >1 dose) |
+| Drug arms with multiple distinct roots + placebo                       | `PLACEBO_PLUS_ACTIVE` |
+| Drug arms only, single root                                             | `STEPPED_DOSE_MONOTHERAPY` |
+| Drug arms only, multiple roots                                          | `ACTIVE_ONLY` |
+| Single arm                                                              | `SINGLE_ARM` |
+| Arm names won't reduce to a usable root                                | `AMBIGUOUS` (emits `AMBIGUOUS_TRIAL_DESIGN` flag) |
+
+**"Drug-name root"** is extracted by stripping numeric dose tokens (e.g. `50 mg`, `5 mg/kg`, `25 IU`) and common regimen tokens (`qd`, `bid`, `daily`, etc.) from the `TreatmentArm` string and lowercasing. The classifier uses arm-name roots, NOT the document's UNII column.
+
+`CalculationFlags` records the row's actual comparator type (`PLACEBO_COMPARATOR`, `LOW_DOSE_COMPARATOR`, `NO_COMPARATOR`); `ACTIVE_COMPARATOR` is reserved for a future phase with arm-level UNII.
 
 **Like-typed comparison constraint.** RR/CI/DNRR are computed only when treatment and comparator share the same `PrimaryValueType`:
 
@@ -648,7 +655,7 @@ The six `Log*` columns are SQL Server `PERSISTED` computed columns (materialized
 
 | Flag | Meaning |
 |------|---------|
-| `AMBIGUOUS_TRIAL_DESIGN` | The classifier could not extract usable arm-name roots (e.g., arms named only by dose). `IsPlaceboControlled` defaults to `0`. |
+| `AMBIGUOUS_TRIAL_DESIGN` | The per-table trial-design classifier could not extract usable arm-name roots (e.g., arms named only by dose). Pure diagnostic — no longer affects `IsPlaceboControlled` (which is comparator-driven). |
 
 `CalculationMethod` is `KATZ_LOG` whenever a numeric RR was produced (including the Percentage-fallback path); NULL when stats remain NULL.
 

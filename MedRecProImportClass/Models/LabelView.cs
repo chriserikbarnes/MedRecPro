@@ -3107,10 +3107,11 @@ namespace MedRecProImportClass.Models
 
             /**************************************************************/
             /// <summary>
-            /// Document-level trial-design flag. <c>true</c> only when the document has placebo
-            /// arm(s) plus drug arm(s) of a single drug; <c>false</c> when an active comparator
-            /// is also present (per user spec), when the trial is single-arm, or when the
-            /// design is ambiguous. The same value is set on every row of a given DocumentGUID.
+            /// Row-level placebo-comparator flag. <c>true</c> iff the row's chosen comparator
+            /// was a placebo arm (matches <c>placebo</c>/<c>sham</c>/<c>vehicle</c> regex, or
+            /// has Dose=0). Equivalent to <c>CalculationFlags LIKE 'PLACEBO_COMPARATOR%'</c>
+            /// but indexable as a bit. May vary across rows of the same DocumentGUID — a
+            /// Document can carry multiple sub-trials with different comparator structures.
             /// </summary>
             public bool IsPlaceboControlled { get; set; }
 

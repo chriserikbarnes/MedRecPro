@@ -13,7 +13,7 @@ namespace MedRecPro.Models
     /// - **Source linkage / projection (13)**: copied verbatim from the source AE row
     ///   in <see cref="FlattenedStandardizedTableDto"/>; never derived (includes
     ///   StudyContext, Population, Subpopulation)
-    /// - **Comparator metadata (4)**: comparator arm + Document-level trial-design flag
+    /// - **Comparator metadata (4)**: comparator arm + row-level placebo-comparator flag
     /// - **Derived event counts (2)**: a / c in the 2×2 (raw, audit-only)
     /// - **Risk statistics (6)**: RR, DNRR, ±CI bounds (linear scale)
     /// - **Log-scale companions (6)**: server-computed log of each statistic, NULL safe
@@ -117,9 +117,10 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
-        /// Document-level trial-design flag. <c>true</c> only when the document has
-        /// placebo arm(s) plus drug arm(s) of a single drug. Same value on every row
-        /// of a given DocumentGUID.
+        /// Row-level placebo-comparator flag. <c>true</c> iff the row's chosen comparator
+        /// was a placebo arm (matches <c>placebo</c>/<c>sham</c>/<c>vehicle</c> regex, or
+        /// has Dose=0). Equivalent to <c>CalculationFlags LIKE 'PLACEBO_COMPARATOR%'</c>
+        /// but indexable as a bit. May vary across rows of the same DocumentGUID.
         /// </summary>
         public bool IsPlaceboControlled { get; set; }
 

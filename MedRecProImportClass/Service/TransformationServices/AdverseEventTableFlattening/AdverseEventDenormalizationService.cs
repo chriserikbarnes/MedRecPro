@@ -37,6 +37,14 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         private const string KatzLogMethod = "KATZ_LOG";
 
         /**************************************************************/
+        /// <summary>
+        /// Comparator-kind flag emitted into <c>CalculationFlags</c> when the chosen
+        /// comparator was a placebo arm (matches placebo|sham|vehicle, or has Dose=0).
+        /// Also drives the persisted <c>IsPlaceboControlled</c> bit one-for-one.
+        /// </summary>
+        private const string PlaceboComparatorFlag = "PLACEBO_COMPARATOR";
+
+        /**************************************************************/
         /// <summary>EF Core provider name returned by the InMemoryDatabase test provider.</summary>
         private const string InMemoryProvider = "Microsoft.EntityFrameworkCore.InMemory";
 
@@ -231,9 +239,13 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
-        /// Loads AE rows for a batch of documents, classifies trial design per Document,
-        /// selects comparators per study group, computes statistics for non-comparator
-        /// rows, and bulk-writes the resulting entities. Fail-fast on save errors.
+        /// Loads AE rows for a batch of documents, classifies trial design per
+        /// (DocumentGUID, TextTableID) for diagnostic purposes, selects comparators per
+        /// study group, computes statistics for non-comparator rows, and bulk-writes
+        /// the resulting entities. The persisted <c>IsPlaceboControlled</c> bit is set
+        /// per-row from the comparator selection (see <see cref="buildEntity"/>);
+        /// the trial-design classifier feeds only the <c>AMBIGUOUS_TRIAL_DESIGN</c>
+        /// diagnostic flag in <c>CalculationFlags</c>. Fail-fast on save errors.
         /// </summary>
         /// <param name="docIds">Document GUIDs in this batch.</param>
         /// <param name="ct">Cancellation token.</param>
@@ -255,63 +267,84 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             var entities = new List<LabelView.FlattenedAdverseEventTable>();
 
+            // Default classification for rows with NULL TextTableID — keeps null-table rows
+            // from being silently merged into a single doc-wide arm set, which would re-create
+            // the original coarse-grouping bug for the diagnostic flag. The bit itself is
+            // unaffected (it's comparator-driven below).
+            var nullTableDesign = new RelativeRiskCalculator.TrialDesignClassification(
+                false, RelativeRiskCalculator.TrialDesignKind.SINGLE_ARM, null);
+
             foreach (var docGroup in rows.GroupBy(r => r.DocumentGUID!.Value))
             {
-                var docRows = docGroup.ToList();
-
-                // Trial-design classification uses distinct (TreatmentArm, Dose, DoseUnit)
-                // tuples across ALL AE rows in the document — not just the comparator's
-                // study group — because IsPlaceboControlled is a Document-level property.
-                var distinctArms = docRows
-                    .GroupBy(r => new
-                    {
-                        Name = r.TreatmentArm,
-                        Dose = r.Dose,
-                        Unit = r.DoseUnit
-                    })
-                    .Select(g => new RelativeRiskCalculator.ArmInfo(g.Key.Name, g.Key.Dose, g.Key.Unit))
-                    .ToList();
-
-                var design = RelativeRiskCalculator.ClassifyTrialDesign(distinctArms);
-
-                // Comparator pairing per (TextTableID, ParameterName, ParameterSubtype,
-                // StudyContext, Population, Subpopulation) — TextTableID prevents cross-study
-                // leakage when a single document carries the same AE term across multiple
-                // study tables; StudyContext / Population / Subpopulation prevent
-                // cross-population pairing (e.g., Adults vs Children, Female-only vs Male-only).
-                // String keys are normalized (trim + collapse whitespace + ToUpperInvariant)
-                // so casing/whitespace variants don't fragment a valid comparator group.
-                foreach (var grp in docRows.GroupBy(r => new
+                // Trial-design classification is diagnostic only (drives AMBIGUOUS_TRIAL_DESIGN
+                // flag in CalculationFlags). Computed per (DocumentGUID, TextTableID) so the
+                // diagnostic stays scoped to the row's source table — a single Document can
+                // carry multiple sub-trials with different comparator structures, and a
+                // doc-wide classification would contaminate the diagnostic across them.
+                // The IsPlaceboControlled bit is comparator-driven, not design-driven
+                // (see buildEntity).
+                foreach (var tableGroup in docGroup.GroupBy(r => r.TextTableID))
                 {
-                    r.TextTableID,
-                    ParameterName    = normalizeKey(r.ParameterName),
-                    ParameterSubtype = normalizeKey(r.ParameterSubtype),
-                    StudyContext     = normalizeKey(r.StudyContext),
-                    Population       = normalizeKey(r.Population),
-                    Subpopulation    = normalizeKey(r.Subpopulation),
-                }))
-                {
-                    var groupRows = grp.ToList();
-                    var (comparator, comparatorFlag) = selectComparator(groupRows);
+                    var tableRows = tableGroup.ToList();
 
-                    // D_ref = MIN(Dose) WHERE Dose > 0 over the study group. Includes the
-                    // comparator row's dose by design (matches user spec). Used only for
-                    // DNRR denominator.
-                    var dosedRows = groupRows
-                        .Where(r => r.Dose != null && r.Dose > 0m)
-                        .ToList();
-                    decimal? dRef = dosedRows.Count > 0 ? dosedRows.Min(r => r.Dose) : null;
-                    string? dRefUnit = dRef is null
-                        ? null
-                        : dosedRows.First(r => r.Dose == dRef).DoseUnit;
-
-                    foreach (var row in groupRows)
+                    RelativeRiskCalculator.TrialDesignClassification design;
+                    if (tableGroup.Key is null)
                     {
-                        // No self-comparison: the chosen comparator row is excluded from output.
-                        if (comparator is not null && ReferenceEquals(row, comparator))
-                            continue;
+                        design = nullTableDesign;
+                    }
+                    else
+                    {
+                        var distinctArms = tableRows
+                            .GroupBy(r => new
+                            {
+                                Name = r.TreatmentArm,
+                                Dose = r.Dose,
+                                Unit = r.DoseUnit
+                            })
+                            .Select(g => new RelativeRiskCalculator.ArmInfo(g.Key.Name, g.Key.Dose, g.Key.Unit))
+                            .ToList();
 
-                        entities.Add(buildEntity(row, comparator, comparatorFlag, dRef, dRefUnit, design));
+                        design = RelativeRiskCalculator.ClassifyTrialDesign(distinctArms);
+                    }
+
+                    // Comparator pairing per (TextTableID, ParameterName, ParameterSubtype,
+                    // StudyContext, Population, Subpopulation) — TextTableID prevents cross-study
+                    // leakage when a single document carries the same AE term across multiple
+                    // study tables; StudyContext / Population / Subpopulation prevent
+                    // cross-population pairing (e.g., Adults vs Children, Female-only vs Male-only).
+                    // String keys are normalized (trim + collapse whitespace + ToUpperInvariant)
+                    // so casing/whitespace variants don't fragment a valid comparator group.
+                    foreach (var grp in tableRows.GroupBy(r => new
+                    {
+                        ParameterName    = normalizeKey(r.ParameterName),
+                        ParameterSubtype = normalizeKey(r.ParameterSubtype),
+                        StudyContext     = normalizeKey(r.StudyContext),
+                        Population       = normalizeKey(r.Population),
+                        Subpopulation    = normalizeKey(r.Subpopulation),
+                    }))
+                    {
+                        var groupRows = grp.ToList();
+                        var (comparator, comparatorFlag) = selectComparator(groupRows);
+
+                        // D_ref = MIN(Dose) WHERE Dose > 0 over the study group. Includes the
+                        // comparator row's dose by design (matches user spec). Used only for
+                        // DNRR denominator.
+                        var dosedRows = groupRows
+                            .Where(r => r.Dose != null && r.Dose > 0m)
+                            .ToList();
+                        decimal? dRef = dosedRows.Count > 0 ? dosedRows.Min(r => r.Dose) : null;
+                        string? dRefUnit = dRef is null
+                            ? null
+                            : dosedRows.First(r => r.Dose == dRef).DoseUnit;
+
+                        foreach (var row in groupRows)
+                        {
+                            // No self-comparison: the chosen comparator row is excluded from output.
+                            if (comparator is not null && ReferenceEquals(row, comparator))
+                                continue;
+
+                            entities.Add(buildEntity(row, comparator, comparatorFlag, dRef, dRefUnit, design));
+                        }
                     }
                 }
             }
@@ -375,7 +408,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 .ToList();
 
             if (placeboCandidates.Count > 0)
-                return (placeboCandidates[0], "PLACEBO_COMPARATOR");
+                return (placeboCandidates[0], PlaceboComparatorFlag);
 
             // Tier 2: lowest non-zero dose. Requires the group to have at least one
             // additional row (otherwise selecting the only dosed row leaves no rows to
@@ -408,12 +441,21 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /// comparator, derived event counts, RR/CI, DNRR/CI, and the semicolon-delimited
         /// flag accumulator. Comparator-kind flag is always emitted first.
         /// </summary>
+        /// <remarks>
+        /// <para>The persisted <c>IsPlaceboControlled</c> bit is set strictly per-row from
+        /// <paramref name="comparatorFlag"/>: <c>true</c> iff the chosen comparator was a
+        /// placebo arm (<c>PLACEBO_COMPARATOR</c>). The <paramref name="design"/> argument
+        /// is diagnostic-only — it can append <c>AMBIGUOUS_TRIAL_DESIGN</c> to
+        /// <c>CalculationFlags</c> but never drives the bit. This intentional decoupling
+        /// answers "is this row's comparison placebo-controlled?" rather than the older
+        /// document-level "is this trial pure placebo-vs-drug?" question.</para>
+        /// </remarks>
         /// <param name="row">The non-comparator source row to project.</param>
         /// <param name="comparator">Comparator row chosen for this group, or null when no comparator was selectable.</param>
-        /// <param name="comparatorFlag">Comparator-kind flag (<c>PLACEBO_COMPARATOR</c>, <c>LOW_DOSE_COMPARATOR</c>, or <c>NO_COMPARATOR</c>).</param>
+        /// <param name="comparatorFlag">Comparator-kind flag (<c>PLACEBO_COMPARATOR</c>, <c>LOW_DOSE_COMPARATOR</c>, or <c>NO_COMPARATOR</c>). Drives <c>IsPlaceboControlled</c>.</param>
         /// <param name="dRef">Group D_ref (MIN(Dose) WHERE Dose &gt; 0).</param>
         /// <param name="dRefUnit">Dose unit at D_ref.</param>
-        /// <param name="design">Document-level trial-design classification.</param>
+        /// <param name="design">Per-table trial-design classification (diagnostic only — emits <c>AMBIGUOUS_TRIAL_DESIGN</c> into <c>CalculationFlags</c>).</param>
         /// <returns>Entity ready for AddRange + SaveChangesAsync.</returns>
         private static LabelView.FlattenedAdverseEventTable buildEntity(
             LabelView.FlattenedStandardizedTable row,
@@ -444,7 +486,10 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 TreatmentArm = row.TreatmentArm,
                 ComparatorArm = comparator?.TreatmentArm,
                 ComparatorN = comparator?.ArmN,
-                IsPlaceboControlled = design.IsPlaceboControlled
+                // Strictly row-level: the bit is on iff THIS row's comparator was a placebo
+                // arm. The trial-design classifier no longer drives the bit (its result
+                // surfaces only as the AMBIGUOUS_TRIAL_DESIGN diagnostic flag below).
+                IsPlaceboControlled = string.Equals(comparatorFlag, PlaceboComparatorFlag, StringComparison.Ordinal)
             };
 
             var flags = new List<string> { comparatorFlag };

@@ -561,31 +561,44 @@ PRI  TEST                                                 ACTION
 
 The chosen comparator row is **excluded from output** (no self-comparison row).
 
-### 7.3 IsPlaceboControlled — Trial-Design Classification
+### 7.3 IsPlaceboControlled — Row-Level Placebo-Comparator Flag
 
-`IsPlaceboControlled` is a **Document-level** property, not a row-level pairing
-artifact. Set the same value on every row for a given DocumentGUID. Compute
-once per Document by inspecting the full set of distinct `TreatmentArm` values
-across that Document's AE rows:
+`IsPlaceboControlled` is a **row-level** flag derived directly from the comparator
+selected for that row's study group. It is `1` iff the row's chosen comparator
+was a placebo arm — equivalent to (and persisted alongside)
+`CalculationFlags LIKE 'PLACEBO_COMPARATOR%'`. The bit answers the question
+"is this row's comparison placebo-controlled?" — not the older document-wide
+"is this trial pure placebo-vs-drug?" question.
+
+Because the bit is comparator-driven, it can vary across rows of the same
+DocumentGUID, and even across rows of the same TextTableID when a parameter
+group lacks a placebo row (the comparator falls back to the lowest non-zero
+dose, and the bit becomes `0`).
+
+#### Diagnostic: per-table trial-design classification
+
+Independent of the bit, the per-`(DocumentGUID, TextTableID)` trial-design
+classifier emits the `AMBIGUOUS_TRIAL_DESIGN` flag into `CalculationFlags` when
+arm names cannot be reduced to a usable root. The classification kinds below
+describe what the classifier *recognizes* in a study table; they no longer
+drive the persisted `IsPlaceboControlled` bit:
 
 ```
-DOCUMENT ARM COMPOSITION                                          IsPlaceboControlled
-────────────────────────────────────────────────────────────────  ──────────────────
-Index drug arm(s) + placebo arm(s) only                                  1
-Index drug arm(s) + placebo arm(s) + active comparator arm(s)            0
-Index drug arm(s) + active comparator only (no placebo)                  0
-Stepped-dose monotherapy (no placebo, no other drug)                     0
-Single-arm                                                                0
+PER-TABLE ARM COMPOSITION                                         TrialDesignKind
+────────────────────────────────────────────────────────────────  ──────────────
+Drug arm(s) of one root + placebo arm(s)                          PLACEBO_ONLY
+                                                                  (or STEPPED_DOSE_PLUS_PLACEBO when >1 dose)
+Drug arms with multiple distinct roots + placebo                  PLACEBO_PLUS_ACTIVE
+Drug arms only, single root                                       STEPPED_DOSE_MONOTHERAPY
+Drug arms only, multiple roots                                    ACTIVE_ONLY
+Single arm                                                        SINGLE_ARM
+Arm names won't reduce to roots                                   AMBIGUOUS  → flag emitted
 ```
 
-**"Active comparator"** = a treatment arm that is neither placebo (per §7.2 #1
-heuristic) nor the index drug. **"Index drug"** is detected from the document's
-UNII column (or in a multi-UNII document, the most-frequent UNII among
-non-placebo arms).
-
-`CalculationFlags` separately records the **row's** comparator type
-(`PLACEBO_COMPARATOR`, `ACTIVE_COMPARATOR`, `LOW_DOSE_COMPARATOR`, `NO_COMPARATOR`)
-— orthogonal to the Document-level `IsPlaceboControlled` flag.
+**"Drug-name root"** is extracted by stripping numeric dose tokens
+(e.g., `50 mg`, `5 mg/kg`, `25 IU`) and common regimen tokens (`qd`, `bid`,
+`daily`, etc.) from the `TreatmentArm` string and lowercasing the remainder.
+The classifier uses arm-name roots, NOT the document's UNII column.
 
 ### 7.4 Like-Typed Comparison Constraint
 

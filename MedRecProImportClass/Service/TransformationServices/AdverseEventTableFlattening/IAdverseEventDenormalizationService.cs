@@ -5,8 +5,10 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     /// Stage 5 (Phase 2) service that projects adverse-event rows from
     /// <c>tmp_FlattenedStandardizedTable</c> into the denormalized
     /// <c>tmp_FlattenedAdverseEventTable</c> with pre-computed Relative Risk (RR),
-    /// Dose-Normalized RR (DNRR), 95% CI bounds, and Document-level trial-design
-    /// classification.
+    /// Dose-Normalized RR (DNRR), 95% CI bounds, the row-level
+    /// <c>IsPlaceboControlled</c> bit (set iff the row's chosen comparator was a
+    /// placebo arm), and per-table trial-design diagnostics surfaced through
+    /// <c>CalculationFlags</c>.
     /// </summary>
     /// <remarks>
     /// ## Pipeline Position
@@ -27,9 +29,10 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /**************************************************************/
         /// <summary>
         /// Truncates <c>tmp_FlattenedAdverseEventTable</c>, then streams AE rows from
-        /// <c>tmp_FlattenedStandardizedTable</c>, classifies trial design per Document,
-        /// selects comparators per study group, computes RR/DNRR/CI, and bulk-writes
-        /// the result.
+        /// <c>tmp_FlattenedStandardizedTable</c>, classifies trial design per
+        /// (DocumentGUID, TextTableID) for diagnostic flagging, selects comparators per
+        /// study group, sets <c>IsPlaceboControlled</c> per-row from the comparator
+        /// selection, computes RR/DNRR/CI, and bulk-writes the result.
         /// </summary>
         /// <param name="batchSize">Documents per batch (default 5000).</param>
         /// <param name="progress">Optional progress callback invoked after each batch completes.</param>

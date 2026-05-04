@@ -196,11 +196,14 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Drug + Placebo + Active comparator (distinct arm-name roots) →
-        /// IsPlaceboControlled=0 for ALL rows in the document, per user spec.
+        /// Drug + Placebo + Active comparator (distinct arm-name roots) in one TextTableID:
+        /// the comparator cascade picks Placebo (tier 1), so under the row-level definition
+        /// every output row is paired with placebo and gets IsPlaceboControlled = true.
+        /// The per-table classifier still produces PLACEBO_PLUS_ACTIVE (not AMBIGUOUS),
+        /// which means no AMBIGUOUS_TRIAL_DESIGN diagnostic is emitted.
         /// </summary>
         [TestMethod]
-        public async Task PopulateAsync_DrugPlaceboPlusActive_FlagFalse()
+        public async Task PopulateAsync_DrugPlaceboPlusActive_FlagTrueWhenComparatorIsPlacebo()
         {
             #region implementation
 
@@ -216,8 +219,147 @@ namespace MedRecPro.Service.Test
             // Comparator is placebo (excluded). Both drug arms produce output rows.
             var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
             Assert.AreEqual(2, rows.Count);
-            Assert.IsTrue(rows.All(r => !r.IsPlaceboControlled),
-                "Drug + Placebo + Active comparator → IsPlaceboControlled=0 per user spec");
+            Assert.IsTrue(rows.All(r => r.IsPlaceboControlled),
+                "Row-level: every row whose comparator is Placebo gets IsPlaceboControlled=1");
+            Assert.IsTrue(rows.All(r => r.CalculationFlags!.Contains("PLACEBO_COMPARATOR")));
+            Assert.IsTrue(rows.All(r => !r.CalculationFlags!.Contains("AMBIGUOUS_TRIAL_DESIGN")),
+                "Two distinct drug roots + placebo classifies cleanly as PLACEBO_PLUS_ACTIVE, not ambiguous");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Regression test for the TextTableID=23177 root cause. One DocumentGUID carries
+        /// two sub-trials in different TextTableIDs: a clean drug-vs-placebo table and an
+        /// active-only table (no placebo). Rows from the placebo table must be flagged
+        /// IsPlaceboControlled=1 even though the document overall contains an unrelated
+        /// active-only sub-trial. Rows from the active-only table must remain false.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_MultipleSubTrialsInOneDocument_TableLevelClassification()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            // Sub-trial 1 (TextTableID=100): drug + placebo, clean PLACEBO_ONLY design.
+            var t1Drug = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", 100, 50m, "mg", 20.0, "Percentage");
+            var t1Placebo = aeRow(2, doc, 100, "Nausea", "Placebo", 100, 0m, null, 10.0, "Percentage", sourceRowSeq: 2);
+
+            // Sub-trial 2 (TextTableID=200): drug + active comparator (no placebo) in the
+            // SAME document. Pre-fix, the doc-wide classifier saw arms = {Drug A, Drug B,
+            // Placebo, ActiveComparator} → PLACEBO_PLUS_ACTIVE → false → stamped onto the
+            // table-100 rows, breaking the user's primary use-case.
+            var t2Drug = aeRow(3, doc, 200, "Headache", "Drug B 75mg", 100, 75m, "mg", 15.0, "Percentage", sourceRowSeq: 3);
+            var t2Active = aeRow(4, doc, 200, "Headache", "Active Comparator 25mg", 100, 25m, "mg", 12.0, "Percentage", sourceRowSeq: 4);
+
+            var (service, db) = createService(t1Drug, t1Placebo, t2Drug, t2Active);
+
+            await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            Assert.AreEqual(2, rows.Count, "One non-comparator row per sub-trial");
+
+            var t1Row = rows.Single(r => r.FlattenedStandardizedTableId == t1Drug.Id);
+            Assert.AreEqual("Placebo", t1Row.ComparatorArm);
+            Assert.IsTrue(t1Row.IsPlaceboControlled,
+                "Table 100 is drug-vs-placebo; row's comparator IS placebo → bit must be 1 (regression for TextTableID=23177)");
+            Assert.IsTrue(t1Row.CalculationFlags!.Contains("PLACEBO_COMPARATOR"));
+
+            var t2Row = rows.Single(r => r.FlattenedStandardizedTableId == t2Drug.Id);
+            Assert.AreEqual("Active Comparator 25mg", t2Row.ComparatorArm);
+            Assert.IsFalse(t2Row.IsPlaceboControlled,
+                "Table 200 has no placebo arm; row's comparator is the lower-dose active arm → bit must be 0");
+            Assert.IsTrue(t2Row.CalculationFlags!.Contains("LOW_DOSE_COMPARATOR"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// False-positive guard. A single TextTableID has placebo + two drug doses.
+        /// Parameter 1 has all three rows (the comparator cascade picks Placebo). Parameter
+        /// 2 only has the two drug doses (no placebo for that parameter — the cascade picks
+        /// the lower-dose drug). Under strictly row-level semantics, parameter 1's row gets
+        /// IsPlaceboControlled=1 but parameter 2's row must get 0, even though the table
+        /// overall classifies as STEPPED_DOSE_PLUS_PLACEBO. This locks in the strict
+        /// definition and prevents future regression to a design-OR-comparator approach.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_PlaceboTablePartialGroup_NoFalsePositive()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            // Parameter 1: all three arms present → comparator = Placebo → bit = 1
+            var p1Low = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", 100, 50m, "mg", 12.0, "Percentage");
+            var p1High = aeRow(2, doc, 100, "Nausea", "Drug A 100mg", 100, 100m, "mg", 20.0, "Percentage", sourceRowSeq: 2);
+            var p1Placebo = aeRow(3, doc, 100, "Nausea", "Placebo", 100, 0m, null, 8.0, "Percentage", sourceRowSeq: 3);
+
+            // Parameter 2: only the two drug doses (no placebo for this param) → comparator
+            // = lower-dose drug → bit must be 0 even though the TABLE design has placebo.
+            var p2Low = aeRow(4, doc, 100, "Headache", "Drug A 50mg", 100, 50m, "mg", 6.0, "Percentage", sourceRowSeq: 4);
+            var p2High = aeRow(5, doc, 100, "Headache", "Drug A 100mg", 100, 100m, "mg", 11.0, "Percentage", sourceRowSeq: 5);
+
+            var (service, db) = createService(p1Low, p1High, p1Placebo, p2Low, p2High);
+
+            await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+
+            var p1Rows = rows.Where(r => r.ParameterName == "Nausea").ToList();
+            Assert.IsTrue(p1Rows.All(r => r.IsPlaceboControlled),
+                "Parameter 1's rows pair with Placebo → bit = 1");
+            Assert.IsTrue(p1Rows.All(r => r.CalculationFlags!.Contains("PLACEBO_COMPARATOR")));
+
+            var p2Rows = rows.Where(r => r.ParameterName == "Headache").ToList();
+            Assert.IsTrue(p2Rows.All(r => !r.IsPlaceboControlled),
+                "Parameter 2's rows pair with the lower-dose drug → bit = 0 even though the table has STEPPED_DOSE_PLUS_PLACEBO design");
+            Assert.IsTrue(p2Rows.All(r => r.CalculationFlags!.Contains("LOW_DOSE_COMPARATOR")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Defensive test for null TextTableID. Two AE rows in one DocumentGUID with
+        /// TextTableID=null but different ParameterName + comparator structure. Because
+        /// the bit is comparator-driven (not design-driven), each row must be independently
+        /// correct based on its own group's comparator. The null-TextTableID path
+        /// short-circuits trial-design classification but does NOT merge rows for
+        /// comparator pairing (which is keyed by ParameterName etc., not TextTableID alone).
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_NullTextTableID_DoesNotMergeRows()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            // Group A: drug vs placebo (placebo comparator)
+            var aDrug = aeRow(1, doc, null, "Nausea", "Drug A 50mg", 100, 50m, "mg", 20.0, "Percentage");
+            var aPlacebo = aeRow(2, doc, null, "Nausea", "Placebo", 100, 0m, null, 10.0, "Percentage", sourceRowSeq: 2);
+
+            // Group B: drug vs active comparator (no placebo → low-dose comparator)
+            var bDrugHigh = aeRow(3, doc, null, "Headache", "Drug B 100mg", 100, 100m, "mg", 15.0, "Percentage", sourceRowSeq: 3);
+            var bDrugLow = aeRow(4, doc, null, "Headache", "Drug B 25mg", 100, 25m, "mg", 8.0, "Percentage", sourceRowSeq: 4);
+
+            var (service, db) = createService(aDrug, aPlacebo, bDrugHigh, bDrugLow);
+
+            await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            Assert.AreEqual(2, rows.Count);
+
+            var nausea = rows.Single(r => r.ParameterName == "Nausea");
+            Assert.IsTrue(nausea.IsPlaceboControlled, "Null TextTableID must not block per-row placebo detection");
+            Assert.AreEqual("Placebo", nausea.ComparatorArm);
+
+            var headache = rows.Single(r => r.ParameterName == "Headache");
+            Assert.IsFalse(headache.IsPlaceboControlled, "Null TextTableID must not bleed placebo-ness across parameters");
+            Assert.AreEqual("Drug B 25mg", headache.ComparatorArm);
 
             #endregion
         }

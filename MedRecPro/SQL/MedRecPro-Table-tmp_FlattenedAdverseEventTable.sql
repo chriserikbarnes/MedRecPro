@@ -46,10 +46,13 @@ BEGIN
         ComparatorArm                       NVARCHAR(1000)   NULL,
         ComparatorN                         INT              NULL,
         IsPlaceboControlled                 BIT              NOT NULL DEFAULT 0,
-                                                                      -- Trial-design flag (Document-level):
-                                                                      --   1 = drug arms + placebo only
-                                                                      --   0 = active comparator present, stepped-dose
-                                                                      --       only, single-arm, or placebo+active mix
+                                                                      -- Row-level placebo-comparator flag:
+                                                                      --   1 = this row's chosen comparator was a placebo
+                                                                      --       arm (placebo|sham|vehicle, or Dose=0)
+                                                                      --   0 = otherwise
+                                                                      -- Equivalent to CalculationFlags LIKE 'PLACEBO_COMPARATOR%'
+                                                                      -- but indexable. May vary across rows of the same
+                                                                      -- DocumentGUID (multi-sub-trial documents).
 
         -- Derived event counts (intermediate; needed for CI math)
         EventsTreatment                     FLOAT            NULL,    -- a in 2x2

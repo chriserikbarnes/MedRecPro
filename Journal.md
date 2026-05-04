@@ -3668,3 +3668,21 @@ No parser-class changes — fix lives entirely in the shared base.
 **Verification.** `dotnet test` clean: 1925 passed (up from 1907), 0 failed, 1 pre-existing skip. The five new parser tests cover both new branches plus the Efficacy-isolation gate.
 
 ---
+
+### 2026-05-04 4:11 PM EST — Strictly row-level IsPlaceboControlled (8092-row misclassification fix)
+
+User reported `tmp_FlattenedAdverseEventTable` had 8092 rows where `ComparatorArm = 'Placebo'` but `IsPlaceboControlled = 0`. Concrete failing case: TextTableID = 23177 (ZOLADEX 3.6 mg vs Placebo, TRIAL 0022 — clean two-arm placebo-controlled), every row stamped 0.
+
+**Two root causes** identified after Plan-agent review:
+1. Doc-level grouping in [AdverseEventDenormalizationService.cs:258](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AdverseEventDenormalizationService.cs:258) collapsed *all* sub-trials in one Document into one arm set. The ZOLADEX SPL also contains TextTableID 23178 (vs OOPHORECTOMY) and 23176 (vs DANAZOL) — non-placebo comparators. Doc-wide arms = `{ZOLADEX 3.6 mg, ZOLADEX, Placebo, OOPHORECTOMY, …}` → 2 distinct drug roots → `PLACEBO_PLUS_ACTIVE` → false → stamped onto 23177's rows.
+2. The bit was design-driven instead of comparator-driven. Even with finer scope, a true 3-arm-in-one-table study (Levalbuterol + Racemic albuterol + Placebo) would still classify `PLACEBO_PLUS_ACTIVE` and emit 0, even though each row's actual comparator was Placebo.
+
+**Fix (strictly row-level, after user vetoed an OR-style hybrid):** `IsPlaceboControlled = string.Equals(comparatorFlag, PlaceboComparatorFlag, StringComparison.Ordinal)`. The bit now answers exactly "is this row's selected comparator a placebo arm?" — equivalent to `CalculationFlags LIKE 'PLACEBO_COMPARATOR%'` but indexable. The trial-design classifier (`ClassifyTrialDesign`, `TrialDesignKind`, `extractArmRoot`) stays in place but only as a per-`(DocumentGUID, TextTableID)` diagnostic emitter for `AMBIGUOUS_TRIAL_DESIGN`. Null `TextTableID` rows skip classification (defensive — the bit still computes correctly via the comparator path).
+
+**Tests.** Rewrote `PopulateAsync_DrugPlaceboPlusActive_FlagFalse` → `..._FlagTrueWhenComparatorIsPlacebo` (semantic flip). Added three new tests: `..._MultipleSubTrialsInOneDocument_TableLevelClassification` (regression for 23177), `..._PlaceboTablePartialGroup_NoFalsePositive` (locks in the strict definition vs an OR fallback), `..._NullTextTableID_DoesNotMergeRows` (defensive). All 25 AE tests + 35 RR tests pass (61 total in scope; RR tests untouched).
+
+**Documentation sweep.** Updated wording in column-contracts.md, normalization-rules.md §7.3, TABLE_STANDARDIZATION_SKILL.md, README.md (4 sections), the SQL DDL inline comment, and three model docstrings (`MedRecPro/Models/LabelView.cs`, `MedRecProImportClass/Models/LabelView.cs`, `FlattenedAdverseEventTableDto.cs`) to row-level semantics. Fixed two unrelated stale claims caught in the user's review while in the same paragraphs: README's wrong "comparator pairing scope is `DocumentGUID + ParameterName + ParameterSubtype`" (live code uses `TextTableID + ParameterName + ParameterSubtype + StudyContext + Population + Subpopulation`), and the docs' wrong claim that "index drug is detected from the document's UNII" (the classifier actually uses arm-name roots via `extractArmRoot`).
+
+**SQL acceptance** (run by user post-deploy): `SELECT COUNT(*) FROM tmp_FlattenedAdverseEventTable WHERE CalculationFlags LIKE 'PLACEBO_COMPARATOR%' AND IsPlaceboControlled = 0` and the false-positive guard `WHERE CalculationFlags NOT LIKE 'PLACEBO_COMPARATOR%' AND IsPlaceboControlled = 1` should both return 0 after Stage 5 re-runs.
+
+---

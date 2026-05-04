@@ -292,7 +292,7 @@ see `normalization-rules.md` §7.
 | TreatmentArm | R | Drug name from source row | |
 | ComparatorArm | E | Name of the comparator row this RR is calculated against | NULL when no comparator could be paired |
 | ComparatorN | E | Sample size for the comparator arm | |
-| IsPlaceboControlled | R | **Trial-design flag (Document-level)** | `1` only when document arms = drug + placebo (no active comparator); `0` for mixed placebo+active, active-only, stepped-dose, or single-arm. Same value on every row for a given DocumentGUID. |
+| IsPlaceboControlled | R | **Row-level placebo-comparator flag** | `1` when the row's selected comparator was a placebo arm (matches `placebo`/`sham`/`vehicle` regex or has Dose=0); `0` otherwise. Equivalent to `CalculationFlags LIKE 'PLACEBO_COMPARATOR%'` but indexable as a bit. May vary across rows of the same DocumentGUID — a Document can carry multiple sub-trials with different comparator structures. |
 
 ### Derived Event Counts (Phase 2 service populates)
 

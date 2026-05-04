@@ -202,9 +202,11 @@ and `references/normalization-rules.md` §7):
 
 - **PrimaryValueType is copied verbatim from source** — never derived. Stats
   operate only on like-typed pairs (Percentage-vs-Percentage or Numeric-vs-Numeric).
-- **`IsPlaceboControlled` is a Document-level trial-design flag**, not a row-level
-  pairing artifact. Set to `1` only when document arms are exactly drug + placebo.
-  Mixed placebo+active, active-only, stepped-dose, and single-arm trials all get `0`.
+- **`IsPlaceboControlled` is a row-level placebo-comparator flag.** Set to `1` iff
+  the row's chosen comparator was a placebo arm (matches `placebo`/`sham`/`vehicle`
+  or has Dose=0). Equivalent to `CalculationFlags LIKE 'PLACEBO_COMPARATOR%'` but
+  indexable as a bit. May vary across rows of the same DocumentGUID, and even
+  within one TextTableID when a parameter group lacks a placebo row.
 - **The `Log*` columns are SQL Server PERSISTED computed columns**, materialized
   on disk and auto-maintained. `CASE WHEN > 0 THEN LOG(...)` guards prevent
   `LOG(0)` / `LOG(NULL)` errors.

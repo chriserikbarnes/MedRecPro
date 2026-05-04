@@ -6,7 +6,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     /// <summary>
     /// Pure-function statistical utility for computing Relative Risk (RR), Dose-Normalized
     /// Relative Risk (DNRR), 95% confidence-interval bounds, derived event counts, and
-    /// Document-level trial-design classification used by Stage 5 (Phase 2) AdverseEvent
+    /// per-table trial-design classification used by Stage 5 (Phase 2) AdverseEvent
     /// denormalization.
     /// </summary>
     /// <remarks>
@@ -21,8 +21,11 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     ///   dose; skips with diagnostic flag for placebo rows, reference-dose rows, missing
     ///   dose ranges, or dose-unit mismatches.
     /// - <see cref="IsPlaceboArm"/>: classifies a single arm as placebo-equivalent.
-    /// - <see cref="ClassifyTrialDesign"/>: conservative Document-level classifier for
-    ///   <c>IsPlaceboControlled</c>; ambiguous designs fall back to <c>false</c>.
+    /// - <see cref="ClassifyTrialDesign"/>: conservative per-table trial-design
+    ///   classifier; ambiguous designs fall back to <c>AMBIGUOUS_TRIAL_DESIGN</c>. The
+    ///   classification is now diagnostic only (surfaced via <c>CalculationFlags</c>);
+    ///   the persisted <c>IsPlaceboControlled</c> column is comparator-driven, set per-row
+    ///   in <see cref="AdverseEventDenormalizationService"/>.
     ///
     /// ## Stateless / Deterministic
     /// All methods are static and side-effect free. Inputs are doubles/decimals/strings;
@@ -114,9 +117,14 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
-        /// Categorical kinds emitted by <see cref="ClassifyTrialDesign"/>. Only
-        /// <see cref="PLACEBO_ONLY"/> and <see cref="STEPPED_DOSE_PLUS_PLACEBO"/> map
-        /// to <c>IsPlaceboControlled = true</c>.
+        /// Categorical kinds emitted by <see cref="ClassifyTrialDesign"/>. Diagnostic
+        /// only — these no longer drive the persisted <c>IsPlaceboControlled</c> bit
+        /// (which is row-level, set from the comparator selection in
+        /// <see cref="AdverseEventDenormalizationService"/>). Only
+        /// <see cref="PLACEBO_ONLY"/> and <see cref="STEPPED_DOSE_PLUS_PLACEBO"/> set
+        /// the <see cref="TrialDesignClassification.IsPlaceboControlled"/> field on the
+        /// returned record to <c>true</c>; that field is consumed only for internal
+        /// diagnostic purposes.
         /// </summary>
         public enum TrialDesignKind
         {
@@ -138,10 +146,14 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
-        /// Result of <see cref="ClassifyTrialDesign"/>. <see cref="IsPlaceboControlled"/>
-        /// is the Document-level flag applied to every output row;
-        /// <see cref="Kind"/> is diagnostic; <see cref="Flag"/> is non-null only when
-        /// the design was AMBIGUOUS (caller appends to CalculationFlags).
+        /// Result of <see cref="ClassifyTrialDesign"/>. <see cref="Kind"/> and
+        /// <see cref="Flag"/> drive the diagnostic <c>AMBIGUOUS_TRIAL_DESIGN</c>
+        /// CalculationFlags entry. <see cref="IsPlaceboControlled"/> on this record is
+        /// retained for backward compatibility and unit-test introspection but is
+        /// **no longer written to the persisted DB column** — the
+        /// <c>tmp_FlattenedAdverseEventTable.IsPlaceboControlled</c> bit is set per-row
+        /// from the comparator-selection flag in
+        /// <see cref="AdverseEventDenormalizationService"/>.
         /// </summary>
         public sealed record TrialDesignClassification(
             bool IsPlaceboControlled,
@@ -399,17 +411,27 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
-        /// Conservative Document-level trial-design classifier. Sets
-        /// <c>IsPlaceboControlled = true</c> only when the document has placebo
-        /// arm(s) plus drug arm(s) of a single drug (one distinct arm-name root after
-        /// dose-token stripping). Ambiguous designs default to <c>false</c> with the
-        /// <c>AMBIGUOUS_TRIAL_DESIGN</c> flag — Phase 2 cannot reliably distinguish
-        /// "drug + active comparator" from "stepped dose of one drug" without
-        /// arm-level UNII, so the conservative read is preferred.
+        /// Conservative per-table trial-design classifier. Sets the returned record's
+        /// <see cref="TrialDesignClassification.IsPlaceboControlled"/> to <c>true</c>
+        /// only when the table has placebo arm(s) plus drug arm(s) of a single drug
+        /// (one distinct arm-name root after dose-token stripping). Ambiguous designs
+        /// default to <c>false</c> with the <c>AMBIGUOUS_TRIAL_DESIGN</c> flag — the
+        /// classifier cannot reliably distinguish "drug + active comparator" from
+        /// "stepped dose of one drug" without arm-level UNII, so the conservative read
+        /// is preferred.
         /// </summary>
+        /// <remarks>
+        /// As of the row-level <c>IsPlaceboControlled</c> refactor, the result drives
+        /// only the <c>AMBIGUOUS_TRIAL_DESIGN</c> diagnostic flag in
+        /// <c>CalculationFlags</c>. The persisted DB bit is set per-row from the
+        /// comparator selection in <see cref="AdverseEventDenormalizationService"/>.
+        /// Caller groups arms per (DocumentGUID, TextTableID) so the diagnostic stays
+        /// scoped to the row's source table rather than contaminating the whole document.
+        /// </remarks>
         /// <param name="distinctDocumentArms">
-        /// Distinct treatment arms across all AE rows in one Document (caller deduplicates).
-        /// Each arm contributes name + dose + dose-unit.
+        /// Distinct treatment arms across all AE rows in one (DocumentGUID, TextTableID)
+        /// study table (caller deduplicates). Each arm contributes name + dose + dose-unit.
+        /// Parameter name retained for source compatibility; semantically it is now per-table.
         /// </param>
         /// <returns>Classification + diagnostic flag.</returns>
         /// <seealso cref="IsPlaceboArm"/>
