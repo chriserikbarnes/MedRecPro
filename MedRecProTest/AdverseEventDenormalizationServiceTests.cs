@@ -583,5 +583,213 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Idempotency
+
+        #region Population-Aware Comparator Grouping
+
+        /**************************************************************/
+        /// <summary>
+        /// Multi-StudyContext table (44661 archetype): four arms partitioned by Adults vs
+        /// Children. The Adults Clomipramine row must pair against the **Adults** Placebo
+        /// (N=319), not the Children Placebo, because the comparator group key now
+        /// includes <c>StudyContext</c>.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_MultiStudyContext_PairsWithinPopulation()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            var adultsClomi = aeRow(1, doc, 44661, "Somnolence", "Clomipramine", 322, 50m, "mg", 54, "Percentage");
+            adultsClomi.StudyContext = "Adults";
+            var adultsPlacebo = aeRow(2, doc, 44661, "Somnolence", "Placebo", 319, 0m, "mg", 16, "Percentage");
+            adultsPlacebo.StudyContext = "Adults";
+            var childrenClomi = aeRow(3, doc, 44661, "Somnolence", "Clomipramine", 46, 50m, "mg", 46, "Percentage");
+            childrenClomi.StudyContext = "Children and Adolescents";
+            var childrenPlacebo = aeRow(4, doc, 44661, "Somnolence", "Placebo", 44, 0m, "mg", 11, "Percentage");
+            childrenPlacebo.StudyContext = "Children and Adolescents";
+
+            var (service, db) = createService(adultsClomi, adultsPlacebo, childrenClomi, childrenPlacebo);
+
+            await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            // Both placebo rows are excluded from output as comparators -> 2 emitted rows.
+            Assert.AreEqual(2, rows.Count, "Expected exactly two non-placebo rows in output.");
+
+            var adultsTreated = rows.Single(r => r.StudyContext == "Adults");
+            Assert.AreEqual("Clomipramine", adultsTreated.TreatmentArm);
+            Assert.AreEqual("Placebo", adultsTreated.ComparatorArm);
+            Assert.AreEqual(319, adultsTreated.ComparatorN, "Adults Clomipramine must pair with Adults Placebo (N=319).");
+            Assert.AreEqual(322, adultsTreated.ArmN);
+
+            var childrenTreated = rows.Single(r => r.StudyContext == "Children and Adolescents");
+            Assert.AreEqual("Clomipramine", childrenTreated.TreatmentArm);
+            Assert.AreEqual("Placebo", childrenTreated.ComparatorArm);
+            Assert.AreEqual(44, childrenTreated.ComparatorN, "Children Clomipramine must pair with Children Placebo (N=44).");
+            Assert.AreEqual(46, childrenTreated.ArmN);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Caption-derived <c>Population</c> alone is sufficient to partition the
+        /// comparator group when <c>StudyContext</c> is null. Validates that Population
+        /// participates in the group key.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_PopulationOnlyPartition_PairsWithinPopulation()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            var adultsClomi = aeRow(1, doc, 99001, "Headache", "Drug A", 200, 50m, "mg", 30, "Percentage");
+            adultsClomi.Population = "Adult Healthy Volunteers";
+            var adultsPlacebo = aeRow(2, doc, 99001, "Headache", "Placebo", 200, 0m, "mg", 10, "Percentage");
+            adultsPlacebo.Population = "Adult Healthy Volunteers";
+            var pediatricClomi = aeRow(3, doc, 99001, "Headache", "Drug A", 60, 50m, "mg", 25, "Percentage");
+            pediatricClomi.Population = "Pediatric Patients";
+            var pediatricPlacebo = aeRow(4, doc, 99001, "Headache", "Placebo", 60, 0m, "mg", 8, "Percentage");
+            pediatricPlacebo.Population = "Pediatric Patients";
+
+            var (service, db) = createService(adultsClomi, adultsPlacebo, pediatricClomi, pediatricPlacebo);
+
+            await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            Assert.AreEqual(2, rows.Count);
+
+            var adults = rows.Single(r => r.Population == "Adult Healthy Volunteers");
+            Assert.AreEqual(200, adults.ComparatorN);
+
+            var pediatric = rows.Single(r => r.Population == "Pediatric Patients");
+            Assert.AreEqual(60, pediatric.ComparatorN);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Subpopulation partitions the comparator group separately from StudyContext
+        /// (Female-only Dysmenorrhea must pair against Female-only Placebo). The per-arm
+        /// ArmN comes from the subpopulation's N, not the whole-study N.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_SubpopulationPartition_PairsWithinSubpopulation()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            // Female-only slice: Clomipramine N=182, Placebo N=167
+            var femaleClomi = aeRow(1, doc, 44661, "Dysmenorrhea", "Clomipramine", 182, 50m, "mg", 12, "Percentage");
+            femaleClomi.StudyContext = "Adults";
+            femaleClomi.Subpopulation = "Female Patients Only";
+            var femalePlacebo = aeRow(2, doc, 44661, "Dysmenorrhea", "Placebo", 167, 0m, "mg", 14, "Percentage");
+            femalePlacebo.StudyContext = "Adults";
+            femalePlacebo.Subpopulation = "Female Patients Only";
+
+            // Male-only slice (different parameter, but same pattern): Ejaculation failure
+            var maleClomi = aeRow(3, doc, 44661, "Ejaculation failure", "Clomipramine", 140, 50m, "mg", 42, "Percentage");
+            maleClomi.StudyContext = "Adults";
+            maleClomi.Subpopulation = "Male Patients Only";
+            var malePlacebo = aeRow(4, doc, 44661, "Ejaculation failure", "Placebo", 152, 0m, "mg", 2, "Percentage");
+            malePlacebo.StudyContext = "Adults";
+            malePlacebo.Subpopulation = "Male Patients Only";
+
+            var (service, db) = createService(femaleClomi, femalePlacebo, maleClomi, malePlacebo);
+
+            await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            Assert.AreEqual(2, rows.Count);
+
+            var female = rows.Single(r => r.Subpopulation == "Female Patients Only");
+            Assert.AreEqual(182, female.ArmN, "Dysmenorrhea Clomipramine must use the female-only N (182).");
+            Assert.AreEqual(167, female.ComparatorN, "Pair must be Female-only Placebo (167), not whole-study placebo.");
+            Assert.IsNotNull(female.RR, "RR should compute for a within-subpop pair.");
+
+            var male = rows.Single(r => r.Subpopulation == "Male Patients Only");
+            Assert.AreEqual(140, male.ArmN);
+            Assert.AreEqual(152, male.ComparatorN);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Whitespace and case variants in <c>StudyContext</c> must not split a valid
+        /// comparator group. Validates the <c>normalizeKey</c> helper (trim, collapse,
+        /// ToUpperInvariant).
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_StudyContextWhitespaceVariants_StaySingleGroup()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            var clomi = aeRow(1, doc, 99002, "Nausea", "Clomipramine", 200, 50m, "mg", 30, "Percentage");
+            clomi.StudyContext = "Adults"; // canonical
+            var placebo = aeRow(2, doc, 99002, "Nausea", "Placebo", 200, 0m, "mg", 10, "Percentage");
+            placebo.StudyContext = "  adults "; // trailing space + lowercase
+
+            var (service, db) = createService(clomi, placebo);
+
+            await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            // If the whitespace/case variants split into two groups, both rows would emit
+            // with NO_COMPARATOR. Single-group means 1 row emitted with a comparator.
+            Assert.AreEqual(1, rows.Count, "Whitespace/case variants must not split the group.");
+            Assert.AreEqual("Placebo", rows[0].ComparatorArm);
+            Assert.AreEqual(200, rows[0].ComparatorN);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Subpopulation slice produces coherent EventsTreatment / EventsComparator
+        /// derived from the subpopulation N (not the whole-study N).
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_SubpopulationSlice_EventCountsCoherent()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+
+            // 12% of 182 ≈ 21.84 events; 14% of 167 ≈ 23.38 events.
+            var clomi = aeRow(1, doc, 44661, "Dysmenorrhea", "Clomipramine", 182, 50m, "mg", 12, "Percentage");
+            clomi.Subpopulation = "Female Patients Only";
+            var placebo = aeRow(2, doc, 44661, "Dysmenorrhea", "Placebo", 167, 0m, "mg", 14, "Percentage");
+            placebo.Subpopulation = "Female Patients Only";
+
+            var (service, db) = createService(clomi, placebo);
+
+            await service.PopulateAsync();
+
+            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
+            Assert.AreEqual(182, row.ArmN);
+            Assert.AreEqual(167, row.ComparatorN);
+            Assert.IsNotNull(row.EventsTreatment, "EventsTreatment must be derived for Percentage rows.");
+            Assert.IsNotNull(row.EventsComparator);
+
+            // Sanity: events should match ArmN * % / 100 within rounding tolerance.
+            Assert.AreEqual(182.0 * 12.0 / 100.0, row.EventsTreatment!.Value, 0.5);
+            Assert.AreEqual(167.0 * 14.0 / 100.0, row.EventsComparator!.Value, 0.5);
+
+            // RR should be computable on a coherent subpop slice.
+            Assert.IsNotNull(row.RR);
+            Assert.IsNotNull(row.RRLowerBound);
+            Assert.IsNotNull(row.RRUpperBound);
+
+            #endregion
+        }
+
+        #endregion Population-Aware Comparator Grouping
     }
 }

@@ -672,5 +672,114 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Issue 4: Confidence Provenance
+
+        #region Subpopulation Field Wiring
+
+        /**************************************************************/
+        /// <summary>
+        /// Subpopulation must be in CorrectableFields. Without this entry, any correction
+        /// the AI returns for the field would be silently ignored — the prompt and the
+        /// service would be out of sync.
+        /// </summary>
+        [TestMethod]
+        public void CorrectableFields_IncludesSubpopulation()
+        {
+            #region implementation
+
+            var fieldsField = typeof(ClaudeApiCorrectionService)
+                .GetField("CorrectableFields",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(fieldsField, "Expected CorrectableFields private static field");
+
+            var fields = (HashSet<string>)fieldsField.GetValue(null)!;
+            Assert.IsTrue(fields.Contains("Subpopulation"), "CorrectableFields must contain 'Subpopulation'");
+            // Sanity: existing fields untouched.
+            Assert.IsTrue(fields.Contains("Population"));
+            Assert.IsTrue(fields.Contains("StudyContext"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// buildCompactPayload must serialize Subpopulation so Claude can reason about
+        /// the existing value when proposing corrections.
+        /// </summary>
+        [TestMethod]
+        public void BuildCompactPayload_IncludesSubpopulation()
+        {
+            #region implementation
+
+            var method = typeof(ClaudeApiCorrectionService)
+                .GetMethod("buildCompactPayload",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(method, "Expected buildCompactPayload to be a private static method");
+
+            var obs = createTestObservation(1, 1, "Dysmenorrhea", "12");
+            obs.Subpopulation = "Female Patients Only";
+
+            var json = (string)method.Invoke(null, new object[] { new List<ParsedObservation> { obs } })!;
+
+            var arr = JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JArray>(json)!;
+            var first = (Newtonsoft.Json.Linq.JObject)arr[0];
+
+            Assert.AreEqual("Female Patients Only", (string?)first["Subpopulation"],
+                "Subpopulation must round-trip through the compact payload.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// setFieldValue must accept the "subpopulation" case (case-insensitive) and
+        /// write the value to ParsedObservation.Subpopulation.
+        /// </summary>
+        [TestMethod]
+        public void SetFieldValue_AppliesSubpopulationCorrection()
+        {
+            #region implementation
+
+            var method = typeof(ClaudeApiCorrectionService)
+                .GetMethod("setFieldValue",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(method, "Expected setFieldValue to be a private static method");
+
+            var obs = createTestObservation(1, 1, "Dysmenorrhea", "12");
+            Assert.IsNull(obs.Subpopulation);
+
+            var result = (bool)method.Invoke(null, new object?[] { obs, "Subpopulation", "Female Patients Only" })!;
+
+            Assert.IsTrue(result, "setFieldValue must return true for a recognized field");
+            Assert.AreEqual("Female Patients Only", obs.Subpopulation);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Negative test: setFieldValue must still ignore fields outside CorrectableFields.
+        /// Guards against accidental whitelist expansion.
+        /// </summary>
+        [TestMethod]
+        public void SetFieldValue_IgnoresUnknownField()
+        {
+            #region implementation
+
+            var method = typeof(ClaudeApiCorrectionService)
+                .GetMethod("setFieldValue",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(method);
+
+            var obs = createTestObservation(1, 1, "Headache", "5");
+
+            var result = (bool)method.Invoke(null, new object?[] { obs, "RawValue", "tampered" })!;
+
+            Assert.IsFalse(result, "setFieldValue must return false for fields not in CorrectableFields");
+            Assert.AreEqual("5", obs.RawValue, "RawValue must remain unchanged");
+
+            #endregion
+        }
+
+        #endregion Subpopulation Field Wiring
     }
 }

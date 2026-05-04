@@ -1,7 +1,7 @@
 ---
 name: table-parser-data-dictionary
 description: >
-  Standardized data dictionary for the tmp_FlattenedStandardizedTable schema (38
+  Standardized data dictionary for the tmp_FlattenedStandardizedTable schema (39
   data columns, fixed width) and the downstream tmp_FlattenedAdverseEventTable
   (Stage 5 AE denormalization). Defines strict per-TableCategory contracts for
   every parser column — same column name, different documented meaning depending
@@ -21,11 +21,16 @@ description: >
 
 **Fixed columns, strict context-dependent definitions.**
 
-The schema is 38 data columns wide and stays that way. Columns are not widened to
+The schema is 39 data columns wide and stays that way. Columns are not widened to
 accommodate edge cases — instead, each column's legal values and semantic role are
 locked to the TableCategory of the row. A column that is NULL for one table type
 may be mandatory for another. A column that means "MedDRA SOC" in AdverseEvent
 tables means nothing in PK tables.
+
+`Subpopulation` is the most recent addition (within-table population partition,
+e.g. "Female Patients Only" detected from mid-body N= rows by AE parsers). It is
+distinct from `Population` (caption-level / whole-table) — the two are orthogonal
+and both can be set on the same row.
 
 This produces a skinny, JOIN-friendly table where cross-table comparison is a
 WHERE clause — not a reinterpretation exercise.
@@ -42,7 +47,7 @@ WHERE clause — not a reinterpretation exercise.
 
 ---
 
-## Schema at a Glance (38 columns, 5 groups)
+## Schema at a Glance (39 columns, 5 groups)
 
 ### Provenance (8) — where did this value come from?
 
@@ -57,12 +62,12 @@ TextTableID · Caption · SourceRowSeq · SourceCellSeq
 TableCategory · ParentSectionCode · ParentSectionTitle · SectionTitle
 ```
 
-### Observation Context (11) — what was measured, in whom, under what conditions?
+### Observation Context (12) — what was measured, in whom, under what conditions?
 
 ```
 ParameterName · ParameterCategory · ParameterSubtype
 TreatmentArm · ArmN · StudyContext · DoseRegimen
-Population · Timepoint · Time · TimeUnit
+Population · Subpopulation · Timepoint · Time · TimeUnit
 ```
 
 ### Decomposed Values (10) — the numbers
@@ -152,6 +157,9 @@ Its meaning is strictly defined by the TableCategory value on the same row.
 TABLE CATEGORY        JOIN KEY (columns that must match)
 ────────────────────  ──────────────────────────────────────────────────
 AdverseEvent          ParameterName + TreatmentArm + DoseRegimen
+                      + StudyContext + Population + Subpopulation
+                      (last three normalized: trim, collapse whitespace,
+                      ToUpperInvariant; null/empty/whitespace share one bucket)
 PK                    ParameterName + DoseRegimen + Population + Timepoint
                       + PrimaryValueType + Unit
 DrugInteraction       ParameterName + ParameterSubtype + TreatmentArm

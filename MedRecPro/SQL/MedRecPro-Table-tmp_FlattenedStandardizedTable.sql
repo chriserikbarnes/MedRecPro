@@ -33,7 +33,7 @@ BEGIN
         ParentSectionTitle      NVARCHAR(1000)   NULL,
         SectionTitle            NVARCHAR(1000)   NULL,
 
-        -- Observation Context (11): what was measured, in whom, under what conditions
+        -- Observation Context (14): what was measured, in whom, under what conditions
         ParameterName           NVARCHAR(1000)   NULL,
         ParameterCategory       NVARCHAR(500)    NULL,
         ParameterSubtype        NVARCHAR(500)    NULL,
@@ -44,6 +44,7 @@ BEGIN
         Dose                    DECIMAL(18,6)    NULL,
         DoseUnit                NVARCHAR(50)     NULL,
         [Population]            NVARCHAR(500)    NULL,
+        Subpopulation           NVARCHAR(500)    NULL,    -- in-table partition (e.g. "Female Patients Only", "Male Patients Only")
         Timepoint               NVARCHAR(500)    NULL,
         [Time]                  FLOAT            NULL,
         TimeUnit                NVARCHAR(50)     NULL,
@@ -80,3 +81,5 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_Flatte
     ALTER TABLE tmp_FlattenedStandardizedTable ADD Dose DECIMAL(18,6) NULL;
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedStandardizedTable') AND name = 'DoseUnit')
     ALTER TABLE tmp_FlattenedStandardizedTable ADD DoseUnit NVARCHAR(50) NULL;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedStandardizedTable') AND name = 'Subpopulation')
+    ALTER TABLE tmp_FlattenedStandardizedTable ADD Subpopulation NVARCHAR(500) NULL;

@@ -62,11 +62,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="TableStandards\" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Content Include="Skills\**\*.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TableStandards\**\*.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

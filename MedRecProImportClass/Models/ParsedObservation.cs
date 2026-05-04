@@ -2,7 +2,7 @@ namespace MedRecProImportClass.Models
 {
     /**************************************************************/
     /// <summary>
-    /// Intermediate 38-column DTO representing one atomic observation from a parsed SPL table
+    /// Intermediate 43-column DTO representing one atomic observation from a parsed SPL table
     /// in Stage 3 of the SPL Table Normalization pipeline. Parsers return
     /// <c>List&lt;ParsedObservation&gt;</c> which the orchestrator maps to the
     /// <c>FlattenedStandardizedTable</c> EF entity for bulk database insert.
@@ -183,7 +183,30 @@ namespace MedRecProImportClass.Models
         /// Auto-detected population: "Adult Healthy Volunteers", "Postmenopausal Women",
         /// "Premature Infants". Extracted from Caption/SectionTitle with fuzzy validation.
         /// </summary>
+        /// <remarks>
+        /// Caption-level / table-level descriptor. Distinct from <see cref="Subpopulation"/>,
+        /// which captures within-table partitions detected from mid-body N= rows.
+        /// Both can be populated simultaneously on the same observation.
+        /// </remarks>
+        /// <seealso cref="Subpopulation"/>
         public string? Population { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// In-table subpopulation partition: "Female Patients Only", "Male Patients Only",
+        /// "Postmenopausal Subgroup". Set by AE parsers when a mid-body row whose data
+        /// cells are <c>(N=…)</c> patterns is encountered. Subsequent rows in that section
+        /// inherit the label until the next reset trigger (SOC divider, structural-context
+        /// row, combined/all-patients row, or new subpopulation header).
+        /// </summary>
+        /// <remarks>
+        /// Orthogonal to <see cref="Population"/>: Population is caption-level (whole-table),
+        /// Subpopulation is within-table. Both participate in the Stage 5 AE comparator
+        /// group key alongside StudyContext.
+        /// </remarks>
+        /// <seealso cref="Population"/>
+        /// <seealso cref="ArmN"/>
+        public string? Subpopulation { get; set; }
 
         /**************************************************************/
         /// <summary>

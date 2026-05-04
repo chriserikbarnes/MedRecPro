@@ -84,7 +84,8 @@ Tables reporting incidence/frequency of adverse events across treatment arms.
 | DoseRegimen        | O   | Dose level when table stratifies       | 20 mg, 50 mg once daily           |
 | Dose                | O   | Numeric dose value (0.0 for placebo)   | 20, 50, 0.0                       |
 | DoseUnit            | O   | Normalized dose unit                   | mg, mg/d                           |
-| Population          | O   | Sub-population when stratified         | Pediatric, Elderly                 |
+| Population          | O   | Caption-level whole-table population   | Adult Healthy Volunteers, Pediatric|
+| Subpopulation       | O   | In-table partition (mid-body N=row)    | Female Patients Only, Male Patients Only |
 | Timepoint           | N   | NULL — AE tables are cumulative        |                                    |
 | Time / TimeUnit     | N   | NULL                                    |                                    |
 | PrimaryValue       | R   | Incidence (%) or integer count         |                                    |
@@ -96,7 +97,15 @@ Tables reporting incidence/frequency of adverse events across treatment arms.
 | PValue             | O   | Comparison p-value                     |                                    |
 | Unit               | E   | `%` or NULL (when count only)          |                                    |
 
-**Comparison key:** `ParameterName + TreatmentArm + DoseRegimen`
+**Comparison key:** `ParameterName + TreatmentArm + DoseRegimen + StudyContext + Population + Subpopulation`
+(StudyContext / Population / Subpopulation are normalized: trim, collapse whitespace,
+ToUpperInvariant; null/empty/whitespace share one bucket.)
+
+**Population vs. Subpopulation:** orthogonal grains. Population is caption-level
+("Adult Healthy Volunteers" — applies to the whole table); Subpopulation is a
+within-table partition introduced by mid-body `(N=…)` rows ("Female Patients
+Only" — applies only to subsequent rows in that section). Both can be set on the
+same row.
 
 ---
 
@@ -116,6 +125,7 @@ Tables reporting pharmacokinetic parameters.
 | Dose                | E   | Numeric dose value                     | 50, 100, 0.5                       |
 | DoseUnit            | E   | Normalized dose unit                   | mg, mg/d, mg/kg                    |
 | Population          | O   | Subject characteristics when stratified| Healthy Volunteers, Renal Impairment |
+| Subpopulation       | O   | In-table partition (rare for PK)       |                                    |
 | Timepoint           | O   | When measured                          | Single Dose, Steady State, Day 14 |
 | Time                | O   | Numeric timepoint                      | 14.0                               |
 | TimeUnit            | O   | Unit for Time                          | days, hours                        |
@@ -148,6 +158,7 @@ Tables showing effect of co-administered drugs on PK parameters (or vice versa).
 | Dose                | E   | Numeric dose value                     | 50                                 |
 | DoseUnit            | E   | Normalized dose unit                   | mg/d                               |
 | Population          | O   | Usually Healthy Volunteers (implicit)  |                                    |
+| Subpopulation       | O   | In-table partition (rare for DDI)      |                                    |
 | Timepoint           | N   | NULL                                    |                                    |
 | Time / TimeUnit     | N   | NULL                                    |                                    |
 | PrimaryValue       | R   | Geometric mean ratio (~1.0 = no effect)|                                    |
@@ -183,6 +194,7 @@ Tables reporting comparative efficacy outcomes with risk measures and CIs.
 | Dose                | O   | Numeric dose value (0.0 for placebo)   |                                    |
 | DoseUnit            | O   | Normalized dose unit                   |                                    |
 | Population          | O   | Analysis population when stratified    | ITT, mITT (alternative to Subtype) |
+| Subpopulation       | O   | In-table partition (rare for Efficacy) |                                    |
 | Timepoint           | O   | Assessment time                        | At Week 24, At 2 years             |
 | Time                | O   | Numeric timepoint                      | 24.0                               |
 | TimeUnit            | O   | Unit for Time                          | weeks, months, years               |
@@ -269,6 +281,9 @@ see `normalization-rules.md` §7.
 | DoseUnit | E | Normalized dose unit | `mg`, `mg/d`, `mg/kg` |
 | PrimaryValue | R | Source value (incidence % or count) | Required for RR computation |
 | PrimaryValueType | R | What PrimaryValue represents | **Copied verbatim — never derived.** Computation requires like-typed comparator. |
+| StudyContext | O | Colspan-derived study context | e.g. `Adults`, `Children and Adolescents`. Participates in comparator group key. |
+| Population | O | Caption-derived whole-table population | e.g. `Adult Healthy Volunteers`. Participates in comparator group key. |
+| Subpopulation | O | In-table partition | e.g. `Female Patients Only`. Participates in comparator group key. Detected from mid-body N= rows by AE parsers. |
 
 ### Comparator Metadata (Phase 2 service populates)
 

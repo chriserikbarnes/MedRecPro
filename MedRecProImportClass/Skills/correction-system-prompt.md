@@ -50,8 +50,9 @@ A `newValue` of `NULL` is ONLY permitted when EXACTLY ONE of these holds:
 
 - Do NOT null a value because it "looks messy" or "could be cleaner."
 - Do NOT null `ParameterName`, `TreatmentArm`, `DoseRegimen`, `Unit`,
-  `ParameterCategory`, `Population`, `Timepoint`, `StudyContext`, or any other
-  column just because the value is unusual, abbreviated, or partially OCR'd.
+  `ParameterCategory`, `Population`, `Subpopulation`, `Timepoint`, `StudyContext`,
+  or any other column just because the value is unusual, abbreviated, or
+  partially OCR'd.
 - Do NOT null a numeric-looking `Dose` or `ArmN` value.
 - Do NOT null a valid `PrimaryValueType` / `SecondaryValueType` / `BoundType`
   enum member even if you would have chosen differently — replace it with a
@@ -111,6 +112,7 @@ Valid units (≤15 chars typical): % %CV h min days mg mcg µg g kg mcg/mL ng/mL
 3. Bare integer from common dose set {5,10,15,20,25,30,40,50,100,150,200,250,300,400,500,600,800,1200,1600,2400,3600} when TableCategory=PK → field=ParameterName newValue=NULL, field=DoseRegimen newValue={integer}
 4. Drug name (not a PK param) when TableCategory=DrugInteraction → field=ParameterName newValue=NULL, field=ParameterSubtype newValue={drug_name}
 5. HTML entities (&gt; &lt; &amp;) → decode to > < &
+6. **Leaked subpopulation header** (DIAGNOSTIC FALLBACK — parser is the primary fix). When TableCategory=AdverseEvent AND ParameterName **literally** matches one of `Female Patients Only`, `Male Patients Only`, `Postmenopausal Patients Only`, `Premenopausal Patients Only`, or a bare `(N=NNN)` shape (regex `^\s*\(\s*N\s*=\s*\d[\d,]*\s*\)\s*$`) AND the row has no real PrimaryValue (NULL or PrimaryValueType=Text) → emit dual correction: `field=ParameterName newValue=NULL` + `field=Subpopulation newValue={paramName}`. Tag reason `LOW: leaked subpop header`. Do **not** apply this rule to caption-level population words (`Postmenopausal`, `Pediatric`, `Healthy Volunteers`, `Adults`, `Children`) — those belong in `Population`/`StudyContext`, not `Subpopulation`. Do **not** apply for non-AE TableCategories. The parser already suppresses these rows at parse time; this rule is for stragglers only.
 
 ## TreatmentArm — route misplaced content
 1. Contains "Number" + "Patients" or "Percent" + "Subjects" or "Percentage" + "Reporting" → NULL (header echo)
@@ -157,4 +159,22 @@ Prefix each correction "reason" with a confidence qualifier:
 Example: "reason": "HIGH: arm/param swapped"
 
 Format: [{"sourceRowSeq":N,"sourceCellSeq":N,"field":"FieldName","oldValue":"X","newValue":"Y","reason":"QUAL: brief"}]
-Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Unit, ParameterCategory, ParameterSubtype, Timepoint, TimeUnit, StudyContext, BoundType
+Correctable fields: ParameterName, PrimaryValueType, SecondaryValueType, TreatmentArm, DoseRegimen, Population, Subpopulation, Unit, ParameterCategory, ParameterSubtype, Timepoint, TimeUnit, StudyContext, BoundType
+
+## Subpopulation vs ParameterSubtype — DO NOT CONFUSE
+
+`Subpopulation` is a within-table population partition (e.g. "Female Patients Only",
+"Male Patients Only") detected by AE parsers from mid-body `(N=…)` rows. It is
+**never** the same thing as `ParameterSubtype`, which has TableCategory-specific
+meanings:
+- AE: severity / causality qualifier (`serious`, `non_serious`)
+- PK: PK statistic qualifier (`CV(%)`, `steady_state`)
+- DrugInteraction: co-administered drug name
+- Efficacy: analysis population (`ITT`, `mITT`)
+
+Do NOT propose corrections that swap or merge `Subpopulation` and `ParameterSubtype`.
+
+`Subpopulation` is also distinct from `Population` (caption-level whole-table
+descriptor like "Adult Healthy Volunteers"). Both can be set on the same row.
+Do not route caption-level population words ("Postmenopausal", "Pediatric",
+"Healthy Volunteers") into Subpopulation.

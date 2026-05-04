@@ -121,6 +121,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             // Iterate data rows
             string? currentSubtype = null;
             string? currentCategory = null; // SOC category for AE tables (from empty-data rows)
+            // Subpopulation context: AE-only. Efficacy must remain unaffected.
+            string? currentSubpopulation = null;
+            IDictionary<int, int> subpopArmNOverrides = new Dictionary<int, int>();
             var dataRows = getDataBodyRows(table);
 
             // Enrich arms from body-row header metadata (dose, N=, format hints)
@@ -135,11 +138,44 @@ namespace MedRecProImportClass.Service.TransformationServices
             {
                 // SOC divider handling is done by AeWithSocTableParser; skip here
                 if (row.Classification == RowClassification.SocDivider)
+                {
+                    if (category == TableCategory.ADVERSE_EVENT)
+                    {
+                        currentSubpopulation = null;
+                        subpopArmNOverrides = new Dictionary<int, int>();
+                    }
                     continue;
+                }
 
                 var (paramName, fnMarkers) = getParameterName(row);
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
+
+                // AE-only: mid-body subpopulation header. Efficacy must remain unaffected.
+                if (category == TableCategory.ADVERSE_EVENT &&
+                    tryDetectSubpopulationHeader(row, arms, paramName, out var subpopName, out var nOverrides))
+                {
+                    currentSubpopulation = subpopName;
+                    subpopArmNOverrides = nOverrides;
+                    recordSuppressedStructuralRow(
+                        table, row, null, category,
+                        paramName, null, paramName, subpopName!, "Subpopulation",
+                        "Mid-body subpopulation N-row captured as subpopulation context");
+                    continue;
+                }
+
+                // AE-only: combined / all-patients row — suppress AND reset subpopulation context.
+                if (category == TableCategory.ADVERSE_EVENT &&
+                    isCombinedPopulationRowLabel(paramName, row, arms))
+                {
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
+                    recordSuppressedStructuralRow(
+                        table, row, null, category,
+                        paramName, null, paramName, paramName, "Subpopulation",
+                        "Combined/all-patients row suppressed and subpopulation context reset");
+                    continue;
+                }
 
                 if (isStructuralContextRow(row, arms, paramName, category))
                 {
@@ -147,6 +183,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     {
                         currentCategory = paramName;
                         currentSubtype = null;
+                        currentSubpopulation = null;
+                        subpopArmNOverrides = new Dictionary<int, int>();
                     }
                     else
                     {
@@ -176,6 +214,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         // (e.g., "Body as a Whole", "Cardiovascular")
                         currentCategory = paramName;
                         currentSubtype = null; // Reset subtype on new category
+                        // Reset subpopulation context — empty-data rows act like SOC dividers.
+                        currentSubpopulation = null;
+                        subpopArmNOverrides = new Dictionary<int, int>();
                     }
                     else
                     {
@@ -203,6 +244,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                         currentSubtype = recoveredCategory;
                     }
                 }
+
+                // Capture subpop locals for the lambda below (AE-only).
+                var capturedSubpopulation = currentSubpopulation;
+                var capturedSubpopArmNOverrides = subpopArmNOverrides;
 
                 // Fault-tolerant row processing: if any cell throws, the entire table is skipped
                 parseRowSafe(table, row, observations, (r, obs) =>
@@ -236,12 +281,18 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterCategory = currentCategory;
                         o.ParameterSubtype = currentSubtype ?? arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
-                        o.ArmN = arm.SampleSize;
+                        // AE-only: apply per-arm subpopulation N override; otherwise arm.SampleSize.
+                        // Efficacy never has Subpopulation set (the dictionary is always empty there).
+                        o.ArmN = (arm.ColumnIndex.HasValue &&
+                                  capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN))
+                            ? overrideN
+                            : arm.SampleSize;
                         o.StudyContext = arm.StudyContext;
                         o.DoseRegimen = arm.DoseRegimen;
                         o.Dose = arm.Dose;
                         o.DoseUnit = arm.DoseUnit;
                         o.Population = population;
+                        o.Subpopulation = capturedSubpopulation;
                         o.PValue = rowPValue;
 
                         var parsed = parseValueWithAeEfficacyContext(

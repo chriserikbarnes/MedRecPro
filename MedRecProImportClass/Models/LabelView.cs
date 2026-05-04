@@ -2849,7 +2849,23 @@ namespace MedRecProImportClass.Models
 
             /**************************************************************/
             /// <summary>Auto-detected population.</summary>
+            /// <remarks>Caption-level; orthogonal to <see cref="Subpopulation"/>.</remarks>
+            /// <seealso cref="Subpopulation"/>
             public string? Population { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// In-table subpopulation partition (e.g. "Female Patients Only").
+            /// Set when the parser detects a mid-body <c>(N=…)</c> row.
+            /// </summary>
+            /// <remarks>
+            /// Within-table partition. Subsequent rows inherit this label until the next
+            /// SOC divider, structural-context row, combined/all-patients row, or new
+            /// subpopulation header.
+            /// </remarks>
+            /// <seealso cref="Population"/>
+            /// <seealso cref="ArmN"/>
+            public string? Subpopulation { get; set; }
 
             /**************************************************************/
             /// <summary>Timepoint for longitudinal tables.</summary>
@@ -3043,6 +3059,32 @@ namespace MedRecProImportClass.Models
             /**************************************************************/
             /// <summary>Source PrimaryValueType. Copied verbatim — never derived.</summary>
             public string? PrimaryValueType { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Colspan-derived study context (e.g. "Adults", "Children and Adolescents").
+            /// Copied verbatim from <see cref="FlattenedStandardizedTable.StudyContext"/>.
+            /// Participates in the Stage 5 comparator group key.
+            /// </summary>
+            public string? StudyContext { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Caption-derived whole-table population. Copied verbatim from
+            /// <see cref="FlattenedStandardizedTable.Population"/>. Participates in the
+            /// Stage 5 comparator group key.
+            /// </summary>
+            /// <seealso cref="Subpopulation"/>
+            public string? Population { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// In-table subpopulation partition (e.g. "Female Patients Only").
+            /// Copied verbatim from <see cref="FlattenedStandardizedTable.Subpopulation"/>.
+            /// Participates in the Stage 5 comparator group key.
+            /// </summary>
+            /// <seealso cref="Population"/>
+            public string? Subpopulation { get; set; }
 
             #endregion Source Linkage Properties
 

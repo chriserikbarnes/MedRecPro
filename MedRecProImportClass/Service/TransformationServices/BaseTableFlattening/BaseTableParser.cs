@@ -315,6 +315,20 @@ namespace MedRecProImportClass.Service.TransformationServices
             @")\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // Combined / all-patients labels that should reset subpopulation context (AE only).
+        // Intentionally narrow — each branch ends in an explicit combined/total marker, and
+        // the bare "Overall"/"Total" branches require the entire string to match.
+        // Bare "Total" inside multi-word labels (e.g., "Total cholesterol") will NOT match.
+        // Used by isCombinedPopulationRowLabel; row-level dash-only gate is non-negotiable.
+        private static readonly Regex _combinedPopulationRowLabelPattern = new(
+            @"^\s*(?:" +
+              @"(?:male\s+and\s+female|female\s+and\s+male|men\s+and\s+women|women\s+and\s+men)\s+patients?(?:\s+combined)?|" +
+              @"(?:all|total|overall)\s+patients?(?:\s+combined)?|" +
+              @"(?:combined|pooled)\s+populations?|" +
+              @"overall|total" +
+            @")\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         private static readonly Regex _eventPseudoArmPattern = new(
             @"^\s*Events?\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -997,6 +1011,190 @@ namespace MedRecProImportClass.Service.TransformationServices
                        parsed.SecondaryValue.HasValue ||
                        parsed.PValue.HasValue;
             });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects mid-body subpopulation header rows (e.g. "Female Patients Only" with
+        /// per-arm <c>(N=…)</c> cells). On hit, returns the subpopulation label and a
+        /// per-arm sample-size override dictionary so subsequent rows in the section
+        /// can be stamped with the correct ArmN.
+        /// </summary>
+        /// <remarks>
+        /// ## Predicate (must satisfy ALL)
+        /// 1. <paramref name="paramName"/> non-empty and not matched by structural-row /
+        ///    AE-header-echo / AE-non-observation-metric patterns.
+        /// 2. At least one arm-aligned data cell parses as <c>(N=N)</c> via
+        ///    <see cref="_nEqualsCellPattern"/>. Rules out dash-only structural rows
+        ///    (e.g. "Male and Female Patients Combined | - | - | - | -").
+        /// 3. Every non-empty arm-aligned cell either parses N or is dash-placeholder
+        ///    (matched by <see cref="_structuralAeValueCellPattern"/>). Mixed numeric
+        ///    cells disqualify — those are real data rows.
+        ///
+        /// ## Override Semantics
+        /// On hit, callers MUST replace any prior override dictionary with
+        /// <paramref name="nOverrides"/> (do NOT merge). Arms missing an N on this
+        /// header are intentionally absent from the dictionary, so callers fall back
+        /// to <c>arm.SampleSize</c> for those columns.
+        ///
+        /// ## Reset Triggers (caller responsibility)
+        /// Callers must clear subpopulation state on:
+        /// SocDivider, <see cref="isStructuralContextRow"/> hits,
+        /// <see cref="isCombinedPopulationRowLabel"/> hits, or a new subpopulation header.
+        ///
+        /// ## Scope
+        /// Intended for AE parsers (Multilevel, AeWithSoc, SimpleArm AE-mode). Other
+        /// categories should not invoke this — gate with <c>category == ADVERSE_EVENT</c>.
+        /// </remarks>
+        /// <param name="row">Candidate body row.</param>
+        /// <param name="arms">Resolved arm definitions for the table.</param>
+        /// <param name="paramName">Cleaned row label from column 0.</param>
+        /// <param name="subpopName">Subpopulation label to use as <c>ParsedObservation.Subpopulation</c> on subsequent rows. Equals <paramref name="paramName"/> on hit.</param>
+        /// <param name="nOverrides">Per-arm <c>ColumnIndex → N</c> overrides for subsequent rows. Empty when not on hit.</param>
+        /// <returns><c>true</c> when the row is a subpopulation header and should be suppressed.</returns>
+        /// <seealso cref="_nEqualsCellPattern"/>
+        /// <seealso cref="_structuralAeValueCellPattern"/>
+        /// <seealso cref="isStructuralContextRow"/>
+        /// <seealso cref="isCombinedPopulationRowLabel"/>
+        protected static bool tryDetectSubpopulationHeader(
+            ReconstructedRow row,
+            IEnumerable<ArmDefinition> arms,
+            string? paramName,
+            out string? subpopName,
+            out IDictionary<int, int> nOverrides)
+        {
+            #region implementation
+
+            subpopName = null;
+            nOverrides = new Dictionary<int, int>();
+
+            // Predicate 1: paramName must be present and not a known structural label.
+            if (string.IsNullOrWhiteSpace(paramName))
+                return false;
+
+            if (isStructuralRowLabel(paramName) ||
+                _aeHeaderEchoParameterPattern.IsMatch(paramName) ||
+                _aeNonObservationMetricPattern.IsMatch(paramName))
+            {
+                return false;
+            }
+
+            var usableArms = arms.Where(hasUsableTreatmentArm).ToList();
+            if (usableArms.Count == 0)
+                return false;
+
+            int parsedNCount = 0;
+
+            foreach (var arm in usableArms)
+            {
+                var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
+                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                    continue; // empty cell — neither qualifies nor disqualifies
+
+                var text = cell.CleanedText.Trim();
+
+                // N= cell — extract the value and record the override.
+                var nMatch = _nEqualsCellPattern.Match(text);
+                if (nMatch.Success)
+                {
+                    var raw = nMatch.Groups[1].Value.Replace(",", string.Empty);
+                    if (int.TryParse(raw, out var nValue) && nValue > 0)
+                    {
+                        if (arm.ColumnIndex.HasValue)
+                            nOverrides[arm.ColumnIndex.Value] = nValue;
+                        parsedNCount++;
+                        continue;
+                    }
+                    // Parsed N= shape but not a usable integer — disqualify the row.
+                    nOverrides.Clear();
+                    return false;
+                }
+
+                // Dash-placeholder is allowed; anything else (including parseable numerics)
+                // disqualifies the row as a subpopulation header.
+                if (!_structuralAeValueCellPattern.IsMatch(text))
+                {
+                    nOverrides.Clear();
+                    return false;
+                }
+            }
+
+            // Predicate 2: at least one parsed N is required.
+            if (parsedNCount == 0)
+            {
+                nOverrides.Clear();
+                return false;
+            }
+
+            subpopName = paramName.Trim();
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects "combined / all-patients" row labels that should suppress the row
+        /// AND reset any active subpopulation context. Examples: "Male and Female
+        /// Patients Combined", "All Patients", bare "Overall" / "Total".
+        /// </summary>
+        /// <remarks>
+        /// ## Why Not Extend isStructuralRowLabel
+        /// <see cref="isStructuralRowLabel"/> is reused across multiple suppression paths.
+        /// Adding broad combined/all-patients labels there would risk suppressing
+        /// legitimate observations in non-AE categories. This sibling predicate is
+        /// gated to AE callers and combined with a row-level dash-only check below.
+        ///
+        /// ## Row-Level Gate (non-negotiable)
+        /// Even if the label matches the regex, the row qualifies as combined/structural
+        /// only when **every** arm-aligned data cell is empty or matches
+        /// <see cref="_structuralAeValueCellPattern"/> (dash-placeholder or N=). Real
+        /// numeric cells disqualify — those are observation rows even if the label
+        /// happens to look like "Overall".
+        ///
+        /// ## Caller Contract
+        /// Callers gate with <c>category == ADVERSE_EVENT</c>, then on hit treat the row
+        /// as structural-context (suppress emission) AND clear any active
+        /// <c>currentSubpopulation</c> / <c>subpopArmNOverrides</c> state.
+        /// </remarks>
+        /// <param name="paramName">Cleaned row label from column 0.</param>
+        /// <param name="row">Candidate body row.</param>
+        /// <param name="arms">Resolved arm definitions for the table.</param>
+        /// <returns><c>true</c> when the row is a combined/all-patients row.</returns>
+        /// <seealso cref="_combinedPopulationRowLabelPattern"/>
+        /// <seealso cref="_structuralAeValueCellPattern"/>
+        /// <seealso cref="tryDetectSubpopulationHeader"/>
+        protected static bool isCombinedPopulationRowLabel(
+            string? paramName,
+            ReconstructedRow row,
+            IEnumerable<ArmDefinition> arms)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(paramName))
+                return false;
+
+            if (!_combinedPopulationRowLabelPattern.IsMatch(paramName.Trim()))
+                return false;
+
+            // Row-level dash gate: any real numeric cell disqualifies.
+            foreach (var arm in arms.Where(hasUsableTreatmentArm))
+            {
+                var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
+                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                    continue;
+
+                var text = cell.CleanedText.Trim();
+                if (_structuralAeValueCellPattern.IsMatch(text))
+                    continue;
+
+                // Anything else — including parseable numerics — disqualifies the row.
+                return false;
+            }
+
+            return true;
 
             #endregion
         }

@@ -20,6 +20,30 @@ Efficacy             Comparative efficacy outcomes with risk measures
 SKIP                 Tables to exclude or that did not classify
 ```
 
+### AdverseEvent — Multi-Population Variants
+
+Some AE tables encode multiple study populations and/or within-table partitions:
+
+- **Multi-StudyContext (colspan headers).** Top-level header groups arms by study
+  population (e.g., "Adults" vs "Children and Adolescents"), each with its own
+  N. Stored on observations as `StudyContext`. Comparator pairing groups by
+  StudyContext so Adults arms compare against Adults placebo, not Children
+  placebo. Reference: TextTableID 44661 (Clomipramine).
+
+- **In-table subpopulations (mid-body N= rows).** A row label like "Female
+  Patients Only" with arm cells of the form `(N=182)` introduces a new
+  population partition for the rows that follow. Stored on observations as
+  `Subpopulation`. AE parsers detect these rows generically (≥1 parsed N + label
+  + dash-or-N cells), suppress them as observations, and override the per-arm
+  `ArmN` for subsequent rows in that section. Reset on next SOC divider,
+  structural-context row, or combined/all-patients row ("Male and Female
+  Patients Combined", bare "Overall"/"Total").
+
+`StudyContext`, `Population`, and `Subpopulation` are orthogonal: any combination
+can coexist on a single row, and all three participate in the comparator group
+key (see `column-contracts.md` AE Comparison Key and `normalization-rules.md`
+§7.2).
+
 ---
 
 ## Decision Tree

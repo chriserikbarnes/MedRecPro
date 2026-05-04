@@ -36,6 +36,11 @@ BEGIN
         PrimaryValue                        FLOAT            NULL,
         PrimaryValueType                    NVARCHAR(100)    NULL,    -- copied verbatim, never derived
 
+        -- Population context (copied verbatim from source row)
+        StudyContext                        NVARCHAR(1000)   NULL,    -- colspan-derived (e.g. "Adults", "Children and Adolescents")
+        [Population]                        NVARCHAR(500)    NULL,    -- caption-derived (e.g. "Adult Healthy Volunteers")
+        Subpopulation                       NVARCHAR(500)    NULL,    -- in-table partition (e.g. "Female Patients Only")
+
         -- Comparator metadata (identifies the row this RR is calculated against)
         TreatmentArm                        NVARCHAR(1000)   NULL,
         ComparatorArm                       NVARCHAR(1000)   NULL,
@@ -114,6 +119,14 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_Flatte
     ALTER TABLE tmp_FlattenedAdverseEventTable ADD PrimaryValue FLOAT NULL;
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'PrimaryValueType')
     ALTER TABLE tmp_FlattenedAdverseEventTable ADD PrimaryValueType NVARCHAR(100) NULL;
+-- Population context: source-row projection. NVARCHAR(1000) on StudyContext to match the
+-- standardized table; Population/Subpopulation are 500 to match SML_TEXT_LENGTH truncation.
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'StudyContext')
+    ALTER TABLE tmp_FlattenedAdverseEventTable ADD StudyContext NVARCHAR(1000) NULL;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'Population')
+    ALTER TABLE tmp_FlattenedAdverseEventTable ADD [Population] NVARCHAR(500) NULL;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'Subpopulation')
+    ALTER TABLE tmp_FlattenedAdverseEventTable ADD Subpopulation NVARCHAR(500) NULL;
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'TreatmentArm')
     ALTER TABLE tmp_FlattenedAdverseEventTable ADD TreatmentArm NVARCHAR(1000) NULL;
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('tmp_FlattenedAdverseEventTable') AND name = 'ComparatorArm')

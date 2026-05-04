@@ -3,14 +3,15 @@ namespace MedRecPro.Models
     /**************************************************************/
     /// <summary>
     /// API consumption DTO for Stage 3 SPL Table Normalization output.
-    /// Mirrors the 36 columns of <see cref="LabelView.FlattenedStandardizedTable"/>
+    /// Mirrors the 41 columns of <see cref="LabelView.FlattenedStandardizedTable"/>
     /// without EF Core attributes for clean serialization.
     /// </summary>
     /// <remarks>
-    /// ## Schema Groups (36 columns)
+    /// ## Schema Groups (41 columns)
     /// - **Provenance (8)**: Traces every value back to the exact source cell
     /// - **Classification (4)**: Routes queries and groups comparable data
-    /// - **Observation Context (9)**: Describes what was measured, in whom, under what conditions
+    /// - **Observation Context (14)**: Describes what was measured, in whom, under what conditions
+    ///   (includes Subpopulation alongside Population for within-table partitions)
     /// - **Decomposed Values (10)**: Typed, queryable components of the raw cell text
     /// - **Validation (5)**: Automated quality signals and confidence scores
     /// </remarks>
@@ -157,8 +158,17 @@ namespace MedRecPro.Models
         /**************************************************************/
         /// <summary>
         /// Auto-detected population: "Adult Healthy Volunteers", "Postmenopausal Women".
+        /// Caption-level descriptor; orthogonal to <see cref="Subpopulation"/>.
         /// </summary>
         public string? Population { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// In-table subpopulation partition (e.g. "Female Patients Only").
+        /// Detected from mid-body <c>(N=…)</c> rows by AE parsers; subsequent rows
+        /// inherit the label until the next reset trigger.
+        /// </summary>
+        public string? Subpopulation { get; set; }
 
         /**************************************************************/
         /// <summary>

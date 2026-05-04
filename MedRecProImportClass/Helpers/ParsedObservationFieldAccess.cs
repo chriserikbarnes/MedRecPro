@@ -4,7 +4,7 @@ namespace MedRecProImportClass.Helpers
 {
     /**************************************************************/
     /// <summary>
-    /// Reflection-free, name-based accessor for the 15 observation-context columns on
+    /// Reflection-free, name-based accessor for the 16 observation-context columns on
     /// <see cref="ParsedObservation"/>. Single source of truth replacing three near-duplicate
     /// switch helpers that previously lived in <c>ColumnStandardizationService</c> and
     /// <c>RowValidationService</c>.
@@ -12,9 +12,9 @@ namespace MedRecProImportClass.Helpers
     /// <remarks>
     /// ## Supported Columns (case-sensitive, exact-name match)
     /// <list type="bullet">
-    ///   <item><description>String columns (11): ParameterName, ParameterCategory, ParameterSubtype,
-    ///   TreatmentArm, StudyContext, DoseRegimen, DoseUnit, Population, Timepoint, TimeUnit,
-    ///   PrimaryValueType, Unit</description></item>
+    ///   <item><description>String columns (13): ParameterName, ParameterCategory, ParameterSubtype,
+    ///   TreatmentArm, StudyContext, DoseRegimen, DoseUnit, Population, Subpopulation, Timepoint,
+    ///   TimeUnit, PrimaryValueType, Unit</description></item>
     ///   <item><description>Numeric nullables (3): ArmN (int?), Dose (decimal?), Time (double?)</description></item>
     /// </list>
     ///
@@ -61,6 +61,7 @@ namespace MedRecProImportClass.Helpers
                 "Dose" => obs.Dose,
                 "DoseUnit" => obs.DoseUnit,
                 "Population" => obs.Population,
+                "Subpopulation" => obs.Subpopulation,
                 "Timepoint" => obs.Timepoint,
                 "Time" => obs.Time,
                 "TimeUnit" => obs.TimeUnit,
@@ -138,6 +139,7 @@ namespace MedRecProImportClass.Helpers
                 case "Dose": obs.Dose = value as decimal?; break;
                 case "DoseUnit": obs.DoseUnit = value as string; break;
                 case "Population": obs.Population = value as string; break;
+                case "Subpopulation": obs.Subpopulation = value as string; break;
                 case "Timepoint": obs.Timepoint = value as string; break;
                 case "Time": obs.Time = value as double?; break;
                 case "TimeUnit": obs.TimeUnit = value as string; break;

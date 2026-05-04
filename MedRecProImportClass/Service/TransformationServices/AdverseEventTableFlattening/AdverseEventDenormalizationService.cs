@@ -205,6 +205,32 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
+        /// Normalizes a nullable string for use as a comparator group key. Trims, collapses
+        /// internal whitespace, folds case via <see cref="string.ToUpperInvariant"/>, and
+        /// returns <see cref="string.Empty"/> for null / whitespace-only inputs so they
+        /// share a single group bucket.
+        /// </summary>
+        /// <remarks>
+        /// Anonymous-type <c>GroupBy</c> is case-sensitive by default; without case folding,
+        /// trailing-whitespace or case variants ("Adults" vs "adults ") would split a valid
+        /// comparator group and produce incorrect RR pairings.
+        /// </remarks>
+        /// <param name="s">Raw string value (typically from a nullable column).</param>
+        /// <returns>Normalized key suitable for grouping.</returns>
+        private static string normalizeKey(string? s)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(s))
+                return string.Empty;
+            var collapsed = System.Text.RegularExpressions.Regex.Replace(s.Trim(), @"\s+", " ");
+            return collapsed.ToUpperInvariant();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Loads AE rows for a batch of documents, classifies trial design per Document,
         /// selects comparators per study group, computes statistics for non-comparator
         /// rows, and bulk-writes the resulting entities. Fail-fast on save errors.
@@ -248,14 +274,21 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
                 var design = RelativeRiskCalculator.ClassifyTrialDesign(distinctArms);
 
-                // Comparator pairing per (TextTableID, ParameterName, ParameterSubtype) —
-                // TextTableID is included in the key to prevent cross-study leakage when
-                // a single document carries the same AE term across multiple study tables.
+                // Comparator pairing per (TextTableID, ParameterName, ParameterSubtype,
+                // StudyContext, Population, Subpopulation) — TextTableID prevents cross-study
+                // leakage when a single document carries the same AE term across multiple
+                // study tables; StudyContext / Population / Subpopulation prevent
+                // cross-population pairing (e.g., Adults vs Children, Female-only vs Male-only).
+                // String keys are normalized (trim + collapse whitespace + ToUpperInvariant)
+                // so casing/whitespace variants don't fragment a valid comparator group.
                 foreach (var grp in docRows.GroupBy(r => new
                 {
                     r.TextTableID,
-                    r.ParameterName,
-                    r.ParameterSubtype
+                    ParameterName    = normalizeKey(r.ParameterName),
+                    ParameterSubtype = normalizeKey(r.ParameterSubtype),
+                    StudyContext     = normalizeKey(r.StudyContext),
+                    Population       = normalizeKey(r.Population),
+                    Subpopulation    = normalizeKey(r.Subpopulation),
                 }))
                 {
                     var groupRows = grp.ToList();
@@ -405,6 +438,9 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 DoseUnit = row.DoseUnit,
                 PrimaryValue = row.PrimaryValue,
                 PrimaryValueType = row.PrimaryValueType,
+                StudyContext = row.StudyContext,
+                Population = row.Population,
+                Subpopulation = row.Subpopulation,
                 TreatmentArm = row.TreatmentArm,
                 ComparatorArm = comparator?.TreatmentArm,
                 ComparatorN = comparator?.ArmN,

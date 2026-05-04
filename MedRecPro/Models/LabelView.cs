@@ -3393,7 +3393,28 @@ namespace MedRecPro.Models
             /// Auto-detected population: "Adult Healthy Volunteers", "Postmenopausal Women",
             /// "Premature Infants". Extracted from Caption/SectionTitle with fuzzy validation.
             /// </summary>
+            /// <remarks>
+            /// Caption-level / table-level descriptor. Distinct from <see cref="Subpopulation"/>,
+            /// which captures within-table partitions introduced by mid-body N= rows.
+            /// </remarks>
+            /// <seealso cref="Subpopulation"/>
             public string? Population { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// In-table subpopulation partition: "Female Patients Only", "Male Patients Only",
+            /// "Postmenopausal Subgroup". Set when the parser detects a mid-body row whose data
+            /// cells are <c>(N=…)</c> patterns; subsequent rows in that section inherit this
+            /// label until the next SOC divider, structural-context row, combined/all-patients
+            /// row, or new subpopulation header.
+            /// </summary>
+            /// <remarks>
+            /// Orthogonal to <see cref="Population"/>: Population is caption-level (whole-table),
+            /// Subpopulation is within-table. Both can be populated on the same row.
+            /// </remarks>
+            /// <seealso cref="Population"/>
+            /// <seealso cref="ArmN"/>
+            public string? Subpopulation { get; set; }
 
             /**************************************************************/
             /// <summary>
@@ -3622,6 +3643,38 @@ namespace MedRecPro.Models
             /**************************************************************/
             /// <summary>Source PrimaryValueType. Copied verbatim — never derived.</summary>
             public string? PrimaryValueType { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Colspan-derived study context (e.g. "Adults", "Children and Adolescents").
+            /// Copied verbatim from <see cref="FlattenedStandardizedTable.StudyContext"/>.
+            /// </summary>
+            /// <remarks>
+            /// Part of the Stage 5 comparator group key (along with Population and
+            /// Subpopulation) to prevent cross-population RR computation.
+            /// </remarks>
+            public string? StudyContext { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Caption-derived whole-table population (e.g. "Adult Healthy Volunteers").
+            /// Copied verbatim from <see cref="FlattenedStandardizedTable.Population"/>.
+            /// </summary>
+            /// <seealso cref="Subpopulation"/>
+            public string? Population { get; set; }
+
+            /**************************************************************/
+            /// <summary>
+            /// In-table subpopulation partition (e.g. "Female Patients Only").
+            /// Copied verbatim from <see cref="FlattenedStandardizedTable.Subpopulation"/>.
+            /// </summary>
+            /// <remarks>
+            /// Distinct from <see cref="Population"/>: Subpopulation is a within-table partition
+            /// detected from mid-body <c>(N=…)</c> rows; Population is caption-level.
+            /// Both participate in the comparator group key.
+            /// </remarks>
+            /// <seealso cref="Population"/>
+            public string? Subpopulation { get; set; }
 
             #endregion Source Linkage Properties
 

@@ -34,25 +34,25 @@ namespace MedRecProImportClass.Service.TransformationServices
             ["AdverseEvent"] = new CategoryContract(
                 Required: new(StringComparer.OrdinalIgnoreCase) { "ParameterName", "TreatmentArm", "PrimaryValue", "PrimaryValueType" },
                 Expected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "ArmN", "Unit" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "StudyContext", "DoseRegimen", "Dose", "DoseUnit", "Population", "SecondaryValue", "SecondaryValueType", "LowerBound", "UpperBound", "BoundType", "PValue" },
+                Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "StudyContext", "DoseRegimen", "Dose", "DoseUnit", "Population", "Subpopulation", "SecondaryValue", "SecondaryValueType", "LowerBound", "UpperBound", "BoundType", "PValue" },
                 NullExpected: new(StringComparer.OrdinalIgnoreCase) { "Timepoint", "Time", "TimeUnit" }),
 
             ["PK"] = new CategoryContract(
                 Required: new(StringComparer.OrdinalIgnoreCase) { "ParameterName", "PrimaryValue", "PrimaryValueType", "Unit" },
                 Expected: new(StringComparer.OrdinalIgnoreCase) { "DoseRegimen", "Dose", "DoseUnit", "SecondaryValue", "SecondaryValueType" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "TreatmentArm", "ArmN", "StudyContext", "Population", "Timepoint", "Time", "TimeUnit", "LowerBound", "UpperBound", "BoundType" },
+                Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "TreatmentArm", "ArmN", "StudyContext", "Population", "Subpopulation", "Timepoint", "Time", "TimeUnit", "LowerBound", "UpperBound", "BoundType" },
                 NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "PValue" }),
 
             ["DrugInteraction"] = new CategoryContract(
                 Required: new(StringComparer.OrdinalIgnoreCase) { "ParameterName", "ParameterSubtype", "PrimaryValue", "PrimaryValueType", "LowerBound", "UpperBound", "BoundType" },
                 Expected: new(StringComparer.OrdinalIgnoreCase) { "TreatmentArm", "DoseRegimen", "Dose", "DoseUnit" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "ArmN", "StudyContext", "Population", "Unit" },
+                Optional: new(StringComparer.OrdinalIgnoreCase) { "ArmN", "StudyContext", "Population", "Subpopulation", "Unit" },
                 NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "Timepoint", "Time", "TimeUnit", "SecondaryValue", "SecondaryValueType", "PValue" }),
 
             ["Efficacy"] = new CategoryContract(
                 Required: new(StringComparer.OrdinalIgnoreCase) { "ParameterName", "TreatmentArm", "PrimaryValue", "PrimaryValueType" },
                 Expected: new(StringComparer.OrdinalIgnoreCase) { "ArmN", "LowerBound", "UpperBound", "BoundType" },
-                Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "StudyContext", "DoseRegimen", "Dose", "DoseUnit", "Population", "Timepoint", "Time", "TimeUnit", "PValue", "Unit" },
+                Optional: new(StringComparer.OrdinalIgnoreCase) { "ParameterSubtype", "StudyContext", "DoseRegimen", "Dose", "DoseUnit", "Population", "Subpopulation", "Timepoint", "Time", "TimeUnit", "PValue", "Unit" },
                 NullExpected: new(StringComparer.OrdinalIgnoreCase) { "ParameterCategory", "SecondaryValue", "SecondaryValueType" }),
         };
 

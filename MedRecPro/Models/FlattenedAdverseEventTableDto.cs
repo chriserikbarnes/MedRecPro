@@ -10,8 +10,9 @@ namespace MedRecPro.Models
     /// </summary>
     /// <remarks>
     /// ## Schema Groups
-    /// - **Source linkage / projection (10)**: copied verbatim from the source AE row
-    ///   in <see cref="FlattenedStandardizedTableDto"/>; never derived
+    /// - **Source linkage / projection (13)**: copied verbatim from the source AE row
+    ///   in <see cref="FlattenedStandardizedTableDto"/>; never derived (includes
+    ///   StudyContext, Population, Subpopulation)
     /// - **Comparator metadata (4)**: comparator arm + Document-level trial-design flag
     /// - **Derived event counts (2)**: a / c in the 2×2 (raw, audit-only)
     /// - **Risk statistics (6)**: RR, DNRR, ±CI bounds (linear scale)
@@ -73,6 +74,27 @@ namespace MedRecPro.Models
         /**************************************************************/
         /// <summary>Source PrimaryValueType — never derived.</summary>
         public string? PrimaryValueType { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Colspan-derived study context (e.g. "Adults", "Children and Adolescents").
+        /// Copied verbatim from the source row. Participates in the comparator group key.
+        /// </summary>
+        public string? StudyContext { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Caption-derived whole-table population (e.g. "Adult Healthy Volunteers").
+        /// Copied verbatim from the source row.
+        /// </summary>
+        public string? Population { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// In-table subpopulation partition (e.g. "Female Patients Only").
+        /// Copied verbatim from the source row. Participates in the comparator group key.
+        /// </summary>
+        public string? Subpopulation { get; set; }
 
         #endregion Source Linkage Properties
 

@@ -521,12 +521,25 @@ chosen as the comparator within its study group.
 
 Source-projection columns (`tmp_FlattenedStandardizedTableID`, `DocumentGUID`,
 `UNII`, `ParameterName`, `ParameterCategory`, `ArmN`, `Dose`, `DoseUnit`,
-`PrimaryValue`, `PrimaryValueType`, `TreatmentArm`) are copied verbatim.
+`PrimaryValue`, `PrimaryValueType`, `TreatmentArm`, `StudyContext`, `Population`,
+`Subpopulation`) are copied verbatim.
+
+**Mid-body subpopulation header rows are suppressed at parse time and never reach
+Stage 5.** AE parsers (Multilevel, AeWithSoc, SimpleArm AE-mode) detect rows where
+the data cells include at least one parsed `(N=…)` value (e.g. "Female Patients
+Only | (N=182) | (N=167) | …"), suppress them as observations, and stamp
+`Subpopulation` on subsequent rows in that section. Per-arm `ArmN` is overridden
+from the partition row's N values; arms missing an N fall back to the arm-level
+sample size from the table header. Subpopulation context is reset on the next SOC
+divider, structural-context row, or combined/all-patients row.
 
 ### 7.2 Comparator Pairing Cascade
 
-Group all AE rows by `(DocumentGUID, ParameterName, ParameterSubtype)`. Within
-each group, pick **one** comparator using priority order:
+Group all AE rows by `(DocumentGUID, TextTableID, ParameterName, ParameterSubtype,
+StudyContext, Population, Subpopulation)`. The latter three are **normalized** for
+grouping (trim, collapse internal whitespace, ToUpperInvariant; null/empty/whitespace
+share a single bucket) so casing or whitespace variants do not fragment a valid
+comparator group. Within each group, pick **one** comparator using priority order:
 
 ```
 PRI  TEST                                                 ACTION
@@ -627,8 +640,11 @@ and `CalculationFlags |= 'ZERO_CELL_CORRECTED'`.
 ### 7.7 Dose-Normalized RR (DNRR) — Log-Linear with Intra-Study Reference Dose
 
 ```
-D_ref = MIN(Dose) over rows in same (DocumentGUID, ParameterName, ParameterSubtype)
-        group WHERE Dose > 0
+D_ref = MIN(Dose) over rows in same (DocumentGUID, TextTableID, ParameterName,
+        ParameterSubtype, StudyContext, Population, Subpopulation) group WHERE Dose > 0
+        — same population-coherent slice as the comparator group key (§7.2);
+        StudyContext / Population / Subpopulation are normalized (trim, collapse
+        whitespace, ToUpperInvariant).
 
 logDNRR        = ln(RR)        / ln(Dose / D_ref)
 logDNRR_lower  = ln(RRLower)   / ln(Dose / D_ref)

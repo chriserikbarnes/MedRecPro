@@ -120,7 +120,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         private static readonly HashSet<string> CorrectableFields = new(StringComparer.OrdinalIgnoreCase)
         {
             "ParameterName", "PrimaryValueType", "SecondaryValueType",
-            "TreatmentArm", "DoseRegimen", "Dose", "DoseUnit", "Population", "Unit",
+            "TreatmentArm", "DoseRegimen", "Dose", "DoseUnit", "Population", "Subpopulation", "Unit",
             "ParameterCategory", "ParameterSubtype", "Timepoint", "TimeUnit",
             "StudyContext", "BoundType"
         };
@@ -493,6 +493,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 o.Dose,
                 o.DoseUnit,
                 o.Population,
+                o.Subpopulation,
                 o.Timepoint,
                 o.TimeUnit,
                 o.RawValue,
@@ -633,6 +634,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                     return true;
                 case "population":
                     obs.Population = value;
+                    return true;
+                case "subpopulation":
+                    obs.Subpopulation = value;
                     return true;
                 case "unit":
                     obs.Unit = value;

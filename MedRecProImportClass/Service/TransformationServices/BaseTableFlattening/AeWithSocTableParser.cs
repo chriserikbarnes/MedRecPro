@@ -78,6 +78,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Iterate data rows with SOC propagation
             string? currentSoc = null;
+            string? currentSubpopulation = null;
+            IDictionary<int, int> subpopArmNOverrides = new Dictionary<int, int>();
             var dataRows = getDataBodyRows(table);
 
             // Enrich arms from body-row header metadata (dose, N=, format hints)
@@ -90,10 +92,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             foreach (var row in dataRows)
             {
-                // SOC divider — update current category
+                // SOC divider — update current category, reset subpopulation context.
                 if (row.Classification == RowClassification.SocDivider)
                 {
                     currentSoc = row.SocName;
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
                     continue;
                 }
 
@@ -101,9 +105,35 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
 
+                // Mid-body subpopulation header.
+                if (tryDetectSubpopulationHeader(row, arms, paramName, out var subpopName, out var nOverrides))
+                {
+                    currentSubpopulation = subpopName;
+                    subpopArmNOverrides = nOverrides;
+                    recordSuppressedStructuralRow(
+                        table, row, null, TableCategory.ADVERSE_EVENT,
+                        paramName, null, paramName, subpopName!, "Subpopulation",
+                        "Mid-body subpopulation N-row captured as subpopulation context");
+                    continue;
+                }
+
+                // Combined / all-patients row — suppress AND reset subpopulation context.
+                if (isCombinedPopulationRowLabel(paramName, row, arms))
+                {
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
+                    recordSuppressedStructuralRow(
+                        table, row, null, TableCategory.ADVERSE_EVENT,
+                        paramName, null, paramName, paramName, "Subpopulation",
+                        "Combined/all-patients row suppressed and subpopulation context reset");
+                    continue;
+                }
+
                 if (isStructuralContextRow(row, arms, paramName, TableCategory.ADVERSE_EVENT))
                 {
                     currentSoc = paramName;
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
                     recordSuppressedStructuralRow(
                         table, row, null, TableCategory.ADVERSE_EVENT,
                         paramName, null, paramName, paramName, "ParameterCategory",
@@ -125,6 +155,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                         currentSoc = recoveredCategory;
                 }
 
+                // Capture locals for the lambda below.
+                var capturedSubpopulation = currentSubpopulation;
+                var capturedSubpopArmNOverrides = subpopArmNOverrides;
+
                 // Fault-tolerant row processing: if any cell throws, the entire table is skipped
                 parseRowSafe(table, row, observations, (r, obs) =>
                 {
@@ -145,7 +179,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterCategory = currentSoc;
                         o.ParameterSubtype = arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
-                        o.ArmN = arm.SampleSize;
+                        // Subpopulation override: per-arm N, falling back to arm.SampleSize.
+                        o.ArmN = (arm.ColumnIndex.HasValue &&
+                                  capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN))
+                            ? overrideN
+                            : arm.SampleSize;
                         // Arm-derived StudyContext (from header colspan) always wins;
                         // caption extractor only fills the blank.
                         o.StudyContext = arm.StudyContext ?? captionStudyContext;
@@ -153,6 +191,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.Dose = arm.Dose;
                         o.DoseUnit = arm.DoseUnit;
                         o.Population = population;
+                        o.Subpopulation = capturedSubpopulation;
 
                         var parsed = parseValueWithAeEfficacyContext(
                             cell.CleanedText,

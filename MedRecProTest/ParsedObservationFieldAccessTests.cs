@@ -11,7 +11,7 @@ namespace MedRecPro.Service.Test
     /// <c>ColumnStandardizationService</c> and <c>RowValidationService</c>.
     /// </summary>
     /// <remarks>
-    /// Every supported column is exercised by <see cref="RoundTrip_AllFifteenColumns_GetReturnsWhatSetWrote"/>;
+    /// Every supported column is exercised by <see cref="RoundTrip_AllSixteenColumns_GetReturnsWhatSetWrote"/>;
     /// the typed-boxing tests verify that <see cref="ParsedObservationFieldAccess.Get"/> preserves
     /// <see cref="int"/>/<see cref="decimal"/>/<see cref="double"/> for the three numeric columns.
     /// </remarks>
@@ -359,10 +359,10 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Sets every supported column via <see cref="ParsedObservationFieldAccess.Set"/> and
         /// reads it back via <see cref="ParsedObservationFieldAccess.Get"/>; values must match.
-        /// Provides parameterized coverage of all 15 supported column names.
+        /// Provides parameterized coverage of all 16 supported column names.
         /// </summary>
         [TestMethod]
-        public void RoundTrip_AllFifteenColumns_GetReturnsWhatSetWrote()
+        public void RoundTrip_AllSixteenColumns_GetReturnsWhatSetWrote()
         {
             #region implementation
 
@@ -378,6 +378,7 @@ namespace MedRecPro.Service.Test
                 ("Dose",              50.0m),
                 ("DoseUnit",          "mg"),
                 ("Population",        "Adult Healthy Volunteers"),
+                ("Subpopulation",     "Female Patients Only"),
                 ("Timepoint",         "Week 12"),
                 ("Time",              12.0),
                 ("TimeUnit",          "weeks"),

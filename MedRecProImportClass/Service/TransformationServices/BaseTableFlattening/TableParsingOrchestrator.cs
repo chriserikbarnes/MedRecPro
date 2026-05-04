@@ -1345,6 +1345,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 Dose = obs.Dose,
                 DoseUnit = obs.DoseUnit.Truncate(TINY_TEXT_LENGTH),
                 Population = obs.Population.Truncate(SML_TEXT_LENGTH),
+                Subpopulation = obs.Subpopulation.Truncate(SML_TEXT_LENGTH),
                 Timepoint = obs.Timepoint.Truncate(SML_TEXT_LENGTH),
                 Time = obs.Time,
                 TimeUnit = obs.TimeUnit.Truncate(TINY_TEXT_LENGTH),
