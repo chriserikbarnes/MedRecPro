@@ -1,3 +1,5 @@
+using MedRecProImportClass.Helpers;
+
 namespace MedRecProImportClass.Models
 {
     /**************************************************************/
@@ -66,6 +68,22 @@ namespace MedRecProImportClass.Models
         /// <see cref="PreCorrectionObservations"/> if correction is disabled or no corrections were made.
         /// </summary>
         public List<ParsedObservation> PostCorrectionObservations { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>
+        /// Immutable validation-flag snapshot captured immediately before Stage 3.5
+        /// Claude correction begins.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="PreCorrectionObservations"/> contains live observation objects
+        /// that later stages mutate in place. This dictionary preserves only the
+        /// pre-Claude <see cref="ParsedObservation.ValidationFlags"/> values, keyed
+        /// with occurrence-aware source coordinates so duplicate source cells remain
+        /// distinguishable in markdown and NDJSON report diffs.
+        /// </remarks>
+        /// <seealso cref="ObservationFlagKey"/>
+        /// <seealso cref="ObservationFlagSnapshotBuilder"/>
+        public Dictionary<ObservationFlagKey, string?> PreClaudeValidationFlags { get; set; } = new();
 
         /**************************************************************/
         /// <summary>

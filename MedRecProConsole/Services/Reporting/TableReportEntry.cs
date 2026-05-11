@@ -1,3 +1,4 @@
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 
 namespace MedRecProConsole.Services.Reporting
@@ -63,11 +64,12 @@ namespace MedRecProConsole.Services.Reporting
         /**************************************************************/
         /// <summary>
         /// Snapshot of each observation's <see cref="ParsedObservation.ValidationFlags"/> taken
-        /// immediately before Stage 3.5. Keyed by <c>(SourceRowSeq * 10000 + SourceCellSeq)</c>
-        /// matching the convention in <c>TableStandardizationService.displayClaudeCorrections</c>.
+        /// immediately before Stage 3.5. Keyed by source table/row/cell plus occurrence
+        /// index so observations emitted from the same source cell do not collide.
         /// Null when Claude was skipped.
         /// </summary>
-        public IReadOnlyDictionary<int, string?>? BeforeClaudeFlags { get; init; }
+        /// <seealso cref="ObservationFlagKey"/>
+        public IReadOnlyDictionary<ObservationFlagKey, string?>? BeforeClaudeFlags { get; init; }
 
         /**************************************************************/
         /// <summary>

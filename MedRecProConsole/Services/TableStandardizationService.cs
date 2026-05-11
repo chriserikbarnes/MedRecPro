@@ -209,7 +209,7 @@ namespace MedRecProConsole.Services
 
                 displayRoutingResult(category, parserName);
 
-                Dictionary<int, string?>? beforeFlags = null;
+                IReadOnlyDictionary<ObservationFlagKey, string?>? beforeFlags = null;
 
                 if (observations.Count == 0)
                 {
@@ -246,9 +246,7 @@ namespace MedRecProConsole.Services
                     AnsiConsole.WriteLine();
 
                     // Snapshot ValidationFlags before correction for diff display
-                    beforeFlags = observations.ToDictionary(
-                        o => (o.SourceRowSeq ?? 0) * 10000 + (o.SourceCellSeq ?? 0),
-                        o => o.ValidationFlags);
+                    beforeFlags = ObservationFlagSnapshotBuilder.Capture(observations);
 
                     observations = await orchestrator.CorrectObservationsAsync(observations);
 
@@ -1454,19 +1452,25 @@ namespace MedRecProConsole.Services
         /// Displays Stage 3.5 Claude Enhance corrections by comparing before/after ValidationFlags.
         /// Corrections append <c>AI_CORRECTED:*</c> entries to <see cref="ParsedObservation.ValidationFlags"/>.
         /// </summary>
-        /// <param name="observations">The corrected observations.</param>
-        /// <param name="beforeFlags">Snapshot of ValidationFlags keyed by (RowSeq*10000 + CellSeq) before correction.</param>
+        /// <param name="observations">Corrected observations in display order.</param>
+        /// <param name="beforeFlags">Occurrence-aware pre-Claude validation flag snapshot.</param>
         /// <seealso cref="ITableParsingOrchestrator.CorrectObservationsAsync"/>
-        private static void displayClaudeCorrections(List<ParsedObservation> observations, Dictionary<int, string?> beforeFlags)
+        /// <seealso cref="ObservationFlagSnapshotBuilder"/>
+        private static void displayClaudeCorrections(
+            List<ParsedObservation> observations,
+            IReadOnlyDictionary<ObservationFlagKey, string?> beforeFlags)
         {
             #region implementation
 
             var corrections = new List<(int row, int cell, string flag)>();
+            var beforeByObservation = ObservationFlagSnapshotBuilder.ResolveInObservationOrder(
+                observations,
+                beforeFlags);
 
-            foreach (var obs in observations)
+            for (int i = 0; i < observations.Count; i++)
             {
-                var key = (obs.SourceRowSeq ?? 0) * 10000 + (obs.SourceCellSeq ?? 0);
-                var before = beforeFlags.GetValueOrDefault(key);
+                var obs = observations[i];
+                var before = beforeByObservation[i];
                 var after = obs.ValidationFlags;
 
                 if (after != null && after != before)
@@ -1668,7 +1672,7 @@ namespace MedRecProConsole.Services
             TableCategory category,
             string? parserName,
             IReadOnlyList<ParsedObservation> observations,
-            IReadOnlyDictionary<int, string?>? beforeClaudeFlags,
+            IReadOnlyDictionary<ObservationFlagKey, string?>? beforeClaudeFlags,
             bool claudeSkipped,
             IReadOnlyList<TableSuppressionAuditRecord>? suppressedRows = null,
             string? routeReason = null)
@@ -1719,11 +1723,6 @@ namespace MedRecProConsole.Services
 
             // Group observations by TextTableID so we can match them back to their source table.
             // Use dictionary lookups rather than repeated LINQ filters for O(tables + obs) total work.
-            var preByTable = stageResult.PreCorrectionObservations
-                .Where(o => o.TextTableID.HasValue)
-                .GroupBy(o => o.TextTableID!.Value)
-                .ToDictionary(g => g.Key, g => g.ToList());
-
             var postByTable = stageResult.PostCorrectionObservations
                 .Where(o => o.TextTableID.HasValue)
                 .GroupBy(o => o.TextTableID!.Value)
@@ -1754,15 +1753,13 @@ namespace MedRecProConsole.Services
                 postByTable.TryGetValue(tableId, out var postObs);
                 postObs ??= new List<ParsedObservation>();
 
-                // Reconstruct the before-Stage-3.5 ValidationFlags snapshot from the pre-correction
-                // observations so the markdown/JSON diff matches what displayClaudeCorrections would show.
-                IReadOnlyDictionary<int, string?>? beforeFlags = null;
-                if (!claudeDisabled && preByTable.TryGetValue(tableId, out var preObs))
-                {
-                    beforeFlags = preObs.ToDictionary(
-                        o => (o.SourceRowSeq ?? 0) * 10000 + (o.SourceCellSeq ?? 0),
-                        o => o.ValidationFlags);
-                }
+                // Use the true pre-Claude snapshot captured before the correction service
+                // mutates observations. It is keyed by TextTableID plus occurrence-aware
+                // source coordinates, so passing the batch snapshot to a per-table entry is safe.
+                IReadOnlyDictionary<ObservationFlagKey, string?>? beforeFlags =
+                    !claudeDisabled && stageResult.PreClaudeValidationFlags.Count > 0
+                        ? stageResult.PreClaudeValidationFlags
+                        : null;
 
                 var entry = BuildReportEntry(
                     table, category, parserName, postObs, beforeFlags, claudeSkipped: claudeDisabled,

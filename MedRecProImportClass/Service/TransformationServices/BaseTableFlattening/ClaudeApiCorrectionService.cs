@@ -4,7 +4,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -127,6 +129,52 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Regex used to mirror Stage 5 placebo-equivalent arm detection.
+        /// </summary>
+        private static readonly Regex PlaceboArmPattern = new(
+            "placebo|sham|vehicle",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex used to collapse whitespace for exact token comparisons.
+        /// </summary>
+        private static readonly Regex WhitespacePattern = new(@"\s+", RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex used for conservative clinical-token comparisons.
+        /// </summary>
+        private static readonly Regex WordTokenPattern = new(@"[A-Za-z0-9]+", RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// Regex used to recognize simple numeric source cells under percent headers.
+        /// </summary>
+        private static readonly Regex SimpleNumericCellPattern = new(
+            @"^\s*(?:[<>]=?\s*)?\d+(?:\.\d+)?\s*%?\s*$",
+            RegexOptions.Compiled);
+
+        /**************************************************************/
+        /// <summary>
+        /// MedDRA SOC and body-system labels that must not be written into TreatmentArm.
+        /// </summary>
+        private static readonly HashSet<string> BodySystemTreatmentArmLabels = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Blood and Lymphatic System Disorders", "Cardiac Disorders", "Congenital, Familial and Genetic Disorders",
+            "Ear and Labyrinth Disorders", "Endocrine Disorders", "Eye Disorders", "Gastrointestinal Disorders",
+            "General Disorders", "General Disorders and Administration Site Conditions", "Hepatobiliary Disorders",
+            "Immune System Disorders", "Infections and Infestations", "Injury, Poisoning and Procedural Complications",
+            "Investigations", "Metabolism and Nutrition Disorders", "Musculoskeletal and Connective Tissue Disorders",
+            "Neoplasms Benign, Malignant and Unspecified", "Nervous System Disorders", "Pregnancy, Puerperium and Perinatal Conditions",
+            "Psychiatric Disorders", "Renal and Urinary Disorders", "Reproductive System and Breast Disorders",
+            "Respiratory, Thoracic and Mediastinal Disorders", "Skin and Subcutaneous Tissue Disorders",
+            "Social Circumstances", "Surgical and Medical Procedures", "Vascular Disorders",
+            "Body as a Whole", "Ocular", "Cardiovascular", "Hepatic", "Renal", "Respiratory", "Dermatologic",
+            "Gastrointestinal", "Neurologic", "Psychiatric", "Metabolic", "Musculoskeletal", "Hematologic"
+        };
+        /**************************************************************/
+        /// <summary>
         /// Cached system prompt loaded from skill file (lazy initialized on first API call).
         /// Falls back to a minimal default if the skill file is missing or empty.
         /// </summary>
@@ -192,7 +240,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (string.IsNullOrWhiteSpace(_settings.ApiKey))
             {
-                _logger.LogWarning("Claude correction enabled but API key is empty — skipping correction");
+                _logger.LogDebug("Claude correction enabled but API key is empty — skipping correction");
                 return observations;
             }
 
@@ -236,6 +284,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 // Look up the original table for this group's TextTableID
                 ReconstructedTable? groupTable = null;
                 originalTables?.TryGetValue((int)group.Key, out groupTable);
+                var correctionContext = CorrectionContext.FromTable(groupTable);
 
                 // Split into sub-batches if needed
                 var chunks = chunkList(tableObservations, _settings.MaxObservationsPerRequest);
@@ -250,7 +299,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         var preCorrectionFlags = chunk.Select(o => o.ValidationFlags).ToList();
 
                         var corrections = await requestCorrectionsAsync(chunk, groupTable, ct);
-                        var applied = applyCorrections(chunk, corrections);
+                        var applied = applyCorrections(chunk, corrections, correctionContext);
                         totalCorrections += applied;
 
                         // Append per-observation Claude confidence provenance flags
@@ -267,7 +316,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex,
+                        _logger.LogDebug(ex,
                             "Claude correction failed for TextTableID={TableId}, chunk of {Count} observations — using original values",
                             group.Key, chunk.Count);
                     }
@@ -518,27 +567,31 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Applies corrections to in-memory observations. Returns count of corrections applied.
+        /// Applies validated corrections to in-memory observations and returns the count
+        /// of accepted field mutations.
         /// </summary>
         /// <param name="observations">Observations to correct.</param>
         /// <param name="corrections">Corrections from Claude.</param>
-        /// <returns>Number of corrections applied.</returns>
-        private int applyCorrections(List<ParsedObservation> observations, List<CorrectionEntry> corrections)
+        /// <param name="context">Source table context for header and percent-column checks.</param>
+        /// <returns>Number of accepted field mutations.</returns>
+        private int applyCorrections(
+            List<ParsedObservation> observations,
+            List<CorrectionEntry> corrections,
+            CorrectionContext context)
         {
             #region implementation
 
             var applied = 0;
 
-            foreach (var correction in corrections)
+            foreach (var correction in corrections.OrderBy(c =>
+                         string.Equals(c.Field, "Unit", StringComparison.OrdinalIgnoreCase) ? 1 : 0))
             {
-                // Validate field name
-                if (!CorrectableFields.Contains(correction.Field ?? ""))
+                if (!CorrectableFields.Contains(correction.Field ?? string.Empty))
                 {
                     _logger.LogDebug("Ignoring correction for non-correctable field: {Field}", correction.Field);
                     continue;
                 }
 
-                // Find matching observation
                 var target = observations.FirstOrDefault(o =>
                     o.SourceRowSeq == correction.SourceRowSeq &&
                     o.SourceCellSeq == correction.SourceCellSeq);
@@ -551,38 +604,347 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
                 }
 
-                // Apply the correction via reflection-free property setter
-                if (setFieldValue(target, correction.Field!, correction.NewValue))
-                {
-                    // Append audit flag
-                    var flag = $"AI_CORRECTED:{correction.Field}";
-                    target.ValidationFlags = string.IsNullOrEmpty(target.ValidationFlags)
-                        ? flag
-                        : $"{target.ValidationFlags};{flag}";
+                var proposedValue = normalizeCorrectionValue(correction.NewValue);
+                var field = correction.Field!;
+                var originalValue = getFieldValue(target, field);
 
-                    // PR #6 infrastructure — when Claude flips TableCategory specifically,
-                    // emit a harvestable CATEGORY_CLAUDE_CORRECTED:{from}:{to}:{confidence}
-                    // alongside the generic AI_CORRECTED flag. Future runs can mine this
-                    // flag to build a ground-truth label corpus for Stage 1 retraining
-                    // without having to replay Claude calls. Confidence is fixed at 1.00
-                    // because Claude corrections are treated as authoritative ground truth
-                    // (matches QCTrainingRecord.IsClaudeGroundTruth semantics).
-                    if (string.Equals(correction.Field, "TableCategory", StringComparison.OrdinalIgnoreCase))
+                if (!tryValidateCorrection(target, field, proposedValue, context, out var rejectionReason))
+                {
+                    appendFlag(target, $"AI_REJECTED:{field}:{rejectionReason}");
+                    _logger.LogDebug(
+                        "Rejected Claude correction for TextTableID={TableId}, Row={Row}, Cell={Cell}, Field={Field}: '{Old}' -> '{New}' ({Reason})",
+                        target.TextTableID, target.SourceRowSeq, target.SourceCellSeq, field,
+                        originalValue, proposedValue, rejectionReason);
+                    continue;
+                }
+
+                if (setFieldValue(target, field, proposedValue))
+                {
+                    appendFlag(target, $"AI_CORRECTED:{field}");
+
+                    if (string.Equals(field, "TableCategory", StringComparison.OrdinalIgnoreCase))
                     {
-                        var from = correction.OldValue ?? string.Empty;
-                        var to   = correction.NewValue ?? string.Empty;
-                        var ccFlag = $"CATEGORY_CLAUDE_CORRECTED:{from}:{to}:1.00";
-                        target.ValidationFlags = string.IsNullOrEmpty(target.ValidationFlags)
-                            ? ccFlag
-                            : $"{target.ValidationFlags};{ccFlag}";
+                        appendFlag(target, $"CATEGORY_CLAUDE_CORRECTED:{originalValue ?? string.Empty}:{proposedValue ?? string.Empty}:1.00");
                     }
 
                     applied++;
 
                     _logger.LogDebug(
-                        "Corrected {Field}: '{Old}' → '{New}' (Row={Row}, Cell={Cell}, Reason={Reason})",
-                        correction.Field, correction.OldValue, correction.NewValue,
+                        "Corrected {Field}: '{Old}' -> '{New}' (Row={Row}, Cell={Cell}, Reason={Reason})",
+                        field, originalValue, proposedValue,
                         correction.SourceRowSeq, correction.SourceCellSeq, correction.Reason);
+                }
+            }
+
+            if (_settings.EnforcePercentColumnConsistency)
+            {
+                applied += applyPercentColumnConsistency(observations, context);
+            }
+
+            return applied;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Represents source-table context needed by deterministic correction guards.
+        /// </summary>
+        private sealed class CorrectionContext
+        {
+            #region Fields
+
+            /**************************************************************/
+            /// <summary>Normalized source header tokens.</summary>
+            private readonly HashSet<string> _headerTokens = new(StringComparer.OrdinalIgnoreCase);
+
+            /**************************************************************/
+            /// <summary>One-based source cell positions whose header path indicates percent values.</summary>
+            private readonly HashSet<int> _percentColumns = new();
+
+            #endregion
+
+            #region Factory
+
+            /**************************************************************/
+            /// <summary>
+            /// Builds correction context from a reconstructed table.
+            /// </summary>
+            /// <param name="table">Source reconstructed table, or null when unavailable.</param>
+            /// <returns>Correction context with header tokens and percent-column positions.</returns>
+            public static CorrectionContext FromTable(ReconstructedTable? table)
+            {
+                #region implementation
+
+                var context = new CorrectionContext();
+                if (table?.Rows == null)
+                    return context;
+
+                foreach (var row in table.Rows.Where(isHeaderRow))
+                {
+                    if (row.Cells == null)
+                        continue;
+
+                    foreach (var cell in row.Cells)
+                    {
+                        var text = cell.CleanedText ?? cell.RawCellText;
+                        var normalized = normalizeTextToken(text);
+                        if (!string.IsNullOrEmpty(normalized))
+                        {
+                            context._headerTokens.Add(normalized);
+                        }
+
+                        if (text?.Contains('%') == true)
+                        {
+                            context.addPercentColumn(cell);
+                        }
+                    }
+                }
+
+                return context;
+
+                #endregion
+            }
+
+            #endregion
+
+            #region Public Methods
+
+            /**************************************************************/
+            /// <summary>
+            /// Returns true when <paramref name="value"/> exactly matches a source header token
+            /// after whitespace normalization.
+            /// </summary>
+            /// <param name="value">Candidate value.</param>
+            /// <returns>True for exact normalized header-token matches.</returns>
+            public bool IsHeaderToken(string? value)
+            {
+                #region implementation
+
+                var normalized = normalizeTextToken(value);
+                return !string.IsNullOrEmpty(normalized) && _headerTokens.Contains(normalized);
+
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <summary>
+            /// Returns true when the observation source cell sits under a percent header.
+            /// </summary>
+            /// <param name="sourceCellSeq">One-based source cell sequence.</param>
+            /// <returns>True when percent-column metadata exists for this cell sequence.</returns>
+            public bool IsPercentColumn(int? sourceCellSeq)
+            {
+                #region implementation
+
+                return sourceCellSeq.HasValue && _percentColumns.Contains(sourceCellSeq.Value);
+
+                #endregion
+            }
+
+            #endregion
+
+            #region Private Methods
+
+            /**************************************************************/
+            /// <summary>
+            /// Adds all known one-based positions for a percent-bearing header cell.
+            /// </summary>
+            /// <param name="cell">Header cell.</param>
+            private void addPercentColumn(ProcessedCell cell)
+            {
+                #region implementation
+
+                if (cell.SequenceNumber.HasValue)
+                {
+                    _percentColumns.Add(cell.SequenceNumber.Value);
+                }
+
+                if (cell.ResolvedColumnStart.HasValue)
+                {
+                    var start = cell.ResolvedColumnStart.Value;
+                    var end = cell.ResolvedColumnEnd ?? start + 1;
+                    for (var column = start; column < end; column++)
+                    {
+                        _percentColumns.Add(column + 1);
+                    }
+                }
+
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <summary>
+            /// Determines whether a reconstructed row should contribute header context.
+            /// </summary>
+            /// <param name="row">Candidate reconstructed row.</param>
+            /// <returns>True for explicit, inferred, and continuation header rows.</returns>
+            private static bool isHeaderRow(ReconstructedRow row)
+            {
+                #region implementation
+
+                if (string.Equals(row.RowGroupType, "Header", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                return row.Classification is RowClassification.ExplicitHeader
+                    or RowClassification.InferredHeader
+                    or RowClassification.ContinuationHeader;
+
+                #endregion
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates a proposed correction against deterministic guardrails.
+        /// </summary>
+        /// <param name="observation">Target observation.</param>
+        /// <param name="field">Correction field.</param>
+        /// <param name="proposedValue">Proposed value after NULL normalization.</param>
+        /// <param name="context">Source table correction context.</param>
+        /// <param name="rejectionReason">Reason token when validation fails.</param>
+        /// <returns>True when the correction can be applied.</returns>
+        private bool tryValidateCorrection(
+            ParsedObservation observation,
+            string field,
+            string? proposedValue,
+            CorrectionContext context,
+            out string rejectionReason)
+        {
+            #region implementation
+
+            rejectionReason = string.Empty;
+
+            if (_settings.ProtectedFields.Contains(field))
+            {
+                rejectionReason = "ProtectedField";
+                return false;
+            }
+
+            if (string.Equals(field, "TreatmentArm", StringComparison.OrdinalIgnoreCase))
+            {
+                return tryValidateTreatmentArmCorrection(observation, proposedValue, context, out rejectionReason);
+            }
+
+            if (string.Equals(field, "ParameterName", StringComparison.OrdinalIgnoreCase)
+                && _settings.RejectParameterNameSuperset
+                && isStrictTokenSuperset(proposedValue, observation.ParameterName))
+            {
+                rejectionReason = "ParameterNameSuperset";
+                return false;
+            }
+
+            if (string.Equals(field, "PrimaryValueType", StringComparison.OrdinalIgnoreCase)
+                && _settings.EnforcePercentColumnConsistency
+                && context.IsPercentColumn(observation.SourceCellSeq)
+                && string.Equals(observation.PrimaryValueType, "Percentage", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(proposedValue, "Count", StringComparison.OrdinalIgnoreCase))
+            {
+                rejectionReason = "PercentColumnTypeDemotion";
+                return false;
+            }
+
+            if (string.Equals(field, "Unit", StringComparison.OrdinalIgnoreCase)
+                && _settings.RejectTextRowUnitPercent
+                && string.Equals(proposedValue, "%", StringComparison.Ordinal)
+                && string.Equals(observation.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase))
+            {
+                rejectionReason = "TextRowUnitPercent";
+                return false;
+            }
+
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates TreatmentArm-specific correction guardrails.
+        /// </summary>
+        /// <param name="observation">Target observation.</param>
+        /// <param name="proposedValue">Proposed TreatmentArm value.</param>
+        /// <param name="context">Source table correction context.</param>
+        /// <param name="rejectionReason">Reason token when validation fails.</param>
+        /// <returns>True when the TreatmentArm correction can be applied.</returns>
+        private bool tryValidateTreatmentArmCorrection(
+            ParsedObservation observation,
+            string? proposedValue,
+            CorrectionContext context,
+            out string rejectionReason)
+        {
+            #region implementation
+
+            rejectionReason = string.Empty;
+            var originalValue = observation.TreatmentArm;
+
+            if (_settings.RejectPlaceboClassFlip
+                && isPlaceboEquivalent(originalValue, observation.Dose) != isPlaceboEquivalent(proposedValue, observation.Dose))
+            {
+                rejectionReason = "PlaceboClassFlip";
+                return false;
+            }
+
+            if (_settings.RejectTreatmentArmToNullUnlessHeaderEcho
+                && !string.IsNullOrWhiteSpace(originalValue)
+                && string.IsNullOrWhiteSpace(proposedValue)
+                && (isProtectedShortTreatmentArm(originalValue)
+                    || !isHeaderOrGenericTreatmentArm(originalValue, context)))
+            {
+                rejectionReason = "TreatmentArmNull";
+                return false;
+            }
+
+            if (_settings.RejectTreatmentArmBodySystem && isBodySystemTreatmentArm(proposedValue))
+            {
+                rejectionReason = "TreatmentArmBodySystem";
+                return false;
+            }
+
+            if (_settings.RejectTreatmentArmHeaderToken && context.IsHeaderToken(proposedValue))
+            {
+                rejectionReason = "TreatmentArmHeaderToken";
+                return false;
+            }
+
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Enforces percent-column consistency after all accepted Claude corrections have
+        /// been applied.
+        /// </summary>
+        /// <param name="observations">Chunk observations.</param>
+        /// <param name="context">Source table correction context.</param>
+        /// <returns>Number of field mutations applied.</returns>
+        private static int applyPercentColumnConsistency(List<ParsedObservation> observations, CorrectionContext context)
+        {
+            #region implementation
+
+            var applied = 0;
+
+            foreach (var observation in observations)
+            {
+                if (!context.IsPercentColumn(observation.SourceCellSeq) || !isNumericObservation(observation))
+                    continue;
+
+                if (!string.Equals(observation.PrimaryValueType, "Percentage", StringComparison.OrdinalIgnoreCase))
+                {
+                    observation.PrimaryValueType = "Percentage";
+                    appendFlag(observation, "AI_CORRECTED:PrimaryValueType");
+                    applied++;
+                }
+
+                if (!string.Equals(observation.Unit, "%", StringComparison.Ordinal))
+                {
+                    observation.Unit = "%";
+                    appendFlag(observation, "AI_CORRECTED:Unit");
+                    applied++;
                 }
             }
 
@@ -591,6 +953,213 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Returns the current observation value for a correctable field.
+        /// </summary>
+        /// <param name="obs">Observation.</param>
+        /// <param name="fieldName">Correctable field name.</param>
+        /// <returns>String value, or null when the field is unset or unsupported.</returns>
+        private static string? getFieldValue(ParsedObservation obs, string fieldName)
+        {
+            #region implementation
+
+            return fieldName.ToLowerInvariant() switch
+            {
+                "parametername" => obs.ParameterName,
+                "primaryvaluetype" => obs.PrimaryValueType,
+                "secondaryvaluetype" => obs.SecondaryValueType,
+                "treatmentarm" => obs.TreatmentArm,
+                "doseregimen" => obs.DoseRegimen,
+                "dose" => obs.Dose?.ToString(CultureInfo.InvariantCulture),
+                "doseunit" => obs.DoseUnit,
+                "population" => obs.Population,
+                "subpopulation" => obs.Subpopulation,
+                "unit" => obs.Unit,
+                "parametercategory" => obs.ParameterCategory,
+                "parametersubtype" => obs.ParameterSubtype,
+                "timepoint" => obs.Timepoint,
+                "timeunit" => obs.TimeUnit,
+                "studycontext" => obs.StudyContext,
+                "boundtype" => obs.BoundType,
+                _ => null
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts Claude's string literal NULL into a real null value.
+        /// </summary>
+        /// <param name="value">Raw correction value.</param>
+        /// <returns>Normalized correction value.</returns>
+        private static string? normalizeCorrectionValue(string? value)
+        {
+            #region implementation
+
+            return string.Equals(value?.Trim(), "NULL", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : value;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes text for exact equality checks.
+        /// </summary>
+        /// <param name="value">Source text.</param>
+        /// <returns>Trimmed text with internal whitespace collapsed.</returns>
+        private static string normalizeTextToken(string? value)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return WhitespacePattern.Replace(value.Trim(), " ");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a TreatmentArm is placebo-equivalent by Stage 5 rules.
+        /// </summary>
+        /// <param name="treatmentArm">Treatment arm text.</param>
+        /// <param name="dose">Parsed dose.</param>
+        /// <returns>True for placebo, sham, vehicle, or zero-dose arms.</returns>
+        private static bool isPlaceboEquivalent(string? treatmentArm, decimal? dose)
+        {
+            #region implementation
+
+            if (dose == 0m)
+                return true;
+
+            return !string.IsNullOrWhiteSpace(treatmentArm) && PlaceboArmPattern.IsMatch(treatmentArm);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a TreatmentArm value is protected as a short real arm token.
+        /// </summary>
+        /// <param name="value">TreatmentArm value.</param>
+        /// <returns>True when the configured short-arm allowlist contains the value.</returns>
+        private bool isProtectedShortTreatmentArm(string? value)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(value)
+                && _settings.ProtectedShortTreatmentArms.Any(v =>
+                    string.Equals(v, value.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an existing TreatmentArm value is a known header or generic
+        /// label echo that may safely be cleared.
+        /// </summary>
+        /// <param name="value">TreatmentArm value.</param>
+        /// <param name="context">Source table correction context.</param>
+        /// <returns>True when the value is structural rather than a real arm.</returns>
+        private static bool isHeaderOrGenericTreatmentArm(string? value, CorrectionContext context)
+        {
+            #region implementation
+
+            var normalized = normalizeTextToken(value);
+            if (string.IsNullOrEmpty(normalized))
+                return false;
+
+            if (context.IsHeaderToken(normalized))
+                return true;
+
+            var lower = normalized.ToLowerInvariant();
+            return (lower.Contains("number") && lower.Contains("patients"))
+                || (lower.Contains("percent") && lower.Contains("subjects"))
+                || (lower.Contains("percentage") && lower.Contains("reporting"))
+                || lower is "comparison" or "treatment" or "pd" or "sad";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a proposed TreatmentArm is actually a body-system label.
+        /// </summary>
+        /// <param name="value">Proposed TreatmentArm value.</param>
+        /// <returns>True for configured SOC/body-system labels.</returns>
+        private static bool isBodySystemTreatmentArm(string? value)
+        {
+            #region implementation
+
+            var normalized = normalizeTextToken(value);
+            return !string.IsNullOrEmpty(normalized) && BodySystemTreatmentArmLabels.Contains(normalized);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a proposed name strictly adds tokens to the original name.
+        /// </summary>
+        /// <param name="proposedValue">Proposed ParameterName.</param>
+        /// <param name="originalValue">Original ParameterName.</param>
+        /// <returns>True when proposed tokens are a strict superset of original tokens.</returns>
+        private static bool isStrictTokenSuperset(string? proposedValue, string? originalValue)
+        {
+            #region implementation
+
+            var proposedTokens = tokenizeClinicalText(proposedValue);
+            var originalTokens = tokenizeClinicalText(originalValue);
+
+            return originalTokens.Count > 0
+                && proposedTokens.Count > originalTokens.Count
+                && proposedTokens.IsSupersetOf(originalTokens);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Tokenizes clinical text for conservative set comparisons.
+        /// </summary>
+        /// <param name="value">Text to tokenize.</param>
+        /// <returns>Lowercase alphanumeric token set.</returns>
+        private static HashSet<string> tokenizeClinicalText(string? value)
+        {
+            #region implementation
+
+            return WordTokenPattern.Matches(value ?? string.Empty)
+                .Select(m => m.Value.ToLowerInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an observation is a numeric cell eligible for percent-column
+        /// normalization.
+        /// </summary>
+        /// <param name="observation">Observation.</param>
+        /// <returns>True when the observation contains a parsed or simple raw numeric value.</returns>
+        private static bool isNumericObservation(ParsedObservation observation)
+        {
+            #region implementation
+
+            if (observation.PrimaryValue.HasValue)
+                return true;
+
+            return !string.IsNullOrWhiteSpace(observation.RawValue)
+                && SimpleNumericCellPattern.IsMatch(observation.RawValue.Replace(",", string.Empty));
+
+            #endregion
+        }
         /**************************************************************/
         /// <summary>
         /// Sets a string field on a ParsedObservation by field name.
@@ -897,7 +1466,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (string.IsNullOrWhiteSpace(_cachedSystemPrompt))
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "Correction system prompt skill file not found or empty at '{Path}' — using minimal fallback",
                     _settings.SkillFilePath);
                 _cachedSystemPrompt = "You review parsed pharmaceutical SPL label table observations for CLEAR errors only. "

@@ -3686,3 +3686,50 @@ User reported `tmp_FlattenedAdverseEventTable` had 8092 rows where `ComparatorAr
 **SQL acceptance** (run by user post-deploy): `SELECT COUNT(*) FROM tmp_FlattenedAdverseEventTable WHERE CalculationFlags LIKE 'PLACEBO_COMPARATOR%' AND IsPlaceboControlled = 0` and the false-positive guard `WHERE CalculationFlags NOT LIKE 'PLACEBO_COMPARATOR%' AND IsPlaceboControlled = 1` should both return 0 after Stage 5 re-runs.
 
 ---
+
+
+### 2026-05-06 11:31 AM EST — Claude Harness Duplicate Source-Key Remediation
+
+**Implementation.** Added [ObservationFlagSnapshotBuilder.cs](MedRecProImportClass/Helpers/ObservationFlagSnapshotBuilder.cs) with the public `ObservationFlagKey(TextTableID, SourceRowSeq, SourceCellSeq, OccurrenceIndex)` contract plus `Capture` and `ResolveInObservationOrder`. The snapshot key preserves duplicate observations emitted from the same source cell instead of collapsing them onto the old scalar row/cell key.
+
+**Reporting wiring.** Captured `BatchStageResult.PreClaudeValidationFlags` immediately before `IClaudeApiCorrectionService.CorrectBatchAsync` in [TableParsingOrchestrator.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/TableParsingOrchestrator.cs), carried the occurrence-aware snapshot through [BatchStageResult.cs](MedRecProImportClass/Models/BatchStageResult.cs) and [TableReportEntry.cs](MedRecProConsole/Services/Reporting/TableReportEntry.cs), and updated [TableStandardizationService.cs](MedRecProConsole/Services/TableStandardizationService.cs), [TableStandardizationMarkdownWriter.cs](MedRecProConsole/Services/Reporting/TableStandardizationMarkdownWriter.cs), and [TableStandardizationJsonWriter.cs](MedRecProConsole/Services/Reporting/TableStandardizationJsonWriter.cs) to resolve before-flags by observation occurrence. The observed duplicate shape `TextTableID=16359`, `SourceRowSeq=3`, `SourceCellSeq=4` now resolves as occurrence 0 and occurrence 1 instead of both becoming old key `30004`.
+
+**Tests.** Added public-method coverage in [ObservationFlagSnapshotBuilderTests.cs](MedRecProTest/Reporting/ObservationFlagSnapshotBuilderTests.cs) for unique keys, duplicate source cells, null coordinates, immutable captured strings after mutation, duplicate resolution order, missing entries, and null/no-Claude snapshots. Updated the existing reporting tests and added markdown/NDJSON regressions proving duplicate source-cell before-flags do not throw and preserve per-observation `beforeClaudeFlags` values.
+
+**Verification.** `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~Reporting"` passed 58/58. Full `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug` passed 1,937, skipped 1, failed 0, total 1,938, duration 2 m 22 s. Build output still includes the repo's existing warnings, including Microsoft.CodeAnalysis version conflict warnings in the test project.
+
+---
+
+### 2026-05-06 12:56 PM EST — Snapshot Builder Relocated to Helpers
+
+**Implementation.** Moved [ObservationFlagSnapshotBuilder.cs](MedRecProImportClass/Helpers/ObservationFlagSnapshotBuilder.cs) from `MedRecProImportClass.Models` to `MedRecProImportClass.Helpers` because the class owns snapshot capture/resolution behavior rather than domain persistence shape. Kept `ObservationFlagKey` colocated with the helper as its public key contract, and updated production/test imports in the reporting harness, [BatchStageResult.cs](MedRecProImportClass/Models/BatchStageResult.cs), [TableReportEntry.cs](MedRecProConsole/Services/Reporting/TableReportEntry.cs), and the reporting tests.
+
+**Compile fix.** Avoided adding a broad Helpers import to [TableParsingOrchestrator.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/TableParsingOrchestrator.cs) because it made existing `Truncate(...)` extension calls ambiguous between Humanizer and `TextUtil`. The orchestrator now fully qualifies only `MedRecProImportClass.Helpers.ObservationFlagSnapshotBuilder.Capture(...)`.
+
+**Verification.** `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~Reporting"` passed 58/58. Full `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug` passed 1,937, skipped 1, failed 0, total 1,938, duration 2 m 24 s. Existing project warnings remain, including the Microsoft.CodeAnalysis version conflict warning in the test project.
+
+---
+
+### 2026-05-11 1:20 PM EST — Claude Correction Regression Guardrails
+
+Implemented deterministic Stage 3.5 Claude correction guardrails so prompt guidance is no longer the only protection against the 2026-05-06 regression cases. The service now validates proposed changes before mutation, reads original values from the target `ParsedObservation`, uses table header context for exact header-token rejection and percent-column metadata, rejects harmful `TreatmentArm`, `ParameterName`, `PrimaryValueType`, and `Unit` rewrites, appends semicolon-delimited `AI_REJECTED:*` flags, and logs rejected corrections with table/source coordinates and reason.
+
+**Implementation.** Updated [ClaudeApiCorrectionService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ClaudeApiCorrectionService.cs), [ClaudeApiCorrectionSettings.cs](MedRecProImportClass/Models/ClaudeApiCorrectionSettings.cs), and [appsettings.json](MedRecProConsole/appsettings.json) with protected-field settings, placebo-class flip rejection, short-arm preservation (`BSC`, `SoC`, `BAT`), SOC/body-system arm rejection, exact header-token rejection, ParameterName strict-superset rejection, Text-row percent-unit rejection, percent-header demotion rejection, and deterministic percent-column normalization to `PrimaryValueType="Percentage"` plus `Unit="%"` for numeric cells.
+
+**Documentation and plan.** Mirrored the contract in [correction-system-prompt.md](MedRecProImportClass/Skills/correction-system-prompt.md), [pivot-comparison-prompt.md](MedRecProImportClass/Skills/pivot-comparison-prompt.md), [normalization-rules.md](MedRecProImportClass/TableStandards/normalization-rules.md), and [column-contracts.md](MedRecProImportClass/TableStandards/column-contracts.md). Saved the implementation handoff at [claude-api-correction-regression-guardrails-20260511.md](<Plans/(pending) claude-api-correction-regression-guardrails-20260511.md>).
+
+**Tests.** Extended [ClaudeApiCorrectionServiceTests.cs](MedRecProTest/ClaudeApiCorrectionServiceTests.cs) with regressions for Lisinopril/HCTZ to placebo/header-token rewrites, `BSC` nulling, `Ocular` body-system arm rewrites, `Abdominal pain Dyspepsia` superset concatenation, text-row percent units, percent-column Count demotion, deterministic percent-column normalization, accepted-correction confidence counts, and `; ` flag delimiters.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter ClaudeApiCorrectionServiceTests` passed 29/29. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "ClaudeApiCorrectionServiceTests|TableParsingOrchestratorStageTests|AdverseEventDenormalizationServiceTests"` passed 93/93. The only remaining warnings are pre-existing project warnings, including the `Microsoft.CodeAnalysis` version conflict in `MedRecProTest`.
+
+---
+
+### 2026-05-11 7:06 PM EST — AE Header Remediation Plan Saved
+
+Saved the future-work remediation plan for complex AE multi-row headers, paired subcolumns, caption leakage, treatment-arm inheritance, and unrecoverable structural-row suppression. The plan was written to [ae-complex-header-treatment-arm-suppression-plan-20260511.md](Plans/ae-complex-header-treatment-arm-suppression-plan-20260511.md) and keeps the implementation scope centered on parser-layer repair with a Stage 5 denormalization backstop.
+
+**Planning details.** The handoff names the current canary tables (`41668`, `42881`, `5725`, and `33633`), expected parser behavior, suppression reasons, Stage 5 safety-filter boundaries, and regression tests needed for the next implementation session.
+
+**Verification.** Read back the saved markdown header and target path after writing the plan file. No code or tests were changed in this session.
+
+---

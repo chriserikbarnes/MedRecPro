@@ -1125,6 +1125,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             var preCorrectionFlags = observations
                 .Select(o => o.ValidationFlags)
                 .ToList();
+            result.PreClaudeValidationFlags =
+                MedRecProImportClass.Helpers.ObservationFlagSnapshotBuilder.Capture(observations);
 
             // Build table lookup so each TextTableID group gets its original table context
             var tableLookup = tables

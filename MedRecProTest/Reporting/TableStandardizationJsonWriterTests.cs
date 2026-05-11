@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MedRecProConsole.Services.Reporting;
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -61,6 +62,7 @@ namespace MedRecPro.Service.Test.Reporting
         /// JSON serialization.
         /// </summary>
         private static ParsedObservation buildFullObservation(int rowSeq = 1, int cellSeq = 1,
+            int textTableId = 24820,
             string parameter = "Cmax",
             string? subtype = "single_dose",
             string? timepoint = "Day 1",
@@ -75,7 +77,7 @@ namespace MedRecPro.Service.Test.Reporting
 
             return new ParsedObservation
             {
-                TextTableID = 24820,
+                TextTableID = textTableId,
                 SourceRowSeq = rowSeq,
                 SourceCellSeq = cellSeq,
                 ParameterName = parameter,
@@ -267,15 +269,16 @@ namespace MedRecPro.Service.Test.Reporting
 
         /**************************************************************/
         /// <summary>
-        /// The writer populates <c>beforeClaudeFlags</c> from the entry's snapshot dictionary,
-        /// keyed per observation by <c>SourceRowSeq * 10000 + SourceCellSeq</c>. This enables
-        /// jq-based diffing of Claude-applied corrections without loading both markdown and JSON.
+        /// The writer populates <c>beforeClaudeFlags</c> from the occurrence-aware snapshot
+        /// dictionary. This enables jq-based diffing of Claude-applied corrections without
+        /// loading both markdown and JSON.
         /// </summary>
         [TestMethod]
         public void BuildSection_BeforeClaudeFlags_ResolvedPerObservation()
         {
-            var obs = buildFullObservation(rowSeq: 3, cellSeq: 7, flags: "PK_SECTION_QUALIFIER_APPLIED; AI_CORRECTED:ROUTE_ARM");
-            var beforeKey = (obs.SourceRowSeq ?? 0) * 10000 + (obs.SourceCellSeq ?? 0);
+            var obs = buildFullObservation(rowSeq: 3, cellSeq: 7, flags: "PK_SECTION_QUALIFIER_APPLIED");
+            var before = ObservationFlagSnapshotBuilder.Capture(new[] { obs });
+            obs.ValidationFlags = "PK_SECTION_QUALIFIER_APPLIED; AI_CORRECTED:ROUTE_ARM";
 
             var entry = new TableReportEntry
             {
@@ -283,10 +286,7 @@ namespace MedRecPro.Service.Test.Reporting
                 Category = TableCategory.PK,
                 ParserName = "PkTableParser",
                 Observations = new[] { obs },
-                BeforeClaudeFlags = new Dictionary<int, string?>
-                {
-                    [beforeKey] = "PK_SECTION_QUALIFIER_APPLIED"  // pre-Stage-3.5 snapshot (no AI_CORRECTED)
-                },
+                BeforeClaudeFlags = before,
                 ClaudeSkipped = false
             };
 
@@ -328,6 +328,44 @@ namespace MedRecPro.Service.Test.Reporting
             Assert.AreEqual(2, lineCount, "One \\n terminator per observation");
         }
 
+
+        /**************************************************************/
+        /// <summary>
+        /// Regression guard for the observed duplicate source-cell crash where row 3 and cell 4
+        /// collapsed to old scalar key 30004 when Claude reporting tried to build before-flags.
+        /// </summary>
+        [TestMethod]
+        public void BuildSection_DuplicateSourceCellBeforeFlags_EmitsCorrectBeforeFlagsInOrder()
+        {
+            var first = buildFullObservation(rowSeq: 3, cellSeq: 4, textTableId: 16359,
+                flags: "BEFORE_FIRST");
+            var second = buildFullObservation(rowSeq: 3, cellSeq: 4, textTableId: 16359,
+                flags: "BEFORE_SECOND");
+            var observations = new[] { first, second };
+            var before = ObservationFlagSnapshotBuilder.Capture(observations);
+            first.ValidationFlags = "BEFORE_FIRST; AI_CORRECTED:Unit";
+            second.ValidationFlags = "BEFORE_SECOND; AI_CORRECTED:TreatmentArm";
+
+            var entry = new TableReportEntry
+            {
+                Table = buildMinimalTable(textTableId: 16359),
+                Category = TableCategory.ADVERSE_EVENT,
+                ParserName = "AdverseEventParser",
+                Observations = observations,
+                BeforeClaudeFlags = before,
+                ClaudeSkipped = false
+            };
+
+            var lines = parseLines(TableStandardizationJsonWriter.BuildSection(entry));
+
+            Assert.AreEqual(2, lines.Count);
+            Assert.AreEqual("BEFORE_FIRST",
+                lines[0].RootElement.GetProperty("beforeClaudeFlags").GetString());
+            Assert.AreEqual("BEFORE_SECOND",
+                lines[1].RootElement.GetProperty("beforeClaudeFlags").GetString());
+            Assert.IsFalse(lines[0].RootElement.GetProperty("claudeSkipped").GetBoolean());
+            Assert.IsFalse(lines[1].RootElement.GetProperty("claudeSkipped").GetBoolean());
+        }
         #endregion
     }
 }

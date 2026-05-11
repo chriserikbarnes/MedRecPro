@@ -1,4 +1,5 @@
 using System.Text;
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 
 namespace MedRecProConsole.Services.Reporting
@@ -464,12 +465,14 @@ namespace MedRecProConsole.Services.Reporting
             #region implementation
 
             var corrections = new List<(int row, int cell, string flag)>();
-            var before = entry.BeforeClaudeFlags;
+            var beforeByObservation = ObservationFlagSnapshotBuilder.ResolveInObservationOrder(
+                entry.Observations,
+                entry.BeforeClaudeFlags);
 
-            foreach (var obs in entry.Observations)
+            for (int i = 0; i < entry.Observations.Count; i++)
             {
-                var key = (obs.SourceRowSeq ?? 0) * 10000 + (obs.SourceCellSeq ?? 0);
-                var beforeFlags = before?.GetValueOrDefault(key);
+                var obs = entry.Observations[i];
+                var beforeFlags = beforeByObservation[i];
                 var after = obs.ValidationFlags;
 
                 if (after == null || after == beforeFlags)

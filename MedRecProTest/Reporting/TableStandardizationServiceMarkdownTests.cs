@@ -1,5 +1,6 @@
 using MedRecProConsole.Services;
 using MedRecProConsole.Services.Reporting;
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -84,7 +85,7 @@ namespace MedRecPro.Service.Test.Reporting
             {
                 new() { SourceRowSeq = 1, SourceCellSeq = 2, ValidationFlags = "AI_CORRECTED:X" }
             };
-            var before = new Dictionary<int, string?> { [1 * 10000 + 2] = null };
+            var before = ObservationFlagSnapshotBuilder.Capture(observations);
 
             // Act
             var entry = TableStandardizationService.BuildReportEntry(
@@ -107,7 +108,10 @@ namespace MedRecPro.Service.Test.Reporting
         [TestMethod]
         public void BuildReportEntry_NoClaudeRun_DropsBeforeFlags()
         {
-            var before = new Dictionary<int, string?> { [12] = "SOMETHING" };
+            var before = new Dictionary<ObservationFlagKey, string?>
+            {
+                [new ObservationFlagKey(100, 1, 2, 0)] = "SOMETHING"
+            };
 
             var entry = TableStandardizationService.BuildReportEntry(
                 buildTable(), TableCategory.ADVERSE_EVENT, "AdverseEventParser",

@@ -149,7 +149,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        context.Logger?.LogWarning("No sections discovered during Pass 1");
+                        context.Logger?.LogDebug("No sections discovered during Pass 1");
                     }
                 }
 

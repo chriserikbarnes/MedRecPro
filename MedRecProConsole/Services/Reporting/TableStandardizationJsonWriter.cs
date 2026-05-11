@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 
 namespace MedRecProConsole.Services.Reporting
@@ -99,9 +100,13 @@ namespace MedRecProConsole.Services.Reporting
                 return sb.ToString();
             }
 
-            foreach (var obs in entry.Observations)
+            var beforeByObservation = ObservationFlagSnapshotBuilder.ResolveInObservationOrder(
+                entry.Observations,
+                entry.BeforeClaudeFlags);
+
+            for (int i = 0; i < entry.Observations.Count; i++)
             {
-                writeObservationLine(sb, entry, obs);
+                writeObservationLine(sb, entry, entry.Observations[i], beforeByObservation[i]);
             }
 
             foreach (var suppressed in suppressedRows)
@@ -123,7 +128,11 @@ namespace MedRecProConsole.Services.Reporting
         /// Writes a single observation-level JSON line. Flattens table-level context
         /// at the top so each line is self-contained for standalone <c>jq</c> queries.
         /// </summary>
-        private static void writeObservationLine(StringBuilder sb, TableReportEntry entry, ParsedObservation obs)
+        private static void writeObservationLine(
+            StringBuilder sb,
+            TableReportEntry entry,
+            ParsedObservation obs,
+            string? beforeClaudeFlags)
         {
             #region implementation
 
@@ -140,7 +149,7 @@ namespace MedRecProConsole.Services.Reporting
                 SuppressionCount = entry.SuppressedRows?.Count ?? 0,
                 Observation = obs,
                 Suppression = null,
-                BeforeClaudeFlags = resolveBeforeFlags(entry, obs),
+                BeforeClaudeFlags = beforeClaudeFlags,
                 ClaudeSkipped = entry.ClaudeSkipped
             };
 
@@ -211,27 +220,6 @@ namespace MedRecProConsole.Services.Reporting
             };
 
             sb.AppendLine(JsonSerializer.Serialize(payload, _serializerOptions));
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Looks up the pre-Stage-3.5 <see cref="ParsedObservation.ValidationFlags"/>
-        /// snapshot for this observation, when available. Keyed by
-        /// <c>(SourceRowSeq * 10000 + SourceCellSeq)</c> matching the convention
-        /// used by the markdown writer.
-        /// </summary>
-        private static string? resolveBeforeFlags(TableReportEntry entry, ParsedObservation obs)
-        {
-            #region implementation
-
-            if (entry.BeforeClaudeFlags == null)
-                return null;
-
-            var key = (obs.SourceRowSeq ?? 0) * 10000 + (obs.SourceCellSeq ?? 0);
-            entry.BeforeClaudeFlags.TryGetValue(key, out var before);
-            return before;
 
             #endregion
         }

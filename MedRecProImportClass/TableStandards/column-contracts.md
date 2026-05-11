@@ -100,6 +100,7 @@ Tables reporting incidence/frequency of adverse events across treatment arms.
 **Comparison key:** `ParameterName + TreatmentArm + DoseRegimen + StudyContext + Population + Subpopulation`
 (StudyContext / Population / Subpopulation are normalized: trim, collapse whitespace,
 ToUpperInvariant; null/empty/whitespace share one bucket.)
+**Guardrails:** `Unit` must be NULL when `PrimaryValueType = Text`; text/header rows cannot carry `%`. `TreatmentArm` must be an arm label, not a MedDRA SOC/body-system label such as `Ocular`, `Cardiovascular`, or `Hepatic`, and corrections must not rewrite arms to exact source header tokens.
 
 **Population vs. Subpopulation:** orthogonal grains. Population is caption-level
 ("Adult Healthy Volunteers" — applies to the whole table); Subpopulation is a

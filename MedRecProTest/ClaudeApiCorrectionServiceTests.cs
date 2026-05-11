@@ -59,6 +59,37 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Creates a reconstructed table with one explicit header row.
+        /// </summary>
+        private static ReconstructedTable createHeaderTable(int tableId, params string[] headers)
+        {
+            #region implementation
+
+            return new ReconstructedTable
+            {
+                TextTableID = tableId,
+                TotalColumnCount = headers.Length,
+                Rows = new List<ReconstructedRow>
+                {
+                    new()
+                    {
+                        RowGroupType = "Header",
+                        Classification = RowClassification.ExplicitHeader,
+                        Cells = headers.Select((header, index) => new ProcessedCell
+                        {
+                            SequenceNumber = index + 1,
+                            ResolvedColumnStart = index,
+                            ResolvedColumnEnd = index + 1,
+                            CleanedText = header
+                        }).ToList()
+                    }
+                }
+            };
+
+            #endregion
+        }
+        /**************************************************************/
+        /// <summary>
         /// Creates a mock HttpMessageHandler that returns the specified response.
         /// </summary>
         private static Mock<HttpMessageHandler> createMockHandler(
@@ -338,7 +369,7 @@ namespace MedRecPro.Service.Test
             var corrections = new[]
             {
                 new { sourceRowSeq = 1, sourceCellSeq = 1, field = "PrimaryValueType", oldValue = "Numeric", newValue = "Percentage", reason = "test1" },
-                new { sourceRowSeq = 1, sourceCellSeq = 1, field = "TreatmentArm", oldValue = "Placebo", newValue = "EVISTA", reason = "test2" }
+                new { sourceRowSeq = 1, sourceCellSeq = 1, field = "TreatmentArm", oldValue = "Aspirin", newValue = "EVISTA", reason = "test2" }
             };
 
             var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
@@ -348,6 +379,8 @@ namespace MedRecPro.Service.Test
             {
                 createTestObservation(1, 1, "Headache", "5.2")
             };
+
+            observations[0].TreatmentArm = "Aspirin";
 
             var result = await service.CorrectBatchAsync(observations);
 
@@ -359,6 +392,322 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// TreatmentArm placebo-class flips are rejected and preserve the original drug arm.
+        /// </summary>
+        [TestMethod]
+        public async Task TreatmentArm_LisinoprilToPlacebo_IsRejected()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 2, sourceCellSeq = 3, field = "TreatmentArm", oldValue = (string?)"Lisinopril - Hydrochlorothiazide", newValue = (string?)"Placebo", reason = "HIGH: bad arm" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(2, 3, "Hypotension", "(0.8)")
+            };
+            observations[0].TreatmentArm = "Lisinopril - Hydrochlorothiazide";
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            Assert.AreEqual("Lisinopril - Hydrochlorothiazide", result[0].TreatmentArm);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:TreatmentArm:PlaceboClassFlip");
+            Assert.IsFalse(result[0].ValidationFlags!.Contains("AI_CORRECTED:TreatmentArm"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// TreatmentArm proposals that exactly match source header tokens are rejected.
+        /// </summary>
+        [TestMethod]
+        public async Task TreatmentArm_LisinoprilToHeaderToken_IsRejected()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 5, sourceCellSeq = 3, field = "TreatmentArm", oldValue = "Lisinopril - Hydrochlorothiazide", newValue = "Incidence (discontinuation )", reason = "HIGH: header bleed" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(5, 3, "Dizziness", "(0.4)")
+            };
+            observations[0].TreatmentArm = "Lisinopril - Hydrochlorothiazide";
+            var originalTables = new Dictionary<int, ReconstructedTable>
+            {
+                [1] = createHeaderTable(1, "Adverse Event", "Placebo Incidence", "Incidence (discontinuation )")
+            };
+
+            var result = await service.CorrectBatchAsync(observations, originalTables);
+
+            Assert.AreEqual("Lisinopril - Hydrochlorothiazide", result[0].TreatmentArm);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:TreatmentArm:TreatmentArmHeaderToken");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Protected short real-arm abbreviations are not nulled.
+        /// </summary>
+        [TestMethod]
+        public async Task TreatmentArm_BscToNull_IsRejected()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 28, sourceCellSeq = 3, field = "TreatmentArm", oldValue = "BSC", newValue = (string?)null, reason = "HIGH: null arm" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(28, 3, "Cutaneous signs", "0")
+            };
+            observations[0].TreatmentArm = "BSC";
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            Assert.AreEqual("BSC", result[0].TreatmentArm);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:TreatmentArm:TreatmentArmNull");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// SOC/body-system labels are rejected as TreatmentArm values.
+        /// </summary>
+        [TestMethod]
+        public async Task TreatmentArm_DrugToOcular_IsRejected()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 6, sourceCellSeq = 2, field = "TreatmentArm", oldValue = "Fluocinolone acetonide intravitreal implant", newValue = "Ocular", reason = "HIGH: SOC bleed" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(6, 2, "Uveitis", "22 ( 10%)")
+            };
+            observations[0].TreatmentArm = "Fluocinolone acetonide intravitreal implant";
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            Assert.AreEqual("Fluocinolone acetonide intravitreal implant", result[0].TreatmentArm);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:TreatmentArm:TreatmentArmBodySystem");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// ParameterName superset concatenations are rejected.
+        /// </summary>
+        [TestMethod]
+        public async Task ParameterName_SupersetConcatenation_IsRejected()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 12, sourceCellSeq = 2, field = "ParameterName", oldValue = "Abdominal pain", newValue = "Abdominal pain Dyspepsia", reason = "HIGH: concat" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(12, 2, "Abdominal pain", "5 3")
+            };
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            Assert.AreEqual("Abdominal pain", result[0].ParameterName);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:ParameterName:ParameterNameSuperset");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Text rows cannot receive a percent unit.
+        /// </summary>
+        [TestMethod]
+        public async Task TextRow_UnitPercent_IsRejected()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 2, sourceCellSeq = 2, field = "Unit", oldValue = (string?)null, newValue = "%", reason = "HIGH: bad unit" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(2, 2, "Clopidogrel", "Clopidogrel (+aspirin ) (n=6,259)")
+            };
+            observations[0].PrimaryValueType = "Text";
+            observations[0].Unit = null;
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            Assert.IsNull(result[0].Unit);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:Unit:TextRowUnitPercent");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Percent-column context rejects Percentage to Count demotions.
+        /// </summary>
+        [TestMethod]
+        public async Task PercentColumn_PercentageToCount_IsRejected()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 7, sourceCellSeq = 2, field = "PrimaryValueType", oldValue = "Percentage", newValue = "Count", reason = "HIGH: bad type" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(7, 2, "Nausea", "13")
+            };
+            observations[0].PrimaryValueType = "Percentage";
+            observations[0].Unit = "%";
+            var originalTables = new Dictionary<int, ReconstructedTable>
+            {
+                [1] = createHeaderTable(1, "Event", "(N=74) %")
+            };
+
+            var result = await service.CorrectBatchAsync(observations, originalTables);
+
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:PrimaryValueType:PercentColumnTypeDemotion");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Numeric cells under percent headers are normalized to Percentage plus percent unit.
+        /// </summary>
+        [TestMethod]
+        public async Task PercentColumn_CountCells_NormalizeToPercentageWithPercentUnit()
+        {
+            #region implementation
+
+            var mockHandler = createMockHandler("[]");
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(28, 2, "Headache", "4")
+            };
+            observations[0].PrimaryValue = 4;
+            observations[0].PrimaryValueType = "Count";
+            observations[0].Unit = null;
+            var originalTables = new Dictionary<int, ReconstructedTable>
+            {
+                [1] = createHeaderTable(1, "Event", "(N=74) %")
+            };
+
+            var result = await service.CorrectBatchAsync(observations, originalTables);
+
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            Assert.AreEqual("%", result[0].Unit);
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_CORRECTED:PrimaryValueType");
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_CORRECTED:Unit");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejected corrections do not increase the accepted AI correction count.
+        /// </summary>
+        [TestMethod]
+        public async Task RejectedCorrections_DoNotIncreaseConfidenceCorrectionCount()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 2, sourceCellSeq = 3, field = "TreatmentArm", oldValue = (string?)"Lisinopril - Hydrochlorothiazide", newValue = (string?)"Placebo", reason = "HIGH: bad arm" },
+                new { sourceRowSeq = 2, sourceCellSeq = 3, field = "ParameterCategory", oldValue = (string?)null, newValue = (string?)"Vascular Disorders", reason = "HIGH: SOC" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(2, 3, "Hypotension", "(0.8)")
+            };
+            observations[0].TreatmentArm = "Lisinopril - Hydrochlorothiazide";
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_REJECTED:TreatmentArm:PlaceboClassFlip");
+            StringAssert.Contains(result[0].ValidationFlags!, "AI_CORRECTED:ParameterCategory");
+            StringAssert.Contains(result[0].ValidationFlags!, "CONFIDENCE:AI:0.90:1_corrections");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejected and accepted flags use semicolon-space delimiters.
+        /// </summary>
+        [TestMethod]
+        public async Task RejectedFlags_UseSemicolonSpaceDelimiter()
+        {
+            #region implementation
+
+            var corrections = new[]
+            {
+                new { sourceRowSeq = 2, sourceCellSeq = 3, field = "TreatmentArm", oldValue = (string?)"Lisinopril - Hydrochlorothiazide", newValue = (string?)"Placebo", reason = "HIGH: bad arm" }
+            };
+
+            var mockHandler = createMockHandler(JsonConvert.SerializeObject(corrections));
+            var service = createService(mockHandler.Object);
+            var observations = new List<ParsedObservation>
+            {
+                createTestObservation(2, 3, "Hypotension", "(0.8)")
+            };
+            observations[0].TreatmentArm = "Lisinopril - Hydrochlorothiazide";
+            observations[0].ValidationFlags = "BASE";
+
+            var result = await service.CorrectBatchAsync(observations);
+
+            StringAssert.Contains(result[0].ValidationFlags!, "BASE; AI_REJECTED:TreatmentArm:PlaceboClassFlip");
+            Assert.IsFalse(result[0].ValidationFlags!.Contains(";AI_REJECTED"));
+            Assert.IsFalse(result[0].ValidationFlags!.Contains(";AI_CORRECTED"));
+
+            #endregion
+        }
         #endregion
 
         #region CorrectBatchAsync — Failure Handling Tests

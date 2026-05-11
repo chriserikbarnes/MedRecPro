@@ -1,4 +1,5 @@
 using MedRecProConsole.Services.Reporting;
+using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -369,12 +370,8 @@ namespace MedRecPro.Service.Test.Reporting
         public void BuildSection_ClaudeAppliedCorrections_RendersCorrectionsTable()
         {
             var obs = buildObservation();
+            var before = ObservationFlagSnapshotBuilder.Capture(new[] { obs });
             obs.ValidationFlags = "AI_CORRECTED:Unit (mg → mcg)";
-
-            var before = new Dictionary<int, string?>
-            {
-                [(obs.SourceRowSeq ?? 0) * 10000 + (obs.SourceCellSeq ?? 0)] = null
-            };
 
             var entry = new TableReportEntry
             {
@@ -402,10 +399,7 @@ namespace MedRecPro.Service.Test.Reporting
         public void BuildSection_ClaudeRanNoChanges_WritesNoCorrectionsNote()
         {
             var obs = buildObservation(validationFlags: "COL_STD:ARM_WAS_N");
-            var before = new Dictionary<int, string?>
-            {
-                [(obs.SourceRowSeq ?? 0) * 10000 + (obs.SourceCellSeq ?? 0)] = "COL_STD:ARM_WAS_N"
-            };
+            var before = ObservationFlagSnapshotBuilder.Capture(new[] { obs });
 
             var entry = new TableReportEntry
             {
@@ -448,6 +442,45 @@ namespace MedRecPro.Service.Test.Reporting
             Assert.IsFalse(md.Contains("[red]"), "Spectre color markup must not leak into markdown.");
             Assert.IsFalse(md.Contains("[/]"), "Spectre closing tag must not leak into markdown.");
             StringAssert.Contains(md, "0.30");
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Regression guard for the observed Claude harness failure: two observations emitted
+        /// from TextTableID 16359, source row 3, source cell 4 used to collide on key 30004.
+        /// </summary>
+        [TestMethod]
+        public void BuildSection_DuplicateSourceCellBeforeFlags_DoesNotThrowAndDiffsByOccurrence()
+        {
+            var first = buildObservation(textTableId: 16359, rowSeq: 3, cellSeq: 4,
+                validationFlags: "BASE_FIRST");
+            var second = buildObservation(textTableId: 16359, rowSeq: 3, cellSeq: 4,
+                validationFlags: "BASE_SECOND");
+            var observations = new[] { first, second };
+            var before = ObservationFlagSnapshotBuilder.Capture(observations);
+            second.ValidationFlags = "BASE_SECOND; AI_CORRECTED:TreatmentArm";
+
+            var entry = new TableReportEntry
+            {
+                Table = buildMinimalTable(textTableId: 16359),
+                Category = TableCategory.ADVERSE_EVENT,
+                ParserName = "AdverseEventParser",
+                Observations = observations,
+                BeforeClaudeFlags = before,
+                ClaudeSkipped = false
+            };
+
+            var md = TableStandardizationMarkdownWriter.BuildSection(entry);
+
+            StringAssert.Contains(md, "**1 Correction Applied**");
+            StringAssert.Contains(md, "AI_CORRECTED:TreatmentArm");
+            StringAssert.Contains(md, "| 3 | 4 | AI_CORRECTED:TreatmentArm |");
+            Assert.AreEqual(
+                2,
+                before.Keys.Count(k => k.TextTableID == 16359
+                    && k.SourceRowSeq == 3
+                    && k.SourceCellSeq == 4),
+                "The duplicate source-cell snapshot should preserve both occurrences.");
         }
 
         #endregion

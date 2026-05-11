@@ -69,7 +69,7 @@ namespace MedRecProImportClass.Models
         /// observations are split into multiple requests. Lower values
         /// produce shorter responses that are less likely to be truncated.
         /// </summary>
-        public int MaxObservationsPerRequest { get; set; } = 100;
+        public int MaxObservationsPerRequest { get; set; } = 500;
 
         /**************************************************************/
         /// <summary>
@@ -101,6 +101,71 @@ namespace MedRecProImportClass.Models
         /// <seealso cref="MedRecProImportClass.Service.TransformationServices.IParseQualityService"/>
         public float ClaudeReviewQualityThreshold { get; set; } = 0.75f;
 
+        /**************************************************************/
+        /// <summary>
+        /// Fields the correction service refuses to mutate even when Claude proposes
+        /// a correction. This setting narrows the hardcoded service allowlist; it never
+        /// expands the set of correctable fields.
+        /// </summary>
+        public HashSet<string> ProtectedFields { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejects TreatmentArm rewrites that change placebo-classification semantics.
+        /// </summary>
+        /// <remarks>
+        /// The guard mirrors Stage 5 comparator semantics: placebo-equivalent arms match
+        /// placebo, sham, or vehicle text, or have Dose equal to 0.
+        /// </remarks>
+        public bool RejectPlaceboClassFlip { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejects ParameterName rewrites where the proposed name is a strict token
+        /// superset of the original name.
+        /// </summary>
+        public bool RejectParameterNameSuperset { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejects Unit="%" assignments when the row remains text-typed after all
+        /// accepted corrections.
+        /// </summary>
+        public bool RejectTextRowUnitPercent { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejects non-empty TreatmentArm values being cleared unless the original arm
+        /// is a known header or generic-label echo.
+        /// </summary>
+        public bool RejectTreatmentArmToNullUnlessHeaderEcho { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejects TreatmentArm proposals that are MedDRA SOC or body-system labels.
+        /// </summary>
+        public bool RejectTreatmentArmBodySystem { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Rejects TreatmentArm proposals that exactly match a source table header token.
+        /// </summary>
+        public bool RejectTreatmentArmHeaderToken { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Enforces Percentage plus percent-unit consistency for numeric cells under
+        /// source table headers that contain a percent sign.
+        /// </summary>
+        public bool EnforcePercentColumnConsistency { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>
+        /// Short TreatmentArm abbreviations that must be preserved as real arms rather
+        /// than treated as header echoes or all-caps study labels.
+        /// </summary>
+        public HashSet<string> ProtectedShortTreatmentArms { get; set; } =
+            new(StringComparer.OrdinalIgnoreCase) { "BSC", "SoC", "BAT" };
         /**************************************************************/
         /// <summary>
         /// Path to the skill file containing the correction system prompt. Relative paths

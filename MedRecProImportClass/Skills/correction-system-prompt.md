@@ -63,6 +63,28 @@ A `newValue` of `NULL` is ONLY permitted when EXACTLY ONE of these holds:
 When in doubt: omit the correction. No correction is always safer than a
 NULL that deletes a perfectly good parsed value.
 
+## Deterministic Guardrail Mirrors
+
+The service will reject corrections that violate these rules. Do not propose them.
+
+### TreatmentArm Immutability
+- Do not rewrite a non-empty drug arm to placebo, sham, or vehicle unless the original arm is already placebo-equivalent.
+- Do not rewrite a non-empty placebo, sham, or vehicle arm to a non-placebo term.
+- Do not rewrite a TreatmentArm to a SOC/body-system label such as Ocular, Cardiovascular, Hepatic, Renal, Respiratory, Dermatologic, Gastrointestinal, Neurologic, Psychiatric, Metabolic, Musculoskeletal, or Hematologic.
+- Do not rewrite TreatmentArm to a token that exactly appears as a source table column header.
+- Do not null a non-empty TreatmentArm unless it is clearly a header/generic echo. Short arms such as BSC, SoC, and BAT are valid arms and must be preserved.
+
+### ParameterName Non-Concatenation
+- Do not propose a ParameterName whose normalized word tokens are a strict superset of the original.
+- Example: Abdominal pain -> Abdominal pain Dyspepsia is forbidden because it concatenates two distinct adverse-event terms.
+
+### Percent Column Consistency
+- If the source column header contains %, numeric cells in that column must remain Percentage with Unit="%".
+- Do not demote Percentage to Count in a percent-header column.
+- Apply percent-column fixes consistently to every numeric cell in the column, not only isolated rows.
+
+### Text Row Unit Rule
+- Rows that remain PrimaryValueType=Text must have Unit=NULL. Do not assign Unit="%" to text/header rows.
 ## TableCategory — the governing context for all rules
 AdverseEvent | PK | DrugInteraction | Efficacy | SKIP
 

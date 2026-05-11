@@ -315,6 +315,9 @@ PRI  TEST                                                 ACTION
        mcgh/mL    → mcg·h/mL
        hr         → h
        pp         → percentage points
+
+7    PrimaryValueType = Text                               -> Unit = NULL
+                                                            Text/header rows cannot carry measurement units
 ```
 
 ### Known Unit Dictionary
@@ -443,6 +446,10 @@ PRI  TEST                                                 ACTION
 5    Study name (all-caps short or known set):             → Move to StudyContext
      SPRING-2, SINGLE, SAILING, etc.                         Flag ARM_WAS_STUDY
 ```
+
+### Non-null preservation guard
+
+Do not clear a non-empty `TreatmentArm` unless it is a known header/generic echo under the table rules above. Short real-arm abbreviations such as `BSC`, `SoC`, and `BAT` are valid treatment arms and must be preserved. `TreatmentArm` must also not be rewritten to placebo/sham/vehicle, SOC/body-system labels (for example `Ocular`, `Cardiovascular`, `Hepatic`), or exact source header tokens unless the original value already belongs to that same class.
 
 ---
 
@@ -574,6 +581,8 @@ Because the bit is comparator-driven, it can vary across rows of the same
 DocumentGUID, and even across rows of the same TextTableID when a parameter
 group lacks a placebo row (the comparator falls back to the lowest non-zero
 dose, and the bit becomes `0`).
+
+Stage 3.5 correction guardrails must protect `TreatmentArm` before this stage runs; Stage 5 comparator selection should not be changed to compensate for corrupted arm text.
 
 #### Diagnostic: per-table trial-design classification
 
