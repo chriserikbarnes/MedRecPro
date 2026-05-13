@@ -89,6 +89,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                 dataRows = dataRows.Skip(skipRows).ToList();
             }
             applySingleProductArmFallback(table, arms);
+            if (!arms.Any(hasUsableTreatmentArm))
+            {
+                recordUnrescuableAeRows(
+                    table,
+                    dataRows,
+                    getUnrescuableAeReason(arms));
+                return observations;
+            }
 
             foreach (var row in dataRows)
             {

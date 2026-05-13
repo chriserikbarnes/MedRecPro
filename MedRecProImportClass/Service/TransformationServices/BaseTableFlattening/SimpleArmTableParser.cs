@@ -133,6 +133,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                 dataRows = dataRows.Skip(skipRows).ToList();
             }
             applySingleProductArmFallback(table, arms);
+            if (category == TableCategory.ADVERSE_EVENT && !arms.Any(hasUsableTreatmentArm))
+            {
+                recordUnrescuableAeRows(
+                    table,
+                    dataRows,
+                    getUnrescuableAeReason(arms));
+                return observations;
+            }
 
             foreach (var row in dataRows)
             {

@@ -475,7 +475,7 @@ namespace MedRecProConsole.Services
                     })
                     .StartAsync(async pctx =>
                     {
-                        var task = pctx.AddTask("Stage 3+4: Standardize + Validate", maxValue: 100);
+                        var task = pctx.AddTask("Standardize and Validate", maxValue: 100);
                         var statusTask = pctx.AddTask("Initializing...");
                         statusTask.IsIndeterminate = true;
 
@@ -682,7 +682,7 @@ namespace MedRecProConsole.Services
                     })
                     .StartAsync(async pctx =>
                     {
-                        var task = pctx.AddTask("Stage 3+4: Standardize + Validate", maxValue: 100);
+                        var task = pctx.AddTask("Standardize and Validate", maxValue: 100);
 
                         // Per-batch callback: persists progress to disk for resumption
                         var batchProgress = new Progress<TransformBatchProgress>(p =>

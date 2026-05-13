@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MedRecProImportClass.Data;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -255,12 +256,23 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         {
             #region implementation
 
-            var rows = await _dbContext.Set<LabelView.FlattenedStandardizedTable>()
+            var sourceRows = await _dbContext.Set<LabelView.FlattenedStandardizedTable>()
                 .AsNoTracking()
                 .Where(r => r.TableCategory == AeCategory
                             && r.DocumentGUID != null
                             && docIds.Contains(r.DocumentGUID.Value))
                 .ToListAsync(ct);
+
+            var rows = sourceRows
+                .Where(isDenormalizableAeSourceRow)
+                .ToList();
+            var skippedInvalidRows = sourceRows.Count - rows.Count;
+            if (skippedInvalidRows > 0)
+            {
+                _logger.LogDebug(
+                    "Stage 5 - Skipping {Count} AE source rows with invalid arms or no analyzable value",
+                    skippedInvalidRows);
+            }
 
             if (rows.Count == 0)
                 return 0;
@@ -378,6 +390,46 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         }
 
         #endregion Batch Processing
+
+        #region Source Row Filtering
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an AE source row is safe to enter Stage 5 grouping.
+        /// </summary>
+        /// <remarks>
+        /// Stage 5 is a downstream backstop. Parser-layer repair remains the primary
+        /// fix, but denormalization must not let caption, SOC/body-system, generic
+        /// header-token, null-arm, or text-only rows influence comparator selection.
+        /// Rows with a valid numeric value but missing <c>ArmN</c> remain eligible so
+        /// the existing downstream RR-only/no-CI handling is preserved.
+        /// </remarks>
+        /// <param name="row">Flattened standardized AE source row.</param>
+        /// <returns><c>true</c> when the row can participate in Stage 5.</returns>
+        /// <seealso cref="AeColumnContextResolver"/>
+        private static bool isDenormalizableAeSourceRow(LabelView.FlattenedStandardizedTable row)
+        {
+            #region implementation
+
+            if (row.DocumentGUID == null)
+                return false;
+
+            if (AeColumnContextResolver.IsInvalidTreatmentArm(row.TreatmentArm))
+                return false;
+
+            if (AeColumnContextResolver.IsCaptionLikeText(row.ParameterName) ||
+                AeColumnContextResolver.IsBodySystemLabel(row.ParameterName) ||
+                AeColumnContextResolver.IsValueAxisToken(row.ParameterName))
+            {
+                return false;
+            }
+
+            return row.PrimaryValue.HasValue;
+
+            #endregion
+        }
+
+        #endregion Source Row Filtering
 
         #region Comparator Selection
 

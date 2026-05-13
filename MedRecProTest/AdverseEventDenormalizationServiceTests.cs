@@ -611,6 +611,68 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Invalid null/caption/SOC/header-token arms are filtered before grouping so
+        /// they cannot influence comparator selection or output rows.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_InvalidStructuralArms_SkippedBeforeGrouping()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var validDrug = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", 100, 50m, "mg", 20.0, "Percentage");
+            var validPlacebo = aeRow(2, doc, 100, "Nausea", "Placebo", 100, 0m, null, 10.0, "Percentage", sourceRowSeq: 2);
+            var bodySystemArm = aeRow(3, doc, 100, "Nausea", "Ocular", 100, null, null, 1.0, "Percentage", sourceRowSeq: 3);
+            var captionArm = aeRow(4, doc, 100, "Nausea", "Table 6: Adverse Reactions Reported in Clinical Trials", 100, null, null, 1.0, "Percentage", sourceRowSeq: 4);
+            var nullArm = aeRow(5, doc, 100, "Nausea", null, 100, null, null, 1.0, "Percentage", sourceRowSeq: 5);
+            var headerTokenArm = aeRow(6, doc, 100, "Nausea", "Incidence (discontinuation )", 100, null, null, 1.0, "Percentage", sourceRowSeq: 6);
+
+            var (service, db) = createService(validDrug, validPlacebo, bodySystemArm, captionArm, nullArm, headerTokenArm);
+
+            var written = await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            Assert.AreEqual(1, written);
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual("Drug A 50mg", rows[0].TreatmentArm);
+            Assert.AreEqual("Placebo", rows[0].ComparatorArm);
+            Assert.IsTrue(rows[0].IsPlaceboControlled);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Valid numeric rows with missing <c>ArmN</c> remain eligible for existing
+        /// downstream RR-only/no-CI handling.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_ValidNumericRowsWithMissingArmN_AreNotFilteredBySafetyGate()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var drug = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", null, 50m, "mg", 20.0, "Percentage");
+            var placebo = aeRow(2, doc, 100, "Nausea", "Placebo", 100, 0m, null, 10.0, "Percentage", sourceRowSeq: 2);
+
+            var (service, db) = createService(drug, placebo);
+
+            var written = await service.PopulateAsync();
+
+            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
+            Assert.AreEqual(1, written);
+            Assert.AreEqual("Drug A 50mg", row.TreatmentArm);
+            Assert.AreEqual("Placebo", row.ComparatorArm);
+            Assert.IsNotNull(row.RR);
+            Assert.IsNull(row.RRLowerBound);
+            Assert.IsNull(row.RRUpperBound);
+            StringAssert.Contains(row.CalculationFlags, "NO_ARMN");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Same DocumentGUID + ParameterName but different TextTableIDs →
         /// each TextTable's group has its own comparator; no cross-pairing.
         /// </summary>

@@ -483,21 +483,25 @@ namespace MedRecProImportClass.Service.TransformationServices
                 // path, rejecting blank/generic leaves and walking up to a non-generic
                 // ancestor. Skip the column entirely when no recovery is possible — the
                 // alternative is emitting an observation that fails MissingRequired:TreatmentArm.
-                var leafText = recoverArmHeaderText(col);
-                leafText ??= recoverArmHeaderTextFromSiblingSpan(table.Header.Columns, i);
-                if (leafText == null)
+                var context = AeColumnContextResolver.Resolve(col, table.Header.Columns, i);
+                if (context.TreatmentArm == null)
                 {
-                    arms.Add(createPlaceholderArmDefinition(col));
+                    arms.Add(createPlaceholderArmDefinition(col, context));
                     continue;
                 }
 
+                var leafText = context.TreatmentArm;
                 var arm = ValueParser.ParseArmHeader(leafText);
                 if (arm != null)
                 {
                     arm.ColumnIndex = col.ColumnIndex;
 
                     // Assign study context from parent header path if multi-level
-                    if (col.HeaderPath != null && col.HeaderPath.Count > 1)
+                    if (!string.IsNullOrWhiteSpace(context.StudyContext))
+                    {
+                        arm.StudyContext = context.StudyContext;
+                    }
+                    else if (col.HeaderPath != null && col.HeaderPath.Count > 1)
                     {
                         var contextCandidate = col.HeaderPath[0]?.Trim();
                         if (!string.Equals(contextCandidate, leafText, StringComparison.OrdinalIgnoreCase))
@@ -505,6 +509,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     }
 
                     applyAxisMetadata(col.LeafHeaderText, arm);
+                    applyColumnContextMetadata(context, arm);
                     arms.Add(arm);
                 }
                 else
@@ -520,13 +525,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                         Name = armName,
                         FormatHint = formatHint,
                         ColumnIndex = col.ColumnIndex,
-                        StudyContext = col.HeaderPath != null &&
-                                       col.HeaderPath.Count > 1 &&
-                                       !string.Equals(col.HeaderPath[0]?.Trim(), armName, StringComparison.OrdinalIgnoreCase)
+                        StudyContext = !string.IsNullOrWhiteSpace(context.StudyContext)
+                            ? context.StudyContext
+                            : col.HeaderPath != null &&
+                              col.HeaderPath.Count > 1 &&
+                              !string.Equals(col.HeaderPath[0]?.Trim(), armName, StringComparison.OrdinalIgnoreCase)
                             ? col.HeaderPath[0]?.Trim()
                             : null
                     };
                     applyAxisMetadata(col.LeafHeaderText, fallbackArm);
+                    applyColumnContextMetadata(context, fallbackArm);
                     arms.Add(fallbackArm);
                 }
             }
@@ -643,16 +651,19 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// must be recovered from body metadata.
         /// </summary>
         /// <param name="col">Header column that did not yield a real treatment arm.</param>
+        /// <param name="context">Optional AE column context carrying axis metadata.</param>
         /// <returns>An arm placeholder retaining column index and axis metadata.</returns>
         /// <seealso cref="enrichArmsFromBodyRows"/>
-        private static ArmDefinition createPlaceholderArmDefinition(HeaderColumn col)
+        private static ArmDefinition createPlaceholderArmDefinition(HeaderColumn col, AeColumnContext? context = null)
         {
             #region implementation
 
             var arm = new ArmDefinition
             {
                 ColumnIndex = col.ColumnIndex,
-                StudyContext = getHeaderStudyContext(col) ?? getContextAxisLabel(col.LeafHeaderText)
+                StudyContext = context?.StudyContext ?? getHeaderStudyContext(col) ?? getContextAxisLabel(col.LeafHeaderText),
+                ParameterSubtype = context?.ParameterSubtype,
+                FormatHint = context?.FormatHint
             };
             applyAxisMetadata(col.LeafHeaderText, arm);
             return arm;
@@ -755,7 +766,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return true;
             return _genericArmLabelPattern.IsMatch(text) ||
                    _armAxisLabelPattern.IsMatch(text) ||
-                   _contextAxisLabelPattern.IsMatch(text);
+                   _contextAxisLabelPattern.IsMatch(text) ||
+                   AeColumnContextResolver.IsInvalidTreatmentArm(text);
 
             #endregion
         }
@@ -815,6 +827,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (arms.Count == 0 || arms.Any(hasUsableTreatmentArm))
                 return false;
 
+            if (arms.Any(hasInvalidStructuralArmContext))
+                return false;
+
             var productArm = inferSingleProductArmFromTitle(table);
             if (string.IsNullOrWhiteSpace(productArm))
                 return false;
@@ -828,6 +843,28 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a placeholder arm carries structural context that
+        /// must not be repaired by product-title fallback.
+        /// </summary>
+        /// <param name="arm">Arm placeholder to evaluate.</param>
+        /// <returns><c>true</c> when the placeholder came from caption or SOC text.</returns>
+        /// <seealso cref="applySingleProductArmFallback"/>
+        private static bool hasInvalidStructuralArmContext(ArmDefinition arm)
+        {
+            #region implementation
+
+            return AeColumnContextResolver.IsCaptionLikeText(arm.Name) ||
+                   AeColumnContextResolver.IsCaptionLikeText(arm.ParameterSubtype) ||
+                   AeColumnContextResolver.IsCaptionLikeText(arm.StudyContext) ||
+                   AeColumnContextResolver.IsBodySystemLabel(arm.Name) ||
+                   AeColumnContextResolver.IsBodySystemLabel(arm.ParameterSubtype) ||
+                   AeColumnContextResolver.IsBodySystemLabel(arm.StudyContext);
 
             #endregion
         }
@@ -870,6 +907,9 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var rawValue = obs.RawValue?.Trim();
             var parameterName = obs.ParameterName?.Trim();
+
+            if (isAe && AeColumnContextResolver.IsInvalidTreatmentArm(obs.TreatmentArm))
+                return true;
 
             // Dash/em-dash and "(N=…)" cells are structural ONLY when the row's
             // parameter is itself a structural divider (SOC label, header echo, or
@@ -952,7 +992,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             return !string.IsNullOrWhiteSpace(text) &&
-                   _knownStructuralRowLabelPattern.IsMatch(text.Trim());
+                   (_knownStructuralRowLabelPattern.IsMatch(text.Trim()) ||
+                    AeColumnContextResolver.IsBodySystemLabel(text));
 
             #endregion
         }
@@ -1214,6 +1255,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="structuralLabel">Structural label preserved as context.</param>
         /// <param name="contextTarget">Context field that received the label.</param>
         /// <param name="reason">Human-readable suppression reason.</param>
+        /// <param name="validationFlag">Stable diagnostic validation flag.</param>
         /// <seealso cref="TableSuppressionAuditRecord"/>
         protected void recordSuppressedStructuralRow(
             ReconstructedTable table,
@@ -1225,7 +1267,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             string? rawValue,
             string? structuralLabel,
             string? contextTarget,
-            string reason)
+            string reason,
+            string validationFlag = "SUPPRESSED_STRUCTURAL_ROW")
         {
             #region implementation
 
@@ -1241,8 +1284,87 @@ namespace MedRecProImportClass.Service.TransformationServices
                 RawValue = rawValue,
                 StructuralLabel = structuralLabel,
                 ContextTarget = contextTarget,
-                Reason = reason
+                Reason = reason,
+                ValidationFlag = validationFlag
             });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Records AE rows that still have no usable treatment arm after all parser
+        /// rescue attempts have completed.
+        /// </summary>
+        /// <param name="table">Source reconstructed table.</param>
+        /// <param name="rows">Rows that could not be emitted safely.</param>
+        /// <param name="reason">Stable suppression flag explaining the failure.</param>
+        /// <seealso cref="AeSuppressionKind"/>
+        /// <seealso cref="TableSuppressionAuditRecord"/>
+        protected void recordUnrescuableAeRows(
+            ReconstructedTable table,
+            IEnumerable<ReconstructedRow> rows,
+            string reason)
+        {
+            #region implementation
+
+            foreach (var row in rows.Where(r => r.Classification == RowClassification.DataBody))
+            {
+                var firstCell = row.Cells?
+                    .Where(c => !string.IsNullOrWhiteSpace(c.CleanedText))
+                    .OrderBy(c => c.ResolvedColumnStart ?? int.MaxValue)
+                    .FirstOrDefault();
+
+                if (firstCell == null)
+                    continue;
+
+                var (parameterName, _) = getParameterName(row);
+                recordSuppressedStructuralRow(
+                    table,
+                    row,
+                    null,
+                    TableCategory.ADVERSE_EVENT,
+                    parameterName,
+                    null,
+                    firstCell.CleanedText,
+                    parameterName ?? firstCell.CleanedText,
+                    "ParameterCategory",
+                    reason,
+                    reason);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Chooses the most specific AE suppression flag for an unresolved arm set.
+        /// </summary>
+        /// <param name="arms">Arm definitions after all rescue attempts.</param>
+        /// <returns>Stable suppression flag for diagnostics.</returns>
+        /// <seealso cref="AeSuppressionKind"/>
+        protected static string getUnrescuableAeReason(IEnumerable<ArmDefinition> arms)
+        {
+            #region implementation
+
+            var armList = arms.ToList();
+            if (armList.Any(a =>
+                    AeColumnContextResolver.IsCaptionLikeText(a.Name) ||
+                    AeColumnContextResolver.IsCaptionLikeText(a.ParameterSubtype) ||
+                    AeColumnContextResolver.IsCaptionLikeText(a.StudyContext)))
+            {
+                return AeSuppressionKind.CaptionArm.ToValidationFlag();
+            }
+
+            if (armList.Any(a =>
+                    AeColumnContextResolver.IsBodySystemLabel(a.Name) ||
+                    AeColumnContextResolver.IsBodySystemLabel(a.ParameterSubtype) ||
+                    AeColumnContextResolver.IsBodySystemLabel(a.StudyContext)))
+            {
+                return AeSuppressionKind.BodySystemArm.ToValidationFlag();
+            }
+
+            return AeSuppressionKind.UnresolvedArm.ToValidationFlag();
 
             #endregion
         }
@@ -1349,6 +1471,33 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Applies resolved AE column-context metadata to an arm definition.
+        /// </summary>
+        /// <param name="context">Resolved AE column context.</param>
+        /// <param name="arm">Arm definition to update.</param>
+        /// <seealso cref="AeColumnContext"/>
+        /// <seealso cref="ArmDefinition.ParameterSubtype"/>
+        private static void applyColumnContextMetadata(AeColumnContext context, ArmDefinition arm)
+        {
+            #region implementation
+
+            if (!string.IsNullOrWhiteSpace(context.ParameterSubtype))
+                arm.ParameterSubtype = context.ParameterSubtype;
+
+            if (!string.IsNullOrWhiteSpace(context.FormatHint))
+                arm.FormatHint = context.FormatHint;
+
+            if (!string.IsNullOrWhiteSpace(context.StudyContext) &&
+                string.IsNullOrWhiteSpace(arm.StudyContext))
+            {
+                arm.StudyContext = context.StudyContext;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Extracts severity/metric subtype and percentage format hints from a
         /// non-arm column-axis label.
         /// </summary>
@@ -1368,6 +1517,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return false;
 
             var trimmed = text.Trim();
+            if (AeColumnContextResolver.TryExtractAxisMetadata(trimmed, out subtype, out formatHint))
+                return true;
+
             if (!_armAxisLabelPattern.IsMatch(trimmed) && !_formatHintCellPattern.IsMatch(trimmed))
                 return false;
 

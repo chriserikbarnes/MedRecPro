@@ -137,13 +137,3 @@ WHERE CalculationFlags NOT LIKE 'PLACEBO_COMPARATOR%'
 
   SELECT COUNT(*) FROM tmp_FlattenedAdverseEventTable
 WHERE ComparatorArm = 'Placebo' AND IsPlaceboControlled = 0;
-
-SELECT COUNT(*) FROM tmp_FlattenedAdverseEventTable a
-JOIN tmp_FlattenedStandardizedTable s 
-ON a.tmp_FlattenedAdverseEventTableID = s.tmp_FlattenedStandardizedTableID
-WHERE s.TextTableID = 23177 AND a.IsPlaceboControlled = 0;
-
-SELECT * FROM tmp_FlattenedAdverseEventTable a
-JOIN tmp_FlattenedStandardizedTable s 
-ON a.tmp_FlattenedAdverseEventTableID = s.tmp_FlattenedStandardizedTableID
-WHERE s.TextTableID = 23177 AND a.IsPlaceboControlled = 0;

@@ -3733,3 +3733,37 @@ Saved the future-work remediation plan for complex AE multi-row headers, paired 
 **Verification.** Read back the saved markdown header and target path after writing the plan file. No code or tests were changed in this session.
 
 ---
+
+### 2026-05-13 2:01 PM EST — AE Header Plan Exact Target Saved
+
+Created the exact non-prefixed local plan artifact requested at [ae-complex-header-treatment-arm-suppression-plan-20260511.md](Plans/ae-complex-header-treatment-arm-suppression-plan-20260511.md). The plan captures parser-layer repair for complex AE multi-row headers, paired value subcolumns, caption leakage, treatment-arm inheritance, structural suppression, and the limited Stage 5 denormalization backstop.
+
+**Planning details.** Preserved the named canaries (`41668`, `42881`, `5725`, and `33633`), suppression reason vocabulary, Stage 5 boundaries around comparator semantics, parser and denormalization test cases, and validation acceptance checks against `standardization-report-20260511-133902.jsonl`.
+
+**Verification.** Read back the saved markdown file after writing it. `git status --short --ignored Plans/ae-complex-header-treatment-arm-suppression-plan-20260511.md` reported `!! Plans/`, confirming the artifact remains local under the ignored `Plans/` folder. No code or tests were changed.
+
+---
+
+### 2026-05-13 2:40 PM EST — AE Complex Header Arm Suppression Implementation
+
+Implemented the AE complex-header remediation described in the saved plan. Added a shared [AeColumnContextResolver.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/AeColumnContextResolver.cs) to classify AE data columns, reject caption/SOC/value-axis arm candidates, split composite arm-axis headers, preserve paired-subcolumn metadata, and provide stable AE suppression flags.
+
+**Parser changes.** Updated [BaseTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/BaseTableParser.cs), [SimpleArmTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/SimpleArmTableParser.cs), [AeWithSocTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/AeWithSocTableParser.cs), and [MultilevelAeTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/MultilevelAeTableParser.cs) so paired incidence/discontinuation and percent/count leaves inherit parent arms, body-row arm metadata can repair placeholders, SOC/caption/value-axis candidates are never emitted as treatment arms, unrecoverable AE rows are suppressed through the existing diagnostics channel, and single-product fallback does not rescue caption or SOC leakage.
+
+**Stage 5 backstop.** Updated [AdverseEventDenormalizationService.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AdverseEventDenormalizationService.cs) to skip invalid AE source rows with null/caption/SOC/generic/value-axis treatment arms or no analyzable value before comparator grouping, while preserving existing missing-`ArmN` handling and row-level `IsPlaceboControlled` semantics.
+
+**Tests.** Added parser canaries in [AeArmRecoveryParserTests.cs](MedRecProTest/AeArmRecoveryParserTests.cs) for tables `42881`, `41668`, `5725`, and `33633`, plus unrecoverable structural-row suppression and recoverable numeric-row preservation. Added Stage 5 safety-filter tests in [AdverseEventDenormalizationServiceTests.cs](MedRecProTest/AdverseEventDenormalizationServiceTests.cs) for invalid source-row skipping, valid comparator grouping, missing-`ArmN` pass-through, and row-level placebo comparator truth.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "AeArmRecoveryParserTests|AdverseEventDenormalizationServiceTests"` passed 43/43. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "AeArmRecoveryParserTests|AdverseEventDenormalizationServiceTests|TableParserRouterGateTests|TableParserBaselineFixtureTests"` passed 66/66. Remaining build output warnings were pre-existing project warnings, including XML documentation warnings and the `Microsoft.CodeAnalysis` version conflict in `MedRecProTest`.
+
+---
+
+### 2026-05-13 2:56 PM EST — AE Resolver Intent Comments
+
+Added line-level intent comments inside [AeColumnContextResolver.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/AeColumnContextResolver.cs) above key variable declarations and control statements. The comments explain what each branch is trying to preserve, reject, inherit, or classify so the resolver reads as a decision trace for AE arm recovery, paired-subcolumn handling, caption/SOC rejection, and suppression reason selection.
+
+**Documentation details.** Commented the primary `Resolve` flow, composite arm-axis splitting, axis metadata extraction, parent/sibling arm recovery, context-axis preservation, invalid-header classification, suppression flag mapping, and string normalization helper. No behavior changes were intended.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "AeArmRecoveryParserTests|AdverseEventDenormalizationServiceTests"` passed 43/43. Remaining build output warnings were pre-existing project warnings, including XML documentation warnings and the `Microsoft.CodeAnalysis` version conflict in `MedRecProTest`.
+
+---

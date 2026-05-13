@@ -408,6 +408,188 @@ namespace MedRecPro.Service.Test
             Assert.IsFalse(results.Any(r => r.TreatmentArm != null && r.TreatmentArm.Contains("Grade", StringComparison.OrdinalIgnoreCase)));
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Table 42881 shape: paired incidence/discontinuation leaves should inherit
+        /// the parent Lisinopril/HCTZ arm instead of becoming treatment arms.
+        /// </summary>
+        [TestMethod]
+        public void Table42881_PairedIncidenceHeaders_InheritParentArm()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Incidence (discontinuation )", "Incidence (discontinuation )" },
+                new List<string?[]>
+                {
+                    new[] { "Dizziness", "12 (6%)", "3 (1%)" }
+                });
+
+            var columns = table.Header!.Columns!;
+            table.Header.HeaderRowCount = 2;
+            columns[1].HeaderPath = new List<string> { "Lisinopril - Hydrochlorothiazide (N=200)", "Incidence (discontinuation )" };
+            columns[2].HeaderPath = new List<string> { "Placebo (N=190)", "Incidence (discontinuation )" };
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsFalse(results.Any(r => r.TreatmentArm == "Incidence (discontinuation )"));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Lisinopril - Hydrochlorothiazide"));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Placebo"));
+            Assert.IsTrue(results.All(r => r.ParameterSubtype == "Incidence (discontinuation )"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Table 42881 shape: composite leaves such as <c>Placebo Incidence</c>
+        /// should split the arm from the value-axis subtype.
+        /// </summary>
+        [TestMethod]
+        public void Table42881_PlaceboIncidence_SplitsArmAndSubtype()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Placebo Incidence" },
+                new List<string?[]>
+                {
+                    new[] { "Dizziness", "3 (1%)" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Placebo", results[0].TreatmentArm);
+            Assert.AreEqual("Incidence", results[0].ParameterSubtype);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Table 41668 shape: bare SOC/body-system headers such as
+        /// <c>Ocular</c> are context labels, never treatment arms.
+        /// </summary>
+        [TestMethod]
+        public void Table41668_Ocular_IsSocContextNotTreatmentArm()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Ocular" },
+                new List<string?[]>
+                {
+                    new[] { "Eye pain", "12 (6%)" }
+                },
+                title: "Test Drug");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(0, results.Count);
+            Assert.IsFalse(results.Any(r => r.TreatmentArm == "Ocular"));
+            Assert.IsTrue(suppressed.Any(r => r.ValidationFlag == "SUPPRESSED_AE_BODY_SYSTEM_ARM"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Table 5725 shape: percent/count paired leaves should inherit parent arms
+        /// or suppress safely instead of emitting null-arm observations.
+        /// </summary>
+        [TestMethod]
+        public void Table5725_PercentPairedColumns_RescueArmsOrSuppress()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "%", "n" },
+                new List<string?[]>
+                {
+                    new[] { "Headache", "8", "4" }
+                });
+
+            var columns = table.Header!.Columns!;
+            table.Header.HeaderRowCount = 2;
+            columns[1].HeaderPath = new List<string> { "Drug A (N=50)", "%" };
+            columns[2].HeaderPath = new List<string> { "Drug A (N=50)", "n" };
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.TreatmentArm == "Drug A"));
+            Assert.IsTrue(results.All(r => !string.IsNullOrWhiteSpace(r.TreatmentArm)));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Table 33633 shape: caption text must not be used as a treatment arm.
+        /// </summary>
+        [TestMethod]
+        public void Table33633_CaptionArmLeak_IsRejectedOrResolved()
+        {
+            var captionArm = "Table 6: Adverse Reactions Reported in Clinical Trials";
+            var table = createAeTable(
+                new[] { "Adverse Reaction", captionArm },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "9 (4%)" }
+                },
+                title: "Test Drug");
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(0, results.Count);
+            Assert.IsFalse(results.Any(r => r.TreatmentArm == captionArm));
+            Assert.IsTrue(suppressed.Any(r => r.ValidationFlag == "SUPPRESSED_AE_CAPTION_ARM"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unrescuable text/header-only AE rows should be suppressed with a stable
+        /// unresolved-arm reason instead of emitted as fake observations.
+        /// </summary>
+        [TestMethod]
+        public void AeTextRows_UnrescuableStructuralRows_AreSuppressed()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Incidence" },
+                new List<string?[]>
+                {
+                    new[] { "Body System", "Event" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(0, results.Count);
+            Assert.IsTrue(suppressed.Any(r => r.ValidationFlag == "SUPPRESSED_AE_UNRESOLVED_ARM"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Real numeric AE rows with a recoverable parent arm should continue to
+        /// emit observations after paired-leaf handling is applied.
+        /// </summary>
+        [TestMethod]
+        public void AeRealNumericRows_WithRecoverableArm_AreNotSuppressed()
+        {
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Incidence" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "12 (6%)" }
+                });
+
+            var columns = table.Header!.Columns!;
+            table.Header.HeaderRowCount = 2;
+            columns[1].HeaderPath = new List<string> { "Drug A (N=200)", "Incidence" };
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Drug A", results[0].TreatmentArm);
+            Assert.AreEqual("Incidence", results[0].ParameterSubtype);
+            Assert.AreEqual(6.0, results[0].PrimaryValue);
+        }
+
         #endregion Recovery Tests
     }
 }
