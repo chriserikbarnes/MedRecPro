@@ -3767,3 +3767,41 @@ Added line-level intent comments inside [AeColumnContextResolver.cs](MedRecProIm
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "AeArmRecoveryParserTests|AdverseEventDenormalizationServiceTests"` passed 43/43. Remaining build output warnings were pre-existing project warnings, including XML documentation warnings and the `Microsoft.CodeAnalysis` version conflict in `MedRecProTest`.
 
 ---
+
+### 2026-05-14 2:11 PM EST — Table Standardization Phase 1 Consolidations
+
+Implemented the first low-risk maintainability slice from [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md): shared placebo classification, shared field access for Claude corrections, and direct `ColumnContractRegistry` consumption by the standardization Phase 4 contract pass.
+
+**Implementation.** Added [IPlaceboArmClassifier.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/IPlaceboArmClassifier.cs) with a default `PlaceboArmClassifier` that delegates to `RelativeRiskCalculator.IsPlaceboArm`, registered it in [TableStandardizationService.cs](MedRecProConsole/Services/TableStandardizationService.cs), and updated [ClaudeApiCorrectionService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ClaudeApiCorrectionService.cs) to use the shared classifier instead of its local placebo regex.
+
+**Standardization wiring.** Expanded [ParsedObservationFieldAccess.cs](MedRecProImportClass/Helpers/ParsedObservationFieldAccess.cs) to cover the value/bound/type fields needed by `ColumnContractRegistry` and Claude correction, added case-insensitive canonical column lookup, and added `SetFromString` so string payloads still parse numeric corrections such as `Dose`. Updated [ColumnStandardizationService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ColumnStandardizationService.cs) to remove its private `_columnContracts` shadow map and enforce `Required`/`NullExpected` columns through `IColumnContractRegistry`.
+
+**Tests.** Added focused coverage in [ParsedObservationFieldAccessTests.cs](MedRecProTest/ParsedObservationFieldAccessTests.cs), [ClaudeApiCorrectionServiceTests.cs](MedRecProTest/ClaudeApiCorrectionServiceTests.cs), [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs), and [RelativeRiskCalculatorTests.cs](MedRecProTest/RelativeRiskCalculatorTests.cs) for string-to-numeric correction parsing, primary-value required-column enforcement, and the new placebo classifier wrapper.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~ParsedObservationFieldAccessTests|FullyQualifiedName~ClaudeApiCorrectionServiceTests|FullyQualifiedName~ColumnStandardizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests"` passed 296/296. The full unfiltered run built but failed 16 `ProductRenderingServiceTests` during `TestInitialize` because `EncryptionService` reported `PK encryption secret not configured`. Rerunning without that environment-blocked fixture via `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName!~ProductRenderingServiceTests"` passed 1,945/1,945 with 1 skipped. Remaining warning output was pre-existing project noise, including XML documentation warnings and the `Microsoft.CodeAnalysis` version conflict in `MedRecProTest`.
+
+---
+
+### 2026-05-14 2:23 PM EST — Table Standardization Refactor Plan Status Update
+
+Updated [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md) to record the completed Phase A / Phase 1 consolidation work and the remaining pending phases. The plan now calls out completed shared placebo classification, Claude field-access consolidation, `IColumnContractRegistry` adoption, focused regression coverage, and the full-suite verification caveat around missing PK encryption-secret configuration.
+
+**Planning details.** Marked Phase A complete, marked Phases B through D pending, and preserved the deferred/out-of-scope items for `PkTableParser`, duplicate-comparison suppression, and Phase 3 `PrimaryValueType` migration.
+
+**Verification.** Read back the updated execution-sequence section after editing. No code or tests were changed in this documentation-only update.
+
+---
+
+---
+
+### 2026-05-14 2:49 PM EST — Table Standardization Smoke Drift Fix
+
+Smoke tested `standardization-report-20260513-150602.jsonl` against the latest `standardization-report-20260514-141957.jsonl` after the Phase 1 housekeeping refactor. The artifacts had matching line counts but were not byte-identical: 2,121 lines differed across 219 `TextTableID` values, and every drift was confined to `observation.validationFlags`.
+
+**Findings.** The registry consolidation widened the Phase 4 report-facing required-column flag surface by adding `COL_STD:MISSING_R_PrimaryValue` to 2,071 AE rows. A smaller set of 45 lines differed only by validation-flag ordering after `BoundType` enforcement moved ahead of missing-required flagging, and 5 lines had secondary `QC:PVTYPE_DISAMBIGUATED:Count` token-score drift from the changed flag totals.
+
+**Implementation.** Updated [ColumnStandardizationService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ColumnStandardizationService.cs) so Phase 4 still consumes `IColumnContractRegistry` as the single contract source, but only emits the legacy missing-required flags for `ParameterName`, `ParameterSubtype`, `TreatmentArm`, `PrimaryValueType`, and `Unit`. Restored the previous enforcement order so missing-required flags are applied before default `BoundType` inference. Updated [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs) to lock this compatibility behavior and leave value-column null penalties to `QC_PARSE_QUALITY`.
+
+**Verification.** Re-ran the focused Phase 1 regression suite with `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~ParsedObservationFieldAccessTests|FullyQualifiedName~ClaudeApiCorrectionServiceTests|FullyQualifiedName~ColumnStandardizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests"` and it passed 296/296. `git diff --check` passed with only existing line-ending warnings. The already-generated `standardization-report-20260514-141957.jsonl` remains non-identical on disk because it predates this smoke-fix; the standardization run should be regenerated to confirm artifact-level parity.
+
+---

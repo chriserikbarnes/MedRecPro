@@ -96,6 +96,34 @@ namespace MedRecProImportClass.Service.TransformationServices
         private readonly IAeParameterCategoryDictionaryService? _aeDictionary;
 
         /**************************************************************/
+        /// <summary>
+        /// Shared per-category column contract registry used by Phase 4 enforcement.
+        /// </summary>
+        /// <seealso cref="IColumnContractRegistry"/>
+        private readonly IColumnContractRegistry _columnContractRegistry;
+
+        /**************************************************************/
+        /// <summary>
+        /// Required columns that Phase 4 historically surfaced as validation flags.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="ColumnContractRegistry"/> is broader than the retired local
+        /// `_columnContracts` map because it includes value columns used by parse-quality
+        /// scoring. Phase 4 preserves the prior report-facing behavior by only flagging
+        /// the required context columns that were enforced before this maintainability
+        /// refactor.
+        /// </remarks>
+        /// <seealso cref="IColumnContractRegistry"/>
+        private static readonly HashSet<string> _phase4RequiredFlagColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "ParameterName",
+            "ParameterSubtype",
+            "TreatmentArm",
+            "PrimaryValueType",
+            "Unit"
+        };
+
+        /**************************************************************/
         /// <summary>Whether the dictionary has been loaded.</summary>
         private bool _initialized;
 
@@ -388,109 +416,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion Phase 3 Static Dictionaries
 
-        #region Phase 4 Column Contract Definitions
-
-        /**************************************************************/
-        /// <summary>Column requirement level for contract enforcement.</summary>
-        private enum ColumnRequirement
-        {
-            /// <summary>Must be populated — flag if missing.</summary>
-            Required,
-            /// <summary>Usually populated — no flag, but tracked in completeness.</summary>
-            Expected,
-            /// <summary>Populated when data stratifies on this dimension.</summary>
-            Optional,
-            /// <summary>Must be NULL for this table type — enforce null.</summary>
-            NotApplicable
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Per-TableCategory column contracts. Keys are observation context column names.
-        /// Provenance, Classification, and Validation columns are not enforced here (always populated by parser).
-        /// </summary>
-        private static readonly Dictionary<string, Dictionary<string, ColumnRequirement>> _columnContracts = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["ADVERSE_EVENT"] = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ParameterName"] = ColumnRequirement.Required,
-                ["ParameterCategory"] = ColumnRequirement.Expected,
-                ["ParameterSubtype"] = ColumnRequirement.Optional,
-                ["TreatmentArm"] = ColumnRequirement.Required,
-                ["ArmN"] = ColumnRequirement.Expected,
-                ["StudyContext"] = ColumnRequirement.Optional,
-                ["DoseRegimen"] = ColumnRequirement.Optional,
-                ["Dose"] = ColumnRequirement.Optional,
-                ["DoseUnit"] = ColumnRequirement.Optional,
-                ["Population"] = ColumnRequirement.Optional,
-                ["Subpopulation"] = ColumnRequirement.Optional,
-                ["Timepoint"] = ColumnRequirement.NotApplicable,
-                ["Time"] = ColumnRequirement.NotApplicable,
-                ["TimeUnit"] = ColumnRequirement.NotApplicable,
-                ["PrimaryValueType"] = ColumnRequirement.Required,
-                ["Unit"] = ColumnRequirement.Expected
-            },
-            ["PK"] = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ParameterName"] = ColumnRequirement.Required,
-                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
-                ["ParameterSubtype"] = ColumnRequirement.Optional,
-                ["TreatmentArm"] = ColumnRequirement.Optional,
-                ["ArmN"] = ColumnRequirement.Optional,
-                ["StudyContext"] = ColumnRequirement.Optional,
-                ["DoseRegimen"] = ColumnRequirement.Expected,
-                ["Dose"] = ColumnRequirement.Expected,
-                ["DoseUnit"] = ColumnRequirement.Expected,
-                ["Population"] = ColumnRequirement.Optional,
-                ["Subpopulation"] = ColumnRequirement.Optional,
-                ["Timepoint"] = ColumnRequirement.Optional,
-                ["Time"] = ColumnRequirement.Optional,
-                ["TimeUnit"] = ColumnRequirement.Optional,
-                ["PrimaryValueType"] = ColumnRequirement.Required,
-                ["Unit"] = ColumnRequirement.Required
-            },
-            ["DRUG_INTERACTION"] = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ParameterName"] = ColumnRequirement.Required,
-                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
-                ["ParameterSubtype"] = ColumnRequirement.Required,
-                ["TreatmentArm"] = ColumnRequirement.Expected,
-                ["ArmN"] = ColumnRequirement.Optional,
-                ["StudyContext"] = ColumnRequirement.Optional,
-                ["DoseRegimen"] = ColumnRequirement.Expected,
-                ["Dose"] = ColumnRequirement.Expected,
-                ["DoseUnit"] = ColumnRequirement.Expected,
-                ["Population"] = ColumnRequirement.Optional,
-                ["Subpopulation"] = ColumnRequirement.Optional,
-                ["Timepoint"] = ColumnRequirement.NotApplicable,
-                ["Time"] = ColumnRequirement.NotApplicable,
-                ["TimeUnit"] = ColumnRequirement.NotApplicable,
-                ["PrimaryValueType"] = ColumnRequirement.Required,
-                ["Unit"] = ColumnRequirement.Optional
-            },
-            ["EFFICACY"] = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ParameterName"] = ColumnRequirement.Required,
-                ["ParameterCategory"] = ColumnRequirement.NotApplicable,
-                ["ParameterSubtype"] = ColumnRequirement.Optional,
-                ["TreatmentArm"] = ColumnRequirement.Required,
-                ["ArmN"] = ColumnRequirement.Expected,
-                ["StudyContext"] = ColumnRequirement.Optional,
-                ["DoseRegimen"] = ColumnRequirement.Optional,
-                ["Dose"] = ColumnRequirement.Optional,
-                ["DoseUnit"] = ColumnRequirement.Optional,
-                ["Population"] = ColumnRequirement.Optional,
-                ["Subpopulation"] = ColumnRequirement.Optional,
-                ["Timepoint"] = ColumnRequirement.Optional,
-                ["Time"] = ColumnRequirement.Optional,
-                ["TimeUnit"] = ColumnRequirement.Optional,
-                ["PrimaryValueType"] = ColumnRequirement.Required,
-                ["Unit"] = ColumnRequirement.Optional
-            }
-        };
-
-        #endregion Phase 4 Column Contract Definitions
-
         #endregion Fields
 
         #region Compiled Regex Patterns
@@ -757,16 +682,20 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <param name="dbContext">Database context for drug name dictionary loading.</param>
         /// <param name="logger">Logger for diagnostics.</param>
+        /// <param name="aeDictionary">Optional AE ParameterName-to-SOC dictionary.</param>
+        /// <param name="columnContractRegistry">Optional shared column contract registry.</param>
         public ColumnStandardizationService(
             DbContext dbContext,
             ILogger<ColumnStandardizationService> logger,
-            IAeParameterCategoryDictionaryService? aeDictionary = null)
+            IAeParameterCategoryDictionaryService? aeDictionary = null,
+            IColumnContractRegistry? columnContractRegistry = null)
         {
             #region implementation
 
             _dbContext = dbContext;
             _logger = logger;
             _aeDictionary = aeDictionary;
+            _columnContractRegistry = columnContractRegistry ?? new ColumnContractRegistry();
 
             #endregion
         }
@@ -3291,7 +3220,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             if (string.IsNullOrWhiteSpace(obs.TableCategory))
                 return 0;
 
-            if (!_columnContracts.TryGetValue(obs.TableCategory, out var contract))
+            var contract = _columnContractRegistry.GetContract(obs.TableCategory);
+            if (isEmptyContract(contract))
                 return 0;
 
             int corrections = 0;
@@ -3299,7 +3229,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             // NULL enforcement: set N/A columns to null
             corrections += enforceNullColumns(obs, contract);
 
-            // Missing required: flag R columns that are null/empty
+            // Missing required: flag legacy Phase 4 R columns that are null/empty
             flagMissingRequired(obs, contract);
 
             // Default BoundType: apply when bounds present but type missing
@@ -3313,20 +3243,36 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Sets columns marked NotApplicable to null for the row's TableCategory.
+        /// Determines whether a registry lookup returned no enforceable contract.
+        /// </summary>
+        /// <param name="contract">Contract returned by <see cref="IColumnContractRegistry"/>.</param>
+        /// <returns><c>true</c> when all requirement sets are empty.</returns>
+        /// <seealso cref="IColumnContractRegistry"/>
+        private static bool isEmptyContract(CategoryContract contract)
+        {
+            #region implementation
+
+            return contract.Required.Count == 0 &&
+                   contract.Expected.Count == 0 &&
+                   contract.Optional.Count == 0 &&
+                   contract.NullExpected.Count == 0;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Sets columns marked NullExpected to null for the row's TableCategory.
         /// </summary>
         /// <returns>Number of columns nulled out.</returns>
-        private static int enforceNullColumns(ParsedObservation obs, Dictionary<string, ColumnRequirement> contract)
+        private static int enforceNullColumns(ParsedObservation obs, CategoryContract contract)
         {
             #region implementation
 
             int nulled = 0;
 
-            foreach (var (column, requirement) in contract)
+            foreach (var column in contract.NullExpected)
             {
-                if (requirement != ColumnRequirement.NotApplicable)
-                    continue;
-
                 var currentValue = ParsedObservationFieldAccess.Get(obs, column);
                 if (currentValue == null)
                     continue;
@@ -3346,13 +3292,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// Flags columns marked Required that are null or empty.
         /// Does not modify data — only appends validation flags.
         /// </summary>
-        private static void flagMissingRequired(ParsedObservation obs, Dictionary<string, ColumnRequirement> contract)
+        private static void flagMissingRequired(ParsedObservation obs, CategoryContract contract)
         {
             #region implementation
 
-            foreach (var (column, requirement) in contract)
+            foreach (var column in contract.Required)
             {
-                if (requirement != ColumnRequirement.Required)
+                if (!_phase4RequiredFlagColumns.Contains(column))
                     continue;
 
                 var currentValue = ParsedObservationFieldAccess.Get(obs, column);

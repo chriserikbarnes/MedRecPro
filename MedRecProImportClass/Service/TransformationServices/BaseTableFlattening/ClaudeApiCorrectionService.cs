@@ -1,5 +1,6 @@
 using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.AdverseEventTableFlattening;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
@@ -114,6 +115,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         private readonly ILogger<ClaudeApiCorrectionService> _logger;
 
         /**************************************************************/
+        /// <summary>Shared classifier for placebo, sham, vehicle, and zero-dose arm semantics.</summary>
+        private readonly IPlaceboArmClassifier _placeboArmClassifier;
+
+        /**************************************************************/
         /// <summary>
         /// Set of field names that the AI is allowed to correct.
         /// Corrections targeting other fields are silently ignored.
@@ -126,14 +131,6 @@ namespace MedRecProImportClass.Service.TransformationServices
             "ParameterCategory", "ParameterSubtype", "Timepoint", "TimeUnit",
             "StudyContext", "BoundType"
         };
-
-        /**************************************************************/
-        /// <summary>
-        /// Regex used to mirror Stage 5 placebo-equivalent arm detection.
-        /// </summary>
-        private static readonly Regex PlaceboArmPattern = new(
-            "placebo|sham|vehicle",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         /**************************************************************/
         /// <summary>
@@ -201,16 +198,19 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="httpClient">Pre-configured HttpClient with API key and base address.</param>
         /// <param name="settings">Correction service configuration.</param>
         /// <param name="logger">Logger.</param>
+        /// <param name="placeboArmClassifier">Shared placebo-arm classifier.</param>
         public ClaudeApiCorrectionService(
             HttpClient httpClient,
             IOptions<ClaudeApiCorrectionSettings> settings,
-            ILogger<ClaudeApiCorrectionService> logger)
+            ILogger<ClaudeApiCorrectionService> logger,
+            IPlaceboArmClassifier? placeboArmClassifier = null)
         {
             #region implementation
 
             _httpClient = httpClient;
             _settings = settings.Value;
             _logger = logger;
+            _placeboArmClassifier = placeboArmClassifier ?? new PlaceboArmClassifier();
 
             #endregion
         }
@@ -881,7 +881,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             var originalValue = observation.TreatmentArm;
 
             if (_settings.RejectPlaceboClassFlip
-                && isPlaceboEquivalent(originalValue, observation.Dose) != isPlaceboEquivalent(proposedValue, observation.Dose))
+                && _placeboArmClassifier.IsPlaceboArm(originalValue, observation.Dose) !=
+                   _placeboArmClassifier.IsPlaceboArm(proposedValue, observation.Dose))
             {
                 rejectionReason = "PlaceboClassFlip";
                 return false;
@@ -964,26 +965,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            return fieldName.ToLowerInvariant() switch
-            {
-                "parametername" => obs.ParameterName,
-                "primaryvaluetype" => obs.PrimaryValueType,
-                "secondaryvaluetype" => obs.SecondaryValueType,
-                "treatmentarm" => obs.TreatmentArm,
-                "doseregimen" => obs.DoseRegimen,
-                "dose" => obs.Dose?.ToString(CultureInfo.InvariantCulture),
-                "doseunit" => obs.DoseUnit,
-                "population" => obs.Population,
-                "subpopulation" => obs.Subpopulation,
-                "unit" => obs.Unit,
-                "parametercategory" => obs.ParameterCategory,
-                "parametersubtype" => obs.ParameterSubtype,
-                "timepoint" => obs.Timepoint,
-                "timeunit" => obs.TimeUnit,
-                "studycontext" => obs.StudyContext,
-                "boundtype" => obs.BoundType,
-                _ => null
-            };
+            return ParsedObservationFieldAccess.GetAsString(obs, fieldName);
 
             #endregion
         }
@@ -1019,25 +1001,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return string.Empty;
 
             return WhitespacePattern.Replace(value.Trim(), " ");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Determines whether a TreatmentArm is placebo-equivalent by Stage 5 rules.
-        /// </summary>
-        /// <param name="treatmentArm">Treatment arm text.</param>
-        /// <param name="dose">Parsed dose.</param>
-        /// <returns>True for placebo, sham, vehicle, or zero-dose arms.</returns>
-        private static bool isPlaceboEquivalent(string? treatmentArm, decimal? dose)
-        {
-            #region implementation
-
-            if (dose == 0m)
-                return true;
-
-            return !string.IsNullOrWhiteSpace(treatmentArm) && PlaceboArmPattern.IsMatch(treatmentArm);
 
             #endregion
         }
@@ -1175,62 +1138,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            switch (fieldName.ToLowerInvariant())
-            {
-                case "parametername":
-                    obs.ParameterName = value;
-                    return true;
-                case "primaryvaluetype":
-                    obs.PrimaryValueType = value;
-                    return true;
-                case "secondaryvaluetype":
-                    obs.SecondaryValueType = value;
-                    return true;
-                case "treatmentarm":
-                    obs.TreatmentArm = value;
-                    return true;
-                case "doseregimen":
-                    obs.DoseRegimen = value;
-                    return true;
-                case "dose":
-                    if (value != null && decimal.TryParse(value, out var d))
-                        obs.Dose = d;
-                    else
-                        obs.Dose = null;
-                    return true;
-                case "doseunit":
-                    obs.DoseUnit = value;
-                    return true;
-                case "population":
-                    obs.Population = value;
-                    return true;
-                case "subpopulation":
-                    obs.Subpopulation = value;
-                    return true;
-                case "unit":
-                    obs.Unit = value;
-                    return true;
-                case "parametercategory":
-                    obs.ParameterCategory = value;
-                    return true;
-                case "parametersubtype":
-                    obs.ParameterSubtype = value;
-                    return true;
-                case "timepoint":
-                    obs.Timepoint = value;
-                    return true;
-                case "timeunit":
-                    obs.TimeUnit = value;
-                    return true;
-                case "studycontext":
-                    obs.StudyContext = value;
-                    return true;
-                case "boundtype":
-                    obs.BoundType = value;
-                    return true;
-                default:
-                    return false;
-            }
+            return ParsedObservationFieldAccess.SetFromString(obs, fieldName, value);
 
             #endregion
         }

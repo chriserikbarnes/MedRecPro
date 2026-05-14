@@ -11,7 +11,7 @@ namespace MedRecPro.Service.Test
     /// <c>ColumnStandardizationService</c> and <c>RowValidationService</c>.
     /// </summary>
     /// <remarks>
-    /// Every supported column is exercised by <see cref="RoundTrip_AllSixteenColumns_GetReturnsWhatSetWrote"/>;
+    /// Every supported column is exercised by <see cref="RoundTrip_AllSupportedColumns_GetReturnsWhatSetWrote"/>;
     /// the typed-boxing tests verify that <see cref="ParsedObservationFieldAccess.Get"/> preserves
     /// <see cref="int"/>/<see cref="decimal"/>/<see cref="double"/> for the three numeric columns.
     /// </remarks>
@@ -359,10 +359,10 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Sets every supported column via <see cref="ParsedObservationFieldAccess.Set"/> and
         /// reads it back via <see cref="ParsedObservationFieldAccess.Get"/>; values must match.
-        /// Provides parameterized coverage of all 16 supported column names.
+        /// Provides parameterized coverage of all supported column names.
         /// </summary>
         [TestMethod]
-        public void RoundTrip_AllSixteenColumns_GetReturnsWhatSetWrote()
+        public void RoundTrip_AllSupportedColumns_GetReturnsWhatSetWrote()
         {
             #region implementation
 
@@ -382,7 +382,13 @@ namespace MedRecPro.Service.Test
                 ("Timepoint",         "Week 12"),
                 ("Time",              12.0),
                 ("TimeUnit",          "weeks"),
+                ("PrimaryValue",      10.5),
                 ("PrimaryValueType",  "Mean"),
+                ("SecondaryValue",    2.5),
+                ("SecondaryValueType", "StandardDeviation"),
+                ("LowerBound",        1.2),
+                ("UpperBound",        3.4),
+                ("BoundType",         "95CI"),
                 ("Unit",              "mcg/mL"),
             };
 
@@ -398,5 +404,56 @@ namespace MedRecPro.Service.Test
         }
 
         #endregion Round Trip Tests
+
+        #region SetFromString Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// <see cref="ParsedObservationFieldAccess.SetFromString"/> parses numeric text
+        /// into typed nullable properties.
+        /// </summary>
+        [TestMethod]
+        public void SetFromString_NumericText_ParsesTypedValues()
+        {
+            #region implementation
+
+            var obs = new ParsedObservation();
+
+            Assert.IsTrue(ParsedObservationFieldAccess.SetFromString(obs, "armn", "42"));
+            Assert.IsTrue(ParsedObservationFieldAccess.SetFromString(obs, "Dose", "1.25"));
+            Assert.IsTrue(ParsedObservationFieldAccess.SetFromString(obs, "Time", "12.5"));
+            Assert.IsTrue(ParsedObservationFieldAccess.SetFromString(obs, "PrimaryValue", "5.75"));
+            Assert.IsTrue(ParsedObservationFieldAccess.SetFromString(obs, "LowerBound", "1.2"));
+            Assert.IsTrue(ParsedObservationFieldAccess.SetFromString(obs, "UpperBound", "3.4"));
+
+            Assert.AreEqual(42, obs.ArmN);
+            Assert.AreEqual(1.25m, obs.Dose);
+            Assert.AreEqual(12.5, obs.Time);
+            Assert.AreEqual(5.75, obs.PrimaryValue);
+            Assert.AreEqual(1.2, obs.LowerBound);
+            Assert.AreEqual(3.4, obs.UpperBound);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// <see cref="ParsedObservationFieldAccess.SetFromString"/> returns false for
+        /// unsupported fields and leaves known fields unchanged.
+        /// </summary>
+        [TestMethod]
+        public void SetFromString_UnknownField_ReturnsFalse()
+        {
+            #region implementation
+
+            var obs = new ParsedObservation { ParameterName = "AUC" };
+
+            Assert.IsFalse(ParsedObservationFieldAccess.SetFromString(obs, "RawValue", "tampered"));
+            Assert.AreEqual("AUC", obs.ParameterName);
+
+            #endregion
+        }
+
+        #endregion SetFromString Tests
     }
 }

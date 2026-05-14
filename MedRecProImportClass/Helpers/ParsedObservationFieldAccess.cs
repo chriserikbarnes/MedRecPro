@@ -1,55 +1,91 @@
+using System.Globalization;
 using MedRecProImportClass.Models;
 
 namespace MedRecProImportClass.Helpers
 {
     /**************************************************************/
     /// <summary>
-    /// Reflection-free, name-based accessor for the 16 observation-context columns on
-    /// <see cref="ParsedObservation"/>. Single source of truth replacing three near-duplicate
-    /// switch helpers that previously lived in <c>ColumnStandardizationService</c> and
-    /// <c>RowValidationService</c>.
+    /// Reflection-free, name-based accessor for the core parsed-observation columns on
+    /// <see cref="ParsedObservation"/>.
     /// </summary>
     /// <remarks>
-    /// ## Supported Columns (case-sensitive, exact-name match)
-    /// <list type="bullet">
-    ///   <item><description>String columns (13): ParameterName, ParameterCategory, ParameterSubtype,
-    ///   TreatmentArm, StudyContext, DoseRegimen, DoseUnit, Population, Subpopulation, Timepoint,
-    ///   TimeUnit, PrimaryValueType, Unit</description></item>
-    ///   <item><description>Numeric nullables (3): ArmN (int?), Dose (decimal?), Time (double?)</description></item>
-    /// </list>
+    /// ## Supported Columns
+    /// Column lookups are case-insensitive and normalize to canonical
+    /// <see cref="ParsedObservation"/> property names before reading or writing.
     ///
-    /// Unknown column names: <see cref="Get"/> and <see cref="GetAsString"/> return <c>null</c>;
-    /// <see cref="Set"/> is a no-op. This matches the prior fail-quiet behavior of the helpers
-    /// being replaced — callers are expected to use compile-time known column names.
+    /// String columns: ParameterName, ParameterCategory, ParameterSubtype, TreatmentArm,
+    /// StudyContext, DoseRegimen, DoseUnit, Population, Subpopulation, Timepoint,
+    /// TimeUnit, PrimaryValueType, SecondaryValueType, BoundType, Unit.
+    ///
+    /// Numeric nullable columns: ArmN, Dose, Time, PrimaryValue, SecondaryValue,
+    /// LowerBound, UpperBound.
+    ///
+    /// Unknown column names: <see cref="Get"/> and <see cref="GetAsString"/> return
+    /// <c>null</c>; <see cref="Set"/> is a no-op; <see cref="SetFromString"/> returns
+    /// <c>false</c>. This matches the prior fail-quiet behavior of the helpers being
+    /// replaced.
     ///
     /// ## Why Not Reflection
-    /// All three predecessor helpers used hand-written <c>switch</c> statements for performance —
-    /// the standardization phase iterates the full contract for every observation. Reflection
-    /// would add ~10x overhead for no readability benefit since the column set is fixed.
+    /// Standardization iterates column contracts for every observation. The fixed switch
+    /// shape keeps this path cheap while still making the column list a single source of
+    /// truth for standardization and Claude correction.
     /// </remarks>
     /// <seealso cref="ParsedObservation"/>
     /// <seealso cref="ValidationFlagExtensions"/>
     public static class ParsedObservationFieldAccess
     {
+        #region Field Metadata
+
         /**************************************************************/
         /// <summary>
-        /// Returns the typed boxed value of a column. Preserves <see cref="int"/>/<see cref="decimal"/>/<see cref="double"/>
-        /// boxing for ArmN/Dose/Time so callers that need the original type can cast back.
+        /// Canonical column names accepted by the accessor.
+        /// </summary>
+        private static readonly Dictionary<string, string> _canonicalColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ParameterName"] = "ParameterName",
+            ["ParameterCategory"] = "ParameterCategory",
+            ["ParameterSubtype"] = "ParameterSubtype",
+            ["TreatmentArm"] = "TreatmentArm",
+            ["ArmN"] = "ArmN",
+            ["StudyContext"] = "StudyContext",
+            ["DoseRegimen"] = "DoseRegimen",
+            ["Dose"] = "Dose",
+            ["DoseUnit"] = "DoseUnit",
+            ["Population"] = "Population",
+            ["Subpopulation"] = "Subpopulation",
+            ["Timepoint"] = "Timepoint",
+            ["Time"] = "Time",
+            ["TimeUnit"] = "TimeUnit",
+            ["PrimaryValue"] = "PrimaryValue",
+            ["PrimaryValueType"] = "PrimaryValueType",
+            ["SecondaryValue"] = "SecondaryValue",
+            ["SecondaryValueType"] = "SecondaryValueType",
+            ["LowerBound"] = "LowerBound",
+            ["UpperBound"] = "UpperBound",
+            ["BoundType"] = "BoundType",
+            ["Unit"] = "Unit"
+        };
+
+        #endregion Field Metadata
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns the typed boxed value of a column.
         /// </summary>
         /// <param name="obs">Observation to read from.</param>
-        /// <param name="column">Column name (case-sensitive).</param>
+        /// <param name="column">Column name, case-insensitive.</param>
         /// <returns>Boxed column value, or <c>null</c> for unset values and unknown column names.</returns>
         /// <example>
         /// <code>
-        /// var value = ParsedObservationFieldAccess.Get(obs, "ArmN");      // returns boxed int? or null
-        /// var name  = ParsedObservationFieldAccess.Get(obs, "ParameterName"); // returns string? or null
+        /// var value = ParsedObservationFieldAccess.Get(obs, "ArmN");
+        /// var name = ParsedObservationFieldAccess.Get(obs, "ParameterName");
         /// </code>
         /// </example>
         public static object? Get(ParsedObservation obs, string column)
         {
             #region implementation
 
-            return column switch
+            return normalizeColumn(column) switch
             {
                 "ParameterName" => obs.ParameterName,
                 "ParameterCategory" => obs.ParameterCategory,
@@ -65,7 +101,13 @@ namespace MedRecProImportClass.Helpers
                 "Timepoint" => obs.Timepoint,
                 "Time" => obs.Time,
                 "TimeUnit" => obs.TimeUnit,
+                "PrimaryValue" => obs.PrimaryValue,
                 "PrimaryValueType" => obs.PrimaryValueType,
+                "SecondaryValue" => obs.SecondaryValue,
+                "SecondaryValueType" => obs.SecondaryValueType,
+                "LowerBound" => obs.LowerBound,
+                "UpperBound" => obs.UpperBound,
+                "BoundType" => obs.BoundType,
                 "Unit" => obs.Unit,
                 _ => null
             };
@@ -75,17 +117,14 @@ namespace MedRecProImportClass.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Returns the column value rendered as a string. Numeric nullables (ArmN, Dose, Time)
-        /// are formatted via <c>ToString()</c>. Returns <c>null</c> for unset values and unknown
-        /// column names.
+        /// Returns the column value rendered as a string.
         /// </summary>
         /// <param name="obs">Observation to read from.</param>
-        /// <param name="column">Column name (case-sensitive).</param>
+        /// <param name="column">Column name, case-insensitive.</param>
         /// <returns>String view of the column value, or <c>null</c> when unset.</returns>
         /// <example>
         /// <code>
-        /// // For obs.ArmN = 100:
-        /// ParsedObservationFieldAccess.GetAsString(obs, "ArmN"); // returns "100"
+        /// ParsedObservationFieldAccess.GetAsString(obs, "ArmN");
         /// </code>
         /// </example>
         public static string? GetAsString(ParsedObservation obs, string column)
@@ -97,9 +136,9 @@ namespace MedRecProImportClass.Helpers
             {
                 null => null,
                 string s => s,
-                int i => i.ToString(),
-                decimal d => d.ToString(),
-                double dbl => dbl.ToString(),
+                int i => i.ToString(CultureInfo.InvariantCulture),
+                decimal d => d.ToString(CultureInfo.InvariantCulture),
+                double dbl => dbl.ToString(CultureInfo.InvariantCulture),
                 _ => value.ToString()
             };
 
@@ -108,26 +147,27 @@ namespace MedRecProImportClass.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// Sets a column to the given value. Casts via <c>as</c> for nullable types — passing
-        /// the wrong runtime type results in <c>null</c> being assigned (preserves the existing
-        /// fail-quiet behavior of the predecessor helper). No-op for unknown column names.
+        /// Sets a column to the given typed value.
         /// </summary>
+        /// <remarks>
+        /// Casts via <c>as</c> for nullable types. Passing the wrong runtime type results
+        /// in <c>null</c> being assigned, preserving the fail-quiet behavior of the
+        /// predecessor helper.
+        /// </remarks>
         /// <param name="obs">Observation to mutate.</param>
-        /// <param name="column">Column name (case-sensitive).</param>
-        /// <param name="value">Value to assign — must match the column's underlying CLR type
-        /// (<see cref="string"/>, <see cref="int"/>?, <see cref="decimal"/>?, or <see cref="double"/>?).
-        /// Mismatched types silently become <c>null</c>.</param>
+        /// <param name="column">Column name, case-insensitive.</param>
+        /// <param name="value">Value to assign. Must match the column's underlying CLR type.</param>
         /// <example>
         /// <code>
-        /// ParsedObservationFieldAccess.Set(obs, "Timepoint", null);  // clears the field
-        /// ParsedObservationFieldAccess.Set(obs, "ArmN", 100);        // assigns int? = 100
+        /// ParsedObservationFieldAccess.Set(obs, "Timepoint", null);
+        /// ParsedObservationFieldAccess.Set(obs, "ArmN", 100);
         /// </code>
         /// </example>
         public static void Set(ParsedObservation obs, string column, object? value)
         {
             #region implementation
 
-            switch (column)
+            switch (normalizeColumn(column))
             {
                 case "ParameterName": obs.ParameterName = value as string; break;
                 case "ParameterCategory": obs.ParameterCategory = value as string; break;
@@ -143,7 +183,13 @@ namespace MedRecProImportClass.Helpers
                 case "Timepoint": obs.Timepoint = value as string; break;
                 case "Time": obs.Time = value as double?; break;
                 case "TimeUnit": obs.TimeUnit = value as string; break;
+                case "PrimaryValue": obs.PrimaryValue = value as double?; break;
                 case "PrimaryValueType": obs.PrimaryValueType = value as string; break;
+                case "SecondaryValue": obs.SecondaryValue = value as double?; break;
+                case "SecondaryValueType": obs.SecondaryValueType = value as string; break;
+                case "LowerBound": obs.LowerBound = value as double?; break;
+                case "UpperBound": obs.UpperBound = value as double?; break;
+                case "BoundType": obs.BoundType = value as string; break;
                 case "Unit": obs.Unit = value as string; break;
             }
 
@@ -152,13 +198,76 @@ namespace MedRecProImportClass.Helpers
 
         /**************************************************************/
         /// <summary>
-        /// True when the column has a non-null, non-whitespace value. For string columns,
-        /// matches <see cref="string.IsNullOrWhiteSpace"/>; for numeric columns, returns
-        /// <c>true</c> for any populated value (including zero).
+        /// Parses and sets a column from text.
+        /// </summary>
+        /// <remarks>
+        /// Numeric columns are parsed with invariant culture. Unparseable numeric text
+        /// clears the target numeric column, matching the prior Claude correction behavior.
+        /// </remarks>
+        /// <param name="obs">Observation to mutate.</param>
+        /// <param name="column">Column name, case-insensitive.</param>
+        /// <param name="value">Text value from a correction payload, or <c>null</c> to clear.</param>
+        /// <returns><c>true</c> when the column is supported; otherwise <c>false</c>.</returns>
+        /// <seealso cref="Set"/>
+        public static bool SetFromString(ParsedObservation obs, string column, string? value)
+        {
+            #region implementation
+
+            var canonical = normalizeColumn(column);
+            if (canonical == null)
+                return false;
+
+            if (value == null)
+            {
+                Set(obs, canonical, null);
+                return true;
+            }
+
+            switch (canonical)
+            {
+                case "ArmN":
+                    obs.ArmN = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var armN)
+                        ? armN
+                        : null;
+                    return true;
+
+                case "Dose":
+                    obs.Dose = decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var dose)
+                        ? dose
+                        : null;
+                    return true;
+
+                case "Time":
+                case "PrimaryValue":
+                case "SecondaryValue":
+                case "LowerBound":
+                case "UpperBound":
+                    double? parsed = double.TryParse(
+                        value,
+                        NumberStyles.Float | NumberStyles.AllowThousands,
+                        CultureInfo.InvariantCulture,
+                        out var doubleValue)
+                            ? doubleValue
+                            : null;
+
+                    Set(obs, canonical, parsed);
+                    return true;
+
+                default:
+                    Set(obs, canonical, value);
+                    return true;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// True when the column has a non-null, non-whitespace value.
         /// </summary>
         /// <param name="obs">Observation to read from.</param>
-        /// <param name="column">Column name (case-sensitive).</param>
-        /// <returns><c>true</c> when populated; <c>false</c> for unset, whitespace-only strings, or unknown columns.</returns>
+        /// <param name="column">Column name, case-insensitive.</param>
+        /// <returns><c>true</c> when populated; otherwise <c>false</c>.</returns>
         public static bool IsPopulated(ParsedObservation obs, string column)
         {
             #region implementation
@@ -170,6 +279,26 @@ namespace MedRecProImportClass.Helpers
                 string s => !string.IsNullOrWhiteSpace(s),
                 _ => true
             };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves a caller-provided column name to the canonical name used by switch blocks.
+        /// </summary>
+        /// <param name="column">Caller-provided column name.</param>
+        /// <returns>Canonical column name, or <c>null</c> when unsupported.</returns>
+        private static string? normalizeColumn(string column)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(column))
+                return null;
+
+            return _canonicalColumns.TryGetValue(column.Trim(), out var canonical)
+                ? canonical
+                : null;
 
             #endregion
         }

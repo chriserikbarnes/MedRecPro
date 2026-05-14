@@ -980,6 +980,8 @@ namespace MedRecProConsole.Services
                 services.PostConfigure<ClaudeApiCorrectionSettings>(s => s.Enabled = false);
             }
 
+            services.AddSingleton<IPlaceboArmClassifier, PlaceboArmClassifier>();
+
             services.AddHttpClient<IClaudeApiCorrectionService, ClaudeApiCorrectionService>(
                 (sp, client) =>
                 {

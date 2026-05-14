@@ -494,6 +494,24 @@ namespace MedRecPro.Service.Test
             Assert.IsFalse(RelativeRiskCalculator.IsPlaceboArm("", null));
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// <see cref="PlaceboArmClassifier"/> delegates to the shared Stage 5 classifier.
+        /// </summary>
+        [TestMethod]
+        public void PlaceboArmClassifier_DelegatesToRelativeRiskCalculatorSemantics()
+        {
+            #region implementation
+
+            IPlaceboArmClassifier classifier = new PlaceboArmClassifier();
+
+            Assert.IsTrue(classifier.IsPlaceboArm("Vehicle", null));
+            Assert.IsTrue(classifier.IsPlaceboArm("Drug A", 0m));
+            Assert.IsFalse(classifier.IsPlaceboArm("Drug A", 50m));
+
+            #endregion
+        }
+
         #endregion IsPlaceboArm
 
         #region ClassifyTrialDesign

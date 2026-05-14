@@ -1106,6 +1106,32 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// setFieldValue delegates to the shared parsed-observation accessor so string
+        /// numeric corrections still parse into typed numeric properties.
+        /// </summary>
+        [TestMethod]
+        public void SetFieldValue_ParsesDoseCorrectionThroughSharedAccessor()
+        {
+            #region implementation
+
+            var method = typeof(ClaudeApiCorrectionService)
+                .GetMethod("setFieldValue",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(method, "Expected setFieldValue to be a private static method");
+
+            var obs = createTestObservation(1, 1, "Headache", "5");
+            obs.Dose = null;
+
+            var result = (bool)method.Invoke(null, new object?[] { obs, "dose", "1.25" })!;
+
+            Assert.IsTrue(result, "setFieldValue must return true for a recognized field");
+            Assert.AreEqual(1.25m, obs.Dose);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Negative test: setFieldValue must still ignore fields outside CorrectableFields.
         /// Guards against accidental whitelist expansion.
         /// </summary>

@@ -3422,6 +3422,33 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Phase 4 consumes <see cref="IColumnContractRegistry"/> without widening the
+        /// legacy report-facing missing-required flag surface to value columns.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase4_MissingRequired_AE_MissingPrimaryValue_NotFlagged()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo");
+            obs.PrimaryValue = null;
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsFalse(
+                result[0].ValidationFlags?.Contains("COL_STD:MISSING_R_PrimaryValue") ?? false,
+                "Phase 4 must preserve the pre-refactor flag surface and leave value-column null penalties to QC_PARSE_QUALITY.");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Phase 4: Default BoundType applied for DDI with bounds but no BoundType.
         /// </summary>
         [TestMethod]
