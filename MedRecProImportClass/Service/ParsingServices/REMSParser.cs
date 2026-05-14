@@ -161,7 +161,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (result.Errors.Any())
                 {
                     result.Success = false;
-                    context?.Logger?.LogWarning("REMS parsing completed with validation errors for {FileName}. Errors: {Errors}",
+                    context?.Logger?.LogDebug("REMS parsing completed with validation errors for {FileName}. Errors: {Errors}",
                         context.FileNameInZip, string.Join("; ", result.Errors));
                 }
 
@@ -260,7 +260,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var entityErrors = validationResult.Errors.Select(e => $"{entityType} validation: {e}").ToList();
                     errors.AddRange(entityErrors);
 
-                    context?.Logger?.LogWarning("Validation failed for {EntityType} in file {FileName}: {Errors}",
+                    context?.Logger?.LogDebug("Validation failed for {EntityType} in file {FileName}: {Errors}",
                         entityType, context.FileNameInZip, string.Join("; ", entityErrors));
                 }
             }
@@ -433,7 +433,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (validationErrors.Any())
                 {
-                    context?.Logger?.LogWarning("Protocol saved with validation errors for {FileName}: {ProtocolCode}",
+                    context?.Logger?.LogDebug("Protocol saved with validation errors for {FileName}: {ProtocolCode}",
                         context.FileNameInZip, protocolCode);
                 }
             }
@@ -638,7 +638,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (validationErrors.Any())
                 {
-                    context?.Logger?.LogWarning("Requirement saved with validation errors for {FileName}: {RequirementCode}",
+                    context?.Logger?.LogDebug("Requirement saved with validation errors for {FileName}: {RequirementCode}",
                         context.FileNameInZip, requirementCode);
                 }
             }
@@ -758,7 +758,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (validationErrors.Any())
                 {
-                    context?.Logger?.LogWarning("Stakeholder saved with validation errors for {FileName}: {StakeholderCode}",
+                    context?.Logger?.LogDebug("Stakeholder saved with validation errors for {FileName}: {StakeholderCode}",
                         context.FileNameInZip, stakeholderCode);
                 }
             }
@@ -886,7 +886,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (validationErrors.Any())
                 {
-                    context?.Logger?.LogWarning("REMS Approval saved with validation errors for {FileName}: {ApprovalCode}",
+                    context?.Logger?.LogDebug("REMS Approval saved with validation errors for {FileName}: {ApprovalCode}",
                         context.FileNameInZip, approvalCode);
                 }
             }
@@ -1058,7 +1058,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (validationErrors.Any())
                 {
-                    context?.Logger?.LogWarning("REMS Material saved with validation errors for {FileName}: {DocumentGuid}",
+                    context?.Logger?.LogDebug("REMS Material saved with validation errors for {FileName}: {DocumentGuid}",
                         context.FileNameInZip, documentGuid);
                 }
             }
@@ -1245,7 +1245,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (validationErrors.Any())
                 {
-                    context?.Logger?.LogWarning("REMS Electronic Resource saved with validation errors for {FileName}: {ResourceGuid}",
+                    context?.Logger?.LogDebug("REMS Electronic Resource saved with validation errors for {FileName}: {ResourceGuid}",
                         context.FileNameInZip, resourceGuid);
                 }
             }

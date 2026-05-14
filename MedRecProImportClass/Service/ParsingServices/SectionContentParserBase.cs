@@ -177,7 +177,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (textEl == null)
                 {
                     // No text element - this shouldn't happen in valid SPL but handle gracefully
-                    context.Logger?.LogWarning($"Highlight element without text child in SectionID {sectionId}");
+                    context.Logger?.LogDebug($"Highlight element without text child in SectionID {sectionId}");
                     continue;
                 }
 
@@ -212,7 +212,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Skip if no actual content was extracted
                 if (string.IsNullOrWhiteSpace(txt))
                 {
-                    context.Logger?.LogWarning($"Empty highlight text extracted for SectionID {sectionId}");
+                    context.Logger?.LogDebug($"Empty highlight text extracted for SectionID {sectionId}");
                     continue;
                 }
 

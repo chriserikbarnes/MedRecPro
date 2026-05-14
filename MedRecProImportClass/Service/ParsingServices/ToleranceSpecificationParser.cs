@@ -181,7 +181,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Skip if missing required specification code
                 if (string.IsNullOrWhiteSpace(specCode))
                 {
-                    context.Logger?.LogWarning("Found substance specification without code in section {SectionID}", section.SectionID);
+                    context.Logger?.LogDebug("Found substance specification without code in section {SectionID}", section.SectionID);
                     continue;
                 }
 
@@ -189,7 +189,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var identifiedSubstance = await getOrCreateIdentifiedSubstanceForSpecificationAsync(sectionEl, section, context, dbContext);
                 if (identifiedSubstance?.IdentifiedSubstanceID == null)
                 {
-                    context.Logger?.LogWarning("Could not create IdentifiedSubstance for specification {SpecCode} in section {SectionID}", specCode, section.SectionID);
+                    context.Logger?.LogDebug("Could not create IdentifiedSubstance for specification {SpecCode} in section {SectionID}", specCode, section.SectionID);
                     continue;
                 }
 
@@ -406,7 +406,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // Skip if no valid tolerance value found
                     if (!toleranceHighValue.HasValue)
                     {
-                        context.Logger?.LogWarning("Found observation criterion without valid tolerance value in section {SectionID}", section.SectionID);
+                        context.Logger?.LogDebug("Found observation criterion without valid tolerance value in section {SectionID}", section.SectionID);
                         continue;
                     }
 
@@ -414,7 +414,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var substanceSpec = await getParentSubstanceSpecificationAsync(observationEl, dbContext);
                     if (substanceSpec?.SubstanceSpecificationID == null)
                     {
-                        context.Logger?.LogWarning("Could not find parent SubstanceSpecification for observation criterion in section {SectionID}", section.SectionID);
+                        context.Logger?.LogDebug("Could not find parent SubstanceSpecification for observation criterion in section {SectionID}", section.SectionID);
                         continue;
                     }
 

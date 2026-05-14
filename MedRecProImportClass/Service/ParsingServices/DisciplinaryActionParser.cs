@@ -406,7 +406,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             if (entity == null)
             {
                 var nullError = $"{typeof(T).Name} is null and cannot be validated.";
-                logger.LogWarning(nullError);
+                logger.LogDebug(nullError);
                 errors.Add(nullError);
                 return errors;
             }
@@ -421,7 +421,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 foreach (var validationResult in validationResults)
                 {
                     var errorMessage = $"{typeof(T).Name} validation error: {validationResult.ErrorMessage}";
-                    logger.LogWarning(errorMessage);
+                    logger.LogDebug(errorMessage);
                     errors.Add(errorMessage);
                 }
             }

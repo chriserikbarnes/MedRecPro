@@ -126,7 +126,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     var fileLen = new FileInfo(_filePath).Length;
                     if (fileLen > _settings.MaxTrainingStoreSizeBytes && _state.Records.Count > 0)
                     {
-                        _logger.LogWarning(
+                        _logger.LogDebug(
                             "Training store ({Size:F1} MB) exceeds {Max:F1} MB limit; evicting oldest records on load.",
                             fileLen / 1_048_576.0, _settings.MaxTrainingStoreSizeBytes / 1_048_576.0);
                         await saveInternalAsync(ct);

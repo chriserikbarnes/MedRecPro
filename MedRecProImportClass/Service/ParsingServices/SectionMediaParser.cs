@@ -327,7 +327,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (string.IsNullOrWhiteSpace(referencedObjectId))
                 {
                     // Log warning for missing referencedObject attribute
-                    context!.Logger?.LogWarning("Found <renderMultimedia> tag with no referencedObject attribute in file {FileName}.", context.FileNameInZip);
+                    context!.Logger?.LogDebug("Found <renderMultimedia> tag with no referencedObject attribute in file {FileName}.", context.FileNameInZip);
                     continue;
                 }
 
@@ -343,7 +343,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (observationMedia?.ObservationMediaID == null)
                 {
                     // Log warning for dangling reference when no matching ObservationMedia found
-                    context?.Logger?.LogWarning("Dangling reference: <renderMultimedia referencedObject='{RefId}'> found, but no matching <observationMedia> was found in the same section in file {FileName}.",
+                    context?.Logger?.LogDebug("Dangling reference: <renderMultimedia referencedObject='{RefId}'> found, but no matching <observationMedia> was found in the same section in file {FileName}.",
                         referencedObjectId, context.FileNameInZip);
                     continue;
                 }
@@ -754,7 +754,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (!observationMediaLookup.TryGetValue(dto.ReferencedObjectId, out var observationMediaId))
                 {
                     // Log warning for dangling reference (no matching ObservationMedia)
-                    context?.Logger?.LogWarning(
+                    context?.Logger?.LogDebug(
                         "Dangling reference: <renderMultimedia referencedObject='{RefId}'> found, but no matching <observationMedia> in file {FileName}.",
                         dto.ReferencedObjectId, context.FileNameInZip);
                     continue;

@@ -122,6 +122,56 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         private readonly IBioequivalentLabelDedupService? _bioequivalentDedup;
 
+        /**************************************************************/
+        /// <summary>
+        /// Result returned by a per-batch dispatch delegate inside the shared full-corpus loop.
+        /// </summary>
+        /// <remarks>
+        /// Keeps the loop independent from whether the caller dispatches parse-only
+        /// batches or stage-visible parse/validation batches.
+        /// </remarks>
+        /// <seealso cref="executeFullCorpusBatchLoopAsync"/>
+        private sealed class FullCorpusBatchOutcome
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Number of observations written by the dispatched batch.
+            /// </summary>
+            public int ObservationsWritten { get; init; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Skip reasons captured by stage-visible batch processing.
+            /// </summary>
+            public Dictionary<int, string> SkipReasons { get; init; } = new();
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Aggregate result returned by the shared full-corpus batch loop.
+        /// </summary>
+        /// <seealso cref="executeFullCorpusBatchLoopAsync"/>
+        private sealed class FullCorpusBatchLoopResult
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Total observations written across all completed batches.
+            /// </summary>
+            public int TotalObservations { get; init; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Number of batches dispatched before completion or max-batch cutoff.
+            /// </summary>
+            public int BatchCount { get; init; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Combined skip reasons across all completed batches.
+            /// </summary>
+            public Dictionary<int, string> SkipReasons { get; init; } = new();
+        }
+
         #endregion Fields
 
         #region Constructor
@@ -213,6 +263,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Reuse the stage-visible path so the simpler API cannot drift from
+            // validation runs; the expected outcome is the same persisted row count.
             var result = await ProcessBatchWithStagesAsync(filter, rowProgress, ct);
             return result.ObservationsWritten;
 
@@ -241,102 +293,52 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Own the run clock in the public entry point so batch progress and
+            // optional Stage 5 logging report one continuous elapsed duration.
             var stopwatch = Stopwatch.StartNew();
 
-            _logger.LogInformation("Stage 3 — Starting full corpus run (batch size={BatchSize}, resume={Resume}, maxBatches={MaxBatches})",
+            _logger.LogInformation("Stage 3 \u2014 Starting full corpus run (batch size={BatchSize}, resume={Resume}, maxBatches={MaxBatches})",
                 batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh", maxBatches?.ToString() ?? "all");
 
-            // Only truncate on fresh runs — resuming means data already exists
+            // Fresh runs clear the flattened table; resume runs preserve existing rows
+            // so the next batch can append without destroying prior completed work.
             if (!resumeFromId.HasValue)
             {
                 await TruncateAsync(ct);
             }
 
-            // UNII-ordered document batching: process documents grouped by active ingredient
-            // so the ML training accumulator gets concentrated product data per batch
-            var orderedGuidsRaw = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
-            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuidsRaw.Count);
-
-            var orderedGuids = await applyBioequivalentDedupAsync(orderedGuidsRaw, disableBioequivalentDedup, ct);
-
-            var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
-            if (maxBatches.HasValue)
-            {
-                totalBatches = Math.Min(totalBatches, maxBatches.Value);
-            }
-            var totalObservations = 0;
-            var batchNumber = 0;
-
-            for (int i = 0; i < orderedGuids.Count; i += batchSize)
-            {
-                ct.ThrowIfCancellationRequested();
-                batchNumber++;
-
-                // Stop if we've reached the max batches limit
-                if (maxBatches.HasValue && batchNumber > maxBatches.Value)
+            // Delegate only the caller-specific batch work; the shared loop owns
+            // ordering, dedup, progress, cancellation, and cumulative totals.
+            var loopResult = await executeFullCorpusBatchLoopAsync(
+                batchSize,
+                maxBatches,
+                disableBioequivalentDedup,
+                rowProgress,
+                progress,
+                stopwatch,
+                includeSkipCounts: false,
+                async (filter, innerProgress, token) => new FullCorpusBatchOutcome
                 {
-                    break;
-                }
+                    ObservationsWritten = await ProcessBatchAsync(filter, innerProgress, token)
+                },
+                ct);
 
-                var guids = orderedGuids.Skip(i).Take(batchSize).ToList();
-                var filter = new TableCellContextFilter
-                {
-                    DocumentGUIDs = guids
-                };
+            _logger.LogInformation("Stage 3 \u2014 Complete: {Total} total observations in {Batches} batches ({Elapsed})",
+                loopResult.TotalObservations, loopResult.BatchCount, stopwatch.Elapsed);
 
-                // Wrap rowProgress to inject batch-level context into each per-table report.
-                // Uses SynchronousProgress to avoid double-async posting: Progress<T> posts
-                // to ThreadPool, and chaining two of them delays callbacks until after the
-                // batch completes — defeating the purpose of per-table progress.
-                var capturedBatchNumber = batchNumber;
-                var capturedTotalObs = totalObservations;
-                IProgress<TransformBatchProgress>? innerProgress = rowProgress != null
-                    ? new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
-                    {
-                        p.BatchNumber = capturedBatchNumber;
-                        p.TotalBatches = totalBatches;
-                        p.CumulativeObservationCount = capturedTotalObs + p.BatchObservationCount;
-                        p.Elapsed = stopwatch.Elapsed;
-                        rowProgress.Report(p);
-                    })
-                    : null;
-
-                var batchCount = await ProcessBatchAsync(filter, innerProgress, ct);
-                totalObservations += batchCount;
-
-                _logger.LogInformation(
-                    "Batch {Batch}/{TotalBatches}: {DocCount} documents, {BatchCount} observations, {Total} cumulative",
-                    batchNumber, totalBatches, guids.Count, batchCount, totalObservations);
-
-                progress?.Report(new TransformBatchProgress
-                {
-                    BatchNumber = batchNumber,
-                    TotalBatches = totalBatches,
-                    BatchObservationCount = batchCount,
-                    CumulativeObservationCount = totalObservations,
-                    Elapsed = stopwatch.Elapsed
-                });
-            }
-
-            _logger.LogInformation("Stage 3 — Complete: {Total} total observations in {Batches} batches ({Elapsed})",
-                totalObservations, batchNumber, stopwatch.Elapsed);
-
-            // Stage 5 (Phase 2): denormalize AE rows with pre-computed RR/DNRR/CI.
-            // Optional — runs only when an IAdverseEventDenormalizationService instance
-            // was provided to the orchestrator constructor. Mirrors the hook in
-            // ProcessAllWithValidationAsync so Stage 5 runs from both the parse-only
-            // and parse-with-validation entry points.
+            // Stage 5 is optional for environments that do not register the AE
+            // denormalizer; when present it must run after Stage 3 has persisted data.
             if (_aeDenormalizer != null)
             {
-                _logger.LogInformation("Stage 5 — Starting AdverseEvent denormalization");
+                _logger.LogInformation("Stage 5 \u2014 Starting AdverseEvent denormalization");
                 var aeRows = await _aeDenormalizer.PopulateAsync(ct: ct);
-                _logger.LogInformation("Stage 5 — Complete: {Rows} AE rows denormalized ({Elapsed})",
+                _logger.LogInformation("Stage 5 \u2014 Complete: {Rows} AE rows denormalized ({Elapsed})",
                     aeRows, stopwatch.Elapsed);
             }
 
             stopwatch.Stop();
 
-            return totalObservations;
+            return loopResult.TotalObservations;
 
             #endregion
         }
@@ -352,17 +354,27 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Reconstruct the exact source table so diagnostics can exercise the
+            // parser without a full corpus batch or database write.
             var table = await _reconstructionService.ReconstructTableAsync(textTableId, ct);
+
+            // Missing source data is not exceptional for ad hoc diagnostics; return
+            // an empty result and leave the caller with a clear warning.
             if (table == null)
             {
-                _logger.LogWarning("No table found for TextTableID={Id}", textTableId);
+                _logger.LogDebug("No table found for TextTableID={Id}", textTableId);
                 return new List<ParsedObservation>();
             }
 
+            // Route before parsing so the single-table path uses the same parser
+            // selection and skip rules as the full batch pipeline.
             var (category, parser) = _router.Route(table);
+
+            // A SKIP decision has no safe parser to invoke; the expected outcome is
+            // an empty observation list rather than a partial or guessed parse.
             if (category == TableCategory.SKIP || parser == null)
             {
-                _logger.LogDebug("TextTableID={Id} categorized as {Category} — no parser", textTableId, category);
+                _logger.LogDebug("TextTableID={Id} categorized as {Category} \u2014 no parser", textTableId, category);
                 return new List<ParsedObservation>();
             }
 
@@ -390,17 +402,18 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Full corpus run with Stage 4 validation: truncate → batch loop → validate → report.
+        /// Full corpus run with Stage 4 validation: truncate, batch loop, validate, then report.
         /// </summary>
         /// <param name="batchSize">TextTableIDs per batch (default 1000).</param>
-        /// <param name="progress">Optional progress callback invoked after each batch completes (persisted to disk).</param>
-        /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
-        /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
-        /// <param name="rowProgress">Optional per-table progress callback for UI updates within each batch.</param>
+        /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
+        /// <param name="resumeFromId">Optional TextTableID to resume from.</param>
+        /// <param name="maxBatches">Optional maximum number of batches to process.</param>
+        /// <param name="rowProgress">Optional per-table progress callback for each batch.</param>
+        /// <param name="disableBioequivalentDedup">When true, bypass Stage 0 bioequivalent dedup.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Validation report with coverage metrics and issues.</returns>
         /// <exception cref="InvalidOperationException">
-        /// Thrown when IBatchValidationService was not provided in the constructor.
+        /// Thrown when <see cref="IBatchValidationService"/> was not provided in the constructor.
         /// </exception>
         public async Task<BatchValidationReport> ProcessAllWithValidationAsync(
             int batchSize = 1000,
@@ -413,117 +426,73 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Validation mode requires the Stage 4 service because the final report
+            // is generated from the persisted batch output and skip diagnostics.
             if (_batchValidator == null)
             {
                 throw new InvalidOperationException(
                     "IBatchValidationService was not provided. Use ProcessAllAsync for runs without validation.");
             }
 
+            // Keep one stopwatch across Stage 3, Stage 4, and optional Stage 5 so
+            // log timings describe the whole validation run.
             var stopwatch = Stopwatch.StartNew();
 
-            _logger.LogInformation("Stage 3+4 — Starting full corpus run with validation (batch size={BatchSize}, resume={Resume}, maxBatches={MaxBatches})",
+            _logger.LogInformation("Stage 3+4 \u2014 Starting full corpus run with validation (batch size={BatchSize}, resume={Resume}, maxBatches={MaxBatches})",
                 batchSize, resumeFromId.HasValue ? resumeFromId.Value : "fresh", maxBatches?.ToString() ?? "all");
 
-            // Only truncate on fresh runs — resuming means data already exists
+            // Only truncate for clean runs; resume mode intentionally leaves prior
+            // completed batch rows in place for validation continuity.
             if (!resumeFromId.HasValue)
             {
                 await TruncateAsync(ct);
             }
 
-            // UNII-ordered document batching: process documents grouped by active ingredient
-            // so the ML training accumulator gets concentrated product data per batch
-            var orderedGuidsRaw = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
-            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuidsRaw.Count);
-
-            var orderedGuids = await applyBioequivalentDedupAsync(orderedGuidsRaw, disableBioequivalentDedup, ct);
-
-            var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
-            if (maxBatches.HasValue)
-            {
-                totalBatches = Math.Min(totalBatches, maxBatches.Value);
-            }
-            var totalObservations = 0;
-            var batchNumber = 0;
-            var skipReasons = new Dictionary<int, string>();
-
-            for (int i = 0; i < orderedGuids.Count; i += batchSize)
-            {
-                ct.ThrowIfCancellationRequested();
-                batchNumber++;
-
-                // Stop if we've reached the max batches limit
-                if (maxBatches.HasValue && batchNumber > maxBatches.Value)
+            // Run the same full-corpus template as ProcessAllAsync, but request skip
+            // counts and preserve the per-table reasons required by the validator.
+            var loopResult = await executeFullCorpusBatchLoopAsync(
+                batchSize,
+                maxBatches,
+                disableBioequivalentDedup,
+                rowProgress,
+                progress,
+                stopwatch,
+                includeSkipCounts: true,
+                async (filter, innerProgress, token) =>
                 {
-                    break;
-                }
-
-                var guids = orderedGuids.Skip(i).Take(batchSize).ToList();
-                var filter = new TableCellContextFilter
-                {
-                    DocumentGUIDs = guids
-                };
-
-                // Wrap rowProgress to inject batch-level context into each per-table report.
-                // Uses SynchronousProgress to avoid double-async posting (see ProcessAllAsync).
-                var capturedBatchNumber = batchNumber;
-                var capturedTotalObs = totalObservations;
-                IProgress<TransformBatchProgress>? innerProgress = rowProgress != null
-                    ? new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
+                    // Stage-visible batch processing is required here because skip
+                    // reasons are populated on BatchStageResult, not the thin API.
+                    var stageResult = await ProcessBatchWithStagesAsync(filter, innerProgress, token);
+                    return new FullCorpusBatchOutcome
                     {
-                        p.BatchNumber = capturedBatchNumber;
-                        p.TotalBatches = totalBatches;
-                        p.CumulativeObservationCount = capturedTotalObs + p.BatchObservationCount;
-                        p.Elapsed = stopwatch.Elapsed;
-                        rowProgress.Report(p);
-                    })
-                    : null;
+                        ObservationsWritten = stageResult.ObservationsWritten,
+                        SkipReasons = new Dictionary<int, string>(stageResult.SkipReasons)
+                    };
+                },
+                ct);
 
-                var stageResult = await ProcessBatchWithStagesAsync(filter, innerProgress, ct);
-                var batchCount = stageResult.ObservationsWritten;
-                var batchSkips = stageResult.SkipReasons;
-                totalObservations += batchCount;
+            _logger.LogInformation("Stage 3 \u2014 Complete: {Total} total observations in {Batches} batches ({Elapsed}). Starting validation...",
+                loopResult.TotalObservations, loopResult.BatchCount, stopwatch.Elapsed);
 
-                foreach (var kvp in batchSkips)
-                {
-                    skipReasons[kvp.Key] = kvp.Value;
-                }
+            // Generate coverage/issue metrics against the rows just written, pairing
+            // them with the skip reasons accumulated during routing.
+            var report = await _batchValidator.GenerateReportFromDatabaseAsync(loopResult.SkipReasons, ct: ct);
 
-                _logger.LogInformation(
-                    "Batch {Batch}/{TotalBatches}: {DocCount} documents, {BatchCount} observations, {Skipped} skipped, {Total} cumulative",
-                    batchNumber, totalBatches, guids.Count, batchCount, batchSkips.Count, totalObservations);
-
-                progress?.Report(new TransformBatchProgress
-                {
-                    BatchNumber = batchNumber,
-                    TotalBatches = totalBatches,
-                    BatchObservationCount = batchCount,
-                    CumulativeObservationCount = totalObservations,
-                    TablesSkippedThisBatch = batchSkips.Count,
-                    Elapsed = stopwatch.Elapsed
-                });
-            }
-
-            _logger.LogInformation("Stage 3 — Complete: {Total} total observations in {Batches} batches ({Elapsed}). Starting validation...",
-                totalObservations, batchNumber, stopwatch.Elapsed);
-
-            // Stage 4: Generate validation report from DB
-            var report = await _batchValidator.GenerateReportFromDatabaseAsync(skipReasons, ct: ct);
-
-            // Cross-version concordance
+            // Cross-version concordance is a separate validator pass; attach it to
+            // the same report so callers receive one Stage 4 artifact.
             var discrepancies = await _batchValidator.CheckCrossVersionConcordanceAsync(ct);
             report.CrossVersionDiscrepancies = discrepancies;
 
-            _logger.LogInformation("Stage 4 — Validation complete. {Discrepancies} cross-version discrepancies ({Elapsed})",
+            _logger.LogInformation("Stage 4 \u2014 Validation complete. {Discrepancies} cross-version discrepancies ({Elapsed})",
                 discrepancies.Count, stopwatch.Elapsed);
 
-            // Stage 5 (Phase 2): denormalize AE rows with pre-computed RR/DNRR/CI.
-            // Optional — runs only when an IAdverseEventDenormalizationService instance
-            // was provided to the orchestrator constructor.
+            // Optional Stage 5 consumes the standardized table after validation has
+            // completed, producing the AE-specific flattened table as a downstream view.
             if (_aeDenormalizer != null)
             {
-                _logger.LogInformation("Stage 5 — Starting AdverseEvent denormalization");
+                _logger.LogInformation("Stage 5 \u2014 Starting AdverseEvent denormalization");
                 var aeRows = await _aeDenormalizer.PopulateAsync(ct: ct);
-                _logger.LogInformation("Stage 5 — Complete: {Rows} AE rows denormalized ({Elapsed})",
+                _logger.LogInformation("Stage 5 \u2014 Complete: {Rows} AE rows denormalized ({Elapsed})",
                     aeRows, stopwatch.Elapsed);
             }
 
@@ -536,10 +505,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Processes a batch of tables with full stage visibility, capturing intermediate results
-        /// at each stage boundary. Same pipeline as <see cref="ProcessBatchAsync"/> but returns
-        /// a <see cref="BatchStageResult"/> with reconstructed tables, routing decisions,
-        /// pre/post-correction observations, and skip reasons.
+        /// Processes a batch of tables with full stage visibility, capturing intermediate results at each stage boundary.
         /// </summary>
         /// <param name="filter">Filter for table ID range.</param>
         /// <param name="rowProgress">Optional intra-batch progress callback for per-table and per-stage updates.</param>
@@ -554,11 +520,15 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Accumulate every intermediate artifact for diagnostics; each stage
+            // below mutates this result rather than returning scattered side data.
             var result = new BatchStageResult();
 
             await ensureServicesInitializedAsync(ct);
 
-            // Helper to fire intra-batch progress reports (captures rowProgress)
+            // Helper to fire intra-batch progress reports. Expected outcome:
+            // callers see a stable operation name, percent, and table counts even
+            // though each internal stage computes progress differently.
             void reportProgress(string operation, double pct, int processed, int total)
             {
                 rowProgress?.Report(new TransformBatchProgress
@@ -572,6 +542,9 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             // Stage 2: Reconstruct tables
             reportProgress("Reconstructing tables...", 0, 0, 0);
+
+            // Materialize tables before sorting so the rest of the batch has a
+            // stable, inspectable source collection.
             var tables = await _reconstructionService.ReconstructTablesAsync(filter, ct);
 
             // Sort by UNII so all observations for the same product flow into ML scoring together.
@@ -587,14 +560,21 @@ namespace MedRecProImportClass.Service.TransformationServices
             result.ReconstructedTables = tables;
 
             // Stage 3: Route + Parse (0% → 20%)
+            // Keep route/parse side effects together because this stage owns routing
+            // decisions, parser diagnostics, skip reasons, and raw observations.
             var (allObservations, tablesProcessed, tableCount) = routeAndParseTables(tables, result, reportProgress, ct);
             result.PreCorrectionObservations = allObservations;
 
             // Stage 3.25: Column standardization (deterministic, pre-AI)
             reportProgress("Column standardization...", 21, tablesProcessed, tableCount);
+
+            // Deterministic standardization runs before any AI stage so later
+            // correction services receive the most normalized parser output possible.
             allObservations = runColumnStandardization(allObservations);
 
             // Stage 3.25 quality gate (opt-in): drop rows missing both ArmN and PrimaryValue
+            // When enabled, this gate prevents downstream correction work on rows
+            // that cannot be recovered for meta-analysis.
             allObservations = dropIncompleteRows(allObservations);
 
             // Stage 3.35 (R13): Pre-ML PK filter — drop non-analyzable PK rows
@@ -602,10 +582,16 @@ namespace MedRecProImportClass.Service.TransformationServices
             // pass through unchanged (troubleshooting data retained until each
             // category's filter contract is audited individually).
             reportProgress("Pre-ML PK filter...", 22, tablesProcessed, tableCount);
+
+            // First PK analyzability pass keeps the ML input free of PK rows that
+            // have no parameter name, numeric value type, or primary value.
             allObservations = dropNonAnalyzablePkRows(allObservations);
 
             // Stage 3.4: ML.NET correction and anomaly scoring
             reportProgress("ML.NET scoring...", 23, tablesProcessed, tableCount);
+
+            // ML correction may adjust categories or flags in place; the returned
+            // list is treated as the canonical stream for subsequent filters.
             allObservations = runMlCorrection(allObservations);
 
             // Stage 3.45 (R15.3): Post-ML PK filter re-run. Defense-in-depth against
@@ -617,20 +603,32 @@ namespace MedRecProImportClass.Service.TransformationServices
             // correction or DB write. Pre-ML 3.35 stays in place so the ML training
             // input is clean.
             reportProgress("Post-ML PK filter re-run...", 24, tablesProcessed, tableCount);
+
+            // Second PK analyzability pass catches rows that ML reclassified into
+            // PK after they bypassed the pre-ML PK-only filter.
             allObservations = dropNonAnalyzablePkRows(allObservations);
 
             // Stage 3.5: Claude AI Correction (25% → 95%)
             reportProgress("Claude AI correction...", 25, tablesProcessed, tableCount);
+
+            // Claude receives both observations and original table context; the
+            // expected outcome is corrected fields plus correction-count diagnostics.
             allObservations = await runClaudeCorrectionAsync(allObservations, tables, reportProgress, tablesProcessed, tableCount, result, ct);
 
             // Stage 3.6: Post-processing extraction (catch units/N= values Claude corrected into extractable form)
             reportProgress("Post-processing extraction...", 95.5, tablesProcessed, tableCount);
+
+            // Re-run deterministic extraction after AI correction so corrected text
+            // can yield units, sample sizes, and other structured fields.
             allObservations = runPostProcessExtraction(allObservations);
 
             result.PostCorrectionObservations = allObservations;
 
             // DB Write (96% → 100%)
             reportProgress("Writing to database...", 96, tablesProcessed, tableCount);
+
+            // Persist only after all correction/filter stages finish; failures here
+            // mark the batch as unwritten without corrupting earlier diagnostics.
             await writeObservationsAsync(allObservations, result, ct);
 
             reportProgress("Batch complete", 100, tablesProcessed, tableCount);
@@ -656,12 +654,16 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Initialize deterministic standardization lazily so single-table debug
+            // paths do not pay startup cost until the first batch needs it.
             if (_columnStandardizer != null && !_columnStdInitialized)
             {
                 await _columnStandardizer.InitializeAsync(ct);
                 _columnStdInitialized = true;
             }
 
+            // Initialize ML scoring lazily for the same reason, and set the flag only
+            // after successful initialization so a later batch can retry after faults.
             if (_qcNetCorrectionService != null && !_qcNetInitialized)
             {
                 await _qcNetCorrectionService.InitializeAsync(ct);
@@ -691,17 +693,23 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Missing service means this deployment has no Stage 0 dedup contract;
+            // preserve the original ordered list unchanged.
             if (_bioequivalentDedup == null)
             {
                 _logger.LogDebug("Bioequivalent dedup service not registered — skipping filter");
                 return orderedGuids;
             }
+            // Explicit disable is a smoke-test escape hatch: keep ordering and count
+            // unchanged while still exercising the same downstream loop.
             if (disable)
             {
                 _logger.LogInformation("Bioequivalent dedup disabled by caller — processing {Count} documents unfiltered", orderedGuids.Count);
                 return orderedGuids;
             }
 
+            // Execute dedup before batching so all later progress counts describe
+            // the actual documents that will be processed.
             var result = await _bioequivalentDedup.DeduplicateAsync(orderedGuids, options: null, ct);
 
             _logger.LogInformation(
@@ -714,6 +722,155 @@ namespace MedRecProImportClass.Service.TransformationServices
             // The dedup service already preserves input order; materialize to a List
             // so the batch loop can Skip/Take efficiently.
             return result.KeptDocumentGuids.ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Executes the shared UNII-ordered full-corpus batching template used by both public full-run entry points.
+        /// </summary>
+        /// <param name="batchSize">Document GUIDs per batch.</param>
+        /// <param name="maxBatches">Optional maximum number of batches to process.</param>
+        /// <param name="disableBioequivalentDedup">When true, bypass the Stage 0 dedup filter.</param>
+        /// <param name="rowProgress">Optional per-table progress callback.</param>
+        /// <param name="progress">Optional per-batch progress callback.</param>
+        /// <param name="stopwatch">Stopwatch created by the public caller.</param>
+        /// <param name="includeSkipCounts">When true, batch progress and logs include skip counts.</param>
+        /// <param name="dispatchBatchAsync">Caller-specific batch dispatcher.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>Aggregate observations, dispatched-batch count, and skip reasons.</returns>
+        /// <seealso cref="ProcessAllAsync"/>
+        /// <seealso cref="ProcessAllWithValidationAsync"/>
+        private async Task<FullCorpusBatchLoopResult> executeFullCorpusBatchLoopAsync(
+            int batchSize,
+            int? maxBatches,
+            bool disableBioequivalentDedup,
+            IProgress<TransformBatchProgress>? rowProgress,
+            IProgress<TransformBatchProgress>? progress,
+            Stopwatch stopwatch,
+            bool includeSkipCounts,
+            Func<TableCellContextFilter, IProgress<TransformBatchProgress>?, CancellationToken, Task<FullCorpusBatchOutcome>> dispatchBatchAsync,
+            CancellationToken ct)
+        {
+            #region implementation
+
+            // Start from the UNII walk order because downstream ML accumulation and
+            // output writes expect product-clustered batches.
+            var orderedGuidsRaw = await _cellContextService.GetDocumentGuidsOrderedByUniiAsync(ct);
+            _logger.LogInformation("UNII-ordered document batch: {Count} documents", orderedGuidsRaw.Count);
+
+            // Apply optional Stage 0 dedup before batch math so total batch counts
+            // reflect the final document set.
+            var orderedGuids = await applyBioequivalentDedupAsync(orderedGuidsRaw, disableBioequivalentDedup, ct);
+
+            // Compute the visible batch count once so progress reporters can present
+            // a stable denominator even when the final batch is partial.
+            var totalBatches = (int)Math.Ceiling((double)orderedGuids.Count / batchSize);
+
+            // A max-batch cutoff is a deliberate partial run; clamp the progress
+            // denominator to the number of batches that will actually dispatch.
+            if (maxBatches.HasValue)
+            {
+                totalBatches = Math.Min(totalBatches, maxBatches.Value);
+            }
+
+            // Running totals are owned by the template so parse-only and validation
+            // full runs cannot disagree on cumulative progress semantics.
+            var totalObservations = 0;
+            var batchNumber = 0;
+            var skipReasons = new Dictionary<int, string>();
+
+            // Walk the materialized GUID list in fixed-size slices; the loop index
+            // is intentionally document-based rather than table-based.
+            for (int i = 0; i < orderedGuids.Count; i += batchSize)
+            {
+                // Honor cancellation between batches so a partially completed batch
+                // remains coherent and the caller can resume from the next unit of work.
+                ct.ThrowIfCancellationRequested();
+
+                // Batch numbers are one-based for user-facing progress and logs.
+                batchNumber++;
+
+                // Stop before dispatching any batch beyond the requested smoke-test
+                // or resume limit.
+                if (maxBatches.HasValue && batchNumber > maxBatches.Value)
+                {
+                    break;
+                }
+
+                // Slice the current document set and wrap it in the filter contract
+                // expected by reconstruction services.
+                var guids = orderedGuids.Skip(i).Take(batchSize).ToList();
+                var filter = new TableCellContextFilter
+                {
+                    DocumentGUIDs = guids
+                };
+
+                // Capture pre-dispatch values so nested row progress reports show
+                // stable cumulative totals for the batch that is currently running.
+                var capturedBatchNumber = batchNumber;
+                var capturedTotalObs = totalObservations;
+
+                // Wrap row progress only when the caller supplied a sink; the wrapper
+                // enriches intra-batch reports with batch number, totals, and elapsed time.
+                IProgress<TransformBatchProgress>? innerProgress = rowProgress != null
+                    ? new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
+                    {
+                        p.BatchNumber = capturedBatchNumber;
+                        p.TotalBatches = totalBatches;
+                        p.CumulativeObservationCount = capturedTotalObs + p.BatchObservationCount;
+                        p.Elapsed = stopwatch.Elapsed;
+                        rowProgress.Report(p);
+                    })
+                    : null;
+
+                // Dispatch is the one caller-specific step; expected outcome is a
+                // row count and optional skip diagnostics for this batch.
+                var outcome = await dispatchBatchAsync(filter, innerProgress, ct);
+                totalObservations += outcome.ObservationsWritten;
+
+                // Last writer wins is intentional: a table can only appear in one GUID
+                // batch, so duplicate keys would indicate a later, more specific reason.
+                foreach (var kvp in outcome.SkipReasons)
+                {
+                    skipReasons[kvp.Key] = kvp.Value;
+                }
+
+                // Validation runs need skip counts in logs and progress; parse-only
+                // runs preserve the leaner legacy progress surface.
+                if (includeSkipCounts)
+                {
+                    _logger.LogInformation(
+                        "Batch {Batch}/{TotalBatches}: {DocCount} documents, {BatchCount} observations, {Skipped} skipped, {Total} cumulative",
+                        batchNumber, totalBatches, guids.Count, outcome.ObservationsWritten, outcome.SkipReasons.Count, totalObservations);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Batch {Batch}/{TotalBatches}: {DocCount} documents, {BatchCount} observations, {Total} cumulative",
+                        batchNumber, totalBatches, guids.Count, outcome.ObservationsWritten, totalObservations);
+                }
+
+                // Report after the batch commits its outcome so persisted totals and
+                // UI totals describe the same completed work.
+                progress?.Report(new TransformBatchProgress
+                {
+                    BatchNumber = batchNumber,
+                    TotalBatches = totalBatches,
+                    BatchObservationCount = outcome.ObservationsWritten,
+                    CumulativeObservationCount = totalObservations,
+                    TablesSkippedThisBatch = includeSkipCounts ? outcome.SkipReasons.Count : 0,
+                    Elapsed = stopwatch.Elapsed
+                });
+            }
+
+            return new FullCorpusBatchLoopResult
+            {
+                TotalObservations = totalObservations,
+                BatchCount = batchNumber,
+                SkipReasons = skipReasons
+            };
 
             #endregion
         }
@@ -738,16 +895,29 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Collect every successfully parsed observation in source-table order so
+            // downstream correction stages receive one contiguous batch stream.
             var allObservations = new List<ParsedObservation>();
+
+            // Track both the denominator and completed count for progress mapping
+            // into the 0-20 percent parse segment.
             var tableCount = tables.Count;
             var tablesProcessed = 0;
 
+            // Route and parse each reconstructed table independently so a failed
+            // table is skipped without aborting the rest of the batch.
             foreach (var table in tables)
             {
+                // Allow cancellation between tables, preserving table-level atomicity
+                // for any parser currently executing.
                 ct.ThrowIfCancellationRequested();
 
+                // Route immediately before parse so router diagnostics describe the
+                // exact table that will be parsed or skipped.
                 var (category, parser) = _router.Route(table);
 
+                // Build the decision before branching so all outcomes, including
+                // skips and exceptions, record the same routing metadata.
                 var decision = new TableRoutingDecision
                 {
                     TextTableID = table.TextTableID ?? 0,
@@ -756,6 +926,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     RouteReason = getRouterRouteReason()
                 };
 
+                // A SKIP category or missing parser is a deliberate routing outcome;
+                // record it as a skipped table and advance progress.
                 if (category == TableCategory.SKIP || parser == null)
                 {
                     decision.ObservationCount = 0;
@@ -771,6 +943,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                         table.TextTableID, category);
 
                     tablesProcessed++;
+
+                    // Map completed table count into the route/parse segment of the
+                    // batch progress bar; zero tables safely reports zero percent.
                     var tablePct = tableCount > 0 ? (double)tablesProcessed / tableCount * 20.0 : 0;
                     reportProgress("Parsing tables...", tablePct, tablesProcessed, tableCount);
                     continue;
@@ -778,14 +953,24 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 try
                 {
+                    // Clear diagnostics immediately before parser invocation so
+                    // suppression audits only describe this table.
                     clearParserDiagnostics(parser);
+
+                    // Parse returns candidate observations; diagnostics capture rows
+                    // that were intentionally suppressed before emission.
                     var observations = parser.Parse(table);
                     var suppressedRows = snapshotParserDiagnostics(parser);
+
+                    // Persist routing diagnostics whether the parser emitted rows or
+                    // only suppression records.
                     decision.SuppressedRowCount = suppressedRows.Count;
                     result.SuppressedRows.AddRange(suppressedRows);
                     decision.ObservationCount = observations.Count;
                     result.RoutingDecisions.Add(decision);
 
+                    // Empty parser output is tracked separately from router SKIP so
+                    // validation can distinguish "not applicable" from "no rows emitted."
                     if (observations.Count == 0)
                     {
                         if (table.TextTableID.HasValue)
@@ -794,15 +979,22 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
 
                         tablesProcessed++;
+
+                        // Advance progress before continuing so empty tables do not
+                        // make the UI appear stalled.
                         var tablePct = tableCount > 0 ? (double)tablesProcessed / tableCount * 20.0 : 0;
                         reportProgress("Parsing tables...", tablePct, tablesProcessed, tableCount);
                         continue;
                     }
 
+                    // Successful parse output joins the batch stream for deterministic
+                    // standardization, filtering, AI correction, and persistence.
                     allObservations.AddRange(observations);
                 }
                 catch (TableParseException tpx)
                 {
+                    // Parser-raised table faults carry structured row/parser context;
+                    // convert them into a skip reason while preserving diagnostics.
                     decision.ObservationCount = 0;
                     var suppressedRows = snapshotParserDiagnostics(parser);
                     decision.SuppressedRowCount = suppressedRows.Count;
@@ -815,12 +1007,14 @@ namespace MedRecProImportClass.Service.TransformationServices
                             $"ERROR:{tpx.ParserName}:Row{tpx.RowSequence}";
                     }
 
-                    _logger.LogWarning(tpx,
+                    _logger.LogDebug(tpx,
                         "Table-level fault: TextTableID={Id}, Row={Row}, Parser={Parser} — entire table skipped",
                         tpx.TextTableID, tpx.RowSequence, tpx.ParserName);
                 }
                 catch (Exception ex)
                 {
+                    // Unexpected parser faults are still table-scoped; record a generic
+                    // parser skip reason and continue with the next table.
                     decision.ObservationCount = 0;
                     var suppressedRows = snapshotParserDiagnostics(parser);
                     decision.SuppressedRowCount = suppressedRows.Count;
@@ -832,12 +1026,15 @@ namespace MedRecProImportClass.Service.TransformationServices
                         result.SkipReasons[table.TextTableID.Value] = $"ERROR:{parser.GetType().Name}";
                     }
 
-                    _logger.LogWarning(ex,
+                    _logger.LogDebug(ex,
                         "Failed to parse TextTableID={Id} with {Parser} — skipping",
                         table.TextTableID, parser.GetType().Name);
                 }
 
                 tablesProcessed++;
+
+                // Every non-continued path reaches this progress update, including
+                // table-level faults, so completed count remains accurate.
                 var pct = tableCount > 0 ? (double)tablesProcessed / tableCount * 20.0 : 0;
                 reportProgress("Parsing tables...", pct, tablesProcessed, tableCount);
             }
@@ -911,6 +1108,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // No service or no rows means there is nothing to standardize; return
+            // the current list so downstream stages can remain null-free.
             if (_columnStandardizer != null && observations.Count > 0)
             {
                 observations = _columnStandardizer.Standardize(observations);
@@ -952,6 +1151,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 return observations;
             }
 
+            // Keep the original count so logs can report how much data the gate removed.
             var originalCount = observations.Count;
 
             // Keep only rows where BOTH ArmN AND PrimaryValue are populated.
@@ -961,6 +1161,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .Where(o => o.ArmN != null && o.PrimaryValue != null)
                 .ToList();
 
+            // Compute the removal count after materialization so the returned list and
+            // log message describe the same filtered population.
             var droppedCount = originalCount - surviving.Count;
 
             if (droppedCount > 0)
@@ -1028,11 +1230,14 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Empty input is a no-op and returns the same list for callers that rely
+            // on reference stability in diagnostic paths.
             if (observations.Count == 0)
             {
                 return observations;
             }
 
+            // Capture the starting count so the filter can log the exact drop volume.
             var before = observations.Count;
 
             // Keep rule: non-PK rows always pass; PK rows require:
@@ -1051,6 +1256,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     ))
                 .ToList();
 
+            // Difference is computed after materialization to avoid re-enumerating the
+            // LINQ predicate and to keep the logged after-count precise.
             var dropped = before - kept.Count;
             if (dropped > 0)
             {
@@ -1076,6 +1283,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // ML is optional and list-preserving; no configured service or no rows
+            // means downstream stages receive the unchanged observation stream.
             if (_qcNetCorrectionService != null && observations.Count > 0)
             {
                 observations = _qcNetCorrectionService.ScoreAndCorrect(observations);
@@ -1112,16 +1321,22 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Correction is optional; a missing service or empty batch means there
+            // is no work and no correction-count delta to record.
             if (_correctionService == null || observations.Count == 0)
                 return observations;
 
             // Forwarding progress: map correction service's 0–100 into orchestrator's 25–95 range
             var claudeProgress = new Helpers.SynchronousProgress<TransformBatchProgress>(p =>
             {
+                // Scale Claude's local percent into the orchestrator's Stage 3.5
+                // band so the overall batch progress remains monotonic.
                 var scaledPct = 25.0 + (p.IntraBatchPercent / 100.0) * 70.0;
                 reportProgress(p.CurrentOperation ?? "Claude AI correction...", scaledPct, tablesProcessed, tableCount);
             });
 
+            // Snapshot flags before Claude so the result can count changed rows
+            // without trying to infer correction details from service internals.
             var preCorrectionFlags = observations
                 .Select(o => o.ValidationFlags)
                 .ToList();
@@ -1133,14 +1348,20 @@ namespace MedRecProImportClass.Service.TransformationServices
                 .Where(t => t.TextTableID.HasValue)
                 .ToDictionary(t => t.TextTableID!.Value);
 
+            // Correct in batch with source-table context so guardrails can compare
+            // model suggestions against the original table shape.
             observations = await _correctionService.CorrectBatchAsync(observations, originalTables: tableLookup, progress: claudeProgress, ct: ct);
 
             // Count corrections by checking ValidationFlags changes
+            // Index alignment is safe because CorrectBatchAsync returns the same
+            // observation stream shape rather than inserting/removing rows.
             result.CorrectionCount = observations
                 .Select((o, i) => o.ValidationFlags != preCorrectionFlags[i] ? 1 : 0)
                 .Sum();
 
             // Stage 3.4 feedback: feed Claude corrections back to ML as ground truth
+            // This branch is optional, but when present it lets later ML runs learn
+            // from accepted Claude corrections.
             if (_qcNetCorrectionService != null)
             {
                 await _qcNetCorrectionService.FeedClaudeCorrectedBatchAsync(observations, ct);
@@ -1167,11 +1388,15 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Empty batches are valid after filters; do not touch the DbContext or
+            // report a write count.
             if (observations.Count == 0)
                 return;
 
             try
             {
+                // Map DTOs to the EF entity only at the persistence boundary so
+                // parsing and correction stages stay independent of DB column limits.
                 var entities = observations.Select(mapToEntity).ToList();
                 _dbContext.AddRange(entities);
                 await _dbContext.SaveChangesAsync(ct);
@@ -1184,13 +1409,17 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
             catch (OperationCanceledException)
             {
+                // Cancellation should propagate, but the tracker is still cleared so
+                // a resumed run does not inherit half-tracked entities.
                 _dbContext.ChangeTracker.Clear();
                 throw;
             }
             catch (Exception ex)
             {
+                // Treat write failures as batch-scoped: clear tracked entities, log,
+                // and leave ObservationsWritten at zero for the shared loop totals.
                 _dbContext.ChangeTracker.Clear();
-                _logger.LogWarning(ex,
+                _logger.LogDebug(ex,
                     "Failed to save batch — cleared {Count} tracked entities, batch skipped",
                     observations.Count);
                 result.ObservationsWritten = 0;
@@ -1212,6 +1441,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Post-processing extraction is optional and only meaningful when there
+            // are observations whose corrected text can yield additional fields.
             if (_columnStandardizer != null && observations.Count > 0)
             {
                 observations = _columnStandardizer.PostProcessExtraction(observations);
@@ -1268,8 +1499,12 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Route through the same router as full batches so diagnostics match
+            // production parser selection.
             var (category, parser) = _router.Route(table);
 
+            // Diagnostic callers need to see explicit SKIP outcomes without forcing
+            // a parser invocation that the router rejected.
             if (category == TableCategory.SKIP || parser == null)
             {
                 _logger.LogDebug("TextTableID={Id} categorized as {Category} — no parser",
@@ -1278,6 +1513,9 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             clearParserDiagnostics(parser);
+
+            // Parse and immediately snapshot suppression diagnostics so callers can
+            // inspect both emitted observations and intentionally suppressed rows.
             var observations = parser.Parse(table);
             var suppressedRows = snapshotParserDiagnostics(parser);
             return (category, parser.GetType().Name, observations, suppressedRows);
@@ -1301,6 +1539,8 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
+            // Correction diagnostics mirror production behavior: a missing service
+            // or empty list leaves the supplied observations unchanged.
             if (_correctionService == null || observations.Count == 0)
             {
                 return observations;

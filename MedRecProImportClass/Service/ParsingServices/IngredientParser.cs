@@ -385,7 +385,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             if (string.IsNullOrWhiteSpace(refUnii) || string.IsNullOrWhiteSpace(refName))
             {
                 // Log warning for missing critical data that prevents reference substance creation
-                context.Logger.LogWarning("Skipping ReferenceSubstance for IngredientSubstanceID {ID} due to missing UNII or Name.", ingredientSubstanceId);
+                context.Logger.LogDebug("Skipping ReferenceSubstance for IngredientSubstanceID {ID} due to missing UNII or Name.", ingredientSubstanceId);
                 return null;
             }
 
@@ -471,7 +471,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             if (string.IsNullOrWhiteSpace(sourceNdc))
             {
                 // Log warning for missing NDC which is required for source product tracking
-                context.Logger.LogWarning("Skipping IngredientSourceProduct for IngredientID {ID} due to missing source NDC.", ingredientId);
+                context.Logger.LogDebug("Skipping IngredientSourceProduct for IngredientID {ID} due to missing source NDC.", ingredientId);
                 return;
             }
 
@@ -1039,7 +1039,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
 
             // Log warning about missing UNII
-            context.Logger!.LogWarning(
+            context.Logger!.LogDebug(
                 "Ingredient substance '{Name}' is missing a UNII. It will not be normalized and a new record may be created.",
                 substanceName);
 
@@ -1269,7 +1269,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (innerActiveMoietyEl == null)
                 {
-                    context.Logger.LogWarning(
+                    context.Logger.LogDebug(
                         "Skipping ActiveMoiety for IngredientSubstanceID {ID} due to missing inner activeMoiety element.",
                         ingredientSubstanceId);
                     continue; // Skip this moiety and process the next one
@@ -1290,7 +1290,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate that we have the required data before proceeding
                 if (string.IsNullOrWhiteSpace(moiety.MoietyUNII) || string.IsNullOrWhiteSpace(moiety.MoietyName))
                 {
-                    context.Logger.LogWarning(
+                    context.Logger.LogDebug(
                         "Skipping ActiveMoiety for IngredientSubstanceID {ID} due to missing UNII or Name.",
                         ingredientSubstanceId);
                     continue; // Skip this moiety and process the next one
@@ -1499,7 +1499,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (ingredientSubstanceEl == null)
                 {
-                    context.Logger?.LogWarning(
+                    context.Logger?.LogDebug(
                         "Skipping ingredient element {ElementName} - no substance element found",
                         element.Name.LocalName);
                     continue;
@@ -1864,7 +1864,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (string.IsNullOrWhiteSpace(dto.SubstanceUNII))
                     {
-                        context.Logger?.LogWarning(
+                        context.Logger?.LogDebug(
                             "Creating non-normalized IngredientSubstance '{Name}' without UNII",
                             dto.SubstanceName);
                     }
@@ -2238,7 +2238,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (!substanceLookup.TryGetValue(substanceKey, out int substanceId))
                 {
-                    context.Logger?.LogWarning(
+                    context.Logger?.LogDebug(
                         "Could not find IngredientSubstanceID for substance '{Name}', skipping ingredient",
                         dto.SubstanceName);
                     continue;

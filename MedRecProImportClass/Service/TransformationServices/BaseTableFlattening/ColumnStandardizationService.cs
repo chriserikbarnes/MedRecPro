@@ -785,7 +785,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (!_initialized)
             {
-                _logger.LogWarning("ColumnStandardizationService not initialized — skipping standardization");
+                _logger.LogDebug("ColumnStandardizationService not initialized — skipping standardization");
                 return observations;
             }
 

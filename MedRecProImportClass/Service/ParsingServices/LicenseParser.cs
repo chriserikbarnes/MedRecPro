@@ -266,7 +266,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (string.IsNullOrWhiteSpace(licenseNumber) || string.IsNullOrWhiteSpace(licenseRootOid))
                 {
-                    logger.LogWarning("License missing required identification information (number or root OID).");
+                    logger.LogDebug("License missing required identification information (number or root OID).");
                     return null;
                 }
 
@@ -287,7 +287,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var territorialAuthority = await parseTerritorialAuthorityAsync(approvalEl, dbContext, logger);
                 if (territorialAuthority?.TerritorialAuthorityID == null)
                 {
-                    logger.LogWarning("Could not create or find territorial authority for license.");
+                    logger.LogDebug("Could not create or find territorial authority for license.");
                     return null;
                 }
 
@@ -345,7 +345,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (territorialAuthorityEl == null)
                 {
-                    logger.LogWarning("No territorial authority element found in approval author.");
+                    logger.LogDebug("No territorial authority element found in approval author.");
                     return null;
                 }
 
@@ -358,7 +358,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (string.IsNullOrWhiteSpace(territoryCode) || string.IsNullOrWhiteSpace(territoryCodeSystem))
                 {
-                    logger.LogWarning("Territory code or code system missing from territorial authority.");
+                    logger.LogDebug("Territory code or code system missing from territorial authority.");
                     return null;
                 }
 
@@ -420,7 +420,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (string.IsNullOrWhiteSpace(expirationValue))
                 {
-                    logger.LogWarning("No expiration date found in license effective time.");
+                    logger.LogDebug("No expiration date found in license effective time.");
                     return null;
                 }
 
@@ -432,7 +432,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     return expirationDate;
                 }
 
-                logger.LogWarning($"Could not parse expiration date: {expirationValue}");
+                logger.LogDebug($"Could not parse expiration date: {expirationValue}");
                 return null;
             }
             catch (Exception ex)
@@ -494,7 +494,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        logger.LogWarning($"Existing territorial authority failed validation: {existing.TerritorialAuthorityID}");
+                        logger.LogDebug($"Existing territorial authority failed validation: {existing.TerritorialAuthorityID}");
                         return null;
                     }
                 }
@@ -512,7 +512,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate before saving
                 if (!validateTerritorialAuthority(newTerritorialAuthority, logger))
                 {
-                    logger.LogWarning("New territorial authority failed validation and will not be saved.");
+                    logger.LogDebug("New territorial authority failed validation and will not be saved.");
                     return null;
                 }
 
@@ -597,7 +597,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        logger.LogWarning($"Updated license failed validation: {existing.LicenseID}");
+                        logger.LogDebug($"Updated license failed validation: {existing.LicenseID}");
                         return null;
                     }
                 }
@@ -619,7 +619,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate before saving
                 if (!validateLicense(newLicense, logger))
                 {
-                    logger.LogWarning("New license failed validation and will not be saved.");
+                    logger.LogDebug("New license failed validation and will not be saved.");
                     return null;
                 }
 
@@ -655,7 +655,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             if (license == null)
             {
-                logger.LogWarning("License is null and cannot be validated.");
+                logger.LogDebug("License is null and cannot be validated.");
                 return false;
             }
 
@@ -671,7 +671,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 {
                     // Handle the case where ErrorMessage might be null and safely access member names
                     var errorMessage = validationResult.ErrorMessage ?? "Unknown validation error";
-                    logger.LogWarning($"License validation error: {errorMessage}");
+                    logger.LogDebug($"License validation error: {errorMessage}");
                 }
                 return false;
             }
@@ -700,7 +700,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             if (territorialAuthority == null)
             {
-                logger.LogWarning("TerritorialAuthority is null and cannot be validated.");
+                logger.LogDebug("TerritorialAuthority is null and cannot be validated.");
                 return false;
             }
 
@@ -716,7 +716,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 {
                     // Handle the case where ErrorMessage might be null
                     var errorMessage = validationResult.ErrorMessage ?? "Unknown validation error";
-                    logger.LogWarning($"TerritorialAuthority validation error: {errorMessage}");
+                    logger.LogDebug($"TerritorialAuthority validation error: {errorMessage}");
                 }
                 return false;
             }

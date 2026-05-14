@@ -338,7 +338,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate required dependencies
             if (repo == null || context.Logger == null)
             {
-                context?.Logger?.LogWarning("Cannot process marketing acts due to missing repository or logger.");
+                context?.Logger?.LogDebug("Cannot process marketing acts due to missing repository or logger.");
                 return count;
             }
 

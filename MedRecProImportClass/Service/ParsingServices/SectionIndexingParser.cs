@@ -489,7 +489,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        context?.Logger?.LogWarning("No chemical structure data found in characteristic for moiety {MoietyID}",
+                        context?.Logger?.LogDebug("No chemical structure data found in characteristic for moiety {MoietyID}",
                             moiety.MoietyID);
                     }
                 }
@@ -1718,7 +1718,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (string.IsNullOrWhiteSpace(packageNdc))
                 {
-                    context.Logger.LogWarning("Found a billing unit index entry without an NDC Package Code in SectionID {SectionID}.", section.SectionID);
+                    context.Logger.LogDebug("Found a billing unit index entry without an NDC Package Code in SectionID {SectionID}.", section.SectionID);
                     continue;
                 }
 
@@ -1744,7 +1744,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (string.IsNullOrWhiteSpace(billingUnitCode))
                 {
-                    context.Logger.LogWarning("Could not find a valid NCPDP Billing Unit for NDC {NDC} in SectionID {SectionID}.", packageNdc, section.SectionID);
+                    context.Logger.LogDebug("Could not find a valid NCPDP Billing Unit for NDC {NDC} in SectionID {SectionID}.", packageNdc, section.SectionID);
                     continue;
                 }
 
@@ -1911,7 +1911,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                         }
                         else
                         {
-                            context.Logger.LogWarning("Application concept {appCode} referenced an abstract concept {absCode} that was not found in the database.", conceptCode, abstractConceptCode);
+                            context.Logger.LogDebug("Application concept {appCode} referenced an abstract concept {absCode} that was not found in the database.", conceptCode, abstractConceptCode);
                         }
                     }
                 }
@@ -2071,7 +2071,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        context.Logger.LogWarning("Could not find IdentifiedSubstance for contributing factor {factorId} in Section {sectionId}", factorIdentifier, section.SectionID);
+                        context.Logger.LogDebug("Could not find IdentifiedSubstance for contributing factor {factorId} in Section {sectionId}", factorIdentifier, section.SectionID);
                     }
                 }
 
@@ -2255,14 +2255,14 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // 2. Validate the data according to the specification
                 if (string.IsNullOrWhiteSpace(nctNumber) || nctRootOid != "2.16.840.1.113883.3.1077")
                 {
-                    context.Logger.LogWarning("Found an invalid or non-NCT protocol ID in Section {SectionID}. Skipping.", section.SectionID);
+                    context.Logger.LogDebug("Found an invalid or non-NCT protocol ID in Section {SectionID}. Skipping.", section.SectionID);
                     continue;
                 }
 
                 // Validate NCT number format: "NCT" + 8 digits
                 if (!System.Text.RegularExpressions.Regex.IsMatch(nctNumber, @"^NCT\d{8}$"))
                 {
-                    context.Logger.LogWarning("NCT number '{NCT}' has an invalid format in Section {SectionID}. Skipping.", nctNumber, section.SectionID);
+                    context.Logger.LogDebug("NCT number '{NCT}' has an invalid format in Section {SectionID}. Skipping.", nctNumber, section.SectionID);
                     continue;
                 }
 
@@ -2596,7 +2596,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                         if (!productResult.Success)
                         {
-                            context.Logger.LogWarning("ManufacturedProductParser reported errors: {Errors}",
+                            context.Logger.LogDebug("ManufacturedProductParser reported errors: {Errors}",
                                 string.Join(", ", productResult.Errors));
                         }
 
@@ -2814,7 +2814,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             if (context?.CurrentProduct?.ProductID == null)
             {
-                context?.Logger?.LogWarning(
+                context?.Logger?.LogDebug(
                     DbParsingConstants.MissingProductContextWarning,
                     entityType);
                 return false;

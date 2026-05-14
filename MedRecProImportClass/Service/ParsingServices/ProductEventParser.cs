@@ -86,7 +86,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate required dependencies
             if (parentEl == null || packagingLevel == null || context?.Logger == null || !packagingLevel.PackagingLevelID.HasValue)
             {
-                context?.Logger?.LogWarning("Invalid parameters for product event parsing. Skipping.");
+                context?.Logger?.LogDebug("Invalid parameters for product event parsing. Skipping.");
                 return createdCount;
             }
 
@@ -221,7 +221,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (codeEl == null)
                 {
-                    context?.Logger?.LogWarning("No code element found in productEvent");
+                    context?.Logger?.LogDebug("No code element found in productEvent");
                     return (null, null, null);
                 }
 
@@ -262,7 +262,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (quantityEl == null)
                 {
-                    context?.Logger?.LogWarning("No quantity element found in subjectOf");
+                    context?.Logger?.LogDebug("No quantity element found in subjectOf");
                     return (null, null);
                 }
 
@@ -278,7 +278,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (quantityValue == null)
                     {
-                        context?.Logger?.LogWarning(
+                        context?.Logger?.LogDebug(
                             "Could not parse quantity value '{ValueStr}' as integer", valueStr);
                     }
                 }
@@ -331,7 +331,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (effectiveTimeLow == null)
                     {
-                        context?.Logger?.LogWarning(
+                        context?.Logger?.LogDebug(
                             "Could not parse effective time low '{ValueStr}' as DateTime", lowValueStr);
                     }
                 }
@@ -420,7 +420,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (productEvent == null)
                 {
-                    context.Logger.LogWarning("ProductEvent cannot be null for validation");
+                    context.Logger.LogDebug("ProductEvent cannot be null for validation");
                     return false;
                 }
 
@@ -435,7 +435,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // Log all validation errors
                     foreach (var error in validationResult.Errors)
                     {
-                        context.Logger.LogWarning(
+                        context.Logger.LogDebug(
                             "ProductEvent validation error for PackagingLevelID {PackagingLevelID}: {Error}",
                             productEvent.PackagingLevelID, error);
                     }

@@ -68,7 +68,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate required dependencies
             if (parentEl == null || product == null || context?.Logger == null || !product.ProductID.HasValue)
             {
-                context?.Logger?.LogWarning("Invalid parameters for dosing specification parsing. Skipping.");
+                context?.Logger?.LogDebug("Invalid parameters for dosing specification parsing. Skipping.");
                 return createdCount;
             }
 
@@ -196,7 +196,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (routeCodeEl == null)
                 {
-                    context?.Logger?.LogWarning("No routeCode element found in substanceAdministration");
+                    context?.Logger?.LogDebug("No routeCode element found in substanceAdministration");
                     return (null, null, null, null);
                 }
 
@@ -255,7 +255,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (doseValue == null)
                     {
-                        context?.Logger?.LogWarning(
+                        context?.Logger?.LogDebug(
                             "Could not parse dose quantity value '{ValueStr}' as decimal", valueStr);
                     }
                 }
@@ -292,7 +292,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 if (dosingSpec == null)
                 {
-                    context.Logger.LogWarning("DosingSpecification cannot be null for validation");
+                    context.Logger.LogDebug("DosingSpecification cannot be null for validation");
                     return false;
                 }
 
@@ -307,7 +307,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // Log all validation errors
                     foreach (var error in validationResult.Errors)
                     {
-                        context.Logger.LogWarning(
+                        context.Logger.LogDebug(
                             "DosingSpecification validation error for ProductID {ProductID}: {Error}",
                             dosingSpec.ProductID, error);
                     }

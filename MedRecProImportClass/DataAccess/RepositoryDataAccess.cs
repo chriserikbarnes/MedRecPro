@@ -184,7 +184,7 @@ namespace MedRecProImportClass.DataAccess
             decryptedId = 0;
             if (string.IsNullOrWhiteSpace(encryptedId))
             {
-                _logger.LogWarning("{ParameterName} is null or whitespace.", parameterName);
+                _logger.LogDebug("{ParameterName} is null or whitespace.", parameterName);
                 return false;
             }
 
@@ -196,7 +196,7 @@ namespace MedRecProImportClass.DataAccess
                     decryptedId = id;
                     return true;
                 }
-                _logger.LogWarning("Invalid or non-positive ID after decrypting {ParameterName}. Encrypted value: {EncryptedValue}, Decrypted string: {DecryptedString}", parameterName, encryptedId, decryptedString);
+                _logger.LogDebug("Invalid or non-positive ID after decrypting {ParameterName}. Encrypted value: {EncryptedValue}, Decrypted string: {DecryptedString}", parameterName, encryptedId, decryptedString);
                 return false;
             }
             catch (Exception ex)
@@ -274,7 +274,7 @@ namespace MedRecProImportClass.DataAccess
 
             if (!tryDecryptId(encryptedId, nameof(encryptedId), out decryptedId))
             {
-                _logger.LogWarning("Failed to decrypt ID for ReadByIdAsync. Encrypted ID: {EncryptedId}", encryptedId);
+                _logger.LogDebug("Failed to decrypt ID for ReadByIdAsync. Encrypted ID: {EncryptedId}", encryptedId);
 
                 return null;
             }
@@ -417,7 +417,7 @@ namespace MedRecProImportClass.DataAccess
 
             if (!tryDecryptId(encryptedId, nameof(encryptedId), out id))
             {
-                _logger.LogWarning("Failed to decrypt ID for DeleteAsync. Encrypted ID: {EncryptedId}", encryptedId);
+                _logger.LogDebug("Failed to decrypt ID for DeleteAsync. Encrypted ID: {EncryptedId}", encryptedId);
 
                 throw new InvalidOperationException($"Failed to decrypt ID for DeleteAsync. Encrypted ID: {encryptedId}");
             }

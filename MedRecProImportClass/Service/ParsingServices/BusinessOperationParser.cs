@@ -229,13 +229,13 @@ namespace MedRecProImportClass.Service.ParsingServices
                 .FirstOrDefaultAsync(a => a.DocumentID == docId && a.AuthorType == "Labeler");
             if (labeler == null)
             {
-                logger.LogWarning("Labeler DocumentAuthor not found for this document.");
+                logger.LogDebug("Labeler DocumentAuthor not found for this document.");
                 return null;
             }
 
             if (labeler.OrganizationID == null)
             {
-                logger.LogWarning("Labeler OrganizationID not found for this document.");
+                logger.LogDebug("Labeler OrganizationID not found for this document.");
                 return null;
             }
 
@@ -263,7 +263,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 .ToListAsync();
 
             if (!docRels.Any())
-                logger.LogWarning("No DocumentRelationships found for this document.");
+                logger.LogDebug("No DocumentRelationships found for this document.");
 
             return docRels;
             #endregion
@@ -421,7 +421,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                             {
                                 foreach (var error in licenseResult.Errors)
                                 {
-                                    context.Logger?.LogWarning($"License parsing warning: {error}");
+                                    context.Logger?.LogDebug($"License parsing warning: {error}");
                                 }
                             }
                             else if (licenseResult.LicensesCreated > 0)
@@ -558,7 +558,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (bizOp == null || bizOp.BusinessOperationID == null)
             {
-                logger.LogWarning("Business operation is null or has no ID, skipping product link creation.");
+                logger.LogDebug("Business operation is null or has no ID, skipping product link creation.");
                 return linksCreated;
             }
 
@@ -567,13 +567,13 @@ namespace MedRecProImportClass.Service.ParsingServices
                 string? itemCode = parseProductItemCode(productEl);
                 if (string.IsNullOrWhiteSpace(itemCode))
                 {
-                    logger.LogWarning("Missing product item code for business operation link.");
+                    logger.LogDebug("Missing product item code for business operation link.");
                     continue;
                 }
 
                 if (product == null)
                 {
-                    logger.LogWarning($"No Product found for item code {itemCode} (op={bizOp?.OperationCode}).");
+                    logger.LogDebug($"No Product found for item code {itemCode} (op={bizOp?.OperationCode}).");
                     continue;
                 }
 

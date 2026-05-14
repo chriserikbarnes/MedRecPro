@@ -1694,7 +1694,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var textEl = highlightEl.Element(ns + sc.E.Text);
                 if (textEl == null)
                 {
-                    context.Logger?.LogWarning($"Highlight element without text child in SectionID {sectionId}");
+                    context.Logger?.LogDebug($"Highlight element without text child in SectionID {sectionId}");
                     continue;
                 }
 

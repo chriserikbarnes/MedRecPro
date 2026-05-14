@@ -127,7 +127,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (string.IsNullOrWhiteSpace(lotType))
                     {
-                        context.Logger.LogWarning("Could not determine lot type for productInstance element, skipping.");
+                        context.Logger.LogDebug("Could not determine lot type for productInstance element, skipping.");
                         continue;
                     }
 
@@ -135,7 +135,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var lotIdentifier = await getOrCreateLotIdentifierAsync(productInstanceEl, context);
                     if (lotIdentifier?.LotIdentifierID == null)
                     {
-                        context.Logger.LogWarning($"Failed to create LotIdentifier for {lotType}, skipping.");
+                        context.Logger.LogDebug($"Failed to create LotIdentifier for {lotType}, skipping.");
                         continue;
                     }
 
@@ -387,14 +387,14 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             if (context?.ServiceProvider == null || context?.Logger == null)
             {
-                context?.Logger?.LogWarning("Invalid context.");
+                context?.Logger?.LogDebug("Invalid context.");
                 return null;
             }
 
             var idEl = productInstanceEl.GetSplElement(sc.E.Id);
             if (idEl == null)
             {
-                context.Logger.LogWarning("No id element found in productInstance for lot identifier.");
+                context.Logger.LogDebug("No id element found in productInstance for lot identifier.");
                 return null;
             }
 
@@ -404,14 +404,14 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (string.IsNullOrWhiteSpace(lotNumber))
             {
-                context.Logger.LogWarning("Lot number (extension) is missing from productInstance id element.");
+                context.Logger.LogDebug("Lot number (extension) is missing from productInstance id element.");
                 return null;
             }
 
             // Validate lot number format according to SPL IG 16.2.5.4
             if (!isValidLotNumber(lotNumber))
             {
-                context.Logger.LogWarning($"Invalid lot number format: {lotNumber}. Must contain only digits, uppercase letters, '-', and '/'.");
+                context.Logger.LogDebug($"Invalid lot number format: {lotNumber}. Must contain only digits, uppercase letters, '-', and '/'.");
                 return null;
             }
 
@@ -489,7 +489,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             if (context?.ServiceProvider == null || context?.Logger == null)
             {
-                context?.Logger?.LogWarning("Invalid context.");
+                context?.Logger?.LogDebug("Invalid context.");
                 return null;
             }
 
@@ -505,7 +505,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var currentProduct = context.CurrentProduct;
             if (currentProduct == null)
             {
-                context.Logger.LogWarning("No current product context available for computing lot root OID.");
+                context.Logger.LogDebug("No current product context available for computing lot root OID.");
                 return rootOid; // Return as-is if we can't compute
             }
 
@@ -552,7 +552,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             if (product?.ProductID == null || context?.ServiceProvider == null || context.Logger == null)
             {
-                context?.Logger?.LogWarning("Invalid product or context provided for product code lookup.");
+                context?.Logger?.LogDebug("Invalid product or context provided for product code lookup.");
                 return null;
             }
 
@@ -608,7 +608,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     return firstValidIdentifier.IdentifierValue;
                 }
 
-                context.Logger.LogWarning($"No valid product identifiers found for ProductID {product.ProductID}");
+                context.Logger.LogDebug($"No valid product identifiers found for ProductID {product.ProductID}");
                 return null;
             }
             catch (Exception ex)
@@ -1017,7 +1017,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var ingredientProductInstanceEl = ingredientEl.GetSplElement(sc.E.IngredientProductInstance);
             if (ingredientProductInstanceEl == null)
             {
-                context.Logger.LogWarning("No ingredientProductInstance found in ingredient element for bulk lot.");
+                context.Logger.LogDebug("No ingredientProductInstance found in ingredient element for bulk lot.");
                 return null;
             }
 
@@ -1025,7 +1025,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var bulkLotIdentifier = await getOrCreateLotIdentifierAsync(ingredientProductInstanceEl, context);
             if (bulkLotIdentifier?.LotIdentifierID == null)
             {
-                context.Logger.LogWarning("Failed to create bulk lot identifier for ingredient instance.");
+                context.Logger.LogDebug("Failed to create bulk lot identifier for ingredient instance.");
                 return null;
             }
 
@@ -1090,7 +1090,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (substanceCodeEl == null)
             {
-                context.Logger.LogWarning("No substance code found in ingredient element.");
+                context.Logger.LogDebug("No substance code found in ingredient element.");
                 return null;
             }
 
@@ -1103,7 +1103,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (string.IsNullOrWhiteSpace(substanceCode))
             {
-                context.Logger.LogWarning("Substance code is missing from ingredient element.");
+                context.Logger.LogDebug("Substance code is missing from ingredient element.");
                 return null;
             }
 
@@ -1145,7 +1145,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (substance == null)
             {
-                context.Logger.LogWarning($"IngredientSubstance not found for code {substanceCode} or name {substanceName}");
+                context.Logger.LogDebug($"IngredientSubstance not found for code {substanceCode} or name {substanceName}");
             }
 
             return substance?.IngredientSubstanceID;
@@ -1184,7 +1184,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (manufacturerOrgEl == null)
             {
-                context.Logger.LogWarning("No manufacturer organization found in ingredient element.");
+                context.Logger.LogDebug("No manufacturer organization found in ingredient element.");
                 return null;
             }
 
@@ -1195,7 +1195,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate DUNS number format and root OID
             if (string.IsNullOrWhiteSpace(dunsNumber) || rootOid != "1.3.6.1.4.1.519.1")
             {
-                context.Logger.LogWarning($"Invalid DUNS number or root OID for manufacturer: DUNS={dunsNumber}, Root={rootOid}");
+                context.Logger.LogDebug($"Invalid DUNS number or root OID for manufacturer: DUNS={dunsNumber}, Root={rootOid}");
                 return null;
             }
 
@@ -1231,7 +1231,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (organization == null)
             {
-                context.Logger.LogWarning($"Organization not found for DUNS number {dunsNumber}");
+                context.Logger.LogDebug($"Organization not found for DUNS number {dunsNumber}");
             }
 
             return organization?.OrganizationID;
@@ -1289,7 +1289,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var idEl = productInstanceEl.GetSplElement(sc.E.Id);
             if (idEl == null)
             {
-                context.Logger.LogWarning("No id element found in productInstance for lot identifier.");
+                context.Logger.LogDebug("No id element found in productInstance for lot identifier.");
                 return null;
             }
 
@@ -1299,14 +1299,14 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (string.IsNullOrWhiteSpace(lotNumber))
             {
-                context.Logger.LogWarning("Lot number (extension) is missing from productInstance id element.");
+                context.Logger.LogDebug("Lot number (extension) is missing from productInstance id element.");
                 return null;
             }
 
             // Validate lot number format according to SPL IG 16.2.5.4
             if (!isValidLotNumber(lotNumber))
             {
-                context.Logger.LogWarning($"Invalid lot number format: {lotNumber}. Must contain only digits, uppercase letters, '-', and '/'.");
+                context.Logger.LogDebug($"Invalid lot number format: {lotNumber}. Must contain only digits, uppercase letters, '-', and '/'.");
                 return null;
             }
 
@@ -1386,7 +1386,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var memberInstanceEl = memberEl.GetSplElement(sc.E.MemberProductInstance);
                     if (memberInstanceEl == null)
                     {
-                        context.Logger.LogWarning("No memberProductInstance found in member element.");
+                        context.Logger.LogDebug("No memberProductInstance found in member element.");
                         continue;
                     }
 
@@ -1394,7 +1394,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var childLotIdentifier = await parseAndCreateLotIdentifierAsync(memberInstanceEl, context);
                     if (childLotIdentifier?.LotIdentifierID == null)
                     {
-                        context.Logger.LogWarning("Failed to create lot identifier for member label lot.");
+                        context.Logger.LogDebug("Failed to create lot identifier for member label lot.");
                         continue;
                     }
 
@@ -1403,7 +1403,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (childInstance?.ProductInstanceID == null)
                     {
-                        context.Logger.LogWarning("Failed to create ProductInstance for member label lot.");
+                        context.Logger.LogDebug("Failed to create ProductInstance for member label lot.");
                         continue;
                     }
 
@@ -1522,7 +1522,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate input parameters
             if (parentInstanceId == null || childInstanceId == null)
             {
-                context.Logger.LogWarning("Parent or child instance ID is null, cannot create LotHierarchy.");
+                context.Logger.LogDebug("Parent or child instance ID is null, cannot create LotHierarchy.");
                 return null;
             }
 
@@ -1550,7 +1550,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate that both parent and child instances exist
                 if (!await validateProductInstancesExistAsync(parentInstanceId, childInstanceId, context))
                 {
-                    context.Logger.LogWarning($"Parent or child ProductInstance does not exist: Parent={parentInstanceId}, Child={childInstanceId}");
+                    context.Logger.LogDebug($"Parent or child ProductInstance does not exist: Parent={parentInstanceId}, Child={childInstanceId}");
                     return null;
                 }
 
@@ -1653,7 +1653,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var parentExists = await instanceDbSet.AnyAsync(pi => pi.ProductInstanceID == parentInstanceId);
                 if (!parentExists)
                 {
-                    context.Logger.LogWarning($"Parent ProductInstance {parentInstanceId} does not exist.");
+                    context.Logger.LogDebug($"Parent ProductInstance {parentInstanceId} does not exist.");
                     return false;
                 }
 
@@ -1661,7 +1661,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var childExists = await instanceDbSet.AnyAsync(pi => pi.ProductInstanceID == childInstanceId);
                 if (!childExists)
                 {
-                    context.Logger.LogWarning($"Child ProductInstance {childInstanceId} does not exist.");
+                    context.Logger.LogDebug($"Child ProductInstance {childInstanceId} does not exist.");
                     return false;
                 }
 
@@ -1704,7 +1704,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (parentInstanceId == null || !childInstanceIds.Any())
             {
-                context.Logger.LogWarning("Invalid parent ID or no child IDs provided for batch LotHierarchy creation.");
+                context.Logger.LogDebug("Invalid parent ID or no child IDs provided for batch LotHierarchy creation.");
                 return count;
             }
 

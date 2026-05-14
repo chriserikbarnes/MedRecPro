@@ -147,7 +147,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var partProductEl = partEl.SplElement(sc.E.PartProduct);
                 if (partProductEl == null)
                 {
-                    context.Logger.LogWarning("Found <part> element without a <partProduct> child; skipping.");
+                    context.Logger.LogDebug("Found <part> element without a <partProduct> child; skipping.");
                     continue;
                 }
 
@@ -207,7 +207,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var accessoryProductEl = assemblyEl.SplElement(sc.E.WholeProduct, sc.E.Part, sc.E.PartProduct);
                 if (accessoryProductEl == null)
                 {
-                    context.Logger.LogWarning("Found <asPartOfAssembly> without a valid <partProduct> structure; skipping.");
+                    context.Logger.LogDebug("Found <asPartOfAssembly> without a valid <partProduct> structure; skipping.");
                     continue;
                 }
 
@@ -266,7 +266,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var (responsibleOrg, created) = await getOrCreateOrganizationAsync(responsibleOrgEl, context);
             if (responsibleOrg?.OrganizationID == null)
             {
-                context.Logger.LogWarning("Found <manufacturerOrganization> but could not parse or create an organization record for ProductID {ProductID}.", product.ProductID);
+                context.Logger.LogDebug("Found <manufacturerOrganization> but could not parse or create an organization record for ProductID {ProductID}.", product.ProductID);
                 return count;
             }
 
@@ -341,7 +341,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (string.IsNullOrWhiteSpace(orgName))
             {
-                context.Logger.LogWarning("Organization name is missing in file {FileName}. Cannot create organization.", context.FileNameInZip);
+                context.Logger.LogDebug("Organization name is missing in file {FileName}. Cannot create organization.", context.FileNameInZip);
                 return (null, false);
             }
 

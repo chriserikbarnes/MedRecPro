@@ -206,7 +206,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("Orange Book exclusivity import was cancelled.");
+                _logger.LogDebug("Orange Book exclusivity import was cancelled.");
                 result.Success = false;
                 result.Errors.Add("Exclusivity import was cancelled.");
             }
@@ -257,7 +257,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (fields.Length != EXPECTED_COLUMN_COUNT)
                 {
                     result.MalformedRowsSkipped++;
-                    _logger.LogWarning("Skipping malformed exclusivity row {LineNumber}: expected {Expected} columns, got {Actual}",
+                    _logger.LogDebug("Skipping malformed exclusivity row {LineNumber}: expected {Expected} columns, got {Actual}",
                         i + 1, EXPECTED_COLUMN_COUNT, fields.Length);
                     continue;
                 }
@@ -299,7 +299,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 return date;
             }
 
-            _logger.LogWarning("Could not parse exclusivity date: '{DateText}'", trimmed);
+            _logger.LogDebug("Could not parse exclusivity date: '{DateText}'", trimmed);
             return null;
 
             #endregion
@@ -421,7 +421,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     else if (warnedProductKeys.Add(productKey))
                     {
                         // Only warn once per unique product key
-                        _logger.LogWarning("No matching product for exclusivity row: ApplType={ApplType}, ApplNo={ApplNo}, ProductNo={ProductNo}",
+                        _logger.LogDebug("No matching product for exclusivity row: ApplType={ApplType}, ApplNo={ApplNo}, ProductNo={ProductNo}",
                             applType, applNo, productNo);
                     }
 

@@ -233,7 +233,7 @@ namespace MedRecProImportClass.Service
                 }
                 else
                 {
-                    context?.Logger?.LogWarning("Could not resolve facility link for: '{reference}' - product may not exist in this document",
+                    context?.Logger?.LogDebug("Could not resolve facility link for: '{reference}' - product may not exist in this document",
                         link.ProductName);
                 }
             }
@@ -246,7 +246,7 @@ namespace MedRecProImportClass.Service
             }
             else if (unresolvedLinks.Any())
             {
-                context?.Logger?.LogWarning("No facility-product links could be resolved. Products may be in different documents or have different identifiers.");
+                context?.Logger?.LogDebug("No facility-product links could be resolved. Products may be in different documents or have different identifiers.");
             }
 
             return resolvedCount;

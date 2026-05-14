@@ -353,7 +353,7 @@ namespace MedRecProImportClass.Service
 
                 if (splData == null)
                 {
-                    _logger.LogWarning("SPL data record with encrypted ID {EncryptedId} not found for archiving", encryptedId);
+                    _logger.LogDebug("SPL data record with encrypted ID {EncryptedId} not found for archiving", encryptedId);
                     return false;
                 }
 

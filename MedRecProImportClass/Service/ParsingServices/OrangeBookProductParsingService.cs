@@ -325,7 +325,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("Orange Book products import was cancelled.");
+                _logger.LogDebug("Orange Book products import was cancelled.");
                 result.Success = false;
                 result.Errors.Add("Import was cancelled.");
                 result.Message = "Import cancelled.";
@@ -377,7 +377,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (fields.Length != EXPECTED_COLUMN_COUNT)
                 {
                     result.MalformedRowsSkipped++;
-                    _logger.LogWarning("Skipping malformed row {LineNumber}: expected {Expected} columns, got {Actual}",
+                    _logger.LogDebug("Skipping malformed row {LineNumber}: expected {Expected} columns, got {Actual}",
                         i + 1, EXPECTED_COLUMN_COUNT, fields.Length);
                     continue;
                 }
@@ -475,7 +475,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 return date;
             }
 
-            _logger.LogWarning("Could not parse approval date: '{DateText}'", trimmed);
+            _logger.LogDebug("Could not parse approval date: '{DateText}'", trimmed);
             return null;
             #endregion
         }
@@ -1250,7 +1250,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             foreach (var unmatched in finalUnmatched)
             {
-                _logger.LogWarning("No Organization match found for applicant '{ShortName}' (full: '{FullName}')",
+                _logger.LogDebug("No Organization match found for applicant '{ShortName}' (full: '{FullName}')",
                     unmatched.ApplicantName, unmatched.ApplicantFullName);
             }
             #endregion
@@ -1931,7 +1931,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             foreach (var name in unmatchedNames)
             {
-                _logger.LogWarning("No IngredientSubstance match found for ingredient '{IngredientName}'", name);
+                _logger.LogDebug("No IngredientSubstance match found for ingredient '{IngredientName}'", name);
             }
             #endregion
         }
@@ -2341,7 +2341,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             foreach (var (productId, appNumber) in unmatched)
             {
-                _logger.LogWarning("No MarketingCategory match found for product {ProductId} (app number: '{AppNumber}')",
+                _logger.LogDebug("No MarketingCategory match found for product {ProductId} (app number: '{AppNumber}')",
                     productId, appNumber);
             }
             #endregion

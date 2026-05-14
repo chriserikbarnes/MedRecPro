@@ -147,7 +147,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // If no organization element found, log warning and return successful result
             if (authorOrgElement == null)
             {
-                context.Logger.LogWarning("No <{OrganizationElement}> found within <{AuthorElement}> for file {FileName}",
+                context.Logger.LogDebug("No <{OrganizationElement}> found within <{AuthorElement}> for file {FileName}",
                     sc.E.RepresentedOrganization, sc.E.Author, context.FileNameInZip);
                 return result;
             }
@@ -262,7 +262,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (string.IsNullOrWhiteSpace(identifierValue))
             {
-                context?.Logger?.LogWarning("Organization element is missing an identifier. Falling back to name-based lookup.");
+                context?.Logger?.LogDebug("Organization element is missing an identifier. Falling back to name-based lookup.");
                 return await GetOrCreateOrganizationByNameAsync(orgEl, context!);
             }
 
@@ -508,7 +508,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate required input parameters
             if (authorOrgElement == null || context?.ServiceProvider == null)
             {
-                context?.Logger?.LogWarning("Cannot link author organization identifiers: missing element or context");
+                context?.Logger?.LogDebug("Cannot link author organization identifiers: missing element or context");
                 return;
             }
 
@@ -774,7 +774,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (Exception ex)
             {
-                context?.Logger?.LogWarning(ex, "Error determining author type from business operations, defaulting to 'Labeler'");
+                context?.Logger?.LogDebug(ex, "Error determining author type from business operations, defaulting to 'Labeler'");
                 return "Labeler";
             }
             #endregion
@@ -1098,7 +1098,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate required fields
             if (string.IsNullOrWhiteSpace(opCode) || string.IsNullOrWhiteSpace(opCodeSystem))
             {
-                context.Logger?.LogWarning("Business operation missing required code or code system, skipping.");
+                context.Logger?.LogDebug("Business operation missing required code or code system, skipping.");
                 return null;
             }
 
@@ -1519,7 +1519,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // --- DUNS number validation: must be 9 digits if type is DUNS ---
                 if (identifierType == "DUNS" && !System.Text.RegularExpressions.Regex.IsMatch(extension, @"^\d{9}$"))
                 {
-                    context.Logger?.LogWarning("DUNS identifier '{Value}' is not 9 digits.", extension);
+                    context.Logger?.LogDebug("DUNS identifier '{Value}' is not 9 digits.", extension);
                     continue;
                 }
 
@@ -1612,7 +1612,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var number = value.Substring(value.IndexOf(':') + 1);
                     if (!number.StartsWith("+") || number.Any(char.IsLetter) || number.Contains(" "))
                     {
-                        context.Logger?.LogWarning("Invalid {TelecomType} format: {Value}", telecomType, value);
+                        context.Logger?.LogDebug("Invalid {TelecomType} format: {Value}", telecomType, value);
                     }
                     // US pattern check (if needed): +1-aaa-bbb-cccc
                 }
@@ -1622,7 +1622,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // Basic email validation - check format after 'mailto:' prefix
                     if (!System.Text.RegularExpressions.Regex.IsMatch(value.Substring(7), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
                     {
-                        context.Logger?.LogWarning("Invalid email address: {Value}", value);
+                        context.Logger?.LogDebug("Invalid email address: {Value}", value);
                     }
                 }
 
@@ -1727,7 +1727,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // Check for valid international format requirements
                     if (!number.StartsWith("+") || number.Any(char.IsLetter) || number.Contains(" "))
                     {
-                        context.Logger?.LogWarning("Invalid {TelecomType} format: {Value}", telecomType, value);
+                        context.Logger?.LogDebug("Invalid {TelecomType} format: {Value}", telecomType, value);
                     }
                 }
                 // Validate email address format
@@ -1736,7 +1736,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // Basic email validation - check format after 'mailto:' prefix
                     if (!System.Text.RegularExpressions.Regex.IsMatch(value.Substring(7), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
                     {
-                        context.Logger?.LogWarning("Invalid email address: {Value}", value);
+                        context.Logger?.LogDebug("Invalid email address: {Value}", value);
                     }
                 }
 
@@ -1814,7 +1814,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (contactParty?.ContactPartyID == null)
                     {
-                        context.Logger?.LogWarning("Failed to create ContactParty for OrganizationID {OrgId}.", organizationId);
+                        context.Logger?.LogDebug("Failed to create ContactParty for OrganizationID {OrgId}.", organizationId);
                         context.Logger?.LogError($"Failed to create contact party for organization {organizationId}.");
                     }
                     else if (partyCreated)
@@ -1915,7 +1915,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (productEl == null)
                 {
                     // Log warning and skip if product reference is missing
-                    context.Logger.LogWarning("Found <actDefinition> for a facility without a <product> reference; skipping.");
+                    context.Logger.LogDebug("Found <actDefinition> for a facility without a <product> reference; skipping.");
                     continue;
                 }
 
@@ -1926,7 +1926,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (!productId.HasValue && string.IsNullOrWhiteSpace(productName))
                 {
                     // Log warning when product cannot be resolved from the XML element
-                    context.Logger.LogWarning("Could not resolve product for facility link from element: {ProductElementXml}", productEl.ToString());
+                    context.Logger.LogDebug("Could not resolve product for facility link from element: {ProductElementXml}", productEl.ToString());
                     continue;
                 }
 
@@ -2131,7 +2131,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Enforce ISO 3166-1 alpha-3 for countryCode if codeSystem is present
             if (!string.IsNullOrWhiteSpace(countryCode) && countryCodeSystem == "1.0.3166.1.2.3" && countryCode.Length != 3)
             {
-                context.Logger.LogWarning("Country code {CountryCode} is not ISO 3166-1 alpha-3.", countryCode);
+                context.Logger.LogDebug("Country code {CountryCode} is not ISO 3166-1 alpha-3.", countryCode);
             }
 
             // --- USA rules ---
@@ -2141,18 +2141,18 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Must have state and 5 or 5+4 digit zip
                 if (string.IsNullOrWhiteSpace(state) || string.IsNullOrWhiteSpace(postalCode))
                 {
-                    context.Logger.LogWarning("USA address must have state and postalCode.");
+                    context.Logger.LogDebug("USA address must have state and postalCode.");
                 }
                 // Validate ZIP code format (5 digits or ZIP+4)
                 if (!System.Text.RegularExpressions.Regex.IsMatch(postalCode ?? "", @"^\d{5}(-\d{4})?$"))
                 {
-                    context.Logger.LogWarning("USA postalCode must be 5 digits or ZIP+4.");
+                    context.Logger.LogDebug("USA postalCode must be 5 digits or ZIP+4.");
                 }
             }
             // For non-USA, just require postal code (per spec)
             else if (string.IsNullOrWhiteSpace(postalCode))
             {
-                context.Logger.LogWarning("Non-USA address missing postalCode.");
+                context.Logger.LogDebug("Non-USA address missing postalCode.");
             }
 
             // --- Deduplication: full match on all address fields ---
@@ -2415,7 +2415,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate that we have a valid organization name
             if (string.IsNullOrWhiteSpace(orgName))
             {
-                context.Logger.LogWarning("Organization name is missing in file {FileName}. Cannot create organization.", context.FileNameInZip);
+                context.Logger.LogDebug("Organization name is missing in file {FileName}. Cannot create organization.", context.FileNameInZip);
                 return (null, false);
             }
 
@@ -2604,14 +2604,14 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var number = value.Substring(value.IndexOf(':') + 1);
                     if (!number.StartsWith("+") || number.Any(char.IsLetter) || number.Contains(" "))
                     {
-                        logger?.LogWarning("Invalid {TelecomType} format: {Value}", telecomType, value);
+                        logger?.LogDebug("Invalid {TelecomType} format: {Value}", telecomType, value);
                     }
                 }
                 else if (telecomType == "mailto")
                 {
                     if (!System.Text.RegularExpressions.Regex.IsMatch(value.Substring(7), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
                     {
-                        logger?.LogWarning("Invalid email address: {Value}", value);
+                        logger?.LogDebug("Invalid email address: {Value}", value);
                     }
                 }
 
@@ -2840,7 +2840,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Skip if missing required OID components
                 if (string.IsNullOrWhiteSpace(oidRoot) || string.IsNullOrWhiteSpace(oidExtension))
                 {
-                    logger?.LogWarning("Skipping identifier with missing root or extension");
+                    logger?.LogDebug("Skipping identifier with missing root or extension");
                     continue;
                 }
 
@@ -2855,7 +2855,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // DUNS must be exactly 9 digits
                     if (cleanedValue.Length != 9 || !cleanedValue.All(char.IsDigit))
                     {
-                        logger?.LogWarning(
+                        logger?.LogDebug(
                             "Invalid DUNS format: {Value}. DUNS must be 9 digits.",
                             oidExtension);
                         continue; // Skip invalid DUNS entries

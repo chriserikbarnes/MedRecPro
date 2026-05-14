@@ -439,7 +439,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (codeEl == null)
                 {
-                    context?.Logger?.LogWarning("No <code> found under <generalizedMaterialKind> in <asSpecializedKind>; skipping.");
+                    context?.Logger?.LogDebug("No <code> found under <generalizedMaterialKind> in <asSpecializedKind>; skipping.");
                     continue;
                 }
 
@@ -451,7 +451,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate required fields are present
                 if (string.IsNullOrWhiteSpace(kindCode) || string.IsNullOrWhiteSpace(kindCodeSystem))
                 {
-                    context?.Logger?.LogWarning("Missing code or codeSystem in <asSpecializedKind>/<code>; skipping.");
+                    context?.Logger?.LogDebug("Missing code or codeSystem in <asSpecializedKind>/<code>; skipping.");
                     continue;
                 }
 
@@ -908,7 +908,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (codeEl == null)
                 {
-                    context?.Logger?.LogWarning("No <code> found under <generalizedMaterialKind> in <asSpecializedKind>; skipping.");
+                    context?.Logger?.LogDebug("No <code> found under <generalizedMaterialKind> in <asSpecializedKind>; skipping.");
                     continue;
                 }
 
@@ -920,7 +920,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate required fields are present
                 if (string.IsNullOrWhiteSpace(kindCode) || string.IsNullOrWhiteSpace(kindCodeSystem))
                 {
-                    context?.Logger?.LogWarning("Missing code or codeSystem in <asSpecializedKind>/<code>; skipping.");
+                    context?.Logger?.LogDebug("Missing code or codeSystem in <asSpecializedKind>/<code>; skipping.");
                     continue;
                 }
 

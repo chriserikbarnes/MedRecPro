@@ -126,7 +126,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                             // Both are present, must reject one (arbitrary: reject codeB)
                             removeCodes.Add(codeB);
 
-                            logger.LogWarning(
+                            logger.LogDebug(
                                 $"Cosmetic category codes '{codeA}' and '{codeB}' are mutually exclusive for this product and document type '{documentTypeCode}'. Removing '{codeB}'."
                             );
                         }

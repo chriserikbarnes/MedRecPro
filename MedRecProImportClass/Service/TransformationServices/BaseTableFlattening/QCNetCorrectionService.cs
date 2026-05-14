@@ -227,7 +227,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             if (!_initialized)
             {
-                _logger.LogWarning("QCNetCorrectionService not initialized — passing {Count} observations through", observations.Count);
+                _logger.LogDebug("QCNetCorrectionService not initialized — passing {Count} observations through", observations.Count);
                 return observations;
             }
 
@@ -739,7 +739,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentOutOfRangeException)
             {
-                _logger.LogWarning(ex, "{Stage} {Kind} model training failed — engine remains null",
+                _logger.LogDebug(ex, "{Stage} {Kind} model training failed — engine remains null",
                     stagePrefix, modelKind);
                 replaceEngine(null);
             }

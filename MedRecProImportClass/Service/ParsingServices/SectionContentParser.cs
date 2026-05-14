@@ -190,7 +190,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var textEl = xEl.SplElement(sc.E.Text);
             if (textEl == null)
             {
-                context.Logger?.LogWarning(
+                context.Logger?.LogDebug(
                     "Section {SectionId} has no <text> element - only excerpt/highlight content will be processed",
                     sectionId);
 

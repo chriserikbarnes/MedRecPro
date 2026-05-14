@@ -100,7 +100,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 else
                 {
-                    _logger.LogWarning("ProductEvent validation failed for PackagingLevelID {PackagingLevelID} with {ErrorCount} errors",
+                    _logger.LogDebug("ProductEvent validation failed for PackagingLevelID {PackagingLevelID} with {ErrorCount} errors",
                         productEvent.PackagingLevelID, result.Errors.Count);
                 }
             }

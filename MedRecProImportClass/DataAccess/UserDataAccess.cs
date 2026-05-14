@@ -94,7 +94,7 @@ namespace MedRecProImportClass.DataAccess
             decryptedId = 0;
             if (string.IsNullOrWhiteSpace(encryptedId))
             {
-                _logger.LogWarning("{ParameterName} is null or whitespace.", parameterName);
+                _logger.LogDebug("{ParameterName} is null or whitespace.", parameterName);
                 return false;
             }
 
@@ -106,7 +106,7 @@ namespace MedRecProImportClass.DataAccess
                     decryptedId = id;
                     return true;
                 }
-                _logger.LogWarning("Invalid or non-positive ID after decrypting {ParameterName}. Encrypted value: {EncryptedValue}, Decrypted string: {DecryptedString}", parameterName, encryptedId, decryptedString);
+                _logger.LogDebug("Invalid or non-positive ID after decrypting {ParameterName}. Encrypted value: {EncryptedValue}, Decrypted string: {DecryptedString}", parameterName, encryptedId, decryptedString);
                 return false;
             }
             catch (Exception ex)
@@ -136,7 +136,7 @@ namespace MedRecProImportClass.DataAccess
             #region Implementation
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
             {
-                _logger.LogWarning("AuthenticateAsync: Email or password was null or whitespace.");
+                _logger.LogDebug("AuthenticateAsync: Email or password was null or whitespace.");
                 return null;
             }
 
@@ -144,25 +144,25 @@ namespace MedRecProImportClass.DataAccess
 
             if (user == null)
             {
-                _logger.LogWarning("AuthenticateAsync: User not found for email: {Email}", email);
+                _logger.LogDebug("AuthenticateAsync: User not found for email: {Email}", email);
                 return null; // User not found
             }
 
             if (user.DeletedAt != null)
             {
-                _logger.LogWarning("AuthenticateAsync: Attempt to authenticate a deleted user: {Email}", email);
+                _logger.LogDebug("AuthenticateAsync: Attempt to authenticate a deleted user: {Email}", email);
                 return null; // Do not authenticate deleted users
             }
 
             if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
             {
-                _logger.LogWarning("AuthenticateAsync: User account locked for email: {Email}. Lockout until: {LockoutUntil}", email, user.LockoutUntil.Value);
+                _logger.LogDebug("AuthenticateAsync: User account locked for email: {Email}. Lockout until: {LockoutUntil}", email, user.LockoutUntil.Value);
                 return null; // Account is locked
             }
 
             if (string.IsNullOrWhiteSpace(user.PasswordHash))
             {
-                _logger.LogWarning("AuthenticateAsync: User {Email} has no password hash set.", email);
+                _logger.LogDebug("AuthenticateAsync: User {Email} has no password hash set.", email);
                 return null; // No password set for the user
             }
 
@@ -215,7 +215,7 @@ namespace MedRecProImportClass.DataAccess
                 {
                     _logger.LogError(ex, "AuthenticateAsync: Failed to update failed login count for user {Email}", email);
                 }
-                _logger.LogWarning("AuthenticateAsync: Invalid password for user: {Email}", email);
+                _logger.LogDebug("AuthenticateAsync: Invalid password for user: {Email}", email);
                 return null; // Password mismatch
             } 
             #endregion
@@ -271,7 +271,7 @@ namespace MedRecProImportClass.DataAccess
 
                 if (emailExists)
                 {
-                    _logger.LogWarning("Attempt to create user with existing email: {Email}", user.PrimaryEmail);
+                    _logger.LogDebug("Attempt to create user with existing email: {Email}", user.PrimaryEmail);
 
                     var existingUser = await GetByEmailAsync(user.PrimaryEmail);
 
@@ -437,12 +437,12 @@ namespace MedRecProImportClass.DataAccess
 
             if (!tryDecryptId(encryptedUpdaterUserId ?? user.EncryptedUserId, $"{nameof(user)}.{nameof(user.EncryptedUserId)}", out long userIdToUpdate))
             {
-                _logger.LogWarning("UpdateAsync: User to update has invalid or missing EncryptedUserId.");
+                _logger.LogDebug("UpdateAsync: User to update has invalid or missing EncryptedUserId.");
                 return false;
             }
             if (!tryDecryptId(encryptedUpdaterUserId, nameof(encryptedUpdaterUserId), out long updaterUserId))
             {
-                _logger.LogWarning("UpdateAsync: Updater user ID is invalid or missing.");
+                _logger.LogDebug("UpdateAsync: Updater user ID is invalid or missing.");
                 return false;
             }
 
@@ -453,7 +453,7 @@ namespace MedRecProImportClass.DataAccess
 
                 if (existingUser == null)
                 {
-                    _logger.LogWarning("User with decrypted ID {UserIdToUpdate} not found or deleted, cannot update.", encryptedUpdaterUserId);
+                    _logger.LogDebug("User with decrypted ID {UserIdToUpdate} not found or deleted, cannot update.", encryptedUpdaterUserId);
                     return false;
                 }
 
@@ -506,19 +506,19 @@ namespace MedRecProImportClass.DataAccess
 
             if (!tryDecryptId(profile.EncryptedUserId, $"{nameof(profile)}.{nameof(profile.EncryptedUserId)}", out long userIdToUpdate))
             {
-                _logger.LogWarning("UpdateProfileAsync: User to update has invalid or missing EncryptedUserId.");
+                _logger.LogDebug("UpdateProfileAsync: User to update has invalid or missing EncryptedUserId.");
                 return false;
             }
             if (!tryDecryptId(encryptedUpdaterUserId, nameof(encryptedUpdaterUserId), out long updaterUserId))
             {
-                _logger.LogWarning("UpdateProfileAsync: Updater user ID is invalid or missing.");
+                _logger.LogDebug("UpdateProfileAsync: Updater user ID is invalid or missing.");
                 return false;
             }
 
             // Security check: Ensure the updater is the user themselves or an authorized admin.
             if (userIdToUpdate != updaterUserId || !profile.IsUserAdmin())
             {
-                _logger.LogWarning("UpdateProfileAsync: User {UpdaterUserId} is not authorized to update profile for user {UserIdToUpdate}.", encryptedUpdaterUserId, profile.EncryptedUserId);
+                _logger.LogDebug("UpdateProfileAsync: User {UpdaterUserId} is not authorized to update profile for user {UserIdToUpdate}.", encryptedUpdaterUserId, profile.EncryptedUserId);
                 return false;
             }
 
@@ -530,7 +530,7 @@ namespace MedRecProImportClass.DataAccess
 
                 if (user == null)
                 {
-                    _logger.LogWarning("User with decrypted ID {UserIdToUpdate} not found for profile update.", profile.EncryptedUserId);
+                    _logger.LogDebug("User with decrypted ID {UserIdToUpdate} not found for profile update.", profile.EncryptedUserId);
                     return false;
                 }
 
@@ -650,13 +650,13 @@ namespace MedRecProImportClass.DataAccess
 
             if (!tryDecryptId(encryptedUpdaterAdminId, nameof(encryptedUpdaterAdminId), out long updaterAdminId))
             {
-                _logger.LogWarning("UpdateAdminAsync: Updater admin ID is invalid or missing.");
+                _logger.LogDebug("UpdateAdminAsync: Updater admin ID is invalid or missing.");
                 return false;
             }
 
             if (!tryDecryptId(adminUpdateData.EncryptedUserId, nameof(adminUpdateData.EncryptedUserId), out long targetUserId))
             {
-                _logger.LogWarning("UpdateAdminAsync: Target user ID is invalid or missing.");
+                _logger.LogDebug("UpdateAdminAsync: Target user ID is invalid or missing.");
                 return false;
             }
 
@@ -667,14 +667,14 @@ namespace MedRecProImportClass.DataAccess
             // Check if the admin user exists
             if (admin == null)
             {
-                _logger.LogWarning("UpdateProfileAsync: Admin user with ID {UpdaterUserId} not found.", encryptedUpdaterAdminId);
+                _logger.LogDebug("UpdateProfileAsync: Admin user with ID {UpdaterUserId} not found.", encryptedUpdaterAdminId);
                 return false;
             }
 
             // Security check: Ensure the updater an authorized admin.
             if (!admin.IsUserAdmin())
             {
-                _logger.LogWarning("UpdateProfileAsync: User {UpdaterUserId} is not authorized to update profile for user {UserIdToUpdate}.", encryptedUpdaterAdminId, adminUpdateData.EncryptedUserId);
+                _logger.LogDebug("UpdateProfileAsync: User {UpdaterUserId} is not authorized to update profile for user {UserIdToUpdate}.", encryptedUpdaterAdminId, adminUpdateData.EncryptedUserId);
                 return false;
             }
 
@@ -686,7 +686,7 @@ namespace MedRecProImportClass.DataAccess
 
                 if (user == null)
                 {
-                    _logger.LogWarning("User with ID {TargetUserId} not found for admin update.", targetUserId);
+                    _logger.LogDebug("User with ID {TargetUserId} not found for admin update.", targetUserId);
                     return false;
                 }
 
@@ -784,7 +784,7 @@ namespace MedRecProImportClass.DataAccess
             // Security check: Ensure the updater is the user themselves or an authorized admin.
             if (updaterUserId <= 0)
             {
-                _logger.LogWarning("RotatePasswordAsync: Updater user ID is invalid or missing.");
+                _logger.LogDebug("RotatePasswordAsync: Updater user ID is invalid or missing.");
                 return false;
             }
 
@@ -799,7 +799,7 @@ namespace MedRecProImportClass.DataAccess
             // Check if the target user and updater user exist
             if (user == null || admin == null)
             {
-                _logger.LogWarning("User for password rotation not found or deleted. Decrypted Target ID: {TargetUserId}", encryptedTargetUserId);
+                _logger.LogDebug("User for password rotation not found or deleted. Decrypted Target ID: {TargetUserId}", encryptedTargetUserId);
                 return false;
             }
 
@@ -853,7 +853,7 @@ namespace MedRecProImportClass.DataAccess
             }
             if (targetUserId <= 0 || deleterUserId <= 0)
             {
-                _logger.LogWarning("DeleteAsync: Invalid user IDs.");
+                _logger.LogDebug("DeleteAsync: Invalid user IDs.");
                 return false;
             }
 
@@ -870,7 +870,7 @@ namespace MedRecProImportClass.DataAccess
                 // Check if the target user and updater user exist
                 if (user == null || admin == null)
                 {
-                    _logger.LogWarning("User for deletion not found. Decrypted Target ID: {TargetUserId}", encryptedTargetUserId);
+                    _logger.LogDebug("User for deletion not found. Decrypted Target ID: {TargetUserId}", encryptedTargetUserId);
                     return false;
                 }
 
@@ -920,14 +920,14 @@ namespace MedRecProImportClass.DataAccess
 
                 if (user == null)
                 {
-                    _logger.LogWarning("User for login update not found. ID: {UserId}", encryptedUserId);
+                    _logger.LogDebug("User for login update not found. ID: {UserId}", encryptedUserId);
                     return false;
                 }
 
                 // Business rule: Should a deleted user's login be tracked or prevented?
                 if (user.DeletedAt != null)
                 {
-                    _logger.LogWarning("Attempt to update last login for a deleted user. ID: {UserId}", encryptedUserId);
+                    _logger.LogDebug("Attempt to update last login for a deleted user. ID: {UserId}", encryptedUserId);
                 }
 
                 user.LastLoginAt = loginTime;

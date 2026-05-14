@@ -122,7 +122,7 @@ namespace MedRecProImportClass.Helpers
                     if (entityType == null)
                     {
                         if (logger != null)
-                            logger.LogWarning("DtoTransformer.getPkProp() called with a null entity type.");
+                            logger.LogDebug("DtoTransformer.getPkProp() called with a null entity type.");
                         return null;
                     }
 
@@ -146,7 +146,7 @@ namespace MedRecProImportClass.Helpers
                 catch (Exception e)
                 {
                     if (logger != null)
-                        logger.LogWarning($"DtoTransformer.getPkProp() {e.Message}");
+                        logger.LogDebug($"DtoTransformer.getPkProp() {e.Message}");
                 }
             }
 
@@ -194,7 +194,7 @@ namespace MedRecProImportClass.Helpers
             }
             catch (System.Xml.XPath.XPathException ex)
             {
-                logger.LogWarning(ex, "XPathException while trying to get summary for {FullXmlMemberName} in assembly {AssemblyName}.", fullXmlMemberName, assembly.GetName().Name);
+                logger.LogDebug(ex, "XPathException while trying to get summary for {FullXmlMemberName} in assembly {AssemblyName}.", fullXmlMemberName, assembly.GetName().Name);
                 return null;
             }
 
@@ -270,7 +270,7 @@ namespace MedRecProImportClass.Helpers
                 string assemblyName = assembly.GetName().Name ?? string.Empty;
                 if (string.IsNullOrEmpty(assemblyName))
                 {
-                    logger.LogWarning("Assembly name is null or empty, cannot load XML documentation.");
+                    logger.LogDebug("Assembly name is null or empty, cannot load XML documentation.");
                     _xmlDocsCache[assembly] = null;
                     return null;
                 }
@@ -291,7 +291,7 @@ namespace MedRecProImportClass.Helpers
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "Failed to load XML documentation from {XmlFilePath}", xmlFilePath);
+                        logger.LogDebug(ex, "Failed to load XML documentation from {XmlFilePath}", xmlFilePath);
                         _xmlDocsCache[assembly] = null; // Cache null to avoid retrying on failure
                         return null;
                     }
@@ -421,7 +421,7 @@ namespace MedRecProImportClass.Helpers
             {
                 if (logger != null)
                     // Log warning when no primary key property is found using conventions
-                    logger.LogWarning("Could not find PK property for type {EntityType} using conventions ('{Convention1}', '{Convention2}', 'Id'). No encrypted ID field will be added.",
+                    logger.LogDebug("Could not find PK property for type {EntityType} using conventions ('{Convention1}', '{Convention2}', 'Id'). No encrypted ID field will be added.",
                                      entityType.FullName, entityType.Name + "ID", entityType.Name + "Id");
             }
 
@@ -574,7 +574,7 @@ namespace MedRecProImportClass.Helpers
                 else if (logger != null)
                 {
                     // Log warning if no nested classes were discovered
-                    logger.LogWarning("No public nested classes found for entity type {EntityType}. Menu will be empty.", entityType.FullName);
+                    logger.LogDebug("No public nested classes found for entity type {EntityType}. Menu will be empty.", entityType.FullName);
                 }
                 #endregion
             }
@@ -628,7 +628,7 @@ namespace MedRecProImportClass.Helpers
             if (type == null)
             {
                 if (logger != null)
-                    logger.LogWarning("GetClassDocumentation called with a null type.");
+                    logger.LogDebug("GetClassDocumentation called with a null type.");
                 return null;
             }
 

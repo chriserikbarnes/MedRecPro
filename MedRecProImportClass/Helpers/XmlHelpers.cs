@@ -1393,7 +1393,7 @@ namespace MedRecProImportClass.Helpers
 
             if (structuredBodyEl == null)
             {
-                logger?.LogWarning("DiscoverAllSections called with null structuredBody element");
+                logger?.LogDebug("DiscoverAllSections called with null structuredBody element");
                 return result;
             }
 
@@ -1470,7 +1470,7 @@ namespace MedRecProImportClass.Helpers
             var sectionGuidStr = sectionEl.GetSplElementAttrVal(sc.E.Id, sc.A.Root);
             if (!Guid.TryParse(sectionGuidStr, out var sectionGuid) || sectionGuid == Guid.Empty)
             {
-                logger?.LogWarning("Section missing valid GUID, skipping: {SectionTitle}",
+                logger?.LogDebug("Section missing valid GUID, skipping: {SectionTitle}",
                     sectionEl.GetSplElementVal(sc.E.Title));
                 return;
             }

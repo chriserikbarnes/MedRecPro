@@ -186,7 +186,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (string.IsNullOrWhiteSpace(code))
                     {
-                        _logger.LogWarning("Skipping patent use code entry with empty code");
+                        _logger.LogDebug("Skipping patent use code entry with empty code");
                         continue;
                     }
 
@@ -230,7 +230,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("Orange Book patent use code import was cancelled.");
+                _logger.LogDebug("Orange Book patent use code import was cancelled.");
                 result.Success = false;
                 result.Errors.Add("Patent use code import was cancelled.");
             }

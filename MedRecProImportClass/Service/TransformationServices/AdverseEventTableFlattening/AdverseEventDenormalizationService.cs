@@ -122,7 +122,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             if (nullDocCount > 0)
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "Stage 5 — Skipping {Count} AE rows with NULL DocumentGUID (cannot be safely grouped)",
                     nullDocCount);
             }

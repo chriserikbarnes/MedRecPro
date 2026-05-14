@@ -156,7 +156,7 @@ namespace MedRecProImportClass.Service
                 if (stream.Length == 0)
                 {
                     zipResult.FileResults.Add(createEmptyZipResult());
-                    _logger.LogWarning("ZIP file {ZipFileName} is empty.", zipFile.FileName);
+                    _logger.LogDebug("ZIP file {ZipFileName} is empty.", zipFile.FileName);
                     return zipResult;
                 }
 

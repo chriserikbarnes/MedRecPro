@@ -86,7 +86,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 else
                 {
-                    _logger.LogWarning("DosingSpecification validation failed for ProductID {ProductID} with {ErrorCount} errors",
+                    _logger.LogDebug("DosingSpecification validation failed for ProductID {ProductID} with {ErrorCount} errors",
                         dosingSpec.ProductID, result.Errors.Count);
                 }
             }

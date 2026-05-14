@@ -208,7 +208,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        context.Logger?.LogWarning(
+                        context.Logger?.LogDebug(
                             "Failed to process marketing status for PackagingLevelID {PackagingLevelID}: {Errors}",
                             packagingLevel.PackagingLevelID, string.Join(", ", marketingStatusResult.Errors));
                     }
@@ -229,7 +229,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        context.Logger?.LogWarning(
+                        context.Logger?.LogDebug(
                             "Failed to process characteristics for PackagingLevelID {PackagingLevelID}: {Errors}",
                             packagingLevel.PackagingLevelID, string.Join(", ", characteristicsResult.Errors));
                     }
@@ -502,7 +502,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (dbContext == null)
                 {
-                    context?.Logger?.LogWarning("Could not create PackagingHierarchy due to missing DbContext.");
+                    context?.Logger?.LogDebug("Could not create PackagingHierarchy due to missing DbContext.");
                     return;
                 }
 
@@ -563,7 +563,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 if (context?.ServiceProvider == null)
                 {
-                    context?.Logger?.LogWarning("Context is null, skipping nested packaging level parsing.");
+                    context?.Logger?.LogDebug("Context is null, skipping nested packaging level parsing.");
                     continue;
                 }
 
@@ -632,7 +632,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate required parameters and context
             if (context?.Logger == null || repo == null || !packagingLevel.PackagingLevelID.HasValue)
             {
-                context?.Logger?.LogWarning("Could not parse PackageIdentifier due to invalid context or missing PackagingLevelID.");
+                context?.Logger?.LogDebug("Could not parse PackageIdentifier due to invalid context or missing PackagingLevelID.");
                 return 0;
             }
 
@@ -659,7 +659,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Check for existing ProductIdentifier to log potential duplication but still create PackageIdentifier
             if (productRepo != null && await checkForDuplicateIdentifier(productRepo, identifierValue, identifierSystemOID, context))
             {
-                context.Logger.LogWarning(
+                context.Logger.LogDebug(
                     "Found existing ProductIdentifier with same NDC code. Creating PackageIdentifier anyway: Value={IdentifierValue}, System={IdentifierSystemOID}",
                     identifierValue, identifierSystemOID);
             }
@@ -747,7 +747,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             catch (Exception ex)
             {
                 // Log the error but don't fail the process
-                context.Logger?.LogWarning(ex, "Error checking for duplicate identifier: {IdentifierValue}", identifierValue);
+                context.Logger?.LogDebug(ex, "Error checking for duplicate identifier: {IdentifierValue}", identifierValue);
                 return false;
             }
             #endregion

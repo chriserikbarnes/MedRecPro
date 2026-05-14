@@ -3805,3 +3805,39 @@ Smoke tested `standardization-report-20260513-150602.jsonl` against the latest `
 **Verification.** Re-ran the focused Phase 1 regression suite with `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~ParsedObservationFieldAccessTests|FullyQualifiedName~ClaudeApiCorrectionServiceTests|FullyQualifiedName~ColumnStandardizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests"` and it passed 296/296. `git diff --check` passed with only existing line-ending warnings. The already-generated `standardization-report-20260514-141957.jsonl` remains non-identical on disk because it predates this smoke-fix; the standardization run should be regenerated to confirm artifact-level parity.
 
 ---
+
+### 2026-05-14 3:41 PM EST — Table Standardization Phase 2 Refactor
+
+Implemented Phase 2 from [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md), focused on mechanical extraction and shared batch-loop consolidation without changing parser behavior.
+
+**Base parser extractions.** Moved arm-definition and header-recovery logic into [ArmDefinitionExtractor.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ArmDefinitionExtractor.cs), leading body-row arm enrichment into [ArmMetadataEnrichmentService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ArmMetadataEnrichmentService.cs), and structural suppression diagnostics into [StructuralRowSuppressionService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/StructuralRowSuppressionService.cs). [BaseTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/BaseTableParser.cs) now delegates to those helpers through compatibility wrappers and keeps duplicate-comparison suppression as an explicit no-op pending a separate behavioral design.
+
+**Orchestrator consolidation.** Added a shared full-corpus batch-loop template in [TableParsingOrchestrator.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/TableParsingOrchestrator.cs) so `ProcessAllAsync` and `ProcessAllWithValidationAsync` share progress reporting, cancellation handling, skip-count accumulation, and batch termination behavior while still dispatching to their respective batch processors.
+
+**Plan status.** Updated [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md) to mark Phase B / Phase 2 complete, record the implemented helper split and orchestrator loop extraction, and leave Phases C and D pending with the current verification caveats.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~TableParsingOrchestrator|FullyQualifiedName~TableParserTests"` passed 228/228 with 1 skipped. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName!~ProductRenderingServiceTests"` ran 1,943 passing tests with 1 skipped, but failed 2 `StandardizationProgressTrackerTests` from local progress-file access and connection-state issues (`UnauthorizedAccessException` and "Progress file was created with a different database connection"). Rerunning with `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName!~ProductRenderingServiceTests&FullyQualifiedName!~StandardizationProgressTrackerTests"` passed 1,937/1,937 with 1 skipped. `git diff --check` passed after CRLF normalization; remaining warning output was limited to the pre-existing `Microsoft.CodeAnalysis` version conflict and Git user-config ignore permission messages where applicable.
+
+---
+
+### 2026-05-14 3:59 PM EST — Table Parser Intent Comments
+
+Added intent-focused inline comments to [TableParsingOrchestrator.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/TableParsingOrchestrator.cs) and [BaseTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/BaseTableParser.cs) before the smoke-test pass. The comments document why key variable declarations exist, what each branch or loop is protecting, and what outcome each control path should produce.
+
+**Orchestrator documentation.** Commented the full-corpus run/resume decisions, shared batch-loop counters and progress wrappers, optional Stage 5 execution, routing/skip handling, parser diagnostics snapshots, stage handoffs, optional correction services, and database write failure boundaries.
+
+**Base parser documentation.** Commented the value-context regex declarations, row filtering, footnote resolution, AE/Efficacy value coercion branches, p-value/count/percentage context checks, sub-threshold percentage derivation, invalid-percentage demotion, interspersed row-label recovery, caption-hint matching, cell lookup, parsed-value application, and row-level rollback behavior.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~TableParsingOrchestrator|FullyQualifiedName~TableParserTests"` passed 228/228 with 1 skipped. `git diff --check` passed. Remaining warning output was pre-existing project noise, including XML documentation warnings and the `Microsoft.CodeAnalysis` version conflict in `MedRecProTest`.
+
+---
+
+### 2026-05-14 5:45 PM EST — Phase 2 Plan Status Expanded
+
+Updated [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md) to make Phase B / Phase 2 completion explicit and to expand the outstanding-work handoff.
+
+**Plan details.** Added the Phase 2 intent-comment follow-up, recorded the smoke validation that `standardization-report-20260514-160846.jsonl` and `standardization-report-20260514-145436.jsonl` are byte-for-byte identical, and added an `Outstanding Items After Phase B / Phase 2` section covering Phase C parser/Stage 5 decomposition, Phase D service decomposition, the pending `AddTableStandardization()` registration extension, full-suite blockers, and deferred out-of-scope items.
+
+**Verification.** Read back the updated Phase B completion, verification, still-pending, and outstanding-items sections after editing. No code or tests were changed in this documentation-only update.
+
+---

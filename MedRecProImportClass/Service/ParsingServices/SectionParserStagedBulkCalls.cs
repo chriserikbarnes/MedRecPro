@@ -142,7 +142,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (discovery == null || !discovery.AllSections.Any())
                 {
-                    context.Logger?.LogWarning("No sections discovered during discovery phase");
+                    context.Logger?.LogDebug("No sections discovered during discovery phase");
                     return result; // Empty result, but success
                 }
 
@@ -293,7 +293,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (!sectionDtos.Any())
                 {
-                    context?.Logger?.LogWarning("No valid sections to insert after parsing");
+                    context?.Logger?.LogDebug("No valid sections to insert after parsing");
                     return;
                 }
 
@@ -356,13 +356,13 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (context == null || context.ServiceProvider == null)
             {
-                context?.Logger?.LogWarning("Invalid context in bulkCreateAllSectionsAsync");
+                context?.Logger?.LogDebug("Invalid context in bulkCreateAllSectionsAsync");
                 return false;
             }
 
             if (discovery == null || !discovery.AllSections.Any())
             {
-                context.Logger?.LogWarning("No sections to create in bulkCreateAllSectionsAsync");
+                context.Logger?.LogDebug("No sections to create in bulkCreateAllSectionsAsync");
                 return false;
             }
 
@@ -372,7 +372,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             if (documentID == 0 || structuredBodyID == 0)
             {
                 result.Errors.Add("Invalid document or structured body ID for section creation");
-                context.Logger?.LogWarning(
+                context.Logger?.LogDebug(
                     "Invalid IDs - DocumentID: {DocumentID}, StructuredBodyID: {StructuredBodyID}",
                     documentID,
                     structuredBodyID);
@@ -436,7 +436,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     catch (Exception ex)
                     {
-                        context.Logger?.LogWarning(ex,
+                        context.Logger?.LogDebug(ex,
                             "Failed to parse section for GUID {SectionGuid}",
                             discoveredSection.SectionGuid);
                         result.Errors.Add($"Failed to parse section: {ex.Message}");
@@ -485,7 +485,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 catch (Exception ex)
                 {
-                    context.Logger?.LogWarning(ex,
+                    context.Logger?.LogDebug(ex,
                         "Failed to create section entity from DTO");
                 }
             }
@@ -600,7 +600,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 else
                 {
-                    context.Logger?.LogWarning(
+                    context.Logger?.LogDebug(
                         "Section ID not populated for GUID {Guid}",
                         guid);
                 }
@@ -718,7 +718,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Check if we have any valid hierarchies to create
                 if (hierarchiesToCreate == null || hierarchiesToCreate.Count == 0)
                 {
-                    context?.Logger?.LogWarning("No valid hierarchies to create after parsing");
+                    context?.Logger?.LogDebug("No valid hierarchies to create after parsing");
                     result.Success = true;
                     return;
                 }
@@ -866,7 +866,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate hierarchy has parent GUID
                 if (hierarchyDto.ParentSectionGuid.IsNullOrEmpty())
                 {
-                    context?.Logger?.LogWarning("Hierarchy missing parent GUID, skipping");
+                    context?.Logger?.LogDebug("Hierarchy missing parent GUID, skipping");
                     skippedCount++;
                     continue;
                 }
@@ -874,7 +874,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Validate hierarchy has child GUID
                 if (hierarchyDto.ChildSectionGuid.IsNullOrEmpty())
                 {
-                    context?.Logger?.LogWarning(
+                    context?.Logger?.LogDebug(
                         "Hierarchy missing child GUID for parent {ParentGuid}, skipping",
                         hierarchyDto.ParentSectionGuid);
                     skippedCount++;
@@ -884,7 +884,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Map parent GUID to database ID
                 if (!discovery.SectionIdsByGuid.TryGetValue(hierarchyDto.ParentSectionGuid, out var parentSectionId))
                 {
-                    context?.Logger?.LogWarning(
+                    context?.Logger?.LogDebug(
                         "Parent section GUID {ParentGuid} not found in SectionIdsByGuid mapping, skipping hierarchy",
                         hierarchyDto.ParentSectionGuid);
                     skippedCount++;
@@ -894,7 +894,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Map child GUID to database ID
                 if (!discovery.SectionIdsByGuid.TryGetValue(hierarchyDto.ChildSectionGuid, out var childSectionId))
                 {
-                    context?.Logger?.LogWarning(
+                    context?.Logger?.LogDebug(
                         "Child section GUID {ChildGuid} not found in SectionIdsByGuid mapping, skipping hierarchy",
                         hierarchyDto.ChildSectionGuid);
                     skippedCount++;
@@ -915,7 +915,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Log summary of parsing results
             if (skippedCount > 0)
             {
-                context?.Logger?.LogWarning(
+                context?.Logger?.LogDebug(
                     "Skipped {SkippedCount} hierarchies due to missing parent or child sections",
                     skippedCount);
             }
@@ -1067,7 +1067,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     // Verify section was created and has a database ID
                     if (!sectionDto.SectionID.HasValue)
                     {
-                        context.Logger?.LogWarning(
+                        context.Logger?.LogDebug(
                             "Section {SectionGuid} has no database ID, skipping content",
                             sectionDto.SectionGuid);
                         continue;

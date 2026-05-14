@@ -441,7 +441,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                         }
                         else
                         {
-                            context.Logger?.LogWarning($"Could not find PackagingLevel for ProductID={product.ProductID}, PackageCode={packageCode}");
+                            context.Logger?.LogDebug($"Could not find PackagingLevel for ProductID={product.ProductID}, PackageCode={packageCode}");
                         }
                     }
 

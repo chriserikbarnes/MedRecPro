@@ -278,7 +278,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 catch (Exception ex)
                 {
-                    context?.Logger?.LogWarning(ex, "Error parsing section element to memory, skipping section");
+                    context?.Logger?.LogDebug(ex, "Error parsing section element to memory, skipping section");
                 }
             }
 
