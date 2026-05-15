@@ -1,5 +1,6 @@
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices;
+using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace MedRecPro.Service.Test
@@ -16,6 +17,82 @@ namespace MedRecPro.Service.Test
     public class AeArmRecoveryParserTests
     {
         #region Test Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a golden-master projection for AE parser output.
+        /// </summary>
+        /// <remarks>
+        /// The Phase C row-loop refactor is intended to move code without changing
+        /// behavior. This projection keeps the parity gate focused on observable parser
+        /// fields and suppression diagnostics rather than object identity.
+        /// </remarks>
+        /// <param name="observations">Parsed observations emitted by the parser.</param>
+        /// <param name="diagnostics">Suppression diagnostics captured by the parser.</param>
+        /// <returns>A stable line-oriented snapshot.</returns>
+        /// <seealso cref="ParsedObservation"/>
+        /// <seealso cref="ITableParserDiagnostics"/>
+        private static string snapshotAeParserOutput(
+            IEnumerable<ParsedObservation> observations,
+            ITableParserDiagnostics diagnostics)
+        {
+            #region implementation
+
+            var observationLines = observations
+                .OrderBy(o => o.SourceRowSeq ?? int.MaxValue)
+                .ThenBy(o => o.SourceCellSeq ?? int.MaxValue)
+                .Select(o => string.Join("|",
+                    "OBS",
+                    o.TextTableID?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    o.SourceRowSeq?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    o.SourceCellSeq?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    o.ParameterName ?? string.Empty,
+                    o.ParameterCategory ?? string.Empty,
+                    o.ParameterSubtype ?? string.Empty,
+                    o.TreatmentArm ?? string.Empty,
+                    o.ArmN?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    formatNullableDouble(o.PrimaryValue),
+                    o.PrimaryValueType ?? string.Empty,
+                    o.Unit ?? string.Empty,
+                    o.StudyContext ?? string.Empty,
+                    o.Subpopulation ?? string.Empty,
+                    o.ValidationFlags ?? string.Empty));
+
+            var suppressionLines = diagnostics.SuppressedRows
+                .OrderBy(r => r.SourceRowSeq ?? int.MaxValue)
+                .ThenBy(r => r.SourceCellSeq ?? int.MaxValue)
+                .Select(r => string.Join("|",
+                    "SUP",
+                    r.TextTableID?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    r.SourceRowSeq?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    r.SourceCellSeq?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    r.ValidationFlag,
+                    r.ParameterName ?? string.Empty,
+                    r.TreatmentArm ?? string.Empty,
+                    r.RawValue ?? string.Empty,
+                    r.StructuralLabel ?? string.Empty,
+                    r.ContextTarget ?? string.Empty));
+
+            return string.Join(Environment.NewLine, observationLines.Concat(suppressionLines));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats nullable doubles consistently for parser golden-master snapshots.
+        /// </summary>
+        /// <param name="value">Nullable numeric value.</param>
+        /// <returns>Invariant-culture numeric text, or an empty string for null.</returns>
+        /// <seealso cref="snapshotAeParserOutput"/>
+        private static string formatNullableDouble(double? value)
+        {
+            #region implementation
+
+            return value?.ToString("G17", CultureInfo.InvariantCulture) ?? string.Empty;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -436,6 +513,264 @@ namespace MedRecPro.Service.Test
             Assert.IsTrue(results.Any(r => r.TreatmentArm == "Lisinopril - Hydrochlorothiazide"));
             Assert.IsTrue(results.Any(r => r.TreatmentArm == "Placebo"));
             Assert.IsTrue(results.All(r => r.ParameterSubtype == "Incidence (discontinuation )"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase C golden-master fixture: the four canary AE row-loop shapes named in
+        /// the maintainability plan must preserve observations and suppression
+        /// diagnostics before and after the shared row-loop extraction.
+        /// </summary>
+        [TestMethod]
+        public void PhaseC_AeRowLoopCanaries_PreserveGoldenMasterOutput()
+        {
+            #region implementation
+
+            var table42881 = createAeTable(
+                new[] { "Adverse Reaction", "Incidence (discontinuation )", "Incidence (discontinuation )" },
+                new List<string?[]>
+                {
+                    new[] { "Dizziness", "12 (6%)", "3 (1%)" }
+                });
+            table42881.TextTableID = 42881;
+            table42881.Header!.HeaderRowCount = 2;
+            table42881.Header.Columns![1].HeaderPath = new List<string> { "Lisinopril - Hydrochlorothiazide (N=200)", "Incidence (discontinuation )" };
+            table42881.Header.Columns![2].HeaderPath = new List<string> { "Placebo (N=190)", "Incidence (discontinuation )" };
+
+            var parser42881 = new MultilevelAeTableParser();
+            var actual42881 = snapshotAeParserOutput(parser42881.Parse(table42881), parser42881);
+            var expected42881 = string.Join(Environment.NewLine,
+                "OBS|42881|2|2|Dizziness||Incidence (discontinuation )|Lisinopril - Hydrochlorothiazide|200|6|Percentage|%|||PCT_CHECK:PASS",
+                "OBS|42881|2|3|Dizziness||Incidence (discontinuation )|Placebo|190|1|Percentage|%|||PCT_CHECK:PASS");
+            Assert.AreEqual(expected42881, actual42881);
+
+            var table41668 = createAeTable(
+                new[] { "Adverse Reaction", "Ocular" },
+                new List<string?[]>
+                {
+                    new[] { "Eye pain", "12 (6%)" }
+                },
+                title: "Test Drug");
+            table41668.TextTableID = 41668;
+
+            var parser41668 = new SimpleArmTableParser();
+            var actual41668 = snapshotAeParserOutput(parser41668.Parse(table41668), parser41668);
+            Assert.AreEqual("SUP|41668|2||SUPPRESSED_AE_BODY_SYSTEM_ARM|Eye pain||Eye pain|Eye pain|ParameterCategory", actual41668);
+
+            var table5725 = createAeTable(
+                new[] { "Adverse Reaction", "%", "n" },
+                new List<string?[]>
+                {
+                    new[] { "Headache", "8", "4" }
+                });
+            table5725.TextTableID = 5725;
+            table5725.Header!.HeaderRowCount = 2;
+            table5725.Header.Columns![1].HeaderPath = new List<string> { "Drug A (N=50)", "%" };
+            table5725.Header.Columns![2].HeaderPath = new List<string> { "Drug A (N=50)", "n" };
+
+            var parser5725 = new MultilevelAeTableParser();
+            var actual5725 = snapshotAeParserOutput(parser5725.Parse(table5725), parser5725);
+            var expected5725 = string.Join(Environment.NewLine,
+                "OBS|5725|2|2|Headache|||Drug A|50|8|Percentage|%|||PCT_CONTEXT_PROMOTION",
+                "OBS|5725|2|3|Headache|||Drug A|50|4|Percentage|%|||PCT_CONTEXT_PROMOTION");
+            Assert.AreEqual(expected5725, actual5725);
+
+            var captionArm = "Table 6: Adverse Reactions Reported in Clinical Trials";
+            var table33633 = createAeTable(
+                new[] { "Adverse Reaction", captionArm },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "9 (4%)" }
+                },
+                title: "Test Drug");
+            table33633.TextTableID = 33633;
+
+            var parser33633 = new SimpleArmTableParser();
+            var actual33633 = snapshotAeParserOutput(parser33633.Parse(table33633), parser33633);
+            Assert.AreEqual("SUP|33633|2||SUPPRESSED_AE_CAPTION_ARM|Nausea||Nausea|Nausea|ParameterCategory", actual33633);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Headerless AE tables should still emit unresolved-arm suppression
+        /// diagnostics after the row-loop extraction.
+        /// </summary>
+        [TestMethod]
+        public void PhaseC_NoResolvedArms_PreservesUnresolvedSuppressionDiagnostics()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reaction" },
+                new List<string?[]>
+                {
+                    new[] { "LOTENSIN HCT N = 665" },
+                    new[] { "Dizziness" }
+                });
+            table.TextTableID = 21817;
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(0, results.Count);
+            Assert.AreEqual(2, suppressed.Count);
+            Assert.IsTrue(suppressed.All(r => r.ValidationFlag == "SUPPRESSED_AE_UNRESOLVED_ARM"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Simple-arm AE statistic columns should continue to emit comparison rows
+        /// when the shared AE loop is used.
+        /// </summary>
+        [TestMethod]
+        public void PhaseC_SimpleArmAeStatColumns_PreserveComparisonEmission()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Drug A", "Placebo", "Risk Difference" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "5", "4", "1.0" }
+                });
+            table.TextTableID = 27194;
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(3, results.Count);
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Drug A"));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Placebo"));
+
+            var comparison = results.Single(r => r.TreatmentArm == "Comparison");
+            Assert.AreEqual("Nausea", comparison.ParameterName);
+            Assert.AreEqual("RiskDifference", comparison.PrimaryValueType);
+            Assert.AreEqual(1.0, comparison.PrimaryValue);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Simple-arm AE caption value hints should remain active so lab-style
+        /// tables keep mean/SD semantics instead of reverting to count semantics.
+        /// </summary>
+        [TestMethod]
+        public void PhaseC_SimpleArmAeCaptionHints_PreserveMeanValueTyping()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Laboratory Parameter", "Drug A" },
+                new List<string?[]>
+                {
+                    new[] { "LDL-Cholesterol", "105" }
+                });
+            table.TextTableID = 13165;
+            table.Caption = "Mean Change from Baseline";
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Mean", results[0].PrimaryValueType);
+            Assert.IsTrue(results[0].ParseRule != null && results[0].ParseRule!.Contains("caption", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(results[0].ValidationFlags != null && results[0].ValidationFlags!.Contains("CAPTION_HINT:caption:Mean"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Simple-arm AE generic arm columns should still reach column
+        /// standardization, which owns the legacy nulling/flagging behavior.
+        /// </summary>
+        [TestMethod]
+        public void PhaseC_SimpleArmAeGenericArmColumns_FlowToStandardization()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Drug A", "Percentage" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "5", "2.7" }
+                });
+            table.TextTableID = 10342;
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Drug A"));
+            Assert.IsTrue(
+                results.Any(r => r.SourceCellSeq == 3),
+                string.Join("; ", results.Select(r => $"{r.SourceCellSeq}:{r.TreatmentArm}:{r.PrimaryValueType}:{r.RawValue}")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// SimpleArm AE context-axis columns such as <c>Overall</c> should not be
+        /// reintroduced as treatment arms by the generic-column compatibility path.
+        /// </summary>
+        [TestMethod]
+        public void PhaseC_SimpleArmAeOverallContextAxis_DoesNotEmitExtraArm()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "Drug A", "Overall" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "5 (5)", "6 (6)" }
+                });
+            table.TextTableID = 8387;
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual("Drug A", results[0].TreatmentArm);
+            Assert.IsFalse(results.Any(r => r.TreatmentArm == "Overall"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// SimpleArm AE structural-cell suppressions should retain the original row
+        /// label in diagnostics even when interspersed-label recovery inspects cells.
+        /// </summary>
+        [TestMethod]
+        public void PhaseC_SimpleArmAeStructuralCellSuppression_UsesOriginalRowLabel()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reaction", "200", "300", "400", "600", "800", "900", "1200", "1600", "2400" },
+                new List<string?[]>
+                {
+                    new[] { "Vomiting", "0", "0", "less than 1", "less than 1", "less than 1", "0", "1", "2", "3" }
+                });
+            table.TextTableID = 46283;
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(6, results.Count);
+            Assert.AreEqual(2, suppressed.Count);
+            Assert.IsTrue(suppressed.All(r => r.ParameterName == "Vomiting"));
+            Assert.IsTrue(suppressed.All(r => r.StructuralLabel == "Vomiting"));
+
+            #endregion
         }
 
         /**************************************************************/

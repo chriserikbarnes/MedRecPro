@@ -1667,6 +1667,321 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         #endregion Protected Helpers — Cell Lookup
 
+        #region Protected Helpers - AE Arm Row Loop
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses the shared adverse-event arm-table row loop for single- and
+        /// multi-level AE parsers.
+        /// </summary>
+        /// <remarks>
+        /// This is the Phase C Template Method extraction: concrete parsers still own
+        /// arm discovery and parser selection, while this method owns the stable
+        /// body-row algorithm for subpopulation context, structural suppression,
+        /// interspersed label recovery, per-arm observation creation, and AE value
+        /// parsing.
+        /// </remarks>
+        /// <param name="table">Source reconstructed table.</param>
+        /// <param name="arms">Resolved treatment-arm definitions.</param>
+        /// <param name="captionStudyContext">Caption-derived study context fallback, or null.</param>
+        /// <param name="socDividersSetCategory">Whether SOC divider rows should update <c>ParameterCategory</c>.</param>
+        /// <param name="emptyDataRowsSetCategory">Whether blank data rows should become AE category context.</param>
+        /// <param name="structuralRowReason">Suppression reason for structural row-context captures.</param>
+        /// <param name="structuralCellReason">Suppression reason for structural value-cell captures.</param>
+        /// <param name="captionHint">Optional caption-derived value hint to preserve simple-arm parsing behavior.</param>
+        /// <param name="rowPValueResolver">Optional row-level P-value resolver for parser-specific statistic columns.</param>
+        /// <param name="comparisonRowsEmitter">Optional parser-specific emitter for statistic/comparison columns.</param>
+        /// <param name="emitGenericArmObservations">Whether generic arm candidates should flow to standardization cleanup.</param>
+        /// <returns>Parsed adverse-event observations.</returns>
+        /// <seealso cref="ParsedObservation"/>
+        /// <seealso cref="ArmDefinition"/>
+        protected List<ParsedObservation> parseAdverseEventArmRows(
+            ReconstructedTable table,
+            List<ArmDefinition> arms,
+            string? captionStudyContext,
+            bool socDividersSetCategory,
+            bool emptyDataRowsSetCategory,
+            string structuralRowReason,
+            string structuralCellReason,
+            CaptionValueHint captionHint = default,
+            Func<ReconstructedRow, double?>? rowPValueResolver = null,
+            Action<ReconstructedTable, ReconstructedRow, string, string?, string?, double?, List<ParsedObservation>>? comparisonRowsEmitter = null,
+            bool emitGenericArmObservations = false)
+        {
+            #region implementation
+
+            var observations = new List<ParsedObservation>();
+            var (population, _) = detectPopulation(table);
+
+            string? currentCategory = null;
+            string? currentSubpopulation = null;
+            IDictionary<int, int> subpopArmNOverrides = new Dictionary<int, int>();
+            var dataRows = getDataBodyRows(table);
+
+            // Body rows may carry header-continuation metadata (dose, N=, format
+            // hints). Enrich arms before the observable row loop starts.
+            var skipRows = enrichArmsFromBodyRows(dataRows, arms);
+            if (skipRows > 0)
+            {
+                dataRows = dataRows.Skip(skipRows).ToList();
+            }
+
+            applySingleProductArmFallback(table, arms);
+            if (!arms.Any(hasUsableTreatmentArm))
+            {
+                recordUnrescuableAeRows(
+                    table,
+                    dataRows,
+                    getUnrescuableAeReason(arms));
+                return observations;
+            }
+
+            foreach (var row in dataRows)
+            {
+                // Some AE parsers consume explicit SOC divider rows as category
+                // context; the simple-arm fallback only resets subpopulation state.
+                if (row.Classification == RowClassification.SocDivider)
+                {
+                    if (socDividersSetCategory)
+                        currentCategory = row.SocName;
+
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
+                    continue;
+                }
+
+                var (paramName, _) = getParameterName(row);
+                if (string.IsNullOrWhiteSpace(paramName))
+                    continue;
+
+                if (tryDetectSubpopulationHeader(row, arms, paramName, out var subpopName, out var nOverrides))
+                {
+                    currentSubpopulation = subpopName;
+                    subpopArmNOverrides = nOverrides;
+                    recordSuppressedStructuralRow(
+                        table, row, null, TableCategory.ADVERSE_EVENT,
+                        paramName, null, paramName, subpopName!, "Subpopulation",
+                        "Mid-body subpopulation N-row captured as subpopulation context");
+                    continue;
+                }
+
+                if (isCombinedPopulationRowLabel(paramName, row, arms))
+                {
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
+                    recordSuppressedStructuralRow(
+                        table, row, null, TableCategory.ADVERSE_EVENT,
+                        paramName, null, paramName, paramName, "Subpopulation",
+                        "Combined/all-patients row suppressed and subpopulation context reset");
+                    continue;
+                }
+
+                if (isStructuralContextRow(row, arms, paramName, TableCategory.ADVERSE_EVENT))
+                {
+                    currentCategory = paramName;
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
+                    recordSuppressedStructuralRow(
+                        table, row, null, TableCategory.ADVERSE_EVENT,
+                        paramName, null, paramName, paramName, "ParameterCategory",
+                        structuralRowReason);
+                    continue;
+                }
+
+                if (emptyDataRowsSetCategory && !rowHasArmData(row, arms))
+                {
+                    currentCategory = paramName;
+                    currentSubpopulation = null;
+                    subpopArmNOverrides = new Dictionary<int, int>();
+                    continue;
+                }
+
+                var effectiveParamName = paramName;
+                var interspersedLabelCellSequence = (int?)null;
+                if (tryRecoverInterspersedRowLabel(
+                    row, arms, paramName, TableCategory.ADVERSE_EVENT,
+                    out var recoveredParamName,
+                    out var recoveredCategory,
+                    out var recoveredLabelCellSequence))
+                {
+                    effectiveParamName = recoveredParamName ?? paramName;
+                    interspersedLabelCellSequence = recoveredLabelCellSequence;
+                    if (!string.IsNullOrWhiteSpace(recoveredCategory))
+                        currentCategory = recoveredCategory;
+                }
+
+                var capturedCategory = currentCategory;
+                var capturedSubpopulation = currentSubpopulation;
+                var capturedSubpopArmNOverrides = subpopArmNOverrides;
+
+                parseRowSafe(table, row, observations, (r, obs) =>
+                {
+                    var rowPValue = rowPValueResolver?.Invoke(r);
+
+                    foreach (var arm in arms)
+                    {
+                        var canEmitArm = hasUsableTreatmentArm(arm) ||
+                            shouldAllowLegacyGenericArmEmission(arm, emitGenericArmObservations);
+                        if (!canEmitArm)
+                            continue;
+
+                        var cell = getCellAtColumn(r, arm.ColumnIndex ?? 0);
+                        if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                            continue;
+                        if (interspersedLabelCellSequence.HasValue &&
+                            cell.SequenceNumber == interspersedLabelCellSequence.Value)
+                            continue;
+
+                        var o = createBaseObservation(table, r, cell, TableCategory.ADVERSE_EVENT);
+                        o.ParameterName = effectiveParamName;
+                        o.ParameterCategory = capturedCategory;
+                        o.ParameterSubtype = arm.ParameterSubtype;
+                        o.TreatmentArm = arm.Name;
+                        o.ArmN = (arm.ColumnIndex.HasValue &&
+                                  capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN))
+                            ? overrideN
+                            : arm.SampleSize;
+                        o.StudyContext = arm.StudyContext ?? captionStudyContext;
+                        o.DoseRegimen = arm.DoseRegimen;
+                        o.Dose = arm.Dose;
+                        o.DoseUnit = arm.DoseUnit;
+                        o.Population = population;
+                        o.Subpopulation = capturedSubpopulation;
+                        o.PValue = rowPValue;
+
+                        var parsed = parseValueWithAeEfficacyContext(
+                            cell.CleanedText,
+                            TableCategory.ADVERSE_EVENT,
+                            effectiveParamName,
+                            capturedCategory,
+                            arm,
+                            table.Caption);
+
+                        if (!captionHint.IsEmpty)
+                        {
+                            parsed = applyCaptionHint(parsed, captionHint);
+                        }
+
+                        applyParsedValue(o, parsed);
+                        if (shouldSuppressAeStructuralObservation(o, parsed))
+                        {
+                            if (emitGenericArmObservations &&
+                                shouldLetGenericArmFlowToStandardization(arm, parsed))
+                            {
+                                obs.Add(o);
+                                continue;
+                            }
+
+                            var suppressionParameterName = emitGenericArmObservations
+                                ? paramName
+                                : effectiveParamName;
+                            recordSuppressedStructuralRow(
+                                table, r, cell, TableCategory.ADVERSE_EVENT,
+                                suppressionParameterName, arm.Name, cell.CleanedText, suppressionParameterName,
+                                "ParameterCategory",
+                                structuralCellReason);
+                            continue;
+                        }
+
+                        obs.Add(o);
+                    }
+
+                    comparisonRowsEmitter?.Invoke(
+                        table,
+                        r,
+                        effectiveParamName,
+                        null,
+                        population,
+                        rowPValue,
+                        obs);
+                });
+            }
+
+            return observations;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an AE body row contains data in any usable arm column.
+        /// </summary>
+        /// <param name="row">Body row to inspect.</param>
+        /// <param name="arms">Resolved arm definitions.</param>
+        /// <returns><c>true</c> when at least one usable arm cell has text.</returns>
+        /// <seealso cref="parseAdverseEventArmRows"/>
+        private static bool rowHasArmData(ReconstructedRow row, IEnumerable<ArmDefinition> arms)
+        {
+            #region implementation
+
+            return arms.Where(hasUsableTreatmentArm).Any(arm =>
+            {
+                var cell = getCellAtColumn(row, arm.ColumnIndex ?? 0);
+                return cell != null && !string.IsNullOrWhiteSpace(cell.CleanedText);
+            });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a generic SimpleArm AE column should reach column standardization.
+        /// </summary>
+        /// <remarks>
+        /// The legacy SimpleArm path emitted numeric value-axis columns and allowed
+        /// column standardization to null/flag the generic arm. Caption and body-system
+        /// leakage remains parser-suppressed.
+        /// </remarks>
+        /// <param name="arm">Candidate arm definition.</param>
+        /// <param name="parsed">Parsed value evidence from the candidate cell.</param>
+        /// <returns>True when the generic arm should be emitted for downstream cleanup.</returns>
+        /// <seealso cref="parseAdverseEventArmRows"/>
+        private static bool shouldLetGenericArmFlowToStandardization(ArmDefinition arm, ParsedValue parsed)
+        {
+            #region implementation
+
+            if (!shouldAllowLegacyGenericArmEmission(arm, emitGenericArmObservations: true))
+            {
+                return false;
+            }
+
+            return parsed.PrimaryValue.HasValue ||
+                   parsed.SecondaryValue.HasValue ||
+                   parsed.PValue.HasValue;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether SimpleArm compatibility should emit a generic arm column.
+        /// </summary>
+        /// <remarks>
+        /// The legacy SimpleArm AE path allowed value-axis placeholders such as
+        /// <c>%</c>, <c>n</c>, and <c>Percentage</c> to reach column standardization,
+        /// but it did not emit context-axis headers such as <c>Overall</c>.
+        /// </remarks>
+        /// <param name="arm">Candidate arm definition.</param>
+        /// <param name="emitGenericArmObservations">Whether the caller requested legacy generic emission.</param>
+        /// <returns>True when the arm should flow to the parser row loop.</returns>
+        /// <seealso cref="parseAdverseEventArmRows"/>
+        private static bool shouldAllowLegacyGenericArmEmission(
+            ArmDefinition arm,
+            bool emitGenericArmObservations)
+        {
+            #region implementation
+
+            if (!emitGenericArmObservations || !arm.ColumnIndex.HasValue)
+                return false;
+
+            return string.IsNullOrWhiteSpace(arm.Name) ||
+                   AeColumnContextResolver.IsValueAxisToken(arm.Name);
+
+            #endregion
+        }
+
+        #endregion Protected Helpers - AE Arm Row Loop
+
         #region Protected Helpers — Value Application
 
         /**************************************************************/

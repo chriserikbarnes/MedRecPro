@@ -82,6 +82,39 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             ClearDiagnostics();
+
+            if (category == TableCategory.ADVERSE_EVENT)
+            {
+                var allAeArms = extractArmDefinitions(table);
+                var aeArms = new List<ArmDefinition>();
+                var aeStatColumns = new Dictionary<string, ArmDefinition>();
+                splitArmDefinitions(allAeArms, aeArms, aeStatColumns);
+                var aeCaptionHint = detectCaptionValueHint(table.Caption);
+
+                return parseAdverseEventArmRows(
+                    table,
+                    aeArms,
+                    captionStudyContext: null,
+                    socDividersSetCategory: false,
+                    emptyDataRowsSetCategory: true,
+                    structuralRowReason: "Structural arm-table row captured as context",
+                    structuralCellReason: "Structural arm-table cell suppressed before observation emission",
+                    captionHint: aeCaptionHint,
+                    rowPValueResolver: row => extractPValue(row, aeStatColumns),
+                    comparisonRowsEmitter: (sourceTable, sourceRow, effectiveParamName, subtype, populationValue, rowPValue, obs) =>
+                        emitComparisonRows(
+                            sourceTable,
+                            sourceRow,
+                            TableCategory.ADVERSE_EVENT,
+                            effectiveParamName,
+                            subtype,
+                            populationValue,
+                            rowPValue,
+                            aeStatColumns,
+                            obs),
+                    emitGenericArmObservations: true);
+            }
+
             var observations = new List<ParsedObservation>();
             var (population, popConfidence) = detectPopulation(table);
             var captionHint = detectCaptionValueHint(table.Caption);
@@ -91,32 +124,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             var arms = new List<ArmDefinition>();
             var statColumns = new Dictionary<string, ArmDefinition>();
 
-            foreach (var arm in allArms)
-            {
-                if (isStatColumn(arm.Name))
-                {
-                    // Classify stat column type
-                    var name = arm.Name!;
-                    if (name.Contains("P-value", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("P value", StringComparison.OrdinalIgnoreCase))
-                        statColumns["pvalue"] = arm;
-                    else if (name.Contains("Difference", StringComparison.OrdinalIgnoreCase) ||
-                             name.Contains("95% CI", StringComparison.OrdinalIgnoreCase))
-                        statColumns["diff_ci"] = arm;
-                    else if (name.Contains("ARR", StringComparison.OrdinalIgnoreCase) ||
-                             name.Contains("Absolute Risk", StringComparison.OrdinalIgnoreCase))
-                        statColumns["arr"] = arm;
-                    else if (name.Contains("Relative Risk", StringComparison.OrdinalIgnoreCase) ||
-                             name.Contains("RR", StringComparison.OrdinalIgnoreCase) ||
-                             name.Contains("HR", StringComparison.OrdinalIgnoreCase) ||
-                             name.Contains("OR", StringComparison.OrdinalIgnoreCase))
-                        statColumns["rr_ci"] = arm;
-                }
-                else
-                {
-                    arms.Add(arm);
-                }
-            }
+            splitArmDefinitions(allArms, arms, statColumns);
 
             // Iterate data rows
             string? currentSubtype = null;
@@ -350,6 +358,56 @@ namespace MedRecProImportClass.Service.TransformationServices
         #endregion Internal Parse Method
 
         #region Private Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Splits resolved columns into treatment-arm emitters and statistic columns.
+        /// </summary>
+        /// <remarks>
+        /// The simple-arm parser historically used the same split for AE and Efficacy
+        /// rows. Keeping the split in one helper lets the shared AE row loop retain
+        /// row-level P-values and comparison-column emissions without changing the
+        /// Efficacy path.
+        /// </remarks>
+        /// <param name="allArms">All resolved arm definitions from the table header.</param>
+        /// <param name="arms">Destination list for observable treatment arms.</param>
+        /// <param name="statColumns">Destination map for statistic columns by semantic role.</param>
+        /// <seealso cref="ArmDefinition"/>
+        private static void splitArmDefinitions(
+            IEnumerable<ArmDefinition> allArms,
+            List<ArmDefinition> arms,
+            Dictionary<string, ArmDefinition> statColumns)
+        {
+            #region implementation
+
+            foreach (var arm in allArms)
+            {
+                if (isStatColumn(arm.Name))
+                {
+                    var name = arm.Name!;
+                    if (name.Contains("P-value", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("P value", StringComparison.OrdinalIgnoreCase))
+                        statColumns["pvalue"] = arm;
+                    else if (name.Contains("Difference", StringComparison.OrdinalIgnoreCase) ||
+                             name.Contains("95% CI", StringComparison.OrdinalIgnoreCase))
+                        statColumns["diff_ci"] = arm;
+                    else if (name.Contains("ARR", StringComparison.OrdinalIgnoreCase) ||
+                             name.Contains("Absolute Risk", StringComparison.OrdinalIgnoreCase))
+                        statColumns["arr"] = arm;
+                    else if (name.Contains("Relative Risk", StringComparison.OrdinalIgnoreCase) ||
+                             name.Contains("RR", StringComparison.OrdinalIgnoreCase) ||
+                             name.Contains("HR", StringComparison.OrdinalIgnoreCase) ||
+                             name.Contains("OR", StringComparison.OrdinalIgnoreCase))
+                        statColumns["rr_ci"] = arm;
+                }
+                else
+                {
+                    arms.Add(arm);
+                }
+            }
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
