@@ -2022,6 +2022,227 @@ namespace MedRecProTest
 
         #endregion Rule 11 Tests
 
+        #region Phase 1 Pipeline Ordering Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 1 should run Rule 11 before Rule 10 so a bracketed-N arm that also
+        /// carries a trailing percent hint keeps both corrections.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase1Pipeline_Rule11RunsBeforeRule10()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo % [N=459]");
+            obs.PrimaryValueType = "Numeric";
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Placebo", result[0].TreatmentArm);
+            Assert.AreEqual(459, result[0].ArmN);
+            Assert.AreEqual("Percentage", result[0].PrimaryValueType);
+            Assert.AreEqual("%", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:ARM_BRACKET_N");
+            assertHasFlag(result[0], "COL_STD:ARM_STRIP_PCT");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 1 should stop after the first matching arm rule while still allowing
+        /// context-cleanup rules to run against the corrected observation.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase1Pipeline_FirstArmMatchStillRunsContextRules()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("(N=267)", "% of Patients");
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].TreatmentArm);
+            Assert.IsNull(result[0].StudyContext);
+            Assert.AreEqual(267, result[0].ArmN);
+            assertHasFlag(result[0], "COL_STD:ARM_WAS_N");
+            assertHasFlag(result[0], "COL_STD:CTX_WAS_DESC");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 1 Pipeline Ordering Tests
+
+        #region Phase 2 Pipeline Ordering Tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 should strip inline N values before DoseRegimen triage so a
+        /// PK term with an attached sample size can still route into ParameterName.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2Pipeline_InlineNBeforeDoseRegimenTriage()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.DoseRegimen = "Cmax (N=12)";
+            obs.ParameterName = null;
+            obs.ParameterSubtype = null;
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual(12, result[0].ArmN);
+            Assert.IsNull(result[0].DoseRegimen);
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            assertHasFlag(result[0], "COL_STD:N_STRIPPED:DoseRegimen");
+            assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_ROUTED");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 should clear or route existing DoseRegimen content before
+        /// ParameterName cleanup promotes a bare dose into DoseRegimen.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2Pipeline_DoseRegimenTriageBeforeParameterNameCleanup()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.DoseRegimen = "steady state";
+            obs.ParameterName = "50";
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.IsNull(result[0].ParameterName);
+            Assert.AreEqual("50", result[0].DoseRegimen);
+            Assert.AreEqual("steady state", result[0].Timepoint);
+            assertHasFlag(result[0], "COL_STD:TIMEPOINT_EXTRACTED");
+            assertHasFlag(result[0], "COL_STD:PARAM_WAS_DOSE");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 should extract a trailing unit from ParameterSubtype before PK
+        /// canonicalization moves the PK term into ParameterName.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2Pipeline_UnitExtractionBeforePkCanonicalization()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation("Placebo", category: "PK");
+            obs.ParameterName = null;
+            obs.ParameterSubtype = "Cmax(mcg /mL)";
+            obs.Unit = null;
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Cmax", result[0].ParameterName);
+            Assert.IsNull(result[0].ParameterSubtype);
+            Assert.AreEqual("mcg/mL", result[0].Unit);
+            assertHasFlag(result[0], "COL_STD:PK_SUBPARAM_UNIT_EXTRACTED");
+            assertHasFlag(result[0], "COL_STD:PK_NAME_SUBTYPE_SWAPPED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 should normalize an existing AE SOC value before dictionary
+        /// resolution gets a chance to fill genuinely missing categories.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2Pipeline_CategoryNormalizationBeforeAeDictionaryResolution()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceWithDictionaryAsync();
+
+            var obs = createObservation("Placebo");
+            obs.ParameterName = "Dyspepsia";
+            obs.ParameterCategory = "gastrointestinal";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Gastrointestinal Disorders", result[0].ParameterCategory);
+            assertHasFlag(result[0], "COL_STD:SOC_NORMALIZED");
+            Assert.IsFalse(result[0].ValidationFlags?.Contains("DICT:SOC_RESOLVED") == true,
+                "Dictionary resolution should not overwrite an existing normalized SOC.");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Phase 2 should scan for dose values after column movements, including
+        /// TreatmentArm dose extraction into DoseRegimen.
+        /// </summary>
+        [TestMethod]
+        public async Task Phase2Pipeline_DoseScanRunsAfterColumnMovements()
+        {
+            #region implementation
+
+            var (service, context, sentinel) = await createInitializedServiceAsync();
+
+            var obs = createObservation(null, category: "PK");
+            obs.TreatmentArm = "Pregabalin 50 mg once daily";
+            obs.DoseRegimen = null;
+            obs.PrimaryValueType = "Mean";
+
+            var result = service.Standardize(new List<ParsedObservation> { obs });
+
+            Assert.AreEqual("Pregabalin", result[0].TreatmentArm);
+            Assert.AreEqual("50 mg", result[0].DoseRegimen);
+            Assert.AreEqual(50m, result[0].Dose);
+            Assert.AreEqual("mg", result[0].DoseUnit);
+            assertHasFlag(result[0], "COL_STD:DOSE_EXTRACTED");
+
+            context.Dispose();
+            sentinel.Dispose();
+
+            #endregion
+        }
+
+        #endregion Phase 2 Pipeline Ordering Tests
+
         #region Edge Case Tests
 
         /**************************************************************/

@@ -953,23 +953,10 @@ namespace MedRecProConsole.Services
             services.AddScoped(typeof(Repository<>), typeof(Repository<>));
             services.AddTransient<StringCipher>();
 
-            // Stage 1: Get Data + Stage 2: Pivot Table + Stage 3: Standardize
-            services.AddScoped<ITableCellContextService, TableCellContextService>();
-            services.AddScoped<ITableReconstructionService, TableReconstructionService>();
-            services.AddScoped<ITableParser, PkTableParser>();
-            services.AddScoped<ITableParser, SimpleArmTableParser>();
-            services.AddScoped<ITableParser, MultilevelAeTableParser>();
-            services.AddScoped<ITableParser, AeWithSocTableParser>();
-            services.AddScoped<ITableParser, EfficacyMultilevelTableParser>();
-            services.AddScoped<ITableParserRouter, TableParserRouter>();
-
-            // Stage 4: Validate (optional)
-            if (includeValidation)
-            {
-                services.AddScoped<IRowValidationService, RowValidationService>();
-                services.AddScoped<ITableValidationService, TableValidationService>();
-                services.AddScoped<IBatchValidationService, BatchValidationService>();
-            }
+            // Stage 1 through Stage 5 table-standardization services.
+            services.AddTableStandardization(
+                includeValidation: includeValidation,
+                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue);
 
             // Stage 3.5: Claude Enhance (optional — graceful no-op if API key missing)
             services.Configure<ClaudeApiCorrectionSettings>(
@@ -979,8 +966,6 @@ namespace MedRecProConsole.Services
             {
                 services.PostConfigure<ClaudeApiCorrectionSettings>(s => s.Enabled = false);
             }
-
-            services.AddSingleton<IPlaceboArmClassifier, PlaceboArmClassifier>();
 
             services.AddHttpClient<IClaudeApiCorrectionService, ClaudeApiCorrectionService>(
                 (sp, client) =>
@@ -994,12 +979,6 @@ namespace MedRecProConsole.Services
                     client.BaseAddress = new Uri("https://api.anthropic.com/");
                 });
 
-            // Stage 3.25 sub-service: AE ParameterName → SOC dictionary resolver (stateless singleton)
-            services.AddSingleton<IAeParameterCategoryDictionaryService, AeParameterCategoryDictionaryService>();
-
-            // Stage 3.25: Column standardization (deterministic, pre-AI)
-            services.AddScoped<IColumnStandardizationService, ColumnStandardizationService>();
-
             // Stage 3.4: QC correction (ML.NET-backed, always enabled — runs independently of Claude)
             services.Configure<QCNetCorrectionSettings>(
                 compositeConfiguration.GetSection("QCNetCorrectionSettings"));
@@ -1007,12 +986,6 @@ namespace MedRecProConsole.Services
                 new QCTrainingStore(
                     sp.GetRequiredService<ILogger<QCTrainingStore>>(),
                     sp.GetRequiredService<IOptions<QCNetCorrectionSettings>>().Value));
-            // Parse-quality gate (Phase 2 replacement for retired Stage 4 anomaly scoring).
-            // The registry parses column-contracts.md into per-TableCategory R/E/O/N sets
-            // and the service applies the deterministic QC_PARSE_QUALITY formula.
-            services.AddSingleton<IColumnContractRegistry, ColumnContractRegistry>();
-            services.AddSingleton<IParseQualityService, ParseQualityService>();
-
             services.AddScoped<IQCNetCorrectionService>(sp =>
                 new QCNetCorrectionService(
                     sp.GetRequiredService<ILogger<QCNetCorrectionService>>(),
@@ -1020,37 +993,6 @@ namespace MedRecProConsole.Services
                     trainingStore: sp.GetRequiredService<IQCTrainingStore>(),
                     parseQualityService: sp.GetRequiredService<IParseQualityService>(),
                     claudeSettings: sp.GetRequiredService<IOptions<ClaudeApiCorrectionSettings>>().Value));
-
-            // Stage 0: Bioequivalent-ANDA label dedup (prunes the document set before Stage 1).
-            // Registered unconditionally — callers can disable at call time via the
-            // disableBioequivalentDedup parameter on Execute*/ProcessAll* methods.
-            services.AddScoped<IBioequivalentLabelDedupService, BioequivalentLabelDedupService>();
-
-            // Stage 5 (Phase 2): AdverseEvent denormalization. Registered unconditionally
-            // because Stage 5 runs from BOTH ProcessAllAsync and ProcessAllWithValidationAsync —
-            // Phase 2 reads only the already-populated Stage 3 output table and has no
-            // dependency on Stage 4 validation services.
-            services.AddScoped<IAdverseEventDenormalizationService, AdverseEventDenormalizationService>();
-
-            // Orchestrator — IBatchValidationService, IClaudeApiCorrectionService, and
-            // IAdverseEventDenormalizationService are optional (nullable constructor params).
-            // Use an explicit factory so we can forward the Stage 3.25 quality gate flag
-            // to the orchestrator's constructor. sp.GetService<T>() returns null for services
-            // that were not registered (e.g. IBatchValidationService when includeValidation = false),
-            // matching the orchestrator's nullable ctor-arg contract.
-            services.AddScoped<ITableParsingOrchestrator>(sp => new TableParsingOrchestrator(
-                sp.GetRequiredService<ITableReconstructionService>(),
-                sp.GetRequiredService<ITableCellContextService>(),
-                sp.GetRequiredService<ITableParserRouter>(),
-                sp.GetRequiredService<ApplicationDbContext>(),
-                sp.GetRequiredService<ILogger<TableParsingOrchestrator>>(),
-                batchValidator: sp.GetService<IBatchValidationService>(),
-                columnStandardizer: sp.GetService<IColumnStandardizationService>(),
-                qcNetCorrectionService: sp.GetService<IQCNetCorrectionService>(),
-                correctionService: sp.GetService<IClaudeApiCorrectionService>(),
-                dropRowsMissingArmNOrPrimaryValue: dropRowsMissingArmNOrPrimaryValue,
-                bioequivalentDedup: sp.GetService<IBioequivalentLabelDedupService>(),
-                aeDenormalizer: sp.GetService<IAdverseEventDenormalizationService>()));
 
             return services.BuildServiceProvider();
 

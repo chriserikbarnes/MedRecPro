@@ -35,7 +35,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// </remarks>
     /// <seealso cref="IColumnStandardizationService"/>
     /// <seealso cref="ParsedObservation"/>
-    public class ColumnStandardizationService : IColumnStandardizationService
+    public partial class ColumnStandardizationService : IColumnStandardizationService
     {
         #region Fields
 
@@ -101,6 +101,29 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// </summary>
         /// <seealso cref="IColumnContractRegistry"/>
         private readonly IColumnContractRegistry _columnContractRegistry;
+
+        /**************************************************************/
+        /// <summary>
+        /// Ordered Phase 1 arm/context correction pipeline.
+        /// </summary>
+        /// <remarks>
+        /// Preserves Rule 11 pre-chain behavior, Rules 1-6 first-match semantics,
+        /// and Rules 7-10 always-run cleanup behavior.
+        /// </remarks>
+        /// <seealso cref="Phase1ArmContextPipeline"/>
+        private readonly Phase1ArmContextPipeline _phase1Pipeline;
+
+        /**************************************************************/
+        /// <summary>
+        /// Ordered Phase 2 content-normalization pipeline.
+        /// </summary>
+        /// <remarks>
+        /// Preserves the order-sensitive sequence of inline-N stripping, routing,
+        /// PK canonicalization, SOC normalization, dictionary fill, and final dose
+        /// scanning.
+        /// </remarks>
+        /// <seealso cref="Phase2ContentNormalizationPipeline"/>
+        private readonly Phase2ContentNormalizationPipeline _phase2Pipeline;
 
         /**************************************************************/
         /// <summary>
@@ -696,6 +719,8 @@ namespace MedRecProImportClass.Service.TransformationServices
             _logger = logger;
             _aeDictionary = aeDictionary;
             _columnContractRegistry = columnContractRegistry ?? new ColumnContractRegistry();
+            _phase1Pipeline = new Phase1ArmContextPipeline(this);
+            _phase2Pipeline = new Phase2ContentNormalizationPipeline(this);
 
             #endregion
         }
@@ -962,42 +987,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            int corrections = 0;
-
-            // Rule 11 (structural): bracketed [N=xxx] in TreatmentArm — runs first
-            if (applyRule11_ArmHasBracketedN(obs))
-                corrections++;
-
-            var armType = classifyContent(obs.TreatmentArm);
-            var ctxType = classifyContent(obs.StudyContext);
-
-            // Apply rules in priority order (most specific first)
-            if (applyRule1_ArmIsN(obs, armType, ctxType) ||
-                applyRule2_ArmIsFormatHint(obs, armType, ctxType) ||
-                applyRule3_ArmIsSeverity(obs, armType, ctxType) ||
-                applyRule4_ArmIsDose(obs, armType, ctxType) ||
-                applyRule5_ArmIsBareNumber(obs, armType, ctxType) ||
-                applyRule6_ArmIsDrugPlusDose(obs, armType))
-            {
-                corrections++;
-                ctxType = classifyContent(obs.StudyContext);
-            }
-
-            // Context rules (can apply independently or after arm correction)
-            if (applyRule7_CtxIsArmWithN(obs, ctxType))
-                corrections++;
-
-            if (applyRule8_CtxIsDrugName(obs, ctxType))
-                corrections++;
-
-            if (applyRule9_CtxIsDescriptor(obs, ctxType))
-                corrections++;
-
-            // Rule 10: Strip trailing % from arm name
-            if (applyRule10_ArmHasTrailingPercent(obs))
-                corrections++;
-
-            return corrections;
+            return _phase1Pipeline.Apply(obs);
 
             #endregion
         }
@@ -1733,30 +1723,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         {
             #region implementation
 
-            int corrections = 0;
-
-            if (normalizeInlineNValues(obs)) corrections++;
-            if (normalizeDoseRegimen(obs)) corrections++;
-            if (normalizeParameterName(obs)) corrections++;
-            if (normalizeTreatmentArm(obs)) corrections++;
-            if (extractUnitFromParameterSubtype(obs)) corrections++;
-            // PK post-parse canonicalization MUST run after unit extraction so the
-            // embedded unit (e.g., "AUC0-∞(mcg·hr/mL)") gets pulled out before the
-            // Name ↔ Subtype swap moves the PK term out of the Subtype field.
-            if (applyPkCanonicalization(obs)) corrections++;
-            if (normalizeUnit(obs)) corrections++;
-            if (normalizeParameterCategory(obs)) corrections++;
-
-            // Dictionary-based SOC resolution for NULL ParameterCategory (AE only).
-            // Runs after normalizeParameterCategory so existing non-NULL categories
-            // are normalized first; only fills in genuinely missing categories.
-            if (_aeDictionary != null && _aeDictionary.TryResolveObservation(obs)) corrections++;
-
-            // Final sub-pass: scan all columns for misplaced dose patterns.
-            // Runs last so all column movements/cleanups have settled first.
-            if (DoseExtractor.ScanAllColumnsForDose(obs)) corrections++;
-
-            return corrections;
+            return _phase2Pipeline.Apply(obs);
 
             #endregion
         }

@@ -119,6 +119,10 @@ namespace MedRecProImportClass.Service.TransformationServices
         private readonly IPlaceboArmClassifier _placeboArmClassifier;
 
         /**************************************************************/
+        /// <summary>Ordered deterministic guardrail chain for Claude correction proposals.</summary>
+        private readonly CorrectionGuardrailChain _guardrailChain;
+
+        /**************************************************************/
         /// <summary>
         /// Set of field names that the AI is allowed to correct.
         /// Corrections targeting other fields are silently ignored.
@@ -134,42 +138,12 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Regex used to collapse whitespace for exact token comparisons.
-        /// </summary>
-        private static readonly Regex WhitespacePattern = new(@"\s+", RegexOptions.Compiled);
-
-        /**************************************************************/
-        /// <summary>
-        /// Regex used for conservative clinical-token comparisons.
-        /// </summary>
-        private static readonly Regex WordTokenPattern = new(@"[A-Za-z0-9]+", RegexOptions.Compiled);
-
-        /**************************************************************/
-        /// <summary>
         /// Regex used to recognize simple numeric source cells under percent headers.
         /// </summary>
         private static readonly Regex SimpleNumericCellPattern = new(
             @"^\s*(?:[<>]=?\s*)?\d+(?:\.\d+)?\s*%?\s*$",
             RegexOptions.Compiled);
 
-        /**************************************************************/
-        /// <summary>
-        /// MedDRA SOC and body-system labels that must not be written into TreatmentArm.
-        /// </summary>
-        private static readonly HashSet<string> BodySystemTreatmentArmLabels = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "Blood and Lymphatic System Disorders", "Cardiac Disorders", "Congenital, Familial and Genetic Disorders",
-            "Ear and Labyrinth Disorders", "Endocrine Disorders", "Eye Disorders", "Gastrointestinal Disorders",
-            "General Disorders", "General Disorders and Administration Site Conditions", "Hepatobiliary Disorders",
-            "Immune System Disorders", "Infections and Infestations", "Injury, Poisoning and Procedural Complications",
-            "Investigations", "Metabolism and Nutrition Disorders", "Musculoskeletal and Connective Tissue Disorders",
-            "Neoplasms Benign, Malignant and Unspecified", "Nervous System Disorders", "Pregnancy, Puerperium and Perinatal Conditions",
-            "Psychiatric Disorders", "Renal and Urinary Disorders", "Reproductive System and Breast Disorders",
-            "Respiratory, Thoracic and Mediastinal Disorders", "Skin and Subcutaneous Tissue Disorders",
-            "Social Circumstances", "Surgical and Medical Procedures", "Vascular Disorders",
-            "Body as a Whole", "Ocular", "Cardiovascular", "Hepatic", "Renal", "Respiratory", "Dermatologic",
-            "Gastrointestinal", "Neurologic", "Psychiatric", "Metabolic", "Musculoskeletal", "Hematologic"
-        };
         /**************************************************************/
         /// <summary>
         /// Cached system prompt loaded from skill file (lazy initialized on first API call).
@@ -211,6 +185,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             _settings = settings.Value;
             _logger = logger;
             _placeboArmClassifier = placeboArmClassifier ?? new PlaceboArmClassifier();
+            _guardrailChain = new CorrectionGuardrailChain(_settings, _placeboArmClassifier);
 
             #endregion
         }
@@ -284,7 +259,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 // Look up the original table for this group's TextTableID
                 ReconstructedTable? groupTable = null;
                 originalTables?.TryGetValue((int)group.Key, out groupTable);
-                var correctionContext = CorrectionContext.FromTable(groupTable);
+                var correctionContext = ClaudeCorrectionContext.FromTable(groupTable);
 
                 // Split into sub-batches if needed
                 var chunks = chunkList(tableObservations, _settings.MaxObservationsPerRequest);
@@ -577,7 +552,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         private int applyCorrections(
             List<ParsedObservation> observations,
             List<CorrectionEntry> corrections,
-            CorrectionContext context)
+            ClaudeCorrectionContext context)
         {
             #region implementation
 
@@ -648,156 +623,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Represents source-table context needed by deterministic correction guards.
-        /// </summary>
-        private sealed class CorrectionContext
-        {
-            #region Fields
-
-            /**************************************************************/
-            /// <summary>Normalized source header tokens.</summary>
-            private readonly HashSet<string> _headerTokens = new(StringComparer.OrdinalIgnoreCase);
-
-            /**************************************************************/
-            /// <summary>One-based source cell positions whose header path indicates percent values.</summary>
-            private readonly HashSet<int> _percentColumns = new();
-
-            #endregion
-
-            #region Factory
-
-            /**************************************************************/
-            /// <summary>
-            /// Builds correction context from a reconstructed table.
-            /// </summary>
-            /// <param name="table">Source reconstructed table, or null when unavailable.</param>
-            /// <returns>Correction context with header tokens and percent-column positions.</returns>
-            public static CorrectionContext FromTable(ReconstructedTable? table)
-            {
-                #region implementation
-
-                var context = new CorrectionContext();
-                if (table?.Rows == null)
-                    return context;
-
-                foreach (var row in table.Rows.Where(isHeaderRow))
-                {
-                    if (row.Cells == null)
-                        continue;
-
-                    foreach (var cell in row.Cells)
-                    {
-                        var text = cell.CleanedText ?? cell.RawCellText;
-                        var normalized = normalizeTextToken(text);
-                        if (!string.IsNullOrEmpty(normalized))
-                        {
-                            context._headerTokens.Add(normalized);
-                        }
-
-                        if (text?.Contains('%') == true)
-                        {
-                            context.addPercentColumn(cell);
-                        }
-                    }
-                }
-
-                return context;
-
-                #endregion
-            }
-
-            #endregion
-
-            #region Public Methods
-
-            /**************************************************************/
-            /// <summary>
-            /// Returns true when <paramref name="value"/> exactly matches a source header token
-            /// after whitespace normalization.
-            /// </summary>
-            /// <param name="value">Candidate value.</param>
-            /// <returns>True for exact normalized header-token matches.</returns>
-            public bool IsHeaderToken(string? value)
-            {
-                #region implementation
-
-                var normalized = normalizeTextToken(value);
-                return !string.IsNullOrEmpty(normalized) && _headerTokens.Contains(normalized);
-
-                #endregion
-            }
-
-            /**************************************************************/
-            /// <summary>
-            /// Returns true when the observation source cell sits under a percent header.
-            /// </summary>
-            /// <param name="sourceCellSeq">One-based source cell sequence.</param>
-            /// <returns>True when percent-column metadata exists for this cell sequence.</returns>
-            public bool IsPercentColumn(int? sourceCellSeq)
-            {
-                #region implementation
-
-                return sourceCellSeq.HasValue && _percentColumns.Contains(sourceCellSeq.Value);
-
-                #endregion
-            }
-
-            #endregion
-
-            #region Private Methods
-
-            /**************************************************************/
-            /// <summary>
-            /// Adds all known one-based positions for a percent-bearing header cell.
-            /// </summary>
-            /// <param name="cell">Header cell.</param>
-            private void addPercentColumn(ProcessedCell cell)
-            {
-                #region implementation
-
-                if (cell.SequenceNumber.HasValue)
-                {
-                    _percentColumns.Add(cell.SequenceNumber.Value);
-                }
-
-                if (cell.ResolvedColumnStart.HasValue)
-                {
-                    var start = cell.ResolvedColumnStart.Value;
-                    var end = cell.ResolvedColumnEnd ?? start + 1;
-                    for (var column = start; column < end; column++)
-                    {
-                        _percentColumns.Add(column + 1);
-                    }
-                }
-
-                #endregion
-            }
-
-            /**************************************************************/
-            /// <summary>
-            /// Determines whether a reconstructed row should contribute header context.
-            /// </summary>
-            /// <param name="row">Candidate reconstructed row.</param>
-            /// <returns>True for explicit, inferred, and continuation header rows.</returns>
-            private static bool isHeaderRow(ReconstructedRow row)
-            {
-                #region implementation
-
-                if (string.Equals(row.RowGroupType, "Header", StringComparison.OrdinalIgnoreCase))
-                    return true;
-
-                return row.Classification is RowClassification.ExplicitHeader
-                    or RowClassification.InferredHeader
-                    or RowClassification.ContinuationHeader;
-
-                #endregion
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Validates a proposed correction against deterministic guardrails.
         /// </summary>
         /// <param name="observation">Target observation.</param>
@@ -810,107 +635,14 @@ namespace MedRecProImportClass.Service.TransformationServices
             ParsedObservation observation,
             string field,
             string? proposedValue,
-            CorrectionContext context,
+            ClaudeCorrectionContext context,
             out string rejectionReason)
         {
             #region implementation
 
-            rejectionReason = string.Empty;
-
-            if (_settings.ProtectedFields.Contains(field))
-            {
-                rejectionReason = "ProtectedField";
-                return false;
-            }
-
-            if (string.Equals(field, "TreatmentArm", StringComparison.OrdinalIgnoreCase))
-            {
-                return tryValidateTreatmentArmCorrection(observation, proposedValue, context, out rejectionReason);
-            }
-
-            if (string.Equals(field, "ParameterName", StringComparison.OrdinalIgnoreCase)
-                && _settings.RejectParameterNameSuperset
-                && isStrictTokenSuperset(proposedValue, observation.ParameterName))
-            {
-                rejectionReason = "ParameterNameSuperset";
-                return false;
-            }
-
-            if (string.Equals(field, "PrimaryValueType", StringComparison.OrdinalIgnoreCase)
-                && _settings.EnforcePercentColumnConsistency
-                && context.IsPercentColumn(observation.SourceCellSeq)
-                && string.Equals(observation.PrimaryValueType, "Percentage", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(proposedValue, "Count", StringComparison.OrdinalIgnoreCase))
-            {
-                rejectionReason = "PercentColumnTypeDemotion";
-                return false;
-            }
-
-            if (string.Equals(field, "Unit", StringComparison.OrdinalIgnoreCase)
-                && _settings.RejectTextRowUnitPercent
-                && string.Equals(proposedValue, "%", StringComparison.Ordinal)
-                && string.Equals(observation.PrimaryValueType, "Text", StringComparison.OrdinalIgnoreCase))
-            {
-                rejectionReason = "TextRowUnitPercent";
-                return false;
-            }
-
-            return true;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Validates TreatmentArm-specific correction guardrails.
-        /// </summary>
-        /// <param name="observation">Target observation.</param>
-        /// <param name="proposedValue">Proposed TreatmentArm value.</param>
-        /// <param name="context">Source table correction context.</param>
-        /// <param name="rejectionReason">Reason token when validation fails.</param>
-        /// <returns>True when the TreatmentArm correction can be applied.</returns>
-        private bool tryValidateTreatmentArmCorrection(
-            ParsedObservation observation,
-            string? proposedValue,
-            CorrectionContext context,
-            out string rejectionReason)
-        {
-            #region implementation
-
-            rejectionReason = string.Empty;
-            var originalValue = observation.TreatmentArm;
-
-            if (_settings.RejectPlaceboClassFlip
-                && _placeboArmClassifier.IsPlaceboArm(originalValue, observation.Dose) !=
-                   _placeboArmClassifier.IsPlaceboArm(proposedValue, observation.Dose))
-            {
-                rejectionReason = "PlaceboClassFlip";
-                return false;
-            }
-
-            if (_settings.RejectTreatmentArmToNullUnlessHeaderEcho
-                && !string.IsNullOrWhiteSpace(originalValue)
-                && string.IsNullOrWhiteSpace(proposedValue)
-                && (isProtectedShortTreatmentArm(originalValue)
-                    || !isHeaderOrGenericTreatmentArm(originalValue, context)))
-            {
-                rejectionReason = "TreatmentArmNull";
-                return false;
-            }
-
-            if (_settings.RejectTreatmentArmBodySystem && isBodySystemTreatmentArm(proposedValue))
-            {
-                rejectionReason = "TreatmentArmBodySystem";
-                return false;
-            }
-
-            if (_settings.RejectTreatmentArmHeaderToken && context.IsHeaderToken(proposedValue))
-            {
-                rejectionReason = "TreatmentArmHeaderToken";
-                return false;
-            }
-
-            return true;
+            var result = _guardrailChain.Validate(observation, field, proposedValue, context);
+            rejectionReason = result.RejectionReason;
+            return result.IsAccepted;
 
             #endregion
         }
@@ -923,7 +655,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="observations">Chunk observations.</param>
         /// <param name="context">Source table correction context.</param>
         /// <returns>Number of field mutations applied.</returns>
-        private static int applyPercentColumnConsistency(List<ParsedObservation> observations, CorrectionContext context)
+        private static int applyPercentColumnConsistency(List<ParsedObservation> observations, ClaudeCorrectionContext context)
         {
             #region implementation
 
@@ -983,123 +715,6 @@ namespace MedRecProImportClass.Service.TransformationServices
             return string.Equals(value?.Trim(), "NULL", StringComparison.OrdinalIgnoreCase)
                 ? null
                 : value;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Normalizes text for exact equality checks.
-        /// </summary>
-        /// <param name="value">Source text.</param>
-        /// <returns>Trimmed text with internal whitespace collapsed.</returns>
-        private static string normalizeTextToken(string? value)
-        {
-            #region implementation
-
-            if (string.IsNullOrWhiteSpace(value))
-                return string.Empty;
-
-            return WhitespacePattern.Replace(value.Trim(), " ");
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Determines whether a TreatmentArm value is protected as a short real arm token.
-        /// </summary>
-        /// <param name="value">TreatmentArm value.</param>
-        /// <returns>True when the configured short-arm allowlist contains the value.</returns>
-        private bool isProtectedShortTreatmentArm(string? value)
-        {
-            #region implementation
-
-            return !string.IsNullOrWhiteSpace(value)
-                && _settings.ProtectedShortTreatmentArms.Any(v =>
-                    string.Equals(v, value.Trim(), StringComparison.OrdinalIgnoreCase));
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Determines whether an existing TreatmentArm value is a known header or generic
-        /// label echo that may safely be cleared.
-        /// </summary>
-        /// <param name="value">TreatmentArm value.</param>
-        /// <param name="context">Source table correction context.</param>
-        /// <returns>True when the value is structural rather than a real arm.</returns>
-        private static bool isHeaderOrGenericTreatmentArm(string? value, CorrectionContext context)
-        {
-            #region implementation
-
-            var normalized = normalizeTextToken(value);
-            if (string.IsNullOrEmpty(normalized))
-                return false;
-
-            if (context.IsHeaderToken(normalized))
-                return true;
-
-            var lower = normalized.ToLowerInvariant();
-            return (lower.Contains("number") && lower.Contains("patients"))
-                || (lower.Contains("percent") && lower.Contains("subjects"))
-                || (lower.Contains("percentage") && lower.Contains("reporting"))
-                || lower is "comparison" or "treatment" or "pd" or "sad";
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Determines whether a proposed TreatmentArm is actually a body-system label.
-        /// </summary>
-        /// <param name="value">Proposed TreatmentArm value.</param>
-        /// <returns>True for configured SOC/body-system labels.</returns>
-        private static bool isBodySystemTreatmentArm(string? value)
-        {
-            #region implementation
-
-            var normalized = normalizeTextToken(value);
-            return !string.IsNullOrEmpty(normalized) && BodySystemTreatmentArmLabels.Contains(normalized);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Determines whether a proposed name strictly adds tokens to the original name.
-        /// </summary>
-        /// <param name="proposedValue">Proposed ParameterName.</param>
-        /// <param name="originalValue">Original ParameterName.</param>
-        /// <returns>True when proposed tokens are a strict superset of original tokens.</returns>
-        private static bool isStrictTokenSuperset(string? proposedValue, string? originalValue)
-        {
-            #region implementation
-
-            var proposedTokens = tokenizeClinicalText(proposedValue);
-            var originalTokens = tokenizeClinicalText(originalValue);
-
-            return originalTokens.Count > 0
-                && proposedTokens.Count > originalTokens.Count
-                && proposedTokens.IsSupersetOf(originalTokens);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Tokenizes clinical text for conservative set comparisons.
-        /// </summary>
-        /// <param name="value">Text to tokenize.</param>
-        /// <returns>Lowercase alphanumeric token set.</returns>
-        private static HashSet<string> tokenizeClinicalText(string? value)
-        {
-            #region implementation
-
-            return WordTokenPattern.Matches(value ?? string.Empty)
-                .Select(m => m.Value.ToLowerInvariant())
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             #endregion
         }

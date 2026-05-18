@@ -3840,8 +3840,6 @@ Updated [(pending) Table Standardization Services Maintainability Refactor.md](P
 
 **Verification.** Read back the updated Phase B completion, verification, still-pending, and outstanding-items sections after editing. No code or tests were changed in this documentation-only update.
 
----
-
 ### 2026-05-15 1:34 PM EST — Table Standardization Phase 3 Refactor
 
 Implemented the next Phase C / Phase 3 slice from [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md), focused on AE row-loop characterization, shared parser-loop extraction, and Stage 5 helper decomposition without changing observable parser or denormalization behavior.
@@ -3853,8 +3851,6 @@ Implemented the next Phase C / Phase 3 slice from [(pending) Table Standardizati
 **Stage 5 decomposition.** Split [AdverseEventDenormalizationService.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AdverseEventDenormalizationService.cs) into focused collaborators: [SourceRowEligibility.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/SourceRowEligibility.cs), [ComparatorGrouper.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/ComparatorGrouper.cs), [ComparatorSelector.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/ComparatorSelector.cs), [AeStatEntityBuilder.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AeStatEntityBuilder.cs), and [AeDenormalizationConstants.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AeDenormalizationConstants.cs). The service now owns EF batching and fail-fast writes while helpers own eligibility, comparator grouping/selection, reference-dose selection, and entity/stat calculation.
 
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~AeArmRecoveryParserTests|FullyQualifiedName~TableParserRouterGateTests|FullyQualifiedName~TableParserBaselineFixtureTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests"` passed 67/67. `dotnet test MedRecProTest\MedRecProTest.csproj --no-build --configuration Debug --filter "FullyQualifiedName~TableParserTests"` passed 174/174 with 1 skipped. `dotnet test MedRecProTest\MedRecProTest.csproj --no-build --configuration Debug --filter "FullyQualifiedName!~ProductRenderingServiceTests&FullyQualifiedName!~StandardizationProgressTrackerTests"` passed 1,938/1,938 with 1 skipped. `git diff --check` passed with line-ending warnings only. Remaining build output warnings were pre-existing XML documentation warnings and the `Microsoft.CodeAnalysis` version conflict in `MedRecProTest`.
-
----
 
 ### 2026-05-15 2:19 PM EST — Phase 3 Report Parity Fix
 
@@ -3889,5 +3885,65 @@ Updated [(pending) Table Standardization Services Maintainability Refactor.md](P
 **Pending work.** Clarified that the remaining implementation balance is Phase D: Claude correction guardrail chain, `ColumnStandardizationService` Phase 1 rule-set extraction, `ColumnStandardizationService` Phase 2 sequential pipeline, and the `AddTableStandardization()` registration extension. The plan also keeps the full-suite blockers explicit: `ProductRenderingServiceTests` need the local PK encryption secret and `StandardizationProgressTrackerTests` still need progress-file/connection-state isolation.
 
 **Verification.** Read back the updated implementation status, outstanding-items, phase checklist, test-strategy, and verification sections after editing. No code or tests were changed in this documentation-only handoff update.
+
+---
+
+### 2026-05-15 3:41 PM EST — Warning Resolutions Plan Saved
+
+Created [(pending) Warning Resolutions.md](Plans/(pending)%20Warning%20Resolutions.md) as a durable implementation handoff for the active `MedRecProImportClass` and `MedRecProConsole` compiler/analyzer warnings supplied in the session.
+
+**Plan details.** The plan groups required fixes into XML documentation cleanup, helper nullability remediation, parser/service nullability remediation, console/analyzer fixes, focused tests, build validation, and final hygiene checks. It keeps cross-project cref cleanup scoped to documentation text instead of adding reverse project references, and it calls out the Orange Book raw-SQL whitelist requirement for `EF1002`.
+
+**Verification.** Read back the beginning of the saved plan file after creation and confirmed it exists at `Plans/(pending) Warning Resolutions.md`. No code or tests were changed in this documentation-only handoff update.
+
+---
+
+### 2026-05-18 11:20 AM EST — Phase D Claude Guardrail Chain Slice
+
+Began Phase D of the table-standardization maintainability refactor by completing the Claude correction guardrail-chain slice and updating the saved phase plan so the remaining Phase D boundary is clear.
+
+**Implementation.** Added [ClaudeCorrectionGuardrails.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ClaudeCorrectionGuardrails.cs) with `ClaudeCorrectionContext`, `CorrectionGuardrailChain`, `CorrectionGuardrailRequest`, `CorrectionGuardrailResult`, and discrete guardrails for protected fields, TreatmentArm placebo-class flips, unsafe arm nulls, body-system arm proposals, header-token arm proposals, ParameterName supersets, percent-column type demotions, and text-row percent units. Updated [ClaudeApiCorrectionService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ClaudeApiCorrectionService.cs) so deterministic correction validation delegates through the ordered chain while preserving first-rejection-wins behavior and exact `AI_REJECTED:{field}:{reason}` tokens.
+
+**Tests and plan.** Added [ClaudeCorrectionGuardrailChainTests.cs](MedRecProTest/ClaudeCorrectionGuardrailChainTests.cs) to pin exact rejection reason tokens for every guardrail branch plus the happy-path accepted result. Updated [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md) to mark the Claude guardrail chain complete, keep Phase D in progress, and leave `ColumnStandardizationService` Phase 1 and Phase 2 decomposition as the remaining high-risk service work.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~ClaudeApiCorrectionServiceTests|FullyQualifiedName~ClaudeCorrectionGuardrailChainTests"` passed 39/39. `git diff --check` passed with line-ending warnings only. The focused test build still reports pre-existing warnings in unrelated files, including XML documentation, nullable, obsolete crypto API, and `Microsoft.CodeAnalysis` version-conflict warnings.
+
+---
+
+### 2026-05-18 12:14 PM EST — Phase D Column Standardization Phase 1 Pipeline
+
+Continued Phase D of the table-standardization maintainability refactor by completing the `ColumnStandardizationService` Phase 1 rule-ordering extraction while preserving observable arm/context correction behavior.
+
+**Implementation.** Added [ColumnStandardizationPhase1Pipeline.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ColumnStandardizationPhase1Pipeline.cs) as the ordered Phase 1 arm/context pipeline. Updated [ColumnStandardizationService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ColumnStandardizationService.cs) to be partial, initialize the Phase 1 pipeline, and delegate `applyPhase1_ArmContextCorrections` through it while keeping the individual rule bodies and content-classifier dependencies unchanged. The pipeline preserves Rule 11 pre-chain behavior, Rules 1-6 first-match semantics, and Rules 7-10 always-run cleanup behavior.
+
+**Tests and plan.** Added Phase 1 ordering characterization coverage in [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs): `Phase1Pipeline_Rule11RunsBeforeRule10` pins bracketed-N cleanup before trailing-percent cleanup, and `Phase1Pipeline_FirstArmMatchStillRunsContextRules` pins first-match arm correction followed by context cleanup. Updated [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md) to mark Phase 1 ordering extraction complete and leave Phase 2 sequential pipeline extraction as the next Phase D service-decomposition item.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~Phase1Pipeline_"` passed 2/2 before extraction and 2/2 after extraction. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~ColumnStandardizationServiceTests"` passed 209/209 after the final implementation. `git diff --check` passed with line-ending warnings only. The focused test build still reports pre-existing warnings in unrelated files, including XML documentation, nullable, obsolete crypto API, and `Microsoft.CodeAnalysis` version-conflict warnings.
+
+---
+
+### 2026-05-18 12:34 PM EST — Phase D Smoke Handoff Plan Updated
+
+Updated [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md) so a new session can resume from the current Phase D boundary with the latest smoke-test evidence.
+
+**Plan details.** Added the `standardization-report-20260518-122112.jsonl` versus `standardization-report-20260514-160846.jsonl` equivalence result: matching `71,419` lines, `137,888,361` bytes, `69,526` observations, `1,893` suppressions, all rows `claudeSkipped:true`, no AI flag lines, and a zero normalized canonical multiset diff after accounting for 9 `QC:PVTYPE_DISAMBIGUATED:Count` score-token drifts. Also updated the outstanding-items section to reflect that the next implementation slice is `ColumnStandardizationService.applyPhase2_ContentNormalization`.
+
+**Resume point.** Added a `New-Session Resume Point — 2026-05-18` section that records the Phase 2 order to preserve: inline N stripping, DoseRegimen triage, ParameterName cleanup, TreatmentArm cleanup, unit extraction, PK canonicalization, Unit normalization, ParameterCategory normalization, AE dictionary SOC resolution, and final dose scanning.
+
+**Verification.** Read back the updated verification, outstanding-items, infrastructure-smoke, and new-session resume sections after editing. No code or tests were changed in this documentation-only handoff update.
+
+---
+
+### 2026-05-18 12:59 PM EST — Phase D Service Decomposition Completed
+
+Completed the remaining plan-scoped Phase D implementation work for the table-standardization maintainability refactor.
+
+**Phase 2 pipeline.** Added [ColumnStandardizationPhase2Pipeline.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ColumnStandardizationPhase2Pipeline.cs) and wired [ColumnStandardizationService.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/ColumnStandardizationService.cs) through it so Phase 2 owns explicit pass ordering while the existing pass bodies remain in place. Added five `Phase2Pipeline_*` characterization tests in [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs) for inline-N stripping before DoseRegimen triage, DoseRegimen triage before ParameterName cleanup, subtype-unit extraction before PK canonicalization, SOC normalization before dictionary fill, and final dose scanning after column movement.
+
+**DI composition.** Added [TableStandardizationServiceCollectionExtensions.cs](MedRecProImportClass/Service/TransformationServices/TableStandardizationServiceCollectionExtensions.cs) with `AddTableStandardization(...)`, using idempotent parser registration and a shared orchestrator factory. Updated [TableStandardizationService.cs](MedRecProConsole/Services/TableStandardizationService.cs) to call the extension while leaving host-owned Claude/QC settings in the console layer. Added [TableStandardizationServiceCollectionExtensionsTests.cs](MedRecProTest/TableStandardizationServiceCollectionExtensionsTests.cs) to resolve the core graph and confirm repeated extension calls do not duplicate parser registrations.
+
+**Plan.** Updated [(pending) Table Standardization Services Maintainability Refactor.md](Plans/(pending)%20Table%20Standardization%20Services%20Maintainability%20Refactor.md) to mark Phase D implementation complete pending artifact smoke parity. The next gate is regenerating a standardization report and comparing it against `standardization-report-20260514-160846.jsonl`, allowing only the known `QC:PVTYPE_DISAMBIGUATED` confidence-token and report-order residue.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~Phase2Pipeline_"` passed 5/5 before extraction after correcting one expectation to current behavior, and passed 5/5 after extraction. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~ColumnStandardizationServiceTests"` passed 214/214. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~TableStandardizationServiceCollectionExtensionsTests"` passed 1/1. `dotnet test MedRecProTest\MedRecProTest.csproj --no-build --configuration Debug --filter "FullyQualifiedName!~ProductRenderingServiceTests&FullyQualifiedName!~StandardizationProgressTrackerTests"` passed 1,961/1,961 with 1 skipped. `git diff --check` passed with line-ending warnings only. A new full standardization JSONL artifact was not regenerated in this session.
 
 ---
