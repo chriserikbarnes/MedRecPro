@@ -93,14 +93,16 @@ namespace MedRecProImportClass.Service.ParsingServices
                 return result;
             }
 
+            var sectionElement = xEl;
+
             // Report parsing start for monitoring and debugging purposes
             reportProgress?.Invoke($"Starting Section parsing for " +
-                $"{xEl?.GetSplElement(sc.E.Title)?.Value?.Replace("\t", " ") ?? xEl?.Name.LocalName ?? "Undefined"}, " +
+                $"{sectionElement.GetSplElement(sc.E.Title)?.Value?.Replace("\t", " ") ?? sectionElement.Name.LocalName ?? "Undefined"}, " +
                 $"file: {context.FileNameInZip}");
 
             // 1. Create the core Section entity from the XML element
             // Parse section metadata and persist the primary section entity
-            var section = await createAndSaveSectionAsync(xEl, context);
+            var section = await createAndSaveSectionAsync(sectionElement, context);
 
             if (section?.SectionID == null)
             {
@@ -112,7 +114,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             result.SectionsCreated++;
 
             if (section != null)
-                result.MergeFrom(await buildSectionContent(xEl, context, reportProgress, section));
+                result.MergeFrom(await buildSectionContent(sectionElement, context, reportProgress, section));
 
             // Report parsing completion for monitoring purposes
             reportProgress?.Invoke($"Section completed: {result.SectionAttributesCreated} attributes, " +

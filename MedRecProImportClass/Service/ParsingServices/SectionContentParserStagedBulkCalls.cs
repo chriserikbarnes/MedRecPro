@@ -1008,7 +1008,8 @@ namespace MedRecProImportClass.Service.ParsingServices
         {
             #region implementation
 
-            if (!itemDtos.Any())
+            var stagedItemDtos = itemDtos ?? new List<TextListItemDto>();
+            if (stagedItemDtos.Count == 0)
                 return 0;
 
             var itemDbSet = dbContext.Set<TextListItem>();
@@ -1037,7 +1038,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Create new items - use navigation property when batch saving enabled
             var newItems = new List<TextListItem>();
 
-            foreach (var dto in itemDtos)
+            foreach (var dto in stagedItemDtos)
             {
                 // Skip if already exists
                 if (existingKeys.Contains((textListId, dto.SequenceNumber)))

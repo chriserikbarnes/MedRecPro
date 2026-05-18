@@ -1123,8 +1123,13 @@ namespace MedRecProImportClass.Service.ParsingServices
 #if DEBUG
                 // Diagnostic: Check for orphaned entities
                 var dbContext = context.GetDbContext();
-                var documentId = context?.Document?.DocumentID; // or however you get the document ID
-                var orphanResult = await logOrphanedContentEntitiesAsync(dbContext, documentId.Value, context?.Logger);
+                if (context!.Document?.DocumentID is not int documentId)
+                {
+                    Debug.WriteLine("Skipping orphan diagnostics because the current document ID is unavailable.");
+                    return;
+                }
+
+                var orphanResult = await logOrphanedContentEntitiesAsync(dbContext, documentId, context.Logger);
 
                 if (orphanResult.HasOrphans)
                 {

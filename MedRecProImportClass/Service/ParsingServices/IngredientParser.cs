@@ -1808,7 +1808,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             var nameList = distinctSubstances
                 .Where(dto => string.IsNullOrWhiteSpace(dto.SubstanceUNII) && !string.IsNullOrWhiteSpace(dto.SubstanceName))
-                .Select(dto => dto.SubstanceName.ToLower())
+                .Select(dto => dto.SubstanceName!.ToLowerInvariant())
                 .Distinct()
                 .ToList();
 
@@ -1838,7 +1838,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 if (existing.SubstanceName != null && existing.IngredientSubstanceID.HasValue)
                 {
-                    existingLookup[$"NAME:{existing.SubstanceName.ToLower()}"] = existing.IngredientSubstanceID.Value;
+                    existingLookup[$"NAME:{existing.SubstanceName.ToLowerInvariant()}"] = existing.IngredientSubstanceID.Value;
                 }
             }
 
@@ -1847,9 +1847,15 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             foreach (var dto in distinctSubstances)
             {
+                if (string.IsNullOrWhiteSpace(dto.SubstanceUNII) && string.IsNullOrWhiteSpace(dto.SubstanceName))
+                {
+                    context.Logger?.LogDebug("Skipping IngredientSubstance candidate with no UNII or substance name.");
+                    continue;
+                }
+
                 string lookupKey = !string.IsNullOrWhiteSpace(dto.SubstanceUNII)
                     ? $"UNII:{dto.SubstanceUNII}"
-                    : $"NAME:{dto.SubstanceName.ToLower()}";
+                    : $"NAME:{dto.SubstanceName!.ToLowerInvariant()}";
 
                 if (!existingLookup.ContainsKey(lookupKey))
                 {
@@ -1884,7 +1890,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     {
                         string lookupKey = !string.IsNullOrWhiteSpace(substance.UNII)
                             ? $"UNII:{substance.UNII}"
-                            : $"NAME:{substance.SubstanceName?.ToLower()}";
+                            : string.IsNullOrWhiteSpace(substance.SubstanceName) ? string.Empty : $"NAME:{substance.SubstanceName.ToLowerInvariant()}";
 
                         existingLookup[lookupKey] = substance.IngredientSubstanceID.Value;
                     }
@@ -1932,7 +1938,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 string substanceKey = !string.IsNullOrWhiteSpace(dto.SubstanceUNII)
                     ? $"UNII:{dto.SubstanceUNII}"
-                    : $"NAME:{dto.SubstanceName.ToLower()}";
+                    : string.IsNullOrWhiteSpace(dto.SubstanceName) ? string.Empty : $"NAME:{dto.SubstanceName.ToLowerInvariant()}";
 
                 if (substanceLookup.TryGetValue(substanceKey, out int substanceId))
                 {
@@ -2025,7 +2031,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 string substanceKey = !string.IsNullOrWhiteSpace(dto.SubstanceUNII)
                     ? $"UNII:{dto.SubstanceUNII}"
-                    : $"NAME:{dto.SubstanceName.ToLower()}";
+                    : string.IsNullOrWhiteSpace(dto.SubstanceName) ? string.Empty : $"NAME:{dto.SubstanceName.ToLowerInvariant()}";
 
                 if (substanceLookup.TryGetValue(substanceKey, out int substanceId))
                 {
@@ -2234,7 +2240,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Resolve substance ID
                 string substanceKey = !string.IsNullOrWhiteSpace(dto.SubstanceUNII)
                     ? $"UNII:{dto.SubstanceUNII}"
-                    : $"NAME:{dto.SubstanceName.ToLower()}";
+                    : string.IsNullOrWhiteSpace(dto.SubstanceName) ? string.Empty : $"NAME:{dto.SubstanceName.ToLowerInvariant()}";
 
                 if (!substanceLookup.TryGetValue(substanceKey, out int substanceId))
                 {

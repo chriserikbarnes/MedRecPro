@@ -43,7 +43,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// <summary>
     /// Per-TableCategory contract: which columns are Required, Expected, Optional, or
     /// NullExpected. Field sets use case-insensitive comparers keyed on the column names
-    /// from <see cref="ParsedObservation"/> (e.g. "ParameterName", "PrimaryValue", "Unit").
+    /// from <see cref="MedRecProImportClass.Models.ParsedObservation"/> (e.g. "ParameterName", "PrimaryValue", "Unit").
     /// </summary>
     /// <param name="Required">Columns that MUST be populated for this category. Drives the
     /// per-category NULL penalty in <see cref="IParseQualityService"/>.</param>

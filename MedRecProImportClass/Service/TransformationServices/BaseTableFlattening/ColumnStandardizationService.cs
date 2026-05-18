@@ -2144,7 +2144,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <returns>True if any correction was applied.</returns>
         /// <seealso cref="PkParameterDictionary"/>
         /// <seealso cref="PdMarkerDictionary"/>
-        /// <seealso cref="PopulationDetector.TryMatchLabel"/>
+        /// See also <c>PopulationDetector.TryMatchLabel</c>.
         /// <seealso cref="routeOrParkNameContent"/>
         private bool applyPkCanonicalization(ParsedObservation obs)
         {
@@ -2389,7 +2389,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="obs">The observation receiving the routed content.</param>
         /// <param name="oldName">The displaced ParameterName to route.</param>
         /// <seealso cref="applyPkCanonicalization"/>
-        /// <seealso cref="PopulationDetector.TryMatchLabel"/>
+        /// See also <c>PopulationDetector.TryMatchLabel</c>.
         /// <seealso cref="isDrugName"/>
         /// <seealso cref="DoseExtractor.Extract"/>
         private void routeOrParkNameContent(ParsedObservation obs, string oldName)
@@ -2521,7 +2521,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// R7 — Anchored pattern recognizing timepoint descriptors for the
         /// Timepoint routing step inside <see cref="routeOrParkNameContent"/>.
         /// Covers visit labels ("Day N", "Week N"), numeric durations
-        /// ("5 days", "24 hours"), clock ranges ("08:00 to 13:00"), C<N>h
+        /// ("5 days", "24 hours"), clock ranges ("08:00 to 13:00"), <c>C&lt;N&gt;h</c>
         /// concentration labels, and PK dosing state tokens ("single dose",
         /// "steady state", "pre-dose").
         /// </summary>

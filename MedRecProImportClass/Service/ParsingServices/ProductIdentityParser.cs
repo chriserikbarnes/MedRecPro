@@ -427,6 +427,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
 
             var repo = context.GetRepository<SpecializedKind>();
+            var logger = context.Logger;
             var allKinds = new List<SpecializedKind>();
 
             // Step 1: Parse ALL SpecializedKind entities, but don't save yet
@@ -469,7 +470,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var validatedKinds = SpecializedKindValidatorService.ValidateCosmeticCategoryRules(
                 allKinds,
                 documentTypeCode,
-                context.Logger,
+                logger,
                 out var rejectedKinds
             );
 
@@ -480,7 +481,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 await repo.CreateAsync(kind);
                 createdCount++;
-                context.Logger.LogInformation(
+                logger.LogInformation(
                     $"Created SpecializedKind: code={kind.KindCode}, codeSystem={kind.KindCodeSystem}, displayName={kind.KindDisplayName} for ProductID {product.ProductID}"
                 );
             }
@@ -897,6 +898,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
 
             var dtos = new List<SpecializedKindDto>();
+            var logger = context.Logger;
 
             // Parse ALL SpecializedKind entities from XML
             foreach (var asSpecializedKindEl in mmEl.SplElements(sc.E.AsSpecializedKind))
@@ -948,7 +950,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var validatedKinds = SpecializedKindValidatorService.ValidateCosmeticCategoryRules(
                 allKinds,
                 documentTypeCode,
-                context.Logger,
+                logger,
                 out var rejectedKinds
             );
 
@@ -981,7 +983,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Log each created kind
                 foreach (var kind in newKinds)
                 {
-                    context.Logger?.LogInformation(
+                    logger?.LogInformation(
                         $"Created SpecializedKind: code={kind.KindCode}, codeSystem={kind.KindCodeSystem}, displayName={kind.KindDisplayName} for ProductID {productId}"
                     );
                 }

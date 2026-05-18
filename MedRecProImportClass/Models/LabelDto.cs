@@ -1386,7 +1386,7 @@ namespace MedRecProImportClass.Models
         /// for optimized SPL template processing. Populated during export processing.
         /// </summary>
         /// <seealso cref="AuthorRendering"/>
-        /// <seealso cref="IAuthorRenderingService"/>
+        /// See also the web-layer <c>IAuthorRenderingService</c> rendering workflow.
         [Newtonsoft.Json.JsonIgnore]
         public List<AuthorRendering>? RenderedAuthors { get; set; }
     }

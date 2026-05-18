@@ -10,8 +10,7 @@ namespace MedRecProImportClass.Models
     /// Moved to Models namespace to avoid duplication across services.
     /// </summary>
     /// <seealso cref="SectionDto"/>
-    /// <seealso cref="ISectionHierarchyService"/>
-    /// <seealso cref="IStructuredBodyService"/>
+    /// See also the web-layer <c>ISectionHierarchyService</c> and <c>IStructuredBodyService</c> rendering workflows.
     /// <seealso cref="StructuredBodyViewModel"/>
     /// <example>
     /// <code>
@@ -50,7 +49,7 @@ namespace MedRecProImportClass.Models
         /// </summary>
         /// <seealso cref="SectionDto"/>
         /// <seealso cref="RootSections"/>
-        /// <seealso cref="IStructuredBodyService.HasStandaloneSections"/>
+        /// See also <c>IStructuredBodyService.HasStandaloneSections</c>.
         /// <example>
         /// <code>
         /// foreach(var standaloneSection in organizedStructure.StandaloneSections)
@@ -73,8 +72,8 @@ namespace MedRecProImportClass.Models
         /// </summary>
         /// <seealso cref="SectionDto"/>
         /// <seealso cref="StandaloneSections"/>
-        /// <seealso cref="IStructuredBodyService.HasHierarchicalSections"/>
-        /// <seealso cref="ISectionHierarchyService.BuildChildSections"/>
+        /// See also <c>IStructuredBodyService.HasHierarchicalSections</c>.
+        /// See also <c>ISectionHierarchyService.BuildChildSections</c>.
         /// <example>
         /// <code>
         /// foreach(var rootSection in organizedStructure.RootSections)
@@ -103,8 +102,7 @@ namespace MedRecProImportClass.Models
     /// <seealso cref="OrganizedSectionStructure"/>
     /// <seealso cref="SectionRendering"/>
     /// <seealso cref="SectionDto"/>
-    /// <seealso cref="ISectionHierarchyService"/>
-    /// <seealso cref="IStructuredBodyService"/>
+    /// See also the web-layer <c>ISectionHierarchyService</c> and <c>IStructuredBodyService</c> rendering workflows.
     /// <example>
     /// <code>
     /// var viewModel = new StructuredBodyViewModel
@@ -161,7 +159,7 @@ namespace MedRecProImportClass.Models
         /// </summary>
         /// <seealso cref="OrganizedSectionStructure"/>
         /// <seealso cref="StructuredBody"/>
-        /// <seealso cref="ISectionHierarchyService.OrganizeSections"/>
+        /// See also <c>ISectionHierarchyService.OrganizeSections</c>.
         /// <example>
         /// <code>
         /// var standalones = viewModel.OrganizedSections.StandaloneSections;
@@ -270,7 +268,7 @@ namespace MedRecProImportClass.Models
         /// </summary>
         /// <seealso cref="OrganizedSections"/>
         /// <seealso cref="StandaloneSectionContexts"/>
-        /// <seealso cref="IStructuredBodyService.HasStandaloneSections"/>
+        /// See also <c>IStructuredBodyService.HasStandaloneSections</c>.
         /// <example>
         /// <code>
         /// if (viewModel.HasStandaloneSections)
@@ -298,7 +296,7 @@ namespace MedRecProImportClass.Models
         /// </summary>
         /// <seealso cref="OrganizedSections"/>
         /// <seealso cref="HierarchicalSectionContexts"/>
-        /// <seealso cref="IStructuredBodyService.HasHierarchicalSections"/>
+        /// See also <c>IStructuredBodyService.HasHierarchicalSections</c>.
         /// <example>
         /// <code>
         /// if (viewModel.HasHierarchicalSections)

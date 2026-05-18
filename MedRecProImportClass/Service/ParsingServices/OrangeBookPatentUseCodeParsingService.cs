@@ -21,7 +21,7 @@ namespace MedRecProImportClass.Service.ParsingServices
     /// as an embedded JSON resource (<c>OrangeBookPatentUseCodes.json</c>) in this assembly.
     ///
     /// This service is designed for a small, long-lived dataset (~4,400 rows) that does not
-    /// require batching. All records are upserted in a single <see cref="DbContext.SaveChangesAsync"/>
+    /// require batching. All records are upserted in a single <c>SaveChangesAsync</c>
     /// call. The upsert key is the natural primary key (<see cref="OrangeBook.PatentUseCodeDefinition.Code"/>).
     ///
     /// Follows the same constructor pattern as <see cref="OrangeBookPatentParsingService"/>
@@ -117,7 +117,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// pattern in <see cref="OrangeBookPatentParsingService"/>).
         ///
         /// The entire dataset (~4,400 rows) is upserted in a single
-        /// <see cref="DbContext.SaveChangesAsync"/> call since the data is small enough
+        /// <c>SaveChangesAsync</c> call since the data is small enough
         /// to not require batching.
         /// </remarks>
         /// <seealso cref="OrangeBookImportResult"/>

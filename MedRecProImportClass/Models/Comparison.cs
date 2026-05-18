@@ -379,7 +379,7 @@ namespace MedRecProImportClass.Models
     /// </example>
     /// <seealso cref="DocumentComparisonDifference"/>
     /// <seealso cref="Label.Document"/>
-    /// <seealso cref="IClaudeApiService"/>
+    /// See also the web-layer <c>IClaudeApiService</c> comparison workflow.
     /// <summary>
     /// Represents the comprehensive results of an AI-powered comparison analysis between
     /// SPL XML source data and its corresponding DTO JSON representation.

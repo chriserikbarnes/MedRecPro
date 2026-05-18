@@ -208,7 +208,6 @@ namespace MedRecProImportClass.Helpers
 
             #region implementation
             string token = string.Empty; ;
-            string? tokenKey;
 
             try
             {
@@ -250,7 +249,7 @@ namespace MedRecProImportClass.Helpers
             catch (Exception e)
             {
                 ErrorHelper.AddErrorMsg($"Util.GetBearerToken: {e.Message}");
-                throw e;
+                throw;
             } 
             #endregion
         }
@@ -282,7 +281,7 @@ namespace MedRecProImportClass.Helpers
                     var context = _httpContextAccessor?.HttpContext;
                     string? user = context?.User?.Identity?.Name;
 
-                    if (string.IsNullOrEmpty(user))
+                    if (string.IsNullOrEmpty(user) && OperatingSystem.IsWindows())
                     {
                         // If no user is found in the current context, attempt to get the user from WindowsIdentity.
                         // Note: Impersonation is different in .NET Core. If you still need impersonation logic,
@@ -803,12 +802,18 @@ namespace MedRecProImportClass.Helpers
         public static void SetValueFromString(this object target, string propertyName, string propertyValue)
         {
             #region implementation
-            PropertyInfo oProp = target?.GetType()?.GetProperty(propertyName);
-            Type tProp = oProp?.PropertyType;
+            if (target == null || string.IsNullOrEmpty(propertyName))
+            {
+                return;
+            }
+
+            PropertyInfo? oProp = target.GetType().GetProperty(propertyName);
+            Type? tProp = oProp?.PropertyType;
 
             //Nullable properties have to be treated differently, since we 
             //  use their underlying property to set the value in the object
             if (tProp != null
+                && oProp != null
                 && tProp.IsGenericType
                 && tProp.GetGenericTypeDefinition().Equals(typeof(Nullable<>)))
             {
@@ -822,7 +827,7 @@ namespace MedRecProImportClass.Helpers
                 }
 
                 //Get the underlying type property instead of the nullable generic
-                tProp = new NullableConverter(oProp.PropertyType).UnderlyingType;
+                tProp = new NullableConverter(oProp!.PropertyType).UnderlyingType;
             }
 
             //use the converter to get the correct value
@@ -850,11 +855,9 @@ namespace MedRecProImportClass.Helpers
         public static string GetSHA1HashString<T>(this T obj, bool recursion = false)
         {
             #region implementation
-            string ret = null;
-            string txt = null;
-            HashAlgorithm alg = SHA1.Create();
+            string ret = string.Empty;
+            using HashAlgorithm alg = SHA1.Create();
             StringBuilder sb = new StringBuilder();
-            List<string> objVals = new List<string>(10);
 
             try
             {
@@ -863,7 +866,7 @@ namespace MedRecProImportClass.Helpers
                     //when the object is a string
                     if (obj.GetType().Name.Equals("string", StringComparison.InvariantCultureIgnoreCase))
                     {
-                        txt = Convert.ToString(obj);
+                        string txt = Convert.ToString(obj) ?? string.Empty;
 
                         //get the hash code
                         byte[] hash = alg.ComputeHash(Encoding.UTF8.GetBytes(txt));
@@ -871,15 +874,18 @@ namespace MedRecProImportClass.Helpers
                         //build has from each byte
                         foreach (byte b in hash)
                         {
-                            sb?.Append(b.ToString("X2"));
+                            sb.Append(b.ToString("X2"));
                         }
 
-                        ret = sb?.ToString();
+                        ret = sb.ToString();
                     }
                     //this object is NOT a string
                     else
                     {
-                        ret = GetListHashString(obj as IEnumerable<T>);
+                        if (obj is IEnumerable<T> sequence)
+                        {
+                            ret = sequence.GetListHashString() ?? string.Empty;
+                        }
 
                         //the object wasn't a list
                         if (string.IsNullOrEmpty(ret) && !recursion)
@@ -1135,11 +1141,11 @@ namespace MedRecProImportClass.Helpers
         public static Guid? ConvertToGUID(this object a)
         {
             #region implementation
-            Guid? ret = null;
             try
             {
-                ret = Guid.Parse(Convert.ToString(a));
-                return ret;
+                return Guid.TryParse(Convert.ToString(a), out var parsed)
+                    ? parsed
+                    : null;
             }
             catch (Exception e)
             {
@@ -1233,13 +1239,13 @@ namespace MedRecProImportClass.Helpers
             #region implementation
             try
             {
-                var ret = (T)obj.GetType().GetProperty(propName)?.GetValue(obj, null);
-                return ret;
+                var value = obj.GetType().GetProperty(propName)?.GetValue(obj, null);
+                return value is T typedValue ? typedValue : default!;
             }
             catch (Exception e)
             {
                 ErrorHelper.AddErrorMsg("Util.GetPropertyValue: " + e);
-                return default(T);
+                return default!;
             }
             #endregion
         }
@@ -1261,9 +1267,9 @@ namespace MedRecProImportClass.Helpers
                 string ret = Convert.ToString(obj.GetType()
                     ?.GetProperty(propName)
                     ?.GetValue(obj, null)
-                    ?? string.Empty);
+                    ?? string.Empty) ?? string.Empty;
 
-                return ret;
+                return ret ?? string.Empty;
             }
             catch (Exception e)
             {
@@ -1284,14 +1290,14 @@ namespace MedRecProImportClass.Helpers
         public static string GetPropertyValueAsString(this object obj, string propName, string propType)
         {
             #region implementation
-            string ret;
+            string ret = string.Empty;
 
             try
             {
                 ret = Convert.ToString(obj.GetType()
                    ?.GetProperty(propName)
                    ?.GetValue(obj, null)
-                   ?? string.Empty);
+                   ?? string.Empty) ?? string.Empty;
 
                 if (ret != null
                     && ret != string.Empty
@@ -1304,7 +1310,7 @@ namespace MedRecProImportClass.Helpers
                    .ToShortDateString();
                 }
 
-                return ret;
+                return ret ?? string.Empty;
             }
             catch (Exception e)
             {

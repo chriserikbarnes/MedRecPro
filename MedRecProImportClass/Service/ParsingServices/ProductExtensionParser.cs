@@ -146,7 +146,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 await repo.CreateAsync(genMed);
                 createdCount++;
-                context.Logger.LogInformation($"Created GenericMedicine '{genericName}' for ProductID {product.ProductID}");
+                context.Logger?.LogInformation($"Created GenericMedicine '{genericName}' for ProductID {product.ProductID}");
             }
             return createdCount;
             #endregion

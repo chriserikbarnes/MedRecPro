@@ -516,7 +516,7 @@ namespace MedRecProConsole.Helpers
                         {
                             currentDatabaseName = dbName;
                             currentConnectionString = connString;
-                            AnsiConsole.MarkupLine($"[green]Database set to: {Markup.Escape(dbName)}[/]");
+                            AnsiConsole.MarkupLine($"[green]Database set to: {Markup.Escape(dbName ?? string.Empty)}[/]");
                         }
                         break;
 

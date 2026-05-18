@@ -27,7 +27,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <summary>
         /// Per-TableCategory contracts. Keys are the canonical document form; a separate
         /// alias map in <see cref="normalize"/> handles the underscore-uppercase variants
-        /// used by <see cref="ParsedObservation.TableCategory"/>.
+        /// used by <see cref="MedRecProImportClass.Models.ParsedObservation.TableCategory"/>.
         /// </summary>
         private static readonly Dictionary<string, CategoryContract> _contracts = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -59,7 +59,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /**************************************************************/
         /// <summary>
         /// Aliases for the uppercase-underscore forms used by
-        /// <see cref="ParsedObservation.TableCategory"/> that map to the documentation form
+        /// <see cref="MedRecProImportClass.Models.ParsedObservation.TableCategory"/> that map to the documentation form
         /// keys of <see cref="_contracts"/>.
         /// </summary>
         private static readonly Dictionary<string, string> _aliases = new(StringComparer.OrdinalIgnoreCase)

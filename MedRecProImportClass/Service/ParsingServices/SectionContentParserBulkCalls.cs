@@ -730,7 +730,6 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <seealso cref="SectionTextContent"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="Label"/>
-        /// <seealso cref=""/>
         public async Task<int> GetOrCreateTextListAndItemsAsync(
             XElement listEl,
             int sectionTextContentId,

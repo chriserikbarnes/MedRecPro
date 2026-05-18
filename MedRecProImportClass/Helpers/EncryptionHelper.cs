@@ -303,11 +303,7 @@ namespace MedRecProImportClass.Helpers
         {
             #region implementation (original code)
             var randomBytes = new byte[16]; // 16 Bytes will give us 128 bits.
-            using (var rngCsp = new RNGCryptoServiceProvider())
-            {
-                // Fill the array with cryptographically secure random bytes.
-                rngCsp.GetBytes(randomBytes);
-            }
+            RandomNumberGenerator.Fill(randomBytes);
             return randomBytes;
             #endregion
         }

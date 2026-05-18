@@ -168,6 +168,13 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             var result = new SplParseResult();
 
+            if (context == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Invalid parsing context provided for warning letter product information.");
+                return result;
+            }
+
             try
             {
                 // Find all manufacturedProduct elements within subject elements
@@ -194,7 +201,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                             }
 
                             // Create or retrieve existing product info record
-                            var createdProductInfo = await getOrCreateWarningLetterProductInfoAsync(productInfo, context);
+                            var createdProductInfo = await getOrCreateWarningLetterProductInfoAsync(productInfo, context!);
                             if (createdProductInfo != null)
                             {
                                 result.SectionAttributesCreated++;
@@ -283,7 +290,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     ItemCodesText = itemCodesText
                 };
             }
-            catch (Exception ex)
+            catch
             {
                 // Log error but don't throw - return null to indicate failure
                 return null;
@@ -604,7 +611,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 return null;
             }
-            catch (Exception ex)
+            catch
             {
                 // Log error but don't throw - return null to indicate failure
                 return null;

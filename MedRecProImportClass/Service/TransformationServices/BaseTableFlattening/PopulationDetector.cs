@@ -22,7 +22,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// - 0.5–0.8: MEDIUM — single-source extraction or partial match
     /// - &lt;0.5: LOW — heuristic guess or mismatch
     /// </remarks>
-    /// <seealso cref="ParsedObservation"/>
+    /// <seealso cref="MedRecProImportClass.Models.ParsedObservation"/>
     public static class PopulationDetector
     {
         #region Known Population Patterns

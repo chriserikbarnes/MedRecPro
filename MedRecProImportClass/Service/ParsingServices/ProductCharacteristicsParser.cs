@@ -496,13 +496,11 @@ namespace MedRecProImportClass.Service.ParsingServices
             var codeEl = charEl.GetSplElement(sc.E.Code);
             string? charCode = codeEl?.GetAttrVal(sc.A.CodeValue);
             string? charCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
-            string? originalText = charEl
-                ?.GetSplElement(sc.E.Value)
-                ?.GetSplElement(sc.E.OriginalText)
-                ?.Value;
-
             // Parse <value> node and its type
             var valueEl = charEl.GetSplElement(sc.E.Value);
+            string? originalText = valueEl == null
+                ? null
+                : valueEl.GetSplElement(sc.E.OriginalText)?.Value;
             string? valueType = valueEl?.GetXsiType();
 
             // Initialize all possible value fields to null
@@ -860,13 +858,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var codeEl = charEl.GetSplElement(sc.E.Code);
                     string? charCode = codeEl?.GetAttrVal(sc.A.CodeValue);
                     string? charCodeSystem = codeEl?.GetAttrVal(sc.A.CodeSystem);
-                    string? originalText = charEl
-                        ?.GetSplElement(sc.E.Value)
-                        ?.GetSplElement(sc.E.OriginalText)
-                        ?.Value;
-
                     // Parse <value> node and its type
                     var valueEl = charEl.GetSplElement(sc.E.Value);
+                    string? originalText = valueEl == null
+                        ? null
+                        : valueEl.GetSplElement(sc.E.OriginalText)?.Value;
                     string? valueType = valueEl?.GetXsiType();
 
                     // Initialize all possible value fields

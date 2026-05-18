@@ -441,6 +441,13 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Initialize result object to track processing outcome
             var result = new SplParseResult();
 
+            if (context == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Invalid parsing context provided for related-document parsing.");
+                return result;
+            }
+
             try
             {
                 #region duplicate prevention check
@@ -663,6 +670,13 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             var result = new SplParseResult();
 
+            if (context == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Invalid parsing context provided for compliance action parsing.");
+                return result;
+            }
+
             try
             {
                 // Look for compliance actions in subjectOf elements within the section
@@ -684,7 +698,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                         {
                             // Delegate to specialized compliance action parser
                             var complianceParser = new ComplianceActionParser();
-                            var complianceResult = await complianceParser.ParseAsync(subjectEl, context, reportProgress);
+                            var complianceResult = await complianceParser.ParseAsync(subjectEl, context!, reportProgress);
 
                             // Merge results to accumulate counts and errors
                             result.MergeFrom(complianceResult);
@@ -1427,7 +1441,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 // Get all valid SectionTextContentIDs for this document
                 var validContentIds = await dbContext.Set<SectionTextContent>()
-                    .Where(c => sectionIds.Contains(c.SectionID.Value))
+                    .Where(c => c.SectionID.HasValue && sectionIds.Contains(c.SectionID.Value))
                     .Select(c => c.SectionTextContentID)
                     .ToListAsync();
 
@@ -1631,7 +1645,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var sectionIdSet = new HashSet<int?>(sectionIds);
 
                 var allHighlights = await dbContext.Set<SectionExcerptHighlight>()
-                    .Where(h => sectionIdSet.Contains(h.SectionID.Value) ||
+                    .Where(h => (h.SectionID.HasValue && sectionIdSet.Contains(h.SectionID.Value)) ||
                                 h.SectionID == null ||
                                 h.SectionID <= 0)
                     .Select(h => new { h.SectionExcerptHighlightID, h.SectionID })
@@ -1653,7 +1667,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // 8. ORPHANED SectionTextContent (ParentID doesn't exist)
                 // --------------------------------------------------------------
                 var allContent = await dbContext.Set<SectionTextContent>()
-                    .Where(c => sectionIds.Contains(c.SectionID.Value))
+                    .Where(c => c.SectionID.HasValue && sectionIds.Contains(c.SectionID.Value))
                     .Select(c => new { c.SectionTextContentID, c.ParentSectionTextContentID, c.SectionID })
                     .ToListAsync();
 

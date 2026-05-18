@@ -51,7 +51,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>Database context for bulk writes.</summary>
-        private readonly ApplicationDbContext _dbContext;
+        private readonly ApplicationDbContext _dbContext = null!;
 
         /**************************************************************/
         /// <summary>Logger for progress and diagnostics.</summary>
@@ -280,6 +280,7 @@ namespace MedRecProImportClass.Service.TransformationServices
         /// <param name="resumeFromId">Optional TextTableID to resume from (skips truncate, starts from this ID).</param>
         /// <param name="maxBatches">Optional maximum number of batches to process. Null = all.</param>
         /// <param name="rowProgress">Optional per-table progress callback for UI updates within each batch.</param>
+        /// <param name="disableBioequivalentDedup">When true, bypass Stage 0 bioequivalent dedup.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Total observations written.</returns>
         public async Task<int> ProcessAllAsync(

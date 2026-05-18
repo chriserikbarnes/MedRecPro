@@ -1598,7 +1598,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     continue;
 
                 // Determine telecom type: "tel", "mailto", "fax"
-                string telecomType = null;
+                string? telecomType = null;
                 if (value.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) telecomType = "tel";
                 else if (value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) telecomType = "mailto";
                 else if (value.StartsWith("fax:", StringComparison.OrdinalIgnoreCase)) telecomType = "fax";
@@ -1712,7 +1712,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     continue;
 
                 // Determine telecom type based on protocol prefix
-                string telecomType = null;
+                string? telecomType = null;
                 if (value.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) telecomType = "tel";
                 else if (value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) telecomType = "mailto";
                 else if (value.StartsWith("fax:", StringComparison.OrdinalIgnoreCase)) telecomType = "fax";

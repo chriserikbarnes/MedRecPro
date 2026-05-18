@@ -161,20 +161,20 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (result.Errors.Any())
                 {
                     result.Success = false;
-                    context?.Logger?.LogDebug("REMS parsing completed with validation errors for {FileName}. Errors: {Errors}",
-                        context.FileNameInZip, string.Join("; ", result.Errors));
+                    context.Logger?.LogDebug("REMS parsing completed with validation errors for {FileName}. Errors: {Errors}",
+                        context.FileNameInZip ?? string.Empty, string.Join("; ", result.Errors));
                 }
 
                 // Report parsing completion for monitoring purposes
                 reportProgress?.Invoke($"REMS parsing completed. Entities created: {result.ProductElementsCreated}, " +
-                    $"Validation errors: {result.Errors.Count} for {context.FileNameInZip}");
+                    $"Validation errors: {result.Errors.Count} for {context.FileNameInZip ?? string.Empty}");
             }
             catch (Exception ex)
             {
                 // Handle unexpected errors and log them for debugging
                 result.Success = false;
                 result.Errors.Add($"An unexpected error occurred while parsing REMS: {ex.Message}");
-                context?.Logger?.LogError(ex, "Error processing REMS elements for {FileName}", context.FileNameInZip);
+                context?.Logger?.LogError(ex, "Error processing REMS elements for {FileName}", context.FileNameInZip ?? string.Empty);
             }
 
             return result;
@@ -302,6 +302,11 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
 
             var dbContext = context.GetDbContext();
+            if (context.CurrentSection?.SectionID is not int sectionId)
+            {
+                result.ValidationErrors.Add("REMS Protocol validation: Current section ID is required.");
+                return result;
+            }
 
             // Find all subject2/substanceAdministration/componentOf/protocol elements
             foreach (var substanceAdminEl in sectionEl.SplElements(sc.E.Subject2, sc.E.SubstanceAdministration))
@@ -312,19 +317,19 @@ namespace MedRecProImportClass.Service.ParsingServices
                 try
                 {
                     // Create or get the protocol entity with validation
-                    var protocolCreateResult = await getOrCreateProtocolAsync(dbContext, protocolEl, context.CurrentSection.SectionID.Value, context);
+                    var protocolCreateResult = await getOrCreateProtocolAsync(dbContext, protocolEl, sectionId, context!);
                     result.EntitiesCreated += protocolCreateResult.EntitiesCreated;
                     result.ValidationErrors.AddRange(protocolCreateResult.ValidationErrors);
 
                     // Parse approval information if this is the first protocol mention (23.2.8)
                     if (protocolCreateResult.Protocol?.ProtocolID.HasValue == true)
                     {
-                        var approvalResult = await parseAndSaveRemsApprovalAsync(substanceAdminEl, protocolCreateResult.Protocol.ProtocolID.Value, dbContext, context);
+                        var approvalResult = await parseAndSaveRemsApprovalAsync(substanceAdminEl, protocolCreateResult.Protocol.ProtocolID.Value, dbContext, context!);
                         result.EntitiesCreated += approvalResult.EntitiesCreated;
                         result.ValidationErrors.AddRange(approvalResult.ValidationErrors);
 
                         // Parse requirements and monitoring observations for this protocol
-                        var requirementsResult = await parseRequirementsForProtocolAsync(protocolEl, protocolCreateResult.Protocol.ProtocolID.Value, context);
+                        var requirementsResult = await parseRequirementsForProtocolAsync(protocolEl, protocolCreateResult.Protocol.ProtocolID.Value, context!);
                         result.EntitiesCreated += requirementsResult.EntitiesCreated;
                         result.ValidationErrors.AddRange(requirementsResult.ValidationErrors);
                     }
@@ -465,7 +470,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             var result = new ParseOperationResult();
 
-            if (context?.ServiceProvider == null)
+            if (context == null || context.ServiceProvider == null)
             {
                 return result;
             }
@@ -483,13 +488,13 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                     if (requirementEl != null)
                     {
-                        var componentResult = await parseRequirementComponentAsync(componentEl, requirementEl, protocolId, false, dbContext, context);
+                        var componentResult = await parseRequirementComponentAsync(componentEl, requirementEl, protocolId, false, dbContext, context!);
                         result.EntitiesCreated += componentResult.EntitiesCreated;
                         result.ValidationErrors.AddRange(componentResult.ValidationErrors);
                     }
                     else if (monitoringObsEl != null)
                     {
-                        var componentResult = await parseRequirementComponentAsync(componentEl, monitoringObsEl, protocolId, true, dbContext, context);
+                        var componentResult = await parseRequirementComponentAsync(componentEl, monitoringObsEl, protocolId, true, dbContext, context!);
                         result.EntitiesCreated += componentResult.EntitiesCreated;
                         result.ValidationErrors.AddRange(componentResult.ValidationErrors);
                     }
@@ -916,7 +921,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             var result = new ParseOperationResult();
 
-            if (context == null || context?.ServiceProvider == null || context.CurrentSection?.SectionID == null)
+            if (context == null || context.ServiceProvider == null || context.CurrentSection?.SectionID is not int sectionId)
             {
                 return result;
             }
@@ -928,7 +933,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 try
                 {
-                    var materialResult = await parseRemsMaterialDocumentAsync(documentEl, context.CurrentSection.SectionID.Value, dbContext, context);
+                    var materialResult = await parseRemsMaterialDocumentAsync(documentEl, sectionId, dbContext, context!);
                     result.EntitiesCreated += materialResult.EntitiesCreated;
                     result.ValidationErrors.AddRange(materialResult.ValidationErrors);
                 }
@@ -1088,7 +1093,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             #region implementation
             var result = new ParseOperationResult();
 
-            if (context?.ServiceProvider == null || context.CurrentSection?.SectionID == null)
+            if (context == null || context.ServiceProvider == null || context.CurrentSection?.SectionID is not int sectionId)
             {
                 return result;
             }
@@ -1100,7 +1105,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 try
                 {
-                    var resourceResult = await parseElectronicResourceDocumentAsync(documentEl, context.CurrentSection.SectionID.Value, dbContext, context);
+                    var resourceResult = await parseElectronicResourceDocumentAsync(documentEl, sectionId, dbContext, context!);
                     result.EntitiesCreated += resourceResult.EntitiesCreated;
                     result.ValidationErrors.AddRange(resourceResult.ValidationErrors);
                 }

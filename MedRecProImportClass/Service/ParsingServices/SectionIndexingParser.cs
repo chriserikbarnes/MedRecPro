@@ -383,7 +383,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     count++;
 
                     // Parse characteristics for this moiety
-                    count += await parseAndSaveCharacteristicsAsync(dbContext, moietyEl, moiety, context);
+                    count += await parseAndSaveCharacteristicsAsync(dbContext, moietyEl, moiety, context!);
 
                     context?.Logger?.LogDebug("Created moiety {MoietyID} (sequence {Sequence}) with {CharCount} characteristics",
                         moiety.MoietyID, sequenceNumber, moietyEl.SplElements(sc.E.SubjectOf, sc.E.Characteristic).Count());
@@ -772,7 +772,7 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// </remarks>
         /// <seealso cref="processActiveMoietyIndexing"/>
         /// <seealso cref="extractPharmacologicClassFromGeneralizedKind"/>
-        /// <seealso cref="processPharmacologicClassNames"/>
+        /// See also <c>processPharmacologicClassNames</c>.
         /// <seealso cref="createPharmacologicClassLink"/>
         /// <seealso cref="processNestedHierarchies"/>
         private async Task<int> processSpecializedKindElement(
@@ -2702,6 +2702,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             if (!validateProductContext(context, DbParsingConstants.EquivalentEntityType))
                 return;
 
+            var productId = context.CurrentProduct!.ProductID!.Value;
             var dbContext = context.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
 
             try
@@ -2712,7 +2713,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Use getOrCreate pattern to avoid duplicates
                 var equivalentEntity = await getOrCreateEquivalentEntity(
                     dbContext,
-                    context.CurrentProduct?.ProductID ?? 0,
+                    productId,
                     extractedData.EquivalenceCode,
                     extractedData.EquivalenceCodeSystem,
                     extractedData.DefiningMaterialKindCode);
@@ -2720,7 +2721,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Log successful operation
                 context?.Logger?.LogInformation(
                     DbParsingConstants.EquivalentEntityLogMessage,
-                    context.CurrentProduct.ProductID,
+                    productId,
                     equivalentEntity.EquivalenceCode);
             }
             catch (Exception ex)
@@ -2764,6 +2765,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
 
 
+            var productId = context.CurrentProduct!.ProductID!.Value;
             var dbContext = context.ServiceProvider!.GetRequiredService<ApplicationDbContext>();
 
             try
@@ -2774,7 +2776,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Use getOrCreate pattern to avoid duplicates
                 var marketingCategory = await getOrCreateMarketingCategory(
                     dbContext,
-                    context.CurrentProduct?.ProductID ?? 0,
+                    productId,
                     extractedData.ApplicationOrMonographIDValue,
                     extractedData.ApplicationOrMonographIDOID,
                     extractedData.CategoryCode,
@@ -2786,7 +2788,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 context?.Logger?.LogInformation(
                     DbParsingConstants.MarketingCategoryLogMessage,
                     marketingCategory.ApplicationOrMonographIDValue,
-                    context?.CurrentProduct?.ProductID ?? 0);
+                    productId);
             }
             catch (Exception ex)
             {
@@ -2900,9 +2902,9 @@ namespace MedRecProImportClass.Service.ParsingServices
         private static async Task<EquivalentEntity> getOrCreateEquivalentEntity(
             ApplicationDbContext dbContext,
             int productId,
-            string equivalenceCode,
-            string equivalenceCodeSystem,
-            string definingMaterialKindCode)
+            string? equivalenceCode,
+            string? equivalenceCodeSystem,
+            string? definingMaterialKindCode)
         {
             #region implementation
             // Check for existing record to avoid duplicates
@@ -2956,12 +2958,12 @@ namespace MedRecProImportClass.Service.ParsingServices
         private static async Task<MarketingCategory> getOrCreateMarketingCategory(
             ApplicationDbContext dbContext,
             int productId,
-            string applicationOrMonographIDValue,
-            string applicationOrMonographIDOID,
-            string categoryCode,
-            string categoryCodeSystem,
-            string categoryDisplayName,
-            string territoryCode)
+            string? applicationOrMonographIDValue,
+            string? applicationOrMonographIDOID,
+            string? categoryCode,
+            string? categoryCodeSystem,
+            string? categoryDisplayName,
+            string? territoryCode)
         {
             #region implementation
             // Check for existing record to avoid duplicates

@@ -142,7 +142,7 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
-        /// Named confidence tiers assigned by <see cref="ValueParser"/> based on pattern specificity.
+        /// Named confidence tiers assigned by <see cref="MedRecProImportClass.Service.TransformationServices.ValueParser"/> based on pattern specificity.
         /// These are ordinal ambiguity rankings, not calibrated probabilities.
         /// The 16 parse patterns map to exactly 5 tiers; downstream adjustments
         /// multiply against these baselines (never overwrite).
@@ -250,7 +250,7 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Parse confidence score from 0.0 to 1.0 based on the <see cref="ConfidenceTier"/> system.
-        /// Assigned by <see cref="ValueParser"/> at parse time, then adjusted multiplicatively
+        /// Assigned by <see cref="MedRecProImportClass.Service.TransformationServices.ValueParser"/> at parse time, then adjusted multiplicatively
         /// by downstream parsers using <see cref="ConfidenceAdjustment"/> factors.
         /// </summary>
         /// <seealso cref="ConfidenceTier"/>

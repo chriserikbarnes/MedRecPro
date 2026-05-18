@@ -896,7 +896,7 @@ namespace MedRecProImportClass.Models
         /// <summary>
         /// Gets or sets JWT token for the user, if applicable.
         /// </summary>
-        public string Token { get; set; }
+        public string Token { get; set; } = string.Empty;
 
         #endregion
     }

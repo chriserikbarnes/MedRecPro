@@ -76,6 +76,22 @@ namespace MedRecProConsole.Services
             "OrangeBookApplicant"
         };
 
+        /**************************************************************/
+        /// <summary>
+        /// Closed whitelist for raw SQL table identifiers that cannot be parameterized.
+        /// </summary>
+        private static readonly HashSet<string> OrangeBookTableNameWhitelist = new(
+            OrangeBookTableNames,
+            StringComparer.Ordinal);
+
+        /**************************************************************/
+        /// <summary>
+        /// Strict SQL identifier pattern used after the fixed whitelist check.
+        /// </summary>
+        private static readonly Regex SqlIdentifierPattern = new(
+            "^[A-Za-z_][A-Za-z0-9_]*$",
+            RegexOptions.Compiled);
+
         /// <summary>
         /// Regex pattern to extract progress row counts from batch messages.
         /// Matches strings like "(10000/15000 rows processed)".
@@ -294,17 +310,23 @@ namespace MedRecProConsole.Services
             {
                 try
                 {
+                    var validatedTableName = validateOrangeBookTableName(tableName);
+
                     // Try TRUNCATE first (faster, resets identity columns)
-                    await context.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE [dbo].[{tableName}]");
-                    AnsiConsole.MarkupLine($"  [green][[T]][/] {Markup.Escape(tableName)}");
+                    var truncateSql = string.Concat("TRUNCATE TABLE [dbo].[", validatedTableName, "]");
+                    await context.Database.ExecuteSqlRawAsync(truncateSql);
+                    AnsiConsole.MarkupLine($"  [green][[T]][/] {Markup.Escape(validatedTableName)}");
                 }
                 catch
                 {
                     try
                     {
+                        var validatedTableName = validateOrangeBookTableName(tableName);
+
                         // Fall back to DELETE if TRUNCATE fails (indexed views, etc.)
-                        await context.Database.ExecuteSqlRawAsync($"DELETE FROM [dbo].[{tableName}]");
-                        AnsiConsole.MarkupLine($"  [yellow][[D]][/] {Markup.Escape(tableName)}");
+                        var deleteSql = string.Concat("DELETE FROM [dbo].[", validatedTableName, "]");
+                        await context.Database.ExecuteSqlRawAsync(deleteSql);
+                        AnsiConsole.MarkupLine($"  [yellow][[D]][/] {Markup.Escape(validatedTableName)}");
                     }
                     catch (Exception ex)
                     {
@@ -318,6 +340,27 @@ namespace MedRecProConsole.Services
             AnsiConsole.WriteLine();
 
             suppressConsoleOutput();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates fixed Orange Book table identifiers before raw SQL execution.
+        /// </summary>
+        /// <param name="tableName">Candidate table name from the fixed table list.</param>
+        /// <returns>The validated table name.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the table name is not in the fixed whitelist or is not a SQL identifier.</exception>
+        private static string validateOrangeBookTableName(string tableName)
+        {
+            #region implementation
+
+            if (!OrangeBookTableNameWhitelist.Contains(tableName) || !SqlIdentifierPattern.IsMatch(tableName))
+            {
+                throw new InvalidOperationException($"Unsafe Orange Book table name rejected: {tableName}");
+            }
+
+            return tableName;
 
             #endregion
         }

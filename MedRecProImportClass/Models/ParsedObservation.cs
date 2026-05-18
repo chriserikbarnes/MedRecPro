@@ -163,7 +163,7 @@ namespace MedRecProImportClass.Models
         /**************************************************************/
         /// <summary>
         /// Numeric dose value extracted from <see cref="DoseRegimen"/> or <see cref="TreatmentArm"/>
-        /// via <see cref="DoseExtractor"/>. 0.0 for placebo arms. Null when no dose is recoverable.
+        /// via <see cref="MedRecProImportClass.Service.TransformationServices.DoseExtractor"/>. 0.0 for placebo arms. Null when no dose is recoverable.
         /// </summary>
         /// <seealso cref="DoseUnit"/>
         /// <seealso cref="DoseRegimen"/>

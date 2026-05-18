@@ -11,7 +11,7 @@ namespace MedRecProImportClass.Models
     /// the AI chat, allowing the AI to respond appropriately to import outcomes.
     /// The structure matches the frontend's extractImportResults() output.
     /// </remarks>
-    /// <seealso cref="AiAgentRequest"/>
+    /// See also the web-layer <c>AiAgentRequest</c> import-result payload.
     public class ImportResultContext
     {
         /**************************************************************/

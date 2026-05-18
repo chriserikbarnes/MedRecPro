@@ -33,7 +33,7 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// context-specific type promotion (e.g., bare numbers in AE tables → Percentage).
     ///
     /// ## Reuse
-    /// Uses <see cref="Helpers.TextUtil.RemoveUnwantedTags"/> for HTML stripping
+    /// Uses <c>TextUtil.RemoveUnwantedTags</c> for HTML stripping
     /// and <see cref="Helpers.TextUtil.NormalizeXmlWhitespace"/> for whitespace normalization.
     /// </remarks>
     /// <seealso cref="ParsedValue"/>

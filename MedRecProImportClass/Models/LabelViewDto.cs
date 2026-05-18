@@ -3,19 +3,14 @@ using MedRecProImportClass.Service;
 
 namespace MedRecProImportClass.Models
 {
-    /*******************************************************************************/
-    /// <summary>
-    /// Container for all SPL Label navigation view DTOs. These DTOs provide
-    /// a flexible Dictionary-based structure for API responses with encrypted IDs
-    /// for security.
-    /// </summary>
-    /// <remarks>
-    /// All DTOs use the Dictionary&lt;string, object?&gt; pattern for flexible
-    /// serialization. Helper properties with [Newtonsoft.Json.JsonIgnore] provide
-    /// type-safe access to commonly used fields with automatic ID decryption.
-    /// </remarks>
-    /// <seealso cref="LabelView"/>
-    /// <seealso cref="DtoLabelAccess"/>
+    // Container for all SPL Label navigation view DTOs. These DTOs provide
+    // a flexible Dictionary-based structure for API responses with encrypted IDs
+    // for security.
+    //
+    // All DTOs use the Dictionary<string, object?> pattern for flexible
+    // serialization. Helper properties with [Newtonsoft.Json.JsonIgnore] provide
+    // type-safe access to commonly used fields with automatic ID decryption.
+    // See also LabelView and DtoLabelAccess.
 
     #region Application Number Navigation DTOs
 
