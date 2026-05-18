@@ -3947,3 +3947,15 @@ Completed the remaining plan-scoped Phase D implementation work for the table-st
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~Phase2Pipeline_"` passed 5/5 before extraction after correcting one expectation to current behavior, and passed 5/5 after extraction. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~ColumnStandardizationServiceTests"` passed 214/214. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --configuration Debug --filter "FullyQualifiedName~TableStandardizationServiceCollectionExtensionsTests"` passed 1/1. `dotnet test MedRecProTest\MedRecProTest.csproj --no-build --configuration Debug --filter "FullyQualifiedName!~ProductRenderingServiceTests&FullyQualifiedName!~StandardizationProgressTrackerTests"` passed 1,961/1,961 with 1 skipped. `git diff --check` passed with line-ending warnings only. A new full standardization JSONL artifact was not regenerated in this session.
 
 ---
+
+### 2026-05-18 2:09 PM EST — README Documentation Refresh
+
+Updated [MedRecProImportClass/README.md](MedRecProImportClass/README.md) and [MedRecProConsole/README.md](MedRecProConsole/README.md) from the current journal, project files, and CLI surfaces so the import-class and console documentation reflect the current Phase D table-standardization shape without changing code behavior.
+
+**Import README.** Documented `AddTableStandardization(...)`, the explicit Phase 1 and Phase 2 column-standardization pipelines, `ClaudeCorrectionGuardrails.cs` with first-rejection-wins `AI_REJECTED:*` behavior, Stage 5 AE helper decomposition, occurrence-aware `ObservationFlagSnapshotBuilder`, and current dependency versions including `Microsoft.ML` 5.0.0 and `HtmlSanitizer` 9.0.892.
+
+**Console README.** Updated Orange Book coverage, the interactive command list, table-standardization CLI options, markdown/JSONL diagnostic report behavior, parsed CLI operation boundaries around `parse-stages`, reporting helper files, and console package versions.
+
+**Verification.** Confirmed the two READMEs no longer contain stale `4.0.2`, `9.0.884`, or `8.0.0` dependency strings, compared the documented CLI options against `CommandLineArgs.cs`, `HelpDocumentation.cs`, and `appsettings.json`, and verified the expected new file names appear in the README updates. `dotnet build MedRecProImportClass\MedRecProImportClass.csproj --no-restore` passed with 146 pre-existing warnings and 0 errors. `dotnet build MedRecProConsole\MedRecProConsole.csproj --no-restore` passed with 3 pre-existing warnings and 0 errors. `git diff --check` passed with line-ending warnings only. The appsettings help text still contains a legacy `parse-stages` mention for `--json-log`; the README now documents the actual CLI parser behavior while leaving configuration text outside this README-only update.
+
+---

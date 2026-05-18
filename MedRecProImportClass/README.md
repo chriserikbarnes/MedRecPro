@@ -11,8 +11,8 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **SPL XML Parsing**: Complete parsing infrastructure for FDA SPL documents
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
-- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 41-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, five concrete section-aware parsers, structural-row suppression audit, category downgrade gates, 4-phase column standardization with per-category contract enforcement, deterministic parse-quality gate, shadow-mode QCNet diagnostics, Claude AI correction (gated by quality score), post-processing extraction, and automated validation
-- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service + `RelativeRiskCalculator` utility) are both shipped
+- **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 41-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, five concrete section-aware parsers, structural-row suppression audit, category downgrade gates, 4-phase column standardization with explicit Phase 1 / Phase 2 ordering pipelines, deterministic parse-quality gate, shadow-mode QCNet diagnostics, guarded Claude AI correction, post-processing extraction, automated validation, and shared DI registration through `AddTableStandardization(...)`
+- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service + helper decomposition + `RelativeRiskCalculator` utility) are both shipped
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -41,6 +41,7 @@ MedRecProImportClass/
 |   +-- ApplicationNumberParser.cs    # NDA/ANDA prefix strip + classification
 |   +-- DoseRegimenRoutingPolicy.cs   # Shared dose-regimen routing rules
 |   +-- ParsedObservationFieldAccess.cs # Reflection-free Get/Set/IsPopulated by column name
+|   +-- ObservationFlagSnapshotBuilder.cs # Occurrence-aware pre/post Claude flag snapshots for reports
 |   +-- ValidationFlagExtensions.cs   # Canonical "; "-delimited flag append
 |   +-- ...
 +-- Models/                 # Entity classes and DTOs
@@ -67,7 +68,8 @@ MedRecProImportClass/
     |   +-- OrangeBookPatentUseCodeParsingService.cs # Phase D: patent use code upsert
     |   +-- ...                   # SPL section parsers
     +-- ParsingValidators/        # Validation services
-    +-- TransformationServices/   # SPL Table Standardization pipeline
+    +-- TransformationServices/   # SPL Table Standardization pipeline and DI registration
+        +-- TableStandardizationServiceCollectionExtensions.cs # AddTableStandardization(...) service graph
         +-- BioequivalentLabelDedupService.cs   # Stage 0: ANDA + repackager dedup by Orange Book group
         +-- TableCellContextService.cs          # Stage 1: source view assembly
         +-- TableReconstructionService.cs       # Stage 2: table reconstruction
@@ -75,6 +77,10 @@ MedRecProImportClass/
         +-- PopulationDetector.cs               # Stage 3: population auto-detection
         +-- DoseExtractor.cs                    # Stage 3: dose number + unit extraction
         +-- BaseTableParser.cs                  # Stage 3: shared parser helpers
+        +-- ArmDefinitionExtractor.cs           # Stage 3: shared arm definition extraction
+        +-- ArmMetadataEnrichmentService.cs     # Stage 3: shared arm/sample-size metadata enrichment
+        +-- StructuralRowSuppressionService.cs  # Stage 3: shared suppression diagnostic helpers
+        +-- AeColumnContextResolver.cs          # Stage 3: AE arm/context recovery and suppression classification
         +-- ITableParserDiagnostics.cs          # Stage 3: optional suppressed-row diagnostic surface
         +-- PkTableParser.cs                    # Stage 3: pharmacokinetic tables
         +-- SimpleArmTableParser.cs             # Stage 3: single-header AE/efficacy
@@ -83,10 +89,13 @@ MedRecProImportClass/
         +-- EfficacyMultilevelTableParser.cs    # Stage 3: two-row header efficacy
         +-- TableParserRouter.cs                # Stage 3: section code -> parser routing
         +-- ColumnStandardizationService.cs     # Stage 3.25: 4-phase column contracts
+        +-- ColumnStandardizationPhase1Pipeline.cs # Stage 3.25: ordered AE/Efficacy arm/context rule chain
+        +-- ColumnStandardizationPhase2Pipeline.cs # Stage 3.25: ordered content-normalization pass chain
         +-- ColumnContractRegistry.cs           # Stage 3.25/4: per-category R/E/O/N column sets
         +-- AeParameterCategoryDictionaryService.cs # Stage 3.25: AE parameter -> SOC resolution (1189 entries)
         +-- ParseQualityService.cs              # Stage 3.4: deterministic parse-quality gate (drives Claude forwarding)
         +-- ClaudeApiCorrectionService.cs       # Stage 3.5: AI-powered correction (gated by Stage 3.4 score)
+        +-- ClaudeCorrectionGuardrails.cs       # Stage 3.5: deterministic first-rejection-wins correction guardrails
         +-- QCNetCorrectionService.cs           # Shadow-mode ML.NET classifiers — emits diagnostic flags only, does not correct
         +-- QCTrainingStore.cs                  # Persistent training data for the shadow-mode classifiers
         +-- TableParsingOrchestrator.cs         # Batch loop + stage sequencing + DB writes
@@ -96,6 +105,12 @@ MedRecProImportClass/
         +-- AdverseEventTableFlattening/        # Stage 5 (Phase 2): AE denormalization
         |   +-- IAdverseEventDenormalizationService.cs # Service contract
         |   +-- AdverseEventDenormalizationService.cs  # Population service (truncate + stream + classify + write)
+        |   +-- SourceRowEligibility.cs                # Source row inclusion / exclusion rules
+        |   +-- ComparatorGrouper.cs                   # Study-group keying for comparator selection
+        |   +-- ComparatorSelector.cs                  # Placebo / low-dose / no-comparator cascade
+        |   +-- AeStatEntityBuilder.cs                 # Entity projection plus RR/DNRR calculation wiring
+        |   +-- AeDenormalizationConstants.cs          # Shared calculation method / flag constants
+        |   +-- IPlaceboArmClassifier.cs               # Shared placebo-arm classifier contract and default wrapper
         |   +-- RelativeRiskCalculator.cs              # Pure-function Katz log-method RR/CI + log-linear DNRR + trial-design classifier
         +-- Dictionaries/                       # Shared single-source-of-truth lookups
             +-- CategoryProfileRegistry.cs      # Per-TableCategory profiles (consolidates 6 prior dicts)
@@ -111,15 +126,28 @@ MedRecProImportClass/
 | Package | Version | Purpose |
 |---------|---------|---------|
 | Microsoft.EntityFrameworkCore.SqlServer | 8.0.15 | Database access |
+| Microsoft.EntityFrameworkCore.Design | 8.0.15 | EF Core design-time tooling |
 | Microsoft.AspNetCore.Identity.EntityFrameworkCore | 8.0.15 | User entity support |
 | Microsoft.Extensions.Hosting | 9.0.4 | Background service support |
+| Microsoft.Extensions.Hosting.Abstractions | 9.0.4 | Host abstractions for non-web clients |
 | Microsoft.Extensions.Logging | 9.0.4 | Logging infrastructure |
-| Microsoft.ML | 4.0.2 | ML.NET — backs the shadow-mode `QCNetCorrectionService` classifiers (diagnostic flags only; not part of the active correction flow) |
+| Microsoft.Extensions.Logging.Abstractions | 9.0.4 | Logging abstractions used by services |
+| Microsoft.Extensions.Configuration.Abstractions | 9.0.4 | Configuration contracts |
+| Microsoft.Extensions.DependencyInjection.Abstractions | 9.0.4 | DI extension contracts |
+| Microsoft.Extensions.Caching.Memory | 9.0.4 | In-memory cache support |
+| Microsoft.ML | 5.0.0 | ML.NET shadow-mode `QCNetCorrectionService` classifiers (diagnostic flags only; not part of the active correction flow) |
 | Dapper | 2.1.66 | Micro-ORM for complex queries |
+| Dapper.Contrib | 2.0.78 | Dapper helper extensions |
+| Microsoft.Data.SqlClient | 6.0.2 | SQL Server client APIs |
 | Newtonsoft.Json | 13.0.3 | JSON serialization |
 | Microsoft.Extensions.Http | 9.0.4 | HttpClient factory for Claude API |
 | HtmlAgilityPack | 1.12.1 | HTML parsing |
-| HtmlSanitizer | 9.0.884 | HTML sanitization |
+| HtmlSanitizer | 9.0.892 | HTML sanitization |
+| Humanizer | 2.14.1 | Text formatting helpers |
+| System.Runtime.Caching | 9.0.4 | Runtime cache support |
+| AngleSharp | 0.17.1 | HTML/CSS parsing support |
+| Microsoft.AspNetCore.Http.Abstractions | 2.3.0 | `IFormFile` / HTTP context abstractions retained for import compatibility |
+| Microsoft.AspNetCore.Http.Features | 5.0.17 | HTTP feature abstractions retained for import compatibility |
 
 ## Usage
 
@@ -142,6 +170,29 @@ services.AddScoped<SplDataService>();
 services.AddScoped<SplParsingService>();
 
 var provider = services.BuildServiceProvider();
+```
+
+### Table Standardization Setup
+
+Hosts that need the table-standardization pipeline can register the shared service graph with `AddTableStandardization(...)`. The extension owns Stage 1 through Stage 5 parser, validation, standardization, and AE denormalization registrations while leaving host-specific configuration, logging providers, database provider setup, Claude settings, and QC model settings in the application host.
+
+```csharp
+using MedRecProImportClass.Data;
+using MedRecProImportClass.Service.TransformationServices;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+var services = new ServiceCollection();
+
+services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(connectionString));
+
+services.AddTableStandardization(
+    includeValidation: true,
+    dropRowsMissingArmNOrPrimaryValue: false);
+
+var provider = services.BuildServiceProvider();
+var orchestrator = provider.GetRequiredService<ITableParsingOrchestrator>();
 ```
 
 ### Importing SPL Files
@@ -260,7 +311,7 @@ Stage 3: Section-Aware Parsing
   TableParserRouter -> ITableParser (5 concrete parsers) -> List<ParsedObservation> + suppression audit
         |
 Stage 3.25: Column Standardization (deterministic)
-  ColumnStandardizationService -> 4-phase pipeline (all categories)
+  ColumnStandardizationService -> Phase1ArmContextPipeline + Phase2ContentNormalizationPipeline + Phase 3/4 contracts
         |
 Stage 3.35: PK Analyzability Filter
   TableParsingOrchestrator -> drops non-analyzable PK rows before correction/write
@@ -273,7 +324,7 @@ Stage 3.45: Post-QC PK Analyzability Filter
   TableParsingOrchestrator -> defense-in-depth recheck before Claude/write
         |
 Stage 3.5: Claude AI Correction (gated by Stage 3.4 quality score)
-  ClaudeApiCorrectionService -> semantic review + field correction
+  ClaudeApiCorrectionService -> semantic review + CorrectionGuardrailChain -> field correction / AI_REJECTED flags
         |
 Stage 3.6: Post-Processing Extraction
   ColumnStandardizationService.PostProcessExtraction -> catch values AI corrected into extractable form
@@ -284,8 +335,8 @@ Stage 4: Validation
   RowValidationService + TableValidationService + BatchValidationService -> BatchValidationReport
         |
 Stage 5: AE Denormalization (Phase 1 SQL DDL + Phase 2 service both shipped)
-  AdverseEventDenormalizationService -> tmp_FlattenedAdverseEventTable
-        (one row per AE source row except the comparator chosen per study group;
+  AdverseEventDenormalizationService + helper services -> tmp_FlattenedAdverseEventTable
+        (one row per eligible AE source row except the comparator chosen per study group;
          RR/DNRR/CI pre-computed; PERSISTED log columns auto-maintained by SQL Server)
 ```
 
@@ -372,9 +423,11 @@ Recent parser work added category-aware value interpretation before values are c
 
 `ColumnStandardizationService` is a deterministic, rule-based service that processes ALL table categories (except SKIP) through a 4-phase pipeline. It corrects systematic misclassification caused by the diversity of FDA table layouts -- doses appearing as column headers, N-values in arm positions, study names in the wrong header row, etc.
 
+The service is now split into a partial class with explicit ordering helpers. `ColumnStandardizationPhase1Pipeline.cs` owns the AE/Efficacy arm/context rule order, and `ColumnStandardizationPhase2Pipeline.cs` owns the all-category content-normalization pass order. The individual rule bodies remain on `ColumnStandardizationService`, which keeps behavior stable while making the execution sequence testable.
+
 #### Phase 1: Arm/Context Corrections (AE + EFFICACY only)
 
-11 ordered rules applied most-specific to least-specific, relocating misclassified content from TreatmentArm and StudyContext to their correct columns:
+11 ordered rules relocate misclassified content from TreatmentArm and StudyContext to their correct columns. `Phase1ArmContextPipeline` preserves the legacy order: Rule 11 runs first, Rules 1-6 are first-match, and Rules 7-10 always run afterward.
 
 | Rule | Pattern | Action |
 |------|---------|--------|
@@ -396,7 +449,7 @@ Drug name identification uses an exact-match dictionary loaded from `vw_Products
 
 #### Phase 2: Content Normalization (ALL categories)
 
-Seven sub-passes clean up column content across all table categories:
+Ten ordered sub-passes clean up column content across all table categories. `Phase2ContentNormalizationPipeline` makes the dependency order explicit: inline N stripping before DoseRegimen triage, subtype unit extraction before PK canonicalization, SOC normalization before AE dictionary fill, and final dose scanning after column movement.
 
 | Sub-pass | Target Column | Key Operations |
 |----------|---------------|----------------|
@@ -405,8 +458,11 @@ Seven sub-passes clean up column content across all table categories:
 | `normalizeParameterName` | ParameterName | Removes caption echoes ("Table 3..."), header echoes ("n"), bare dose integers; decodes HTML entities; collapses OCR artifacts |
 | `normalizeTreatmentArm` | TreatmentArm | Removes header echoes ("Number of Patients"), generic labels ("Treatment", "PD"); extracts embedded N= and doses; routes study names -> StudyContext |
 | `extractUnitFromParameterSubtype` | ParameterSubtype | Extracts units from trailing parenthesized content in PK/DDI subtypes (e.g., `Cmax(pg/mL)` -> Subtype=`Cmax`, Unit=`pg/mL`; `Cmax(serum, mcg/mL)` -> Subtype=`Cmax, serum`, Unit=`mcg/mL`). Normalizes variant spellings. |
+| `applyPkCanonicalization` | PK columns | Applies PK parameter and unit dictionary normalization after subtype/unit extraction. |
 | `normalizeUnit` | Unit | Detects leaked column headers (>30 chars, drug names, keywords); normalizes variant spellings (`mcg h/mL` -> `mcg*h/mL`); extracts real units from verbose descriptions |
 | `normalizeParameterCategory` | ParameterCategory | Canonical MedDRA SOC mapping (~55 variants -> 26 canonical names) with OCR artifact repair. AE tables only. |
+| `AeParameterCategoryDictionaryService.TryResolveObservation` | ParameterCategory | Fills missing AE SOC values from the production-derived AE dictionary after existing categories normalize. |
+| `DoseExtractor.ScanAllColumnsForDose` | Dose/DoseUnit | Final defensive scan for dose evidence after prior column movements complete. |
 
 #### Phase 3: PrimaryValueType Migration (ALL categories)
 
@@ -466,6 +522,21 @@ Every rule that fires pushes a stable token (`PrimaryValueNull`, `BadUnit`, `Sof
 - Swapped TreatmentArm/ParameterName (row vs column confusion)
 - Caption-derived hints not applied by regex parsers
 
+**Deterministic guardrails:** `ClaudeCorrectionGuardrails.cs` validates each proposed correction before mutation using an ordered Chain of Responsibility. First rejection wins, and rejected proposals append `AI_REJECTED:{Field}:{Reason}` while preserving the original observation value.
+
+Guardrail reasons currently include:
+
+- `ProtectedField`
+- `PlaceboClassFlip`
+- `TreatmentArmNull`
+- `TreatmentArmBodySystem`
+- `TreatmentArmHeaderToken`
+- `ParameterNameSuperset`
+- `PercentColumnTypeDemotion`
+- `TextRowUnitPercent`
+
+The guardrail chain uses `ClaudeCorrectionContext` for source header and percent-column facts and `IPlaceboArmClassifier` for shared placebo-arm semantics. This keeps prompt guidance from being the only protection against harmful rewrites.
+
 **Configuration:** Add `ClaudeApiCorrectionSettings` section to `appsettings.json`. API key must be stored in User Secrets:
 
 ```bash
@@ -481,7 +552,7 @@ dotnet user-secrets set "ClaudeApiCorrectionSettings:ApiKey" "sk-ant-..."
 
 The payload sent to Claude excludes token-heavy provenance fields (DocumentGUID, LabelerName, ProductTitle, VersionNumber, TextTableID) to minimize cost.
 
-**Audit trail:** Corrected fields are flagged with `AI_CORRECTED:{FieldName}` in `ValidationFlags`. The service fails gracefully -- API errors return original observations unchanged.
+**Audit trail:** Corrected fields are flagged with `AI_CORRECTED:{FieldName}` in `ValidationFlags`; rejected fields are flagged with `AI_REJECTED:{FieldName}:{Reason}`. The service fails gracefully -- API errors return original observations unchanged.
 
 ### Stage 3.6: Post-Processing Extraction
 
@@ -505,14 +576,25 @@ Validation results are returned as in-memory DTOs (`BatchValidationReport`) and 
 
 Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering) bind directly without runtime joins or stats. The DDL is at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`.
 
-**Status:** Phase 1 (SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service, EF entity, DTO, `RelativeRiskCalculator` utility, orchestrator hook, DI registration) are both shipped.
+**Status:** Phase 1 (SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service, EF entity, DTO, `RelativeRiskCalculator` utility, helper decomposition, orchestrator hook, DI registration) are both shipped.
 
 **Entry points:**
 
 - Pipeline-integrated: `TableParsingOrchestrator.ProcessAllWithValidationAsync` invokes `IAdverseEventDenormalizationService.PopulateAsync` after Stage 4 validation when the dependency was provided.
 - Standalone: resolve `IAdverseEventDenormalizationService` from DI and call `PopulateAsync` directly to re-run AE denormalization without re-doing Stage 3/4.
 
-**Study group key:** `(DocumentGUID, TextTableID, ParameterName, ParameterSubtype)`. `TextTableID` is included so the same AE term appearing in multiple study tables of one document does not get a single comparator cross-paired across unrelated studies. Rows with NULL `DocumentGUID` are skipped with a warning log.
+**Helper decomposition:**
+
+| Helper | Responsibility |
+|--------|----------------|
+| `SourceRowEligibility` | Filters invalid AE source rows before comparator grouping while preserving eligible missing-ArmN rows for percentage-only fallback. |
+| `ComparatorGrouper` | Builds deterministic study groups scoped by document/table/parameter context. |
+| `ComparatorSelector` | Applies the placebo, lowest non-zero dose, and single-arm comparator cascade. |
+| `AeStatEntityBuilder` | Projects source/comparator rows into `FlattenedAdverseEventTable` entities and wires RR/DNRR calculations. |
+| `AeDenormalizationConstants` | Centralizes calculation method and flag token constants. |
+| `IPlaceboArmClassifier` / `PlaceboArmClassifier` | Provides shared placebo-arm classification by delegating to `RelativeRiskCalculator.IsPlaceboArm(...)`. |
+
+**Study group key:** source rows are first scoped by `(DocumentGUID, TextTableID)`, then `ComparatorGrouper` splits comparator cohorts by normalized `(ParameterName, ParameterSubtype, StudyContext, Population, Subpopulation)`. `TextTableID` is included so the same AE term appearing in multiple study tables of one document does not get a single comparator cross-paired across unrelated studies. Rows with NULL `DocumentGUID` are skipped with a warning log.
 
 **Comparator cascade** (deterministic tie-breakers: `Dose` nulls-first, then `SourceRowSeq`, `SourceCellSeq`, source `Id`):
 
@@ -546,7 +628,7 @@ Five nonclustered indexes: `DocumentGUID`, `UNII`, `ParameterName`, `ParameterCa
 
 #### Statistical Contract (what Phase 2 must produce)
 
-**Row inclusion.** Every source row with `TableCategory = 'ADVERSE_EVENT'` produces exactly one row, except the row chosen as the comparator within its study group (no self-comparison). RR/CI/DNRR may be NULL when prerequisites aren't met; the row itself is always preserved with full provenance.
+**Row inclusion.** Eligible source rows with `TableCategory = 'ADVERSE_EVENT'` produce one row, except the row chosen as the comparator within its study group (no self-comparison). `SourceRowEligibility` skips invalid source rows with unusable arm/value shapes before grouping; RR/CI/DNRR may still be NULL when statistical prerequisites are not met, and retained rows carry calculation provenance.
 
 **Comparator pairing** (per study group `TextTableID + ParameterName + ParameterSubtype + StudyContext + Population + Subpopulation`, with normalized casing/whitespace; all keys are scoped within one DocumentGUID):
 
@@ -927,14 +1009,15 @@ The pipeline relies on several single-source-of-truth lookups housed under `Serv
 
 | Dictionary | Source | Purpose |
 |-----------|--------|---------|
-| `CategoryProfileRegistry` | static class | Per-`TableCategory` profile bundling column contract (R/E/O/N), row-required fields, completeness fields, allowed `PrimaryValueType` set, default `BoundType`, and arm/time validation switches for the four parsed categories plus `SKIP`. Consumed by `RowValidationService` (and prepared for `TableValidationService` / `ColumnStandardizationService` migration) |
-| `ColumnContractRegistry` | `IColumnContractRegistry` | Required / Expected / Optional / NullExpected column sets for the four parsed categories (`ADVERSE_EVENT`, `PK`, `DRUG_INTERACTION`, `EFFICACY`) transcribed from `TableStandards/column-contracts.md`. Consumed by `ParseQualityService` and (via `CategoryProfile`) by `RowValidationService` |
+| `CategoryProfileRegistry` | static class | Per-`TableCategory` profile bundling column contract (R/E/O/N), row-required fields, completeness fields, allowed `PrimaryValueType` set, default `BoundType`, and arm/time validation switches for the four parsed categories plus `SKIP`. Consumed by validation services and backed by `ColumnContractRegistry` for contract data. |
+| `ColumnContractRegistry` | `IColumnContractRegistry` | Required / Expected / Optional / NullExpected column sets for the four parsed categories (`ADVERSE_EVENT`, `PK`, `DRUG_INTERACTION`, `EFFICACY`) transcribed from `TableStandards/column-contracts.md`. Consumed by `ColumnStandardizationService`, `ParseQualityService`, and validation profiles |
 | `CategoryNameNormalizer` | static class | Resolves `ADVERSE_EVENT` <-> `AdverseEvent` and equivalent forms across the current `TableCategory` enum values |
 | `PkParameterDictionary` | static class | ~35 canonical PK parameter names + aliases (Cmax, AUC, t½, Tmax, Cl, Vd) with Unicode folding |
 | `UnitDictionary` | static class | ~80 known PK unit strings + ~16 variant-spelling normalizations (`mcg h/mL` -> `mcg*h/mL`) |
 | `PdMarkerDictionary` | static class | 9 pharmacodynamic markers (IPA, VASP-PRI, Platelet Aggregation, etc.) for parser routing |
 | `AeParameterCategoryDictionaryService` | scoped service | 1,189 unambiguous AE `ParameterName` -> canonical SOC mappings derived from production data, with name-variant collapsing |
-| `ParsedObservationFieldAccess` | static class | Reflection-free `Get` / `GetAsString` / `Set` / `IsPopulated` for the 15 observation-context columns (replaces three near-duplicate switch helpers) |
+| `ParsedObservationFieldAccess` | static class | Reflection-free `Get` / `GetAsString` / `Set` / `SetFromString` / `IsPopulated` for the observation context, value, bound, and type columns used by standardization contracts and Claude corrections |
+| `ObservationFlagSnapshotBuilder` | static class | Occurrence-aware `ValidationFlags` snapshots for pre/post Claude report diffs when multiple observations originate from the same source cell |
 | `ValidationFlagExtensions` | static class | Canonical `"; "`-delimited flag append on `ParsedObservation.ValidationFlags` |
 | Drug Names | runtime (from DB) | ~500+ exact-match drug names from `vw_ProductsByIngredient` (loaded by `ColumnStandardizationService` at init) |
 | Drug Abbreviations | inline | 13 common abbreviations not in formal product DB (AZA, MMF, CsA, etc.) |

@@ -7,14 +7,14 @@ A console application for bulk importing SPL (Structured Product Labeling) ZIP f
 This application supports three operation modes:
 
 - **SPL Import**: Walks an entire directory tree, identifies ZIP files containing SPL XML data, and imports them into a specified database using the existing MedRecPro import infrastructure.
-- **Orange Book Import**: Imports FDA Orange Book `products.txt` data from a ZIP file, upserting applicants, products, and junction matches to existing SPL entities (organizations, ingredients, marketing categories).
-- **Table Standardization**: Parses SPL table data (Stage 3) and validates (Stage 4) using the table normalization pipeline, walking the data in configurable batches with progress tracking and resumption support.
+- **Orange Book Import**: Imports FDA Orange Book `products.txt`, `patent.txt`, and `exclusivity.txt` data from a ZIP file, upserting applicants, products, patents, exclusivity records, and junction matches to existing SPL entities.
+- **Table Standardization**: Parses SPL table data, applies deterministic standardization and optional guarded Claude correction, validates output, and can populate the Stage 5 AE denormalization table when validation runs through the integrated pipeline.
 
 ## Features
 
 - **SPL Bulk Import**: Process thousands of SPL ZIP files in a single operation
-- **Orange Book Import**: Import FDA Orange Book `products.txt` from ZIP with entity matching to existing SPL data
-- **Interactive Menu**: Command-driven menu (`import`, `orange-book`, `database`, `help`, `quit`) for selecting operations and switching databases at runtime
+- **Orange Book Import**: Import FDA Orange Book `products.txt`, `patent.txt`, and `exclusivity.txt` from ZIP with entity matching to existing SPL data
+- **Interactive Menu**: Command-driven menu (`import`, `orange-book`, `standardize-tables`, `database`, `summary`, `errors`, `help`, `quit`) for selecting operations and switching databases at runtime
 - **Recursive Scanning**: Automatically discovers ZIP files in all subdirectories
 - **Progress Tracking**: Real-time progress bars for overall and per-file processing, with concurrent task display for multi-phase Orange Book imports
 - **Crash Recovery**: Queue-based progress tracking persists SPL import state to disk, enabling resume capability across application restarts, crashes, and timer expirations
@@ -22,13 +22,14 @@ This application supports three operation modes:
 - **Error Handling**: Failed imports are logged and skipped; processing continues
 - **Timeout Support**: Optional maximum runtime limit to control long-running SPL imports
 - **Unattended Operation**: Full command-line support for Windows Task Scheduler automation (SPL and Orange Book modes)
+- **Table Diagnostics**: Markdown and NDJSON report sinks for `parse-single` diagnostics, with JSONL artifacts suited for diffing and column-level audits
 - **Styled Console UI**: Uses Spectre.Console for rich, interactive terminal output
 
 ## Requirements
 
 - .NET 8.0 SDK
 - SQL Server (LocalDB or full instance)
-- MedRecPro project reference
+- `MedRecProImportClass` project reference
 
 ## Project Structure
 
@@ -59,6 +60,8 @@ MedRecProConsole/
     └── HelpDocumentation.cs        # Help and version display
 ```
 
+The current `Services/Reporting/` folder contains the table-standardization report pipeline: `MarkdownReportSink`, `JsonReportSink`, `TableStandardizationMarkdownWriter`, `TableStandardizationJsonWriter`, `TableReportEntry`, `JsonlArtifactAnalyzer`, and `GfmEscape`. These files support per-table markdown diagnostics, NDJSON companion output, and artifact-level analysis workflows.
+
 ## Usage
 
 ### Running the Application
@@ -73,14 +76,17 @@ dotnet run
 After startup, the application presents a command-driven menu:
 
 ```
-Enter command (import, orange-book, database, help, quit):
+Enter command (import, orange-book, standardize-tables, database, help, quit):
 ```
 
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `import` | | Start an SPL bulk import (prompts for folder, runtime limit) |
 | `orange-book` | `ob` | Start an Orange Book import (prompts for ZIP path, truncation) |
+| `standardize-tables` | `st` | Run the interactive table-standardization workflow |
 | `database` | `db` | Switch the active database connection |
+| `summary` | `s` | Display cumulative import summary after work has run |
+| `errors` | `e` | Display captured import errors |
 | `help` | `h`, `?` | Display available commands |
 | `quit` | `q` | Exit the application |
 
@@ -96,6 +102,13 @@ Enter command (import, orange-book, database, help, quit):
 1. **ZIP File Path**: Enter the path to an Orange Book ZIP file (e.g., `EOBZIP_2026_01.zip`)
 2. **Truncation**: Choose whether to truncate all Orange Book tables before import
 3. **Confirmation**: Review settings and confirm before import begins
+
+### Table Standardization Prompts
+
+1. **Run shape**: Standardize all tables, run a limited number of batches, debug one table, or cancel.
+2. **Quality gates**: Choose whether to drop rows missing `ArmN` or `PrimaryValue`; the prompt defaults from `Standardization.DropRowsMissingArmNOrPrimaryValue`.
+3. **Claude and reports**: Choose Claude usage and optional markdown / JSONL diagnostic paths for table-level debug runs.
+4. **Truncation**: Optionally truncate both `tmp_FlattenedStandardizedTable` and `tmp_FlattenedAdverseEventTable` before rerun.
 
 ### Example Session
 
@@ -195,8 +208,14 @@ The application supports fully automated operation for Windows Task Scheduler or
 | `--standardize-tables <op>` | Table standardization: `parse`, `validate`, `truncate`, `parse-single` |
 | `--batch-size <n>` | Tables per batch for standardization (1-50000, default: 1000) |
 | `--table-id <id>` | TextTableID for `--standardize-tables parse-single` debug mode |
+| `--no-claude` | Disable Stage 3.5 Claude correction for table standardization |
+| `--drop-incomplete-rows` | Drop rows missing either `ArmN` or `PrimaryValue` after Stage 3.25; valid with `parse` and `validate` |
+| `--no-dedup-bioequivalent` | Bypass Stage 0 bioequivalent ANDA/repackager dedup; valid with `parse` and `validate` |
+| `--markdown-log <path>` | Append per-table diagnostic markdown; CLI support is for `parse-single` |
+| `--json-log <path>` | Append NDJSON companion output with one JSON line per observation; CLI support is for `parse-single` |
 
 **Note:** `--folder`, `--orange-book`, and `--standardize-tables` are mutually exclusive. Each selects a different operation mode.
+The parsed CLI operation list is intentionally limited to `parse`, `validate`, `truncate`, and `parse-single`. `parse-stages` exists in the service/interactivity layer for stage-level visibility, but it is not a command-line operation accepted by `CommandLineArgs`.
 
 ### Example CLI Usage
 
@@ -221,6 +240,15 @@ MedRecProConsole.exe --folder "C:\SPL\Imports" --auto-quit --quiet
 
 # Verbose mode for debugging
 MedRecProConsole.exe --folder "C:\SPL\Imports" --auto-quit --verbose
+
+# Table standardization: parse with quality gates and no Claude calls
+MedRecProConsole.exe --standardize-tables parse --drop-incomplete-rows --no-claude
+
+# Table standardization: preserve every label instead of applying Stage 0 bioequivalent dedup
+MedRecProConsole.exe --standardize-tables validate --no-dedup-bioequivalent
+
+# Table standardization: debug one table and append markdown plus NDJSON diagnostics
+MedRecProConsole.exe --standardize-tables parse-single --table-id 12345 --markdown-log "C:\Logs\table.md" --json-log "C:\Logs\table.jsonl"
 ```
 
 ### Automation Configuration
@@ -357,16 +385,16 @@ The import is upsert-based, so running it multiple times on the same data is saf
 
 ## Table Standardization
 
-The `--standardize-tables` mode runs the SPL table normalization pipeline (Stage 3 parsing and Stage 4 validation) against data already imported into the database.
+The `--standardize-tables` mode runs the SPL table normalization pipeline against data already imported into the database. The command-line parser accepts four operations: `parse`, `validate`, `truncate`, and `parse-single`. The service layer also has a `parse-stages` path used by the interactive UI for stage-level visibility, but `parse-stages` is not a CLI operation.
 
 ### Operations
 
 | Operation | Description |
 |-----------|-------------|
-| `parse` | Stage 3 only — parse all tables in batches, write observations to `tmp_FlattenedStandardizedTable` |
-| `validate` | Stage 3+4 — parse all tables then run validation with coverage reporting |
-| `truncate` | Wipe the output table for a clean rerun (also removes progress file) |
-| `parse-single` | Debug a single table by TextTableID — displays observations without DB write |
+| `parse` | Run the batch parse/standardization path and write observations to `tmp_FlattenedStandardizedTable` |
+| `validate` | Parse, validate, and run integrated Stage 5 AE denormalization when the service graph includes `IAdverseEventDenormalizationService` |
+| `truncate` | Wipe `tmp_FlattenedStandardizedTable`, truncate `tmp_FlattenedAdverseEventTable` when registered, and remove the progress file |
+| `parse-single` | Debug one table by TextTableID, display observations without DB write, and optionally append markdown/JSONL diagnostics |
 
 ### Example CLI Usage
 
@@ -386,9 +414,27 @@ MedRecProConsole.exe --standardize-tables truncate
 # Debug a single table
 MedRecProConsole.exe --standardize-tables parse-single --table-id 12345 --verbose
 
+# Debug a single table without Claude correction
+MedRecProConsole.exe --standardize-tables parse-single --table-id 12345 --no-claude
+
+# Write one-table diagnostics to markdown and NDJSON
+MedRecProConsole.exe --standardize-tables parse-single --table-id 12345 --markdown-log "C:\Logs\table.md" --json-log "C:\Logs\table.jsonl"
+
 # Quiet mode for automation
 MedRecProConsole.exe --standardize-tables parse --quiet --auto-quit
 ```
+
+### Table Standardization Options
+
+| Option | Applies To | Behavior |
+|--------|------------|----------|
+| `--no-claude` | all standardization operations that invoke correction | Skips Stage 3.5 Claude correction. |
+| `--drop-incomplete-rows` | `parse`, `validate` | Drops observations where either `ArmN` or `PrimaryValue` is null after Stage 3.25. |
+| `--no-dedup-bioequivalent` | `parse`, `validate` | Bypasses Stage 0 bioequivalent ANDA/repackager dedup and processes every discovered label. |
+| `--markdown-log <path>` | `parse-single` CLI | Appends a per-table markdown section with pivot, routing, observations, and suppression diagnostics. |
+| `--json-log <path>` | `parse-single` CLI | Appends one NDJSON record per observation with table context and full `ParsedObservation` payload. |
+
+Batch `parse` and `validate` accept the report sink parameters internally for signature symmetry, but the CLI warns and does not write per-table markdown or JSONL because those batch paths do not surface the per-table pivot data needed by the writers. Use `parse-single` from the CLI for report artifacts, or the interactive stage-detail path when per-batch stage visibility is needed.
 
 ### Batch Size Tuning
 
@@ -463,13 +509,14 @@ After import completes:
 
 ### NuGet Packages
 
-- `Spectre.Console` (0.54.0) - Console UI styling and prompts
-- `Microsoft.Extensions.Hosting` (8.0.0) - Dependency injection
-- `Microsoft.Extensions.Configuration.Json` (8.0.0) - Configuration
+- `Spectre.Console` (0.54.0) - Console UI styling, progress displays, and prompts
+- `Microsoft.Extensions.Hosting` (9.0.4) - Host builder and dependency injection
+- `Microsoft.Extensions.Configuration.Json` (9.0.4) - JSON configuration
+- `Microsoft.Extensions.Configuration.UserSecrets` (9.0.4) - local user-secret configuration for sensitive settings
 
 ### Project References
 
-- `MedRecProImportClass` - Import class library with SPL/Orange Book parsing services, models, and data access
+- `MedRecProImportClass` - Import class library with SPL/Orange Book parsing services, table-standardization services, AE denormalization, models, and data access
 
 ## Building
 
