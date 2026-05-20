@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -32,11 +33,6 @@ namespace MedRecProImportClass.Service.TransformationServices
     /// <seealso cref="SimpleArmTableParser"/>
     public class EfficacyMultilevelTableParser : BaseTableParser
     {
-        // Pattern for n= declaration cells: "n=102" or "N=5,310"
-        private static readonly Regex _nEqualsPattern = new(
-            @"^[Nn]\s*=\s*(\d[\d,]*)$",
-            RegexOptions.Compiled);
-
         // Pattern for detecting column sub-header keywords in arm cells
         // Matches descriptive text: Risk, Rate, Incidence, Women-Years, Person-Years, Events
         // Also matches directional arrows used as "ditto" markers
@@ -562,7 +558,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
 
                 cellCount++;
-                if (_nEqualsPattern.IsMatch(cell.CleanedText.Trim()))
+                if (SampleSizeParser.TryParseStandaloneSampleSizeCell(cell.CleanedText.Trim(), out _))
                     matchCount++;
             }
 
@@ -586,10 +582,10 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
                     continue;
 
-                var match = _nEqualsPattern.Match(cell.CleanedText.Trim());
-                if (match.Success && int.TryParse(match.Groups[1].Value.Replace(",", ""), out var n))
+                if (SampleSizeParser.TryParseStandaloneSampleSizeCell(cell.CleanedText.Trim(), out var evidence) &&
+                    evidence.Value is > 0)
                 {
-                    pendingNs[i] = n;
+                    pendingNs[i] = evidence.Value.Value;
                 }
             }
 

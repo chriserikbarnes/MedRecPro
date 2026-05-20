@@ -26,5 +26,21 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /**************************************************************/
         /// <summary>Comparator flag emitted when no comparator can be selected.</summary>
         internal const string NoComparatorFlag = "NO_COMPARATOR";
+
+        /**************************************************************/
+        /// <summary>Math guard emitted when the treatment denominator is missing or invalid.</summary>
+        internal const string NoArmNFlag = "NO_ARMN";
+
+        /**************************************************************/
+        /// <summary>Math guard emitted when the comparator denominator is missing or invalid.</summary>
+        internal const string NoComparatorNFlag = "NO_COMPARATOR_N";
+
+        /**************************************************************/
+        /// <summary>Flag emitted when Stage 5 fills ArmN from the same arm and comparator group.</summary>
+        internal const string ArmNStage5GroupBackfillFlag = "AE_ARMN_STAGE5_GROUP_BACKFILL";
+
+        /**************************************************************/
+        /// <summary>Flag emitted when Stage 5 rejects same-arm backfill due to conflicting Ns.</summary>
+        internal const string ArmNRejectedConflictingNFlag = "AE_ARMN_REJECTED_CONFLICTING_N";
     }
 }

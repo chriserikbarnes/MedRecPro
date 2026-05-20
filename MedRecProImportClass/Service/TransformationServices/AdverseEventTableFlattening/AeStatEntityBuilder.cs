@@ -30,6 +30,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /// <param name="dRef">Group D_ref, the minimum positive dose.</param>
         /// <param name="dRefUnit">Dose unit at D_ref.</param>
         /// <param name="design">Per-table trial-design classification used only for diagnostics.</param>
+        /// <param name="additionalCalculationFlags">Optional Stage 5 provenance flags.</param>
         /// <returns>Entity ready for AddRange and SaveChangesAsync.</returns>
         internal static LabelView.FlattenedAdverseEventTable Build(
             LabelView.FlattenedStandardizedTable row,
@@ -37,7 +38,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             string comparatorFlag,
             decimal? dRef,
             string? dRefUnit,
-            RelativeRiskCalculator.TrialDesignClassification design)
+            RelativeRiskCalculator.TrialDesignClassification design,
+            IEnumerable<string>? additionalCalculationFlags = null)
         {
             #region implementation
 
@@ -68,6 +70,12 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             var flags = new List<string> { comparatorFlag };
             if (design.Flag is not null)
                 flags.Add(design.Flag);
+            if (additionalCalculationFlags is not null)
+            {
+                flags.AddRange(additionalCalculationFlags
+                    .Where(f => !string.IsNullOrWhiteSpace(f))
+                    .Distinct(StringComparer.Ordinal));
+            }
 
             if (comparator is null)
             {
@@ -115,19 +123,15 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 return entity;
             }
 
-            bool armNMissing = row.ArmN is null || row.ArmN <= 0
-                            || comparator.ArmN is null || comparator.ArmN <= 0;
-
-            if (isPercentage && armNMissing)
+            if (isPercentage)
             {
-                if (comparator.PrimaryValue > 0d)
+                var missingDenominatorFlags = getMissingDenominatorFlags(row.ArmN, comparator.ArmN);
+                if (missingDenominatorFlags.Count > 0)
                 {
-                    entity.RR = row.PrimaryValue.Value / comparator.PrimaryValue.Value;
-                    entity.CalculationMethod = AeDenormalizationConstants.KatzLogMethod;
+                    flags.AddRange(missingDenominatorFlags);
+                    entity.CalculationFlags = string.Join(";", flags);
+                    return entity;
                 }
-                flags.Add("NO_ARMN");
-                entity.CalculationFlags = string.Join(";", flags);
-                return entity;
             }
 
             var (rowEvents, rowEventFlag) = RelativeRiskCalculator.DeriveEventCount(
@@ -174,6 +178,38 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             entity.CalculationFlags = string.Join(";", flags);
 
             return entity;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Identifies missing or invalid denominators before percentage-derived event
+        /// counts and RR statistics are calculated.
+        /// </summary>
+        /// <remarks>
+        /// Percentage observations cannot produce auditable event counts without a
+        /// positive denominator on both treatment and comparator arms. This guard keeps
+        /// those rows in the flattened table while preventing RR point estimates from
+        /// being inferred from percentages alone.
+        /// </remarks>
+        /// <param name="armN">Treatment denominator.</param>
+        /// <param name="comparatorN">Comparator denominator.</param>
+        /// <returns>Zero, one, or two denominator diagnostic flags.</returns>
+        /// <seealso cref="RelativeRiskCalculator"/>
+        private static IReadOnlyList<string> getMissingDenominatorFlags(int? armN, int? comparatorN)
+        {
+            #region implementation
+
+            var flags = new List<string>();
+
+            if (armN is null || armN <= 0)
+                flags.Add(AeDenormalizationConstants.NoArmNFlag);
+
+            if (comparatorN is null || comparatorN <= 0)
+                flags.Add(AeDenormalizationConstants.NoComparatorNFlag);
+
+            return flags;
 
             #endregion
         }

@@ -610,7 +610,7 @@ Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only pr
 
 - RR + 95% CI: Katz log-method. When `EventsTreatment == 0` or `EventsComparator == 0`, the Haldane-Anscombe continuity correction (`a' = a + 0.5`, `c' = c + 0.5`, `n1' = n1 + 1`, `n2' = n2 + 1`) is applied to BOTH the point estimate and the CI. Raw event counts are still persisted in `EventsTreatment` / `EventsComparator` for audit; the adjusted locals are scope-local to the calculation.
 - DNRR: log-linear with intra-study reference dose `D_ref = MIN(Dose) WHERE Dose > 0` over the study group. `logDNRR = ln(RR) / ln(rowDose / D_ref)`.
-- Percentage-only fallback: when both arms have `PrimaryValueType = 'Percentage'` but `ArmN` is missing on either side, the service computes `RR = pTreatment / pComparator` as a point estimate, leaves CIs NULL, and emits the `NO_ARMN` flag. CIs always require ArmN per user direction.
+- Denominator guard: RR and CI require positive `ArmN` and positive `ComparatorN`. Percentage rows missing either denominator cannot derive auditable event counts, so `EventsTreatment`, `EventsComparator`, `RR`, CI, DNRR, and `CalculationMethod` remain NULL while `NO_ARMN` and/or `NO_COMPARATOR_N` is emitted.
 
 #### Output Schema
 
@@ -727,7 +727,7 @@ The six `Log*` columns are SQL Server `PERSISTED` computed columns (materialized
 
 | Flag | Meaning |
 |------|---------|
-| `NO_ARMN` | Treatment `ArmN` is NULL or ≤ 0 — CIs cannot be computed. (Percentage path: RR point estimate may still be present.) |
+| `NO_ARMN` | Treatment `ArmN` is NULL or ≤ 0 — percentage-derived events and RR/CI/DNRR cannot be computed. |
 | `NO_COMPARATOR_N` | Comparator `ArmN` is NULL or ≤ 0 |
 | `INVALID_EVENT_COUNT` | `PrimaryValue` is NULL or negative on at least one side |
 | `EVENTS_EXCEED_ARMN` | Derived event count exceeds `ArmN` (sanity-check failure) |
@@ -739,7 +739,7 @@ The six `Log*` columns are SQL Server `PERSISTED` computed columns (materialized
 |------|---------|
 | `AMBIGUOUS_TRIAL_DESIGN` | The per-table trial-design classifier could not extract usable arm-name roots (e.g., arms named only by dose). Pure diagnostic — no longer affects `IsPlaceboControlled` (which is comparator-driven). |
 
-`CalculationMethod` is `KATZ_LOG` whenever a numeric RR was produced (including the Percentage-fallback path); NULL when stats remain NULL.
+`CalculationMethod` is `KATZ_LOG` whenever a numeric RR was produced; NULL when stats remain NULL.
 
 ### Column Contracts by Table Category
 

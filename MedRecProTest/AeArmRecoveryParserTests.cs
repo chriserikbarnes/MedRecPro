@@ -540,8 +540,8 @@ namespace MedRecPro.Service.Test
             var parser42881 = new MultilevelAeTableParser();
             var actual42881 = snapshotAeParserOutput(parser42881.Parse(table42881), parser42881);
             var expected42881 = string.Join(Environment.NewLine,
-                "OBS|42881|2|2|Dizziness||Incidence (discontinuation )|Lisinopril - Hydrochlorothiazide|200|6|Percentage|%|||PCT_CHECK:PASS",
-                "OBS|42881|2|3|Dizziness||Incidence (discontinuation )|Placebo|190|1|Percentage|%|||PCT_CHECK:PASS");
+                "OBS|42881|2|2|Dizziness||Incidence (discontinuation )|Lisinopril - Hydrochlorothiazide|200|6|Percentage|%|||PCT_CHECK:PASS; AE_ARMN_FROM_HEADER_N",
+                "OBS|42881|2|3|Dizziness||Incidence (discontinuation )|Placebo|190|1|Percentage|%|||PCT_CHECK:PASS; AE_ARMN_FROM_HEADER_N");
             Assert.AreEqual(expected42881, actual42881);
 
             var table41668 = createAeTable(
@@ -571,8 +571,8 @@ namespace MedRecPro.Service.Test
             var parser5725 = new MultilevelAeTableParser();
             var actual5725 = snapshotAeParserOutput(parser5725.Parse(table5725), parser5725);
             var expected5725 = string.Join(Environment.NewLine,
-                "OBS|5725|2|2|Headache|||Drug A|50|8|Percentage|%|||PCT_CONTEXT_PROMOTION",
-                "OBS|5725|2|3|Headache|||Drug A|50|4|Percentage|%|||PCT_CONTEXT_PROMOTION");
+                "OBS|5725|2|2|Headache|||Drug A|50|8|Percentage|%|||PCT_CONTEXT_PROMOTION; AE_ARMN_FROM_HEADER_N",
+                "OBS|5725|2|3|Headache|||Drug A|50|4|Percentage|%|||PCT_CONTEXT_PROMOTION; AE_ARMN_FROM_HEADER_N");
             Assert.AreEqual(expected5725, actual5725);
 
             var captionArm = "Table 6: Adverse Reactions Reported in Clinical Trials";

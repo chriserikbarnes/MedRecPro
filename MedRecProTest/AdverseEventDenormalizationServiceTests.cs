@@ -554,8 +554,8 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Percentage row with null ArmN → CIs null (per user spec). Service falls
-        /// back to RR = pTreatment / pComparator point estimate, with NO_ARMN flag.
+        /// Percentage row with null ArmN keeps statistics null and reports the missing
+        /// denominator instead of inferring RR from percentages alone.
         /// </summary>
         [TestMethod]
         public async Task PopulateAsync_NullArmN_NullsCi()
@@ -571,13 +571,45 @@ namespace MedRecPro.Service.Test
             await service.PopulateAsync();
 
             var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            // Point estimate computed from percentages (RR = 20/10 = 2.0)
-            Assert.IsNotNull(row.RR);
-            Assert.AreEqual(2.0, row.RR!.Value, 1e-6);
-            // CIs are null per user direction "CI requires ArmN"
+            Assert.IsNull(row.EventsTreatment);
+            Assert.IsNull(row.EventsComparator);
+            Assert.IsNull(row.RR);
             Assert.IsNull(row.RRLowerBound);
             Assert.IsNull(row.RRUpperBound);
+            Assert.IsNull(row.CalculationMethod);
             StringAssert.Contains(row.CalculationFlags, "NO_ARMN");
+            Assert.IsFalse(row.CalculationFlags!.Contains("NO_COMPARATOR_N"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Percentage rows missing both treatment and comparator denominators keep RR,
+        /// CIs, method, and derived events null with both denominator diagnostics.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_PercentageWithBothDenominatorsMissing_NullsStats()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var drug = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", null, 50m, "mg", 20.0, "Percentage");
+            var placebo = aeRow(2, doc, 100, "Nausea", "Placebo", null, 0m, null, 10.0, "Percentage", sourceRowSeq: 2);
+
+            var (service, db) = createService(drug, placebo);
+
+            await service.PopulateAsync();
+
+            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
+            Assert.IsNull(row.EventsTreatment);
+            Assert.IsNull(row.EventsComparator);
+            Assert.IsNull(row.RR);
+            Assert.IsNull(row.RRLowerBound);
+            Assert.IsNull(row.RRUpperBound);
+            Assert.IsNull(row.CalculationMethod);
+            StringAssert.Contains(row.CalculationFlags, "NO_ARMN");
+            StringAssert.Contains(row.CalculationFlags, "NO_COMPARATOR_N");
 
             #endregion
         }
@@ -643,8 +675,8 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Valid numeric rows with missing <c>ArmN</c> remain eligible for existing
-        /// downstream RR-only/no-CI handling.
+        /// Valid numeric rows with missing <c>ArmN</c> are retained for audit, but do
+        /// not receive RR or CI statistics.
         /// </summary>
         [TestMethod]
         public async Task PopulateAsync_ValidNumericRowsWithMissingArmN_AreNotFilteredBySafetyGate()
@@ -663,9 +695,12 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(1, written);
             Assert.AreEqual("Drug A 50mg", row.TreatmentArm);
             Assert.AreEqual("Placebo", row.ComparatorArm);
-            Assert.IsNotNull(row.RR);
+            Assert.IsNull(row.EventsTreatment);
+            Assert.IsNull(row.EventsComparator);
+            Assert.IsNull(row.RR);
             Assert.IsNull(row.RRLowerBound);
             Assert.IsNull(row.RRUpperBound);
+            Assert.IsNull(row.CalculationMethod);
             StringAssert.Contains(row.CalculationFlags, "NO_ARMN");
 
             #endregion
@@ -673,8 +708,102 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Same DocumentGUID + ParameterName but different TextTableIDs →
-        /// each TextTable's group has its own comparator; no cross-pairing.
+        /// Unique same-arm ArmN within a comparator group backfills missing treatment
+        /// rows and makes CI bounds calculable.
+        /// </summary>
+        [TestMethod]
+        public async Task Stage5_GroupBackfill_UniqueArmN_PopulatesArmNAndComparatorN()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var drugMissing = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", null, 50m, "mg", 20.0, "Percentage");
+            var drugKnown = aeRow(2, doc, 100, "Nausea", "Drug A 50mg", 200, 50m, "mg", 22.0, "Percentage", sourceRowSeq: 2);
+            var placebo = aeRow(3, doc, 100, "Nausea", "Placebo", 100, 0m, null, 10.0, "Percentage", sourceRowSeq: 3);
+
+            var (service, db) = createService(drugMissing, drugKnown, placebo);
+
+            var written = await service.PopulateAsync();
+
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            var missingRow = rows.Single(r => r.FlattenedStandardizedTableId == 1);
+            Assert.AreEqual(2, written);
+            Assert.AreEqual(200, missingRow.ArmN);
+            Assert.AreEqual(100, missingRow.ComparatorN);
+            Assert.IsNotNull(missingRow.RRLowerBound);
+            Assert.IsNotNull(missingRow.RRUpperBound);
+            StringAssert.Contains(missingRow.CalculationFlags, "AE_ARMN_STAGE5_GROUP_BACKFILL");
+            Assert.IsFalse(missingRow.CalculationFlags!.Contains("NO_ARMN"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unique same-arm ArmN on a duplicate comparator arm can backfill the selected
+        /// comparator before RR/CI calculation.
+        /// </summary>
+        [TestMethod]
+        public async Task Stage5_GroupBackfill_SelectedComparatorBackfill_PopulatesComparatorN()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var drug = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", 200, 50m, "mg", 20.0, "Percentage");
+            var placeboMissing = aeRow(2, doc, 100, "Nausea", "Placebo", null, 0m, null, 10.0, "Percentage", sourceRowSeq: 1);
+            var placeboKnown = aeRow(3, doc, 100, "Nausea", "Placebo", 100, 0m, null, 11.0, "Percentage", sourceRowSeq: 2);
+
+            var (service, db) = createService(drug, placeboMissing, placeboKnown);
+
+            await service.PopulateAsync();
+
+            var drugRow = db.Set<LabelView.FlattenedAdverseEventTable>()
+                .Single(r => r.FlattenedStandardizedTableId == 1);
+            Assert.AreEqual(100, drugRow.ComparatorN);
+            Assert.IsNotNull(drugRow.RRLowerBound);
+            Assert.IsNotNull(drugRow.RRUpperBound);
+            StringAssert.Contains(drugRow.CalculationFlags, "AE_ARMN_STAGE5_GROUP_BACKFILL");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Conflicting same-arm Ns prevent backfill and preserve missing-denominator
+        /// diagnostics.
+        /// </summary>
+        [TestMethod]
+        public async Task Stage5_GroupBackfill_ConflictingArmN_DoesNotBackfill()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var drugMissing = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", null, 50m, "mg", 20.0, "Percentage");
+            var drugKnownA = aeRow(2, doc, 100, "Nausea", "Drug A 50mg", 150, 50m, "mg", 22.0, "Percentage", sourceRowSeq: 2);
+            var drugKnownB = aeRow(3, doc, 100, "Nausea", "Drug A 50mg", 200, 50m, "mg", 24.0, "Percentage", sourceRowSeq: 3);
+            var placebo = aeRow(4, doc, 100, "Nausea", "Placebo", 100, 0m, null, 10.0, "Percentage", sourceRowSeq: 4);
+
+            var (service, db) = createService(drugMissing, drugKnownA, drugKnownB, placebo);
+
+            await service.PopulateAsync();
+
+            var missingRow = db.Set<LabelView.FlattenedAdverseEventTable>()
+                .Single(r => r.FlattenedStandardizedTableId == 1);
+            Assert.IsNull(missingRow.ArmN);
+            Assert.IsNull(missingRow.RR);
+            Assert.IsNull(missingRow.RRLowerBound);
+            Assert.IsNull(missingRow.RRUpperBound);
+            Assert.IsNull(missingRow.CalculationMethod);
+            StringAssert.Contains(missingRow.CalculationFlags, "AE_ARMN_REJECTED_CONFLICTING_N");
+            StringAssert.Contains(missingRow.CalculationFlags, "NO_ARMN");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Same DocumentGUID + ParameterName but different TextTableIDs means each
+        /// TextTable group has its own comparator and no cross-pairing.
         /// </summary>
         [TestMethod]
         public async Task PopulateAsync_DifferentTextTablesNotCrossPaired()

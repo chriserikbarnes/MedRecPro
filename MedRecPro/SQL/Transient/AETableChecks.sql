@@ -1,21 +1,84 @@
 ﻿use MedRecLocal
 
+  -- 05/18/2026 pick up here to evaluate these ids
+  -- that have missing comparitor N values
+  select distinct TextTableID
+  from [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable]
+  where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
+  where  RR is null and IsPlaceboControlled = 1)
+
+  SELECT COUNT(*) AS CiEligibleCount
+FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
+WHERE TreatmentArm <> ComparatorArm
+  AND ParameterName IS NOT NULL
+  AND PrimaryValueType <> 'Text'
+  AND RR IS NOT NULL
+  AND RRLowerBound IS NOT NULL
+  AND RRUpperBound IS NOT NULL
+  AND ArmN > 0
+  AND ComparatorN > 0;
+
+select distinct *
+  from [dbo].[tmp_FlattenedAdverseEventTable]
+  where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
+  FROM  [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable]
+  where TextTableID = 26461)
+
+  select distinct *
+  from .[dbo].[tmp_FlattenedAdverseEventTable]
+  where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
+  FROM  [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable]
+  where TextTableID in (select distinct TextTableID
+  from [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable]
+  where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
+  where  RR is null and IsPlaceboControlled = 1)))
+
+ WITH TargetTables AS
+(
+    SELECT DISTINCT fst.TextTableID
+    FROM [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] fst
+    WHERE fst.tmp_FlattenedStandardizedTableID IN
+    (
+        SELECT ae.tmp_FlattenedStandardizedTableID
+        FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] ae
+        WHERE ae.RR IS NULL
+          AND ae.IsPlaceboControlled = 1
+    )
+)
+SELECT
+    (
+        SELECT
+            tt.TextTableID,
+            JSON_QUERY((
+                SELECT DISTINCT ae.*
+                FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] ae
+                INNER JOIN [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] fst
+                    ON fst.tmp_FlattenedStandardizedTableID = ae.tmp_FlattenedStandardizedTableID
+                WHERE fst.TextTableID = tt.TextTableID
+                FOR JSON PATH, INCLUDE_NULL_VALUES
+            )) AS adverseEvents
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER, INCLUDE_NULL_VALUES
+    ) AS JsonLine
+FROM TargetTables tt
+ORDER BY tt.TextTableID;
+
 SELECT *
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
-  where (RRLowerBound < 1 and RRUpperBound < 1)
+  where --(RRLowerBound is not null and RRUpperBound is not null) or
+  (RRLowerBound < 1 and RRUpperBound < 1)
   or (RRLowerBound > 1 and RRUpperBound >1)
-  or (RRLowerBound is null and RRUpperBound is null)
   and RR is not null
   --where tmp_FlattenedStandardizedTableID in ( SELECT tmp_FlattenedStandardizedTableID
   --FROM [dbo].[tmp_FlattenedStandardizedTable]
   --where TextTableID = 8006)
-  order by ParameterName
+  order by UNII
 
   SELECT *
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
-  where  RR is null --ComparatorArm = 'Placebo' and IsPlaceboControlled = 0
+  where  RR is null and IsPlaceboControlled = 1 --ComparatorArm = 'Placebo' and IsPlaceboControlled = 0
 
-  
   SELECT distinct DocumentGUID
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
   where RR is null -- ComparatorArm = 'Placebo' 

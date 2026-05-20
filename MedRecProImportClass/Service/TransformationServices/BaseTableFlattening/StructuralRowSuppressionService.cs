@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -55,10 +56,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         private static readonly Regex _placeholderStatValuePattern = new(
             @"^\s*(?:[-\u2013\u2014]+|\u2194|\u2192|\u2190|\u27F7|N/?A|No\.\s*Analyzed|No\.\s*Erad\.\s*\(%\))\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-        private static readonly Regex _nEqualsCellPattern = new(
-            @"^\(?\s*[Nn]\s*=\s*(\d[\d,]*)\s*\)?\s*$",
-            RegexOptions.Compiled);
 
         #endregion Compiled Patterns
 
@@ -308,14 +305,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
 
                 var text = cell.CleanedText.Trim();
-                var nMatch = _nEqualsCellPattern.Match(text);
-                if (nMatch.Success)
+                if (SampleSizeParser.TryParseStandaloneSampleSizeCell(text, out var evidence))
                 {
-                    var raw = nMatch.Groups[1].Value.Replace(",", string.Empty);
-                    if (int.TryParse(raw, out var nValue) && nValue > 0)
+                    if (evidence.Value is > 0)
                     {
                         if (arm.ColumnIndex.HasValue)
-                            nOverrides[arm.ColumnIndex.Value] = nValue;
+                            nOverrides[arm.ColumnIndex.Value] = evidence.Value.Value;
                         parsedNCount++;
                         continue;
                     }

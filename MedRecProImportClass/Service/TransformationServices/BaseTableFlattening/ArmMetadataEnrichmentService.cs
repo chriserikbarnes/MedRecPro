@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -20,10 +21,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         private static readonly Regex _doseRegimenPattern = new(
             @"^\d+\s*(?:mg|mcg|\u00B5g|g|ml|mL)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-        private static readonly Regex _nEqualsCellPattern = new(
-            @"^\(?\s*[Nn]\s*=\s*(\d[\d,]*)\s*\)?\s*$",
-            RegexOptions.Compiled);
 
         private static readonly Regex _formatHintCellPattern = new(
             @"^(?:n\s*\(\s*%\s*\)|%)\s*$",
@@ -106,7 +103,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     {
                         if (LooksLikeArmNameCell(previousText)) armNameCount++;
                         else if (_doseRegimenPattern.IsMatch(previousText)) doseCount++;
-                        else if (_nEqualsCellPattern.IsMatch(previousText)) nCount++;
+                        else if (SampleSizeParser.TryParseStandaloneSampleSizeCell(previousText, out _)) nCount++;
                         else if (LooksLikeFormatAxisCell(previousText)) fmtCount++;
                     }
                     continue;
@@ -116,7 +113,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                 if (LooksLikeArmNameCell(text)) armNameCount++;
                 else if (_doseRegimenPattern.IsMatch(text)) doseCount++;
-                else if (_nEqualsCellPattern.IsMatch(text)) nCount++;
+                else if (SampleSizeParser.TryParseStandaloneSampleSizeCell(text, out _)) nCount++;
                 else if (LooksLikeFormatAxisCell(text)) fmtCount++;
             }
 
@@ -231,7 +228,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var trimmed = text.Trim();
             if (IsDittoCellText(trimmed) ||
-                _nEqualsCellPattern.IsMatch(trimmed) ||
+                SampleSizeParser.TryParseStandaloneSampleSizeCell(trimmed, out _) ||
                 LooksLikeFormatAxisCell(trimmed) ||
                 _doseRegimenPattern.IsMatch(trimmed) ||
                 ArmDefinitionExtractor.LooksLikeGenericArmLabel(trimmed))
@@ -323,11 +320,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                             break;
                         }
 
-                        var nMatch = _nEqualsCellPattern.Match(text);
-                        if (nMatch.Success && int.TryParse(nMatch.Groups[1].Value.Replace(",", string.Empty), out var n))
+                        if (SampleSizeParser.TryParseStandaloneSampleSizeCell(text, out var evidence) &&
+                            evidence.Value is > 0)
                         {
-                            arms[i].SampleSize = n;
-                            previousN = n;
+                            arms[i].SampleSize = evidence.Value.Value;
+                            previousN = evidence.Value.Value;
                         }
                         break;
 

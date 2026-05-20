@@ -1,4 +1,5 @@
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -297,12 +298,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterCategory = currentCategory;
                         o.ParameterSubtype = currentSubtype ?? arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
-                        // AE-only: apply per-arm subpopulation N override; otherwise arm.SampleSize.
-                        // Efficacy never has Subpopulation set (the dictionary is always empty there).
-                        o.ArmN = (arm.ColumnIndex.HasValue &&
-                                  capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN))
-                            ? overrideN
-                            : arm.SampleSize;
                         o.StudyContext = arm.StudyContext;
                         o.DoseRegimen = arm.DoseRegimen;
                         o.Dose = arm.Dose;
@@ -311,12 +306,19 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.Subpopulation = capturedSubpopulation;
                         o.PValue = rowPValue;
 
+                        var scopedArmN = arm.ColumnIndex.HasValue &&
+                                         capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN)
+                            ? overrideN
+                            : (int?)null;
+                        var parseArm = category == TableCategory.ADVERSE_EVENT
+                            ? ArmNResolver.BuildValueContextArm(arm, scopedArmN)
+                            : arm;
                         var parsed = parseValueWithAeEfficacyContext(
                             cell.CleanedText,
                             category,
                             effectiveParamName,
                             currentCategory ?? currentSubtype,
-                            arm,
+                            parseArm,
                             table.Caption);
 
                         // Caption-based type inference (e.g., "Mean (SD)" in efficacy tables)
@@ -326,6 +328,15 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
 
                         applyParsedValue(o, parsed);
+                        if (category == TableCategory.ADVERSE_EVENT)
+                        {
+                            applyResolvedAeArmN(o, arm, parsed, scopedArmN);
+                        }
+                        else
+                        {
+                            if (arm.SampleSize.HasValue)
+                                o.ArmN = arm.SampleSize;
+                        }
                         if (shouldSuppressStructuralObservation(o, parsed))
                         {
                             recordSuppressedStructuralRow(

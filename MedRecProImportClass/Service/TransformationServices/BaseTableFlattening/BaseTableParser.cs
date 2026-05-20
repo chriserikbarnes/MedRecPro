@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Helpers;
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -1837,10 +1838,6 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.ParameterCategory = capturedCategory;
                         o.ParameterSubtype = arm.ParameterSubtype;
                         o.TreatmentArm = arm.Name;
-                        o.ArmN = (arm.ColumnIndex.HasValue &&
-                                  capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN))
-                            ? overrideN
-                            : arm.SampleSize;
                         o.StudyContext = arm.StudyContext ?? captionStudyContext;
                         o.DoseRegimen = arm.DoseRegimen;
                         o.Dose = arm.Dose;
@@ -1849,12 +1846,17 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.Subpopulation = capturedSubpopulation;
                         o.PValue = rowPValue;
 
+                        var scopedArmN = arm.ColumnIndex.HasValue &&
+                                         capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN)
+                            ? overrideN
+                            : (int?)null;
+                        var parseArm = ArmNResolver.BuildValueContextArm(arm, scopedArmN);
                         var parsed = parseValueWithAeEfficacyContext(
                             cell.CleanedText,
                             TableCategory.ADVERSE_EVENT,
                             effectiveParamName,
                             capturedCategory,
-                            arm,
+                            parseArm,
                             table.Caption);
 
                         if (!captionHint.IsEmpty)
@@ -1863,6 +1865,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                         }
 
                         applyParsedValue(o, parsed);
+                        applyResolvedAeArmN(o, arm, parsed, scopedArmN);
                         if (shouldSuppressAeStructuralObservation(o, parsed))
                         {
                             if (emitGenericArmObservations &&
@@ -2027,6 +2030,39 @@ namespace MedRecProImportClass.Service.TransformationServices
                     ? parsed.ValidationFlags
                     : $"{obs.ValidationFlags}; {parsed.ValidationFlags}";
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies centralized AE ArmN resolution and appends source diagnostics.
+        /// </summary>
+        /// <param name="obs">Observation receiving the resolved denominator.</param>
+        /// <param name="arm">Resolved treatment-arm context.</param>
+        /// <param name="parsed">Parsed value evidence from the source cell.</param>
+        /// <param name="scopedMetadataN">Optional body/header-tier denominator override.</param>
+        /// <seealso cref="ArmNResolver"/>
+        /// <seealso cref="ParsedObservation.ArmN"/>
+        protected static void applyResolvedAeArmN(
+            ParsedObservation obs,
+            ArmDefinition arm,
+            ParsedValue parsed,
+            int? scopedMetadataN)
+        {
+            #region implementation
+
+            var resolution = ArmNResolver.ResolveForAeObservation(
+                arm,
+                parsed,
+                scopedMetadataN,
+                obs.ArmN);
+
+            if (resolution.ArmN.HasValue)
+                obs.ArmN = resolution.ArmN.Value;
+
+            if (!string.IsNullOrWhiteSpace(resolution.ValidationFlag))
+                obs.ValidationFlags = appendFlag(obs.ValidationFlags, resolution.ValidationFlag);
 
             #endregion
         }

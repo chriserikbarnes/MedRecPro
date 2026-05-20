@@ -637,6 +637,9 @@ Numeric (count)      events = PrimaryValue
 ```
 
 Populate `EventsTreatment` (a in 2x2) and `EventsComparator` (c in 2x2).
+Percentage-derived events require positive `ArmN` and positive `ComparatorN`;
+when either denominator is missing or <= 0, events and RR statistics remain NULL
+and the row carries `NO_ARMN` and/or `NO_COMPARATOR_N`.
 
 ### 7.6 Relative Risk — Katz Log-Method
 
@@ -720,6 +723,8 @@ PLACEBO_COMPARATOR         Comparator was a placebo/sham/vehicle arm or Dose=0
 ACTIVE_COMPARATOR          Comparator was an active-control drug (different UNII)
 LOW_DOSE_COMPARATOR        Comparator was lowest non-zero Dose (stepped-dose fallback)
 NO_COMPARATOR              Single-arm trial; no comparator could be paired
+NO_ARMN                    Treatment ArmN is NULL or <= 0
+NO_COMPARATOR_N            Comparator ArmN is NULL or <= 0
 ZERO_CELL_CORRECTED        Haldane-Anscombe continuity correction applied
 UNCOMPARABLE_VALUE_TYPE    Both rows have a PrimaryValueType that doesn't yield events
 MIXED_VALUE_TYPES          Treatment and comparator have different PrimaryValueType

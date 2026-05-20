@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices.Dictionaries;
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
 
 namespace MedRecProImportClass.Service.TransformationServices
 {
@@ -46,11 +47,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         // Pattern 3: n/d(%) — 239/347 (69%) or 15/188(8.0%)
         private static readonly Regex _fracPctPattern = new(
             @"^(\d+)\s*/\s*(\d+)\s*\((\d+\.?\d*)\s*%?\s*\)$",
-            RegexOptions.Compiled);
-
-        // Pattern 3b: n/N count fraction - 147/623.
-        private static readonly Regex _fractionCountPattern = new(
-            @"^(\d[\d,]*)\s*/\s*(\d[\d,]*)$",
             RegexOptions.Compiled);
 
         // Pattern 4: n(%) — 33 (17.6) or 33 (17.6%)
@@ -136,10 +132,6 @@ namespace MedRecProImportClass.Service.TransformationServices
         // Pattern 10: n= — n=1401 or N=188 or N=5,310 (footnote markers tolerated:
         // N = 100*, N = 112‡). Footnote markers are stripped before extraction; the
         // documentation footnote text is recovered separately by the parser.
-        private static readonly Regex _nEqualsPattern = new(
-            @"^[Nn]\s*=\s*(\d[\d,]*)\s*[*†‡§¶#]?\s*$",
-            RegexOptions.Compiled);
-
         // Pattern 11: P-value — p<0.05, P=0.001, <0.001, 0.0295
         private static readonly Regex _pValuePattern = new(
             @"^[Pp]?\s*([<>=≤≥])\s*(\d+\.?\d*)$",
@@ -213,16 +205,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         // Arm header pattern (parenthesized): DrugName(N=188)n(%) or Drug (n = 5,310) %
         // Supports uppercase/lowercase N, optional spaces around =, and comma-formatted numbers
-        private static readonly Regex _armHeaderPattern = new(
-            @"^(.+?)\s*\([Nn]\s*=\s*(\d[\d,]*)\)\s*(.*)$",
-            RegexOptions.Compiled);
-
         // Arm header pattern (no parentheses): Placebo n = 51 % or CE n = 5,429
         // Requires whitespace before N to avoid false matches on drug names ending in 'n'
-        private static readonly Regex _armHeaderNoParenPattern = new(
-            @"^(.+?)\s+[Nn]\s*=\s*(\d[\d,]*)\s*(.*)$",
-            RegexOptions.Compiled);
-
         // Footnote marker pattern for parameter name cleaning
         // Matches: (1) special symbols (†‡§¶#*) at any position, or
         // (2) single letters [a-g] only when preceded by a non-letter to avoid
@@ -421,38 +405,17 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             var text = headerText.Trim();
 
-            // Try parenthesized pattern first: "Drug (N=100) %" or "Drug (n = 421) %"
-            var match = _armHeaderPattern.Match(text);
-            if (match.Success)
-                return buildArmFromMatch(match);
-
-            // Try no-parentheses pattern: "Placebo n = 51 %"
-            match = _armHeaderNoParenPattern.Match(text);
-            if (match.Success)
-                return buildArmFromMatch(match);
+            if (SampleSizeParser.TryParseArmHeaderSampleSize(text, out var evidence, out var formatHint))
+            {
+                return new ArmDefinition
+                {
+                    Name = evidence.CleanedText,
+                    SampleSize = evidence.Value,
+                    FormatHint = formatHint
+                };
+            }
 
             return null;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds an <see cref="ArmDefinition"/> from a successful regex match.
-        /// Group 1 = arm name, Group 2 = sample size, Group 3 = format hint.
-        /// </summary>
-        /// <param name="match">Successful regex match with 3 capture groups.</param>
-        /// <returns>Populated <see cref="ArmDefinition"/>.</returns>
-        private static ArmDefinition buildArmFromMatch(Match match)
-        {
-            #region implementation
-
-            return new ArmDefinition
-            {
-                Name = match.Groups[1].Value.Trim(),
-                SampleSize = int.TryParse(match.Groups[2].Value.Replace(",", ""), out var n) ? n : null,
-                FormatHint = match.Groups[3].Value.Trim()
-            };
 
             #endregion
         }
@@ -597,6 +560,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                 PrimaryValueType = "Percentage",
                 SecondaryValue = numerator,
                 SecondaryValueType = "Count",
+                SampleSize = denominator,
                 Unit = "%",
                 ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "frac_pct",
@@ -620,13 +584,17 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             result = null!;
-            var match = _fractionCountPattern.Match(text);
-
-            if (!match.Success)
+            if (!SampleSizeParser.TryParseFractionDenominator(text, out var evidence) ||
+                evidence.Value is not > 0)
                 return false;
 
-            var numerator = int.Parse(match.Groups[1].Value.Replace(",", ""));
-            var denominator = int.Parse(match.Groups[2].Value.Replace(",", ""));
+            var slashIndex = text.IndexOf('/');
+            if (slashIndex <= 0)
+                return false;
+
+            var numeratorText = text[..slashIndex].Trim().Replace(",", string.Empty);
+            var numerator = int.Parse(numeratorText);
+            var denominator = evidence.Value.Value;
 
             result = new ParsedValue
             {
@@ -1232,14 +1200,15 @@ namespace MedRecProImportClass.Service.TransformationServices
             #region implementation
 
             result = null!;
-            var match = _nEqualsPattern.Match(text);
 
-            if (!match.Success)
+            if (!SampleSizeParser.TryParseStandaloneSampleSizeCell(text, out var evidence) ||
+                evidence.Value is not > 0)
                 return false;
 
             result = new ParsedValue
             {
-                PrimaryValue = int.Parse(match.Groups[1].Value.Replace(",", "")),
+                PrimaryValue = evidence.Value.Value,
+                SampleSize = evidence.Value.Value,
                 PrimaryValueType = "SampleSize",
                 ParseConfidence = ParsedValue.ConfidenceTier.Unambiguous,
                 ParseRule = "n_equals"

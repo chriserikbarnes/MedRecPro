@@ -171,6 +171,17 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(15.0, result.SecondaryValue);
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Fraction percent exposes the denominator as sample-size evidence.
+        /// </summary>
+        [TestMethod]
+        public void Parse_FractionPercent_SetsSampleSize()
+        {
+            var result = ValueParser.Parse("2/103 (4%)");
+            Assert.AreEqual(103, result.SampleSize);
+        }
+
         #endregion Fraction Percent Tests
 
         #region Fraction Count Tests
@@ -723,6 +734,19 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("SampleSize", result.PrimaryValueType);
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// N= sample-size cells tolerate commas, footnote markers, and display hints.
+        /// </summary>
+        [TestMethod]
+        public void Parse_NEqualsCommaFootnoteAndHint_ReturnsSampleSize()
+        {
+            var result = ValueParser.Parse("N = 5,310*");
+            Assert.AreEqual(5310.0, result.PrimaryValue);
+            Assert.AreEqual(5310, result.SampleSize);
+            Assert.AreEqual("n_equals", result.ParseRule);
+        }
+
         #endregion N Equals Tests
 
         #region P-Value Tests
@@ -908,6 +932,19 @@ namespace MedRecPro.Service.Test
             Assert.IsNotNull(arm);
             Assert.AreEqual("Drug", arm!.Name);
             Assert.AreEqual(12345, arm.SampleSize);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Arm header N values tolerate unit context such as "Eyes".
+        /// </summary>
+        [TestMethod]
+        public void ParseArmHeader_NWithUnitContext_ReturnsArmDefinition()
+        {
+            var arm = ValueParser.ParseArmHeader("Sham (N=94 Eyes)");
+            Assert.IsNotNull(arm);
+            Assert.AreEqual("Sham", arm!.Name);
+            Assert.AreEqual(94, arm.SampleSize);
         }
 
         #endregion Arm Header Parsing Tests

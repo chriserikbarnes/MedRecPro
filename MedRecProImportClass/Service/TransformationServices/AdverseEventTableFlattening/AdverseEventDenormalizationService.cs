@@ -254,6 +254,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
                     foreach (var groupRows in ComparatorGrouper.Group(tableRows))
                     {
+                        var stage5ArmNFlags = applySameArmNBackfill(groupRows);
                         var (comparator, comparatorFlag) = ComparatorSelector.Select(groupRows);
                         var (dRef, dRefUnit) = ComparatorSelector.SelectReferenceDose(groupRows);
 
@@ -268,7 +269,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                                 comparatorFlag,
                                 dRef,
                                 dRefUnit,
-                                design));
+                                design,
+                                getStage5ArmNFlags(row, comparator, stage5ArmNFlags)));
                         }
                     }
                 }
@@ -296,6 +298,128 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     "Stage 5 — Batch save failed; aborting Phase 2 to avoid leaving a partial denormalized table");
                 throw;
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Backfills missing ArmN values from a unique same-arm N inside one comparator group.
+        /// </summary>
+        /// <remarks>
+        /// This is an in-memory safety net only. Source rows are loaded with
+        /// <c>AsNoTracking()</c>, so the backfill affects only the denormalized Stage 5
+        /// entities created from this batch.
+        /// </remarks>
+        /// <param name="groupRows">Rows in a single comparator cohort.</param>
+        /// <returns>Calculation flags by source row id.</returns>
+        /// <seealso cref="ComparatorGrouper"/>
+        /// <seealso cref="AeStatEntityBuilder"/>
+        private static Dictionary<int, HashSet<string>> applySameArmNBackfill(
+            IReadOnlyList<LabelView.FlattenedStandardizedTable> groupRows)
+        {
+            #region implementation
+
+            var flagsByRowId = new Dictionary<int, HashSet<string>>();
+
+            foreach (var armGroup in groupRows
+                         .Where(r => !string.IsNullOrWhiteSpace(r.TreatmentArm))
+                         .GroupBy(r => ComparatorGrouper.NormalizeKey(r.TreatmentArm)))
+            {
+                var positiveNs = armGroup
+                    .Where(r => r.ArmN is > 0)
+                    .Select(r => r.ArmN!.Value)
+                    .Distinct()
+                    .ToList();
+
+                var missingRows = armGroup
+                    .Where(r => r.ArmN is null || r.ArmN <= 0)
+                    .ToList();
+
+                if (missingRows.Count == 0)
+                    continue;
+
+                if (positiveNs.Count == 1)
+                {
+                    foreach (var row in missingRows)
+                    {
+                        row.ArmN = positiveNs[0];
+                        addStage5ArmNFlag(
+                            flagsByRowId,
+                            row.Id,
+                            AeDenormalizationConstants.ArmNStage5GroupBackfillFlag);
+                    }
+                    continue;
+                }
+
+                if (positiveNs.Count > 1)
+                {
+                    foreach (var row in armGroup)
+                    {
+                        addStage5ArmNFlag(
+                            flagsByRowId,
+                            row.Id,
+                            AeDenormalizationConstants.ArmNRejectedConflictingNFlag);
+                    }
+                }
+            }
+
+            return flagsByRowId;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Adds one Stage 5 ArmN flag to the per-row flag dictionary.
+        /// </summary>
+        /// <param name="flagsByRowId">Mutable flag dictionary.</param>
+        /// <param name="rowId">Source row identifier.</param>
+        /// <param name="flag">Flag to add.</param>
+        /// <seealso cref="applySameArmNBackfill"/>
+        private static void addStage5ArmNFlag(
+            Dictionary<int, HashSet<string>> flagsByRowId,
+            int rowId,
+            string flag)
+        {
+            #region implementation
+
+            if (!flagsByRowId.TryGetValue(rowId, out var flags))
+            {
+                flags = new HashSet<string>(StringComparer.Ordinal);
+                flagsByRowId[rowId] = flags;
+            }
+
+            flags.Add(flag);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collects row and comparator ArmN flags for the output entity.
+        /// </summary>
+        /// <param name="row">Current treatment row.</param>
+        /// <param name="comparator">Selected comparator row.</param>
+        /// <param name="flagsByRowId">Backfill/conflict flags by source row id.</param>
+        /// <returns>Distinct calculation flags to append.</returns>
+        /// <seealso cref="AeStatEntityBuilder.Build"/>
+        private static IReadOnlyList<string> getStage5ArmNFlags(
+            LabelView.FlattenedStandardizedTable row,
+            LabelView.FlattenedStandardizedTable? comparator,
+            IReadOnlyDictionary<int, HashSet<string>> flagsByRowId)
+        {
+            #region implementation
+
+            var flags = new List<string>();
+            if (flagsByRowId.TryGetValue(row.Id, out var rowFlags))
+                flags.AddRange(rowFlags);
+            if (comparator is not null && flagsByRowId.TryGetValue(comparator.Id, out var comparatorFlags))
+                flags.AddRange(comparatorFlags);
+
+            return flags
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
 
             #endregion
         }
