@@ -237,8 +237,10 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("Gastrointestinal Disorders", row.ParameterCategory);
             Assert.IsNotNull(row.RR);
             StringAssert.Contains(row.CalculationFlags, "AE_STD:NAME_NORMALIZED");
-            StringAssert.Contains(row.CalculationFlags, "AE_STD:SOC_ALIGNED:Investigations->Gastrointestinal Disorders");
+            StringAssert.Contains(row.CalculationFlags, "AE_STD:NAME_NORMALIZED:Digestive System Nausea->Nausea");
+            StringAssert.Contains(row.CalculationFlags, "AE_STD:SOC_ALIGNED:Chemistry->Gastrointestinal Disorders");
             StringAssert.Contains(row.CalculationFlags, "AE_STD:SOC_FROM_NAME");
+            StringAssert.Contains(row.CalculationFlags, "AE_STD:SOC_FROM_NAME:Adverse Reactions->Gastrointestinal Disorders");
 
             #endregion
         }

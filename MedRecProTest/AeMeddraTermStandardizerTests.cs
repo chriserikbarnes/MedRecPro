@@ -117,6 +117,9 @@ namespace MedRecPro.Service.Test
             Assert.IsFalse(result.IsExcluded);
             Assert.AreEqual(expectedSoc, row.ParameterCategory);
             Assert.IsTrue(result.Flags.Any(f => f.StartsWith("AE_STD:SOC_ALIGNED:", StringComparison.Ordinal)));
+            CollectionAssert.Contains(
+                result.Flags.ToList(),
+                $"AE_STD:SOC_ALIGNED:{rawCategory}->{expectedSoc}");
 
             #endregion
         }
@@ -137,6 +140,7 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("Blood Glucose Increased", row.ParameterName);
             Assert.AreEqual("Investigations", row.ParameterCategory);
             CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME:<null>->Investigations");
 
             #endregion
         }
@@ -157,6 +161,117 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("ALT Increased", row.ParameterName);
             Assert.AreEqual("Investigations", row.ParameterCategory);
             CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:NAME_NORMALIZED");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:NAME_NORMALIZED:alt increased->ALT Increased");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Category-only standardization records the raw old value and official new value.</summary>
+        [TestMethod]
+        public void Standardize_CategoryOnlyChange_LogsOldAndNewValues()
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow("Unknown term", "Ocular");
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual("Unknown Term", row.ParameterName);
+            Assert.AreEqual("Eye Disorders", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_CATEGORY");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_CATEGORY:Ocular->Eye Disorders");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>One-direction weight increase variants canonicalize to the MedDRA investigation term.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        [DataTestMethod]
+        [DataRow("Weight increase")]
+        [DataRow("Increased weight")]
+        [DataRow("Weight, increased")]
+        [DataRow("Weight gain")]
+        [DataRow("Weight Gain")]
+        [DataRow("Weight gain/increased")]
+        [DataRow("Investigations Weight increased")]
+        public void Standardize_WeightIncreaseVariants_MapToWeightIncreasedInvestigations(string rawName)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, null);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual("Weight Increased", row.ParameterName);
+            Assert.AreEqual("Investigations", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:NAME_NORMALIZED");
+            CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:NAME_NORMALIZED:{rawName}->Weight Increased");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME:<null>->Investigations");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>One-direction weight decrease variants canonicalize to the MedDRA investigation term.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        [DataTestMethod]
+        [DataRow("Weight decrease")]
+        [DataRow("Decreased weight")]
+        [DataRow("Decreased Weight*")]
+        [DataRow("Weight Loss")]
+        [DataRow("Weight loss")]
+        [DataRow("Weight decreased*")]
+        [DataRow("Lost >5 lbs")]
+        public void Standardize_WeightDecreaseVariants_MapToWeightDecreasedInvestigations(string rawName)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, null);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual("Weight Decreased", row.ParameterName);
+            Assert.AreEqual("Investigations", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:NAME_NORMALIZED");
+            CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:NAME_NORMALIZED:{rawName}->Weight Decreased");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME:<null>->Investigations");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Weight change terms override metabolism aliases and audit the SOC correction.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        /// <param name="rawCategory">Raw ParameterCategory value.</param>
+        /// <param name="expectedName">Expected canonical ParameterName.</param>
+        [DataTestMethod]
+        [DataRow("Weight gain", "Metabolic/Nutritional", "Weight Increased")]
+        [DataRow("Weight loss", "Metabolic and Nutritional Disorders", "Weight Decreased")]
+        public void Standardize_WeightChangeMetabolismCategory_AlignsToInvestigations(string rawName, string rawCategory, string expectedName)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, rawCategory);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual(expectedName, row.ParameterName);
+            Assert.AreEqual("Investigations", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:NAME_NORMALIZED:{rawName}->{expectedName}");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_ALIGNED");
+            CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:SOC_ALIGNED:{rawCategory}->Investigations");
 
             #endregion
         }
@@ -182,6 +297,25 @@ namespace MedRecPro.Service.Test
             #region implementation
 
             Assert.AreEqual(expectedExcluded, AeMeddraTermStandardizer.IsExcludedFromVisualization(name));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Bidirectional weight gain/loss text is excluded instead of forced to one direction.</summary>
+        [TestMethod]
+        public void Standardize_WeightGainLoss_IsExcludedAsAmbiguous()
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow("Weight gain/loss", null);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsTrue(result.IsExcluded);
+            Assert.IsTrue(AeMeddraTermStandardizer.IsExcludedFromVisualization("Weight gain/loss"));
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:EXCLUDED_NON_AE");
 
             #endregion
         }

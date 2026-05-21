@@ -4057,3 +4057,25 @@ Added `AeMeddraTermStandardizerTests` for official SOC guards, raw category alia
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests"` passed 63/63. `dotnet test MedRecProTest\MedRecProTest.csproj` passed 2,059/2,060 with 1 existing skipped test. Initial restore-enabled test execution inside the sandbox was blocked by access to the user NuGet config, so the test commands were rerun with approved elevated access.
 
 ---
+
+### 2026-05-21 4:20 PM EST — AE CalculationFlags Value-Change Audit Expansion
+
+Expanded Stage 5 AE standardization audit flags so every `ParameterName` or `ParameterCategory` mutation emits an old-value to new-value detail token in `CalculationFlags`, while preserving the existing generic `AE_STD:*` reason families. Examples now include `AE_STD:NAME_NORMALIZED:Digestive System Nausea->Nausea`, `AE_STD:SOC_ALIGNED:Chemistry->Gastrointestinal Disorders`, `AE_STD:SOC_FROM_NAME:<null>->Investigations`, and `AE_STD:SOC_FROM_CATEGORY:Ocular->Eye Disorders`.
+
+Updated `AeMeddraTermStandardizer` with shared value-change flag formatting, null/blank audit markers, and delimiter-safe sanitization for semicolon-delimited flag storage. Extended `AeMeddraTermStandardizerTests` and `AdverseEventDenormalizationServiceTests` to assert the new old/new flag forms for name normalization, name-authoritative SOC alignment, null-category rescue, and category-only SOC normalization.
+
+**Verification.** The first focused test run was blocked by locked normal bin artifacts held by Visual Studio and a running `MedRecProConsole` process. Rerunning with `-p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests"` with 64/64 passing. A full-suite attempt with the same temporary output path reached test execution but failed two unrelated `ClaudeSkillServiceTests` because the temp output folder lacked `Skills\interfaces\api\orange-book-patents.md`.
+
+---
+
+### 2026-05-21 6:07 PM EST — AE Weight Change MedDRA Correction
+
+Corrected the Stage 5 AE MedDRA weight-change dictionary in [AeMeddraTermStandardizer.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AeMeddraTermStandardizer.cs). `Weight gain/loss` is now treated as ambiguous bidirectional text and excluded before comparator grouping, while one-direction variants such as `Weight gain`, `Weight increase`, `Increased weight`, `Weight loss`, `Weight decrease`, and `Decreased weight` normalize to the correct increased/decreased canonical terms.
+
+**Dictionary alignment.** Moved canonical `Weight Increased` and `Weight Decreased` from metabolism/nutrition to the official MedDRA `Investigations` SOC so raw metabolism aliases are overridden by name-derived SOC evidence and auditable `AE_STD:SOC_ALIGNED:<old>->Investigations` flags.
+
+**Tests.** Extended [AeMeddraTermStandardizerTests.cs](MedRecProTest/AeMeddraTermStandardizerTests.cs) with increased/decreased tense normalization cases, metabolism-category override assertions, and an explicit `Weight gain/loss` exclusion guard.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 81/81. `git diff --check` passed with line-ending warnings only.
+
+---

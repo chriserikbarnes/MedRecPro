@@ -328,6 +328,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             {
                 row.ParameterName = canonicalName;
                 flags.Add(NameNormalizedFlag);
+                addValueChangeFlag(flags, NameNormalizedFlag, originalName, canonicalName);
             }
 
             var nameSoc = resolveSocFromName(canonicalName, cleanName);
@@ -341,17 +342,22 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 {
                     row.ParameterCategory = nameSoc;
                     flags.Add(SocFromNameFlag);
+                    addValueChangeFlag(flags, SocFromNameFlag, originalCategory, nameSoc);
                 }
                 else if (!string.Equals(categorySoc, nameSoc, StringComparison.Ordinal))
                 {
                     row.ParameterCategory = nameSoc;
-                    flags.Add($"AE_STD:SOC_ALIGNED:{sanitizeFlagValue(categorySoc)}->{sanitizeFlagValue(nameSoc)}");
+                    flags.Add("AE_STD:SOC_ALIGNED");
+                    addValueChangeFlag(flags, "AE_STD:SOC_ALIGNED", originalCategory, nameSoc);
                 }
                 else
                 {
                     row.ParameterCategory = nameSoc;
                     if (!string.Equals(cleanCategory, nameSoc, StringComparison.Ordinal))
+                    {
                         flags.Add(SocNormalizedFlag);
+                        addValueChangeFlag(flags, SocNormalizedFlag, originalCategory, nameSoc);
+                    }
                 }
 
                 return new AeMeddraStandardizationResult(false, flags);
@@ -361,13 +367,18 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             {
                 row.ParameterCategory = categorySoc;
                 if (!string.Equals(cleanCategory, categorySoc, StringComparison.Ordinal))
+                {
                     flags.Add(SocFromCategoryFlag);
+                    addValueChangeFlag(flags, SocFromCategoryFlag, originalCategory, categorySoc);
+                }
 
                 return new AeMeddraStandardizationResult(false, flags);
             }
 
             row.ParameterCategory = null;
             flags.Add(SocUnmappedFlag);
+            if (!string.IsNullOrWhiteSpace(originalCategory))
+                addValueChangeFlag(flags, SocUnmappedFlag, originalCategory, null);
             return new AeMeddraStandardizationResult(false, flags);
 
             #endregion
@@ -934,6 +945,55 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
+        /// Adds an auditable old-value to new-value flag when a displayed field changes.
+        /// </summary>
+        /// <param name="flags">Mutable audit flag collection.</param>
+        /// <param name="flagBase">Base flag reason, such as <c>AE_STD:SOC_FROM_NAME</c>.</param>
+        /// <param name="oldValue">Original value before standardization.</param>
+        /// <param name="newValue">Final value after standardization.</param>
+        private static void addValueChangeFlag(
+            ICollection<string> flags,
+            string flagBase,
+            string? oldValue,
+            string? newValue)
+        {
+            #region implementation
+
+            var oldAuditValue = formatAuditValue(oldValue);
+            var newAuditValue = formatAuditValue(newValue);
+
+            if (string.Equals(oldAuditValue, newAuditValue, StringComparison.Ordinal))
+                return;
+
+            flags.Add($"{flagBase}:{oldAuditValue}->{newAuditValue}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats a field value for semicolon-delimited CalculationFlags audit text.
+        /// </summary>
+        /// <param name="value">Raw field value.</param>
+        /// <returns>Sanitized display value, or <c>&lt;null&gt;</c> when absent.</returns>
+        private static string formatAuditValue(string? value)
+        {
+            #region implementation
+
+            if (value is null)
+                return "<null>";
+
+            var cleanValue = cleanText(value);
+            if (cleanValue.Length == 0)
+                return "<blank>";
+
+            return sanitizeFlagValue(cleanValue);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Removes delimiter characters that would corrupt semicolon-delimited flag storage.
         /// </summary>
         /// <param name="value">Value to embed in a calculation flag.</param>
@@ -1120,8 +1180,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             add("Upper Respiratory Tract Infection", "Upper Respiratory Tract Infection NOS", "Upper Respiratory Infection (URI)", "Upper Respiratory Tract Inf. NOS");
             add("Urinary Tract Infection", "Urinary Tract Infection (NOS)", "Urogenital System Urinary Tract Infection", "Infections Urinary tract infection", "Infections and Infestations Urinary tract infections");
             add("Viral Infection", "Viral Infection");
-            add("Weight Decreased", "Weight decreased", "Weight Loss", "Lost >5 lbs");
-            add("Weight Increased", "Weight increased", "Weight gain", "Weight gain/loss", "Gained >5 lbs", "Investigations Weight increased");
+            add("Weight Decreased", "Weight decreased", "Weight decrease", "Decreased weight", "Decreased Weight*", "Weight Loss", "Weight loss", "Weight decreased*", "Lost >5 lbs");
+            add("Weight Increased", "Weight increased", "Weight increase", "Increased weight", "Weight, increased", "Weight gain", "Weight Gain", "Weight gain/increased", "Gained >5 lbs", "Investigations Weight increased");
 
             return map;
 
@@ -1152,14 +1212,14 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             add("Eye Disorders", "Conjunctivitis", "Blurred Vision", "Eye Pain", "Blurry Vision", "Dry Eye", "Intraocular pressure increased", "IOP elevation >= 10 mmHg from Baseline", "IOP elevation > 30 mmHg", "IOP elevation >= 30 mmHg", "Ocular hypertension", "Punctate keratitis", "Retinal hemorrhage", "Posterior capsule opacification", "Intraocular inflammation", "Neovascular age-related macular degeneration", "Ocular discomfort", "Blepharospasm");
             add("Respiratory, Thoracic and Mediastinal Disorders", "Cough", "Dyspnea", "Rhinitis", "Pharyngolaryngeal Pain", "Nasal congestion, sore throat", "Dyspnea, cough, wheezing", "Bradypnea", "Atelectasis", "Pulmonary Edema", "Decreased lung function", "Respiratory System Dyspnea", "Asthma symptoms", "Respiratory System Nasopharyngitis", "Nasal burning/nasal irritation", "Respiratory Tract Infection (Upper and Lower)", "Nasal Congestion (Including sinus congestion)", "Respiratory failure, respiratory disorder, hypoxia", "Sputum Increased", "Voice Alteration", "Lung Function Decreased", "Respiratory, thoracic and mediastinal disorders Hyperventilation", "Respiratory, thoracic, and mediastinal disorders Dyspnea", "Respiratory system disorder Sinusitis", "Respiration abnormal");
             add("Infections and Infestations", "Upper Respiratory Tract Infection", "Nasopharyngitis", "Sinusitis", "Viral Infection", "Female Genital Mycotic Infections", "Male Genital Mycotic Infections", "Urinary Tract Infection", "Dialysis Access Site Infection", "Tinea infection", "Vaginal Candidiasis", "Sinusitis (NOS)", "Upper Respiratory Infection (URI)", "Upper Respiratory Tract Inf. NOS", "Gingivitis", "Ingrown toenail");
-            add("Investigations", "Blood Glucose Increased", "Blood Bilirubin Increased", "Serum Creatinine Elevated", "Creatinine Increased", "ALT Increased", "AST Increased", "Leukocytes Decreased", "Platelets Decreased", "Increased ALP", "Elevated Liver Enzymes", "Decreased blood cortisol", "Albumin urine present", "Blood insulin increased", "Elevated Amylase", "Elevated INR", "Elevated Lipase", "QTc prolonged", "Electrocardiogram QT prolongation", "Blood creatine phosphokinase increased (CPK)", "Gamma-glutamyl transferase increased (GGT)", "Increased Gamma-Glutamyltransferase", "Serum creatinine increase", "Laboratory Abnormality");
+            add("Investigations", "Blood Glucose Increased", "Blood Bilirubin Increased", "Serum Creatinine Elevated", "Creatinine Increased", "ALT Increased", "AST Increased", "Leukocytes Decreased", "Platelets Decreased", "Increased ALP", "Elevated Liver Enzymes", "Decreased blood cortisol", "Albumin urine present", "Blood insulin increased", "Elevated Amylase", "Elevated INR", "Elevated Lipase", "QTc prolonged", "Electrocardiogram QT prolongation", "Blood creatine phosphokinase increased (CPK)", "Gamma-glutamyl transferase increased (GGT)", "Increased Gamma-Glutamyltransferase", "Serum creatinine increase", "Laboratory Abnormality", "Weight Increased", "Weight Decreased");
             add("Musculoskeletal and Connective Tissue Disorders", "Back Pain", "Arthralgia", "Myalgia", "Ligament Sprain", "Joint Sprain", "Muscle cramps, tremor", "Musculoskeletal (Bone, Muscle Or Joint) Pain", "Musculoskeletal System Pain - Extremities", "Jaw pain", "Skeletal Pain", "Musculoskeletal Traumatism", "Arthralgia and arthritis", "Musculoskeletal and connective tissue disorders Muscle twitching", "Tenosynovitis");
             add("Vascular Disorders", "Hypertension", "Hot Flush", "Peripheral Edema", "Flushing, heat sensation", "Vasomotor symptoms", "Procedural Hypotension", "Hypotension, postural", "Supine hypertension");
             add("Cardiac Disorders", "Increased Heart Rate", "Torsade de Pointes", "Ventricular fibrillation", "Ventricular arrhythmias", "AV Block First Degree", "Cardiac Failure", "Increased Angina", "Sustained Tachycardia", "Subjective Cardiac Rhythm Disturbance");
             add("Hepatobiliary Disorders", "Cholelithiasis", "Liver test abnormality", "Liver Function Abnormalities", "High Total Bilirubin");
             add("Renal and Urinary Disorders", "Oliguria", "Urine Output Decreased", "Urogenital System Urinary Tract Infection", "Discomfort with urination", "Glycosuria");
             add("Reproductive System and Breast Disorders", "Gynecological disorder", "UROGENITAL SYSTEM Impotence", "Urogenital System Endometrial thickening", "Spontaneous Penile Erection", "Retrograde Ejaculation", "Libido change", "Orgasmic Disturbance", "Decreased sexual desire and arousal", "Uterine Pain", "Breast changes/tenderness/pain");
-            add("Metabolism and Nutrition Disorders", "Hypovolemia", "Hypoglycemia in T2DM", "Fat-soluble vitamin deficiency (A, D, E)", "Central obesity", "Metabolism and nutrition disorders Appetite decreased", "Metabolism and nutrition disorders Hyponatremia", "Weight Increased", "Weight Decreased");
+            add("Metabolism and Nutrition Disorders", "Hypovolemia", "Hypoglycemia in T2DM", "Fat-soluble vitamin deficiency (A, D, E)", "Central obesity", "Metabolism and nutrition disorders Appetite decreased", "Metabolism and nutrition disorders Hyponatremia");
             add("Endocrine Disorders", "Cushingoid appearance", "Hormone Level Altered");
             add("Blood and Lymphatic System Disorders", "Postoperative Anemia", "Hematocrit / hemoglobin Increased", "Any noncerebral bleeding", "Any noncerebral bleeding (nonmajor)", "Fatal bleeding", "Major noncerebral", "Major noncerebral or cerebral bleeding", "Intracranial hemorrhage", "Hemorrhagic stroke");
             add("Injury, Poisoning and Procedural Complications", "Head Injury", "Injury", "Laceration (head)", "Post-procedural Hemorrhage", "Post Procedural Hematoma", "nerve injury", "hematoma/bruising", "Injury, poisoning, and procedural complications Road traffic accident", "Injury, poisoning and procedural complications Fall");
@@ -1266,6 +1326,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     "TIMI Major or Minor or Requiring medical attention",
                     "Total # of reports",
                     "Total number of AEs",
+                    "Weight gain/loss",
                     "Women only"
                 }.Select(normalizeLookupKey),
                 StringComparer.Ordinal);
