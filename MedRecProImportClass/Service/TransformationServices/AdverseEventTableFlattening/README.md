@@ -6,6 +6,10 @@ already-parsed, already-standardized AE rows from `tmp_FlattenedStandardizedTabl
 every row carries a pre-computed risk-statistics packet so visualizations bind to numbers
 directly — no runtime statistics.
 
+Stage 5 now persists only rows with a non-null `RR`. It still calculates intermediate
+diagnostics for skipped rows in memory, logs the null-RR reason families per batch, and
+keeps only visualization-ready treatment/comparator pairs in the target table.
+
 Each output row pairs a treatment arm against a chosen comparator arm and stores:
 - **RR** — Relative Risk, with 95% CI (`RRLowerBound` / `RRUpperBound`)
 - **DNRR** — Dose-Normalized RR, with 95% CI
@@ -34,6 +38,7 @@ AdverseEventDenormalizationService.PopulateAsync
         load standardized rows (AsNoTracking)
         │
         ├─ SourceRowEligibility.IsDenormalizableAeSourceRow   keep only valid AE rows w/ a value
+        ├─ AeMeddraTermStandardizer.Standardize              canonicalize AE name + official SOC
         │
         └─ group by DocumentGUID → group by TextTableID:
               ├─ RelativeRiskCalculator.ClassifyTrialDesign   (diagnostic flag only)
@@ -61,7 +66,8 @@ treatment rows as `ComparatorArm` / `ComparatorN`.
 | File | Responsibility |
 |---|---|
 | `IAdverseEventDenormalizationService.cs` / `AdverseEventDenormalizationService.cs` | Orchestrates the stage. Public surface: `PopulateAsync` (truncate → batch by document → group → compute → bulk insert) and `TruncateAsync`. Disables EF change-tracking for bulk insert; fails fast on save errors. |
-| `SourceRowEligibility.cs` | The eligibility gate. A source row is denormalizable iff it has a DocumentGUID, a `PrimaryValue`, and a `ParameterName`/`TreatmentArm` that is not a caption, body-system label, or value-axis token (delegates to `AeColumnContextResolver`). |
+| `SourceRowEligibility.cs` | The eligibility gate. A source row is denormalizable iff it has a DocumentGUID, a `PrimaryValue`, and a `ParameterName`/`TreatmentArm` that is not a caption, body-system label, threshold fragment, or value-axis token (delegates to `AeColumnContextResolver`). |
+| `AeMeddraTermStandardizer.cs` | Stage 5-only MedDRA standardizer. Canonicalizes AE names before grouping, maps category aliases to the official 27 SOC labels, fills null categories from known AE terms, and emits auditable `AE_STD:*` flags. |
 | `ComparatorGrouper.cs` | Groups one table's rows into comparison cohorts keyed by `{ParameterName, ParameterSubtype, StudyContext, Population, Subpopulation}` — each dimension normalized (trim, collapse whitespace, upper-invariant). Scope is per-`TextTableID`. |
 | `ComparatorSelector.cs` | Picks the comparator for a cohort via a 3-tier cascade and computes the per-study reference dose. |
 | `IPlaceboArmClassifier.cs` / `PlaceboArmClassifier.cs` | Thin injectable wrapper over `RelativeRiskCalculator.IsPlaceboArm`, so upstream services (e.g., Claude guardrails) can share placebo classification. |
@@ -139,6 +145,11 @@ percentages) → event counts → `Compute` (RR) → `ComputeDnrr` (DNRR).
 The **`Log*` columns are never set in C#** — they are PERSISTED computed columns in the
 DDL, guarded with `CASE WHEN > 0 THEN LOG(...)` to avoid `LOG(0)`/`LOG(NULL)` errors.
 
+Rows that finish with `RR = NULL` are not inserted into `tmp_FlattenedAdverseEventTable`.
+This suppresses non-visualizable rows such as `NO_COMPARATOR`, `NO_ARMN`,
+`NO_COMPARATOR_N`, `MIXED_VALUE_TYPES`, `UNCOMPARABLE_VALUE_TYPE`,
+`INVALID_EVENT_COUNT`, `EVENTS_EXCEED_ARMN`, and `PERCENT_OUT_OF_RANGE` outputs.
+
 ---
 
 ## Relationships
@@ -155,6 +166,11 @@ supplies the flag strings used across all of them. The only cross-folder depende
 `AeColumnContextResolver` (in [`BaseTableFlattening`](../BaseTableFlattening/README.md)),
 used by `SourceRowEligibility` to reject structural arm/parameter text.
 
+`AeMeddraTermStandardizer` intentionally uses the existing Phase 2
+`IAeParameterCategoryDictionaryService` as a seed without changing Phase 2 fill-only
+behavior. Stage 5 applies the stronger name-authoritative SOC alignment only to the
+in-memory rows that feed `ComparatorGrouper`.
+
 ---
 
 ## Gotchas
@@ -163,6 +179,11 @@ used by `SourceRowEligibility` to reject structural arm/parameter text.
   same `PrimaryValueType`; otherwise `MIXED_VALUE_TYPES` and null stats — even if the numbers
   would divide cleanly. `PrimaryValueType` is copied verbatim from source, never re-derived.
 - **The reference-dose row keeps its RR but gets null DNRR** (`IS_REFERENCE_DOSE`).
+- **Null-RR rows are filtered after build.** Reference-dose rows with valid RR and null
+  DNRR still persist; rows with no RR do not.
+- **AE names and SOCs are standardized before grouping.** Name-derived SOCs override
+  conflicting raw categories for known AE terms, and all persisted categories should be
+  in the official 27 MedDRA SOC set.
 - **Zero-cell correction changes the stored RR/CI** (corrected values), while raw event
   counts are preserved in `EventsTreatment`/`EventsComparator` and the row is flagged.
 - **ArmN backfill is in-memory only.** `applySameArmNBackfill` fills a missing ArmN from a

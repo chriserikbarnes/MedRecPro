@@ -37,7 +37,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             if (AeColumnContextResolver.IsCaptionLikeText(row.ParameterName) ||
                 AeColumnContextResolver.IsBodySystemLabel(row.ParameterName) ||
-                AeColumnContextResolver.IsValueAxisToken(row.ParameterName))
+                AeColumnContextResolver.IsValueAxisToken(row.ParameterName) ||
+                AeColumnContextResolver.IsThresholdOnlyOrExcludedAeName(row.ParameterName))
             {
                 return false;
             }

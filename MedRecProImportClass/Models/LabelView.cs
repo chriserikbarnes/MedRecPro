@@ -3033,11 +3033,11 @@ namespace MedRecProImportClass.Models
             public string? UNII { get; set; }
 
             /**************************************************************/
-            /// <summary>AE term (e.g., "Nausea"). Copied verbatim.</summary>
+            /// <summary>Stage 5 canonical AE term (e.g., "Nausea").</summary>
             public string? ParameterName { get; set; }
 
             /**************************************************************/
-            /// <summary>SOC group (e.g., "Nervous System"). Copied verbatim.</summary>
+            /// <summary>Stage 5 official MedDRA SOC group (e.g., "Nervous System Disorders").</summary>
             public string? ParameterCategory { get; set; }
 
             /**************************************************************/

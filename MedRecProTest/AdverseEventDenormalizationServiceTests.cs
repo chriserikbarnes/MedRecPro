@@ -74,6 +74,7 @@ namespace MedRecPro.Service.Test
             double? primaryValue,
             string? primaryValueType,
             string? paramSubtype = null,
+            string? parameterCategory = null,
             int? sourceRowSeq = 1,
             int? sourceCellSeq = 1)
         {
@@ -86,6 +87,7 @@ namespace MedRecPro.Service.Test
                 TextTableID = textTableId,
                 TableCategory = "ADVERSE_EVENT",
                 ParameterName = paramName,
+                ParameterCategory = parameterCategory,
                 ParameterSubtype = paramSubtype,
                 TreatmentArm = treatmentArm,
                 ArmN = armN,
@@ -132,7 +134,7 @@ namespace MedRecPro.Service.Test
         }
 
         /**************************************************************/
-        /// <summary>Single arm: stats null, flag NO_COMPARATOR, IsPlaceboControlled=false.</summary>
+        /// <summary>Single arm: null-RR row is excluded from visualization output.</summary>
         [TestMethod]
         public async Task PopulateAsync_SingleArm_NoComparator()
         {
@@ -145,14 +147,8 @@ namespace MedRecPro.Service.Test
 
             var written = await service.PopulateAsync();
 
-            Assert.AreEqual(1, written);
-            var output = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            Assert.IsNull(output.RR);
-            Assert.IsNull(output.RRLowerBound);
-            Assert.IsNull(output.RRUpperBound);
-            Assert.IsNull(output.ComparatorArm);
-            Assert.IsFalse(output.IsPlaceboControlled);
-            StringAssert.Contains(output.CalculationFlags, "NO_COMPARATOR");
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
             #endregion
         }
@@ -190,6 +186,59 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(2.0, row.RR!.Value, 1e-6, "RR should be 2.0 for 20% vs 10%");
             StringAssert.Contains(row.CalculationFlags, "PLACEBO_COMPARATOR");
             Assert.AreEqual("KATZ_LOG", row.CalculationMethod);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stage 5 standardizes AE names and SOCs before comparator grouping, so
+        /// dictionary-equivalent names can pair and carry auditable <c>AE_STD:*</c> flags.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_StandardizesNameAndCategoryBeforeComparatorGrouping()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var drug = aeRow(
+                1,
+                doc,
+                100,
+                "Digestive System Nausea",
+                "Drug A 50mg",
+                100,
+                50m,
+                "mg",
+                20.0,
+                "Percentage",
+                parameterCategory: "Chemistry");
+            var placebo = aeRow(
+                2,
+                doc,
+                100,
+                "Nausea",
+                "Placebo",
+                100,
+                0m,
+                null,
+                10.0,
+                "Percentage",
+                parameterCategory: "Adverse Reactions",
+                sourceRowSeq: 2);
+
+            var (service, db) = createService(drug, placebo);
+
+            var written = await service.PopulateAsync();
+
+            Assert.AreEqual(1, written);
+            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
+            Assert.AreEqual("Nausea", row.ParameterName);
+            Assert.AreEqual("Gastrointestinal Disorders", row.ParameterCategory);
+            Assert.IsNotNull(row.RR);
+            StringAssert.Contains(row.CalculationFlags, "AE_STD:NAME_NORMALIZED");
+            StringAssert.Contains(row.CalculationFlags, "AE_STD:SOC_ALIGNED:Investigations->Gastrointestinal Disorders");
+            StringAssert.Contains(row.CalculationFlags, "AE_STD:SOC_FROM_NAME");
 
             #endregion
         }
@@ -381,12 +430,10 @@ namespace MedRecPro.Service.Test
 
             var (service, db) = createService(pct, mean);
 
-            await service.PopulateAsync();
+            var written = await service.PopulateAsync();
 
-            // Placebo is the comparator (excluded). The drug row is the output.
-            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            Assert.IsNull(row.RR);
-            StringAssert.Contains(row.CalculationFlags, "MIXED_VALUE_TYPES");
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
             #endregion
         }
@@ -520,11 +567,10 @@ namespace MedRecPro.Service.Test
 
             var (service, db) = createService(drug, placebo);
 
-            await service.PopulateAsync();
+            var written = await service.PopulateAsync();
 
-            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            Assert.IsNull(row.RR);
-            StringAssert.Contains(row.CalculationFlags, "PERCENT_OUT_OF_RANGE");
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
             #endregion
         }
@@ -543,11 +589,10 @@ namespace MedRecPro.Service.Test
 
             var (service, db) = createService(drug, placebo);
 
-            await service.PopulateAsync();
+            var written = await service.PopulateAsync();
 
-            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            Assert.IsNull(row.RR);
-            StringAssert.Contains(row.CalculationFlags, "EVENTS_EXCEED_ARMN");
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
             #endregion
         }
@@ -568,17 +613,10 @@ namespace MedRecPro.Service.Test
 
             var (service, db) = createService(drug, placebo);
 
-            await service.PopulateAsync();
+            var written = await service.PopulateAsync();
 
-            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            Assert.IsNull(row.EventsTreatment);
-            Assert.IsNull(row.EventsComparator);
-            Assert.IsNull(row.RR);
-            Assert.IsNull(row.RRLowerBound);
-            Assert.IsNull(row.RRUpperBound);
-            Assert.IsNull(row.CalculationMethod);
-            StringAssert.Contains(row.CalculationFlags, "NO_ARMN");
-            Assert.IsFalse(row.CalculationFlags!.Contains("NO_COMPARATOR_N"));
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
             #endregion
         }
@@ -599,17 +637,10 @@ namespace MedRecPro.Service.Test
 
             var (service, db) = createService(drug, placebo);
 
-            await service.PopulateAsync();
+            var written = await service.PopulateAsync();
 
-            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            Assert.IsNull(row.EventsTreatment);
-            Assert.IsNull(row.EventsComparator);
-            Assert.IsNull(row.RR);
-            Assert.IsNull(row.RRLowerBound);
-            Assert.IsNull(row.RRUpperBound);
-            Assert.IsNull(row.CalculationMethod);
-            StringAssert.Contains(row.CalculationFlags, "NO_ARMN");
-            StringAssert.Contains(row.CalculationFlags, "NO_COMPARATOR_N");
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
             #endregion
         }
@@ -675,8 +706,8 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Valid numeric rows with missing <c>ArmN</c> are retained for audit, but do
-        /// not receive RR or CI statistics.
+        /// Valid numeric rows with missing <c>ArmN</c> remain eligible for calculation
+        /// audit, but null-RR outputs are not persisted to the visualization table.
         /// </summary>
         [TestMethod]
         public async Task PopulateAsync_ValidNumericRowsWithMissingArmN_AreNotFilteredBySafetyGate()
@@ -691,17 +722,8 @@ namespace MedRecPro.Service.Test
 
             var written = await service.PopulateAsync();
 
-            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
-            Assert.AreEqual(1, written);
-            Assert.AreEqual("Drug A 50mg", row.TreatmentArm);
-            Assert.AreEqual("Placebo", row.ComparatorArm);
-            Assert.IsNull(row.EventsTreatment);
-            Assert.IsNull(row.EventsComparator);
-            Assert.IsNull(row.RR);
-            Assert.IsNull(row.RRLowerBound);
-            Assert.IsNull(row.RRUpperBound);
-            Assert.IsNull(row.CalculationMethod);
-            StringAssert.Contains(row.CalculationFlags, "NO_ARMN");
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
             #endregion
         }
@@ -785,17 +807,14 @@ namespace MedRecPro.Service.Test
 
             var (service, db) = createService(drugMissing, drugKnownA, drugKnownB, placebo);
 
-            await service.PopulateAsync();
+            var written = await service.PopulateAsync();
 
-            var missingRow = db.Set<LabelView.FlattenedAdverseEventTable>()
-                .Single(r => r.FlattenedStandardizedTableId == 1);
-            Assert.IsNull(missingRow.ArmN);
-            Assert.IsNull(missingRow.RR);
-            Assert.IsNull(missingRow.RRLowerBound);
-            Assert.IsNull(missingRow.RRUpperBound);
-            Assert.IsNull(missingRow.CalculationMethod);
-            StringAssert.Contains(missingRow.CalculationFlags, "AE_ARMN_REJECTED_CONFLICTING_N");
-            StringAssert.Contains(missingRow.CalculationFlags, "NO_ARMN");
+            var rows = db.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+            Assert.AreEqual(2, written);
+            Assert.AreEqual(2, rows.Count);
+            Assert.IsFalse(rows.Any(r => r.FlattenedStandardizedTableId == 1));
+            Assert.IsTrue(rows.All(r => r.RR is not null));
+            Assert.IsTrue(rows.All(r => r.CalculationFlags!.Contains("AE_ARMN_REJECTED_CONFLICTING_N")));
 
             #endregion
         }

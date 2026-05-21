@@ -258,6 +258,23 @@ namespace MedRecProImportClass.Service.TransformationServices
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether an AE name is a threshold/range fragment or structural
+        /// visualization row rather than an adverse-event term.
+        /// </summary>
+        /// <param name="text">Candidate ParameterName text.</param>
+        /// <returns><c>true</c> when the row should be excluded before Stage 5 grouping.</returns>
+        /// <seealso cref="AdverseEventTableFlattening.AeMeddraTermStandardizer"/>
+        internal static bool IsThresholdOnlyOrExcludedAeName(string? text)
+        {
+            #region implementation
+
+            return AdverseEventTableFlattening.AeMeddraTermStandardizer.IsExcludedFromVisualization(text);
+
+            #endregion
+        }
+
         #endregion Context Resolution
 
         #region Metadata Extraction

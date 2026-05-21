@@ -53,6 +53,10 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /// <summary>Logger for stage progress, warnings, and errors.</summary>
         private readonly ILogger<AdverseEventDenormalizationService> _logger;
 
+        /**************************************************************/
+        /// <summary>Stage 5-only AE name/category standardizer.</summary>
+        private readonly AeMeddraTermStandardizer _termStandardizer;
+
         #endregion Fields
 
         #region Constructor
@@ -69,15 +73,19 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /// </remarks>
         /// <param name="dbContext">Application database context.</param>
         /// <param name="logger">Logger.</param>
+        /// <param name="aeDictionary">Optional AE dictionary seed for Stage 5 standardization.</param>
         /// <seealso cref="ApplicationDbContext"/>
+        /// <seealso cref="IAeParameterCategoryDictionaryService"/>
         public AdverseEventDenormalizationService(
             ApplicationDbContext dbContext,
-            ILogger<AdverseEventDenormalizationService> logger)
+            ILogger<AdverseEventDenormalizationService> logger,
+            IAeParameterCategoryDictionaryService? aeDictionary = null)
         {
             #region implementation
 
             _dbContext = dbContext;
             _logger = logger;
+            _termStandardizer = new AeMeddraTermStandardizer(aeDictionary);
             _dbContext.ChangeTracker.AutoDetectChangesEnabled = false;
 
             #endregion
@@ -239,6 +247,20 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             if (rows.Count == 0)
                 return 0;
 
+            var (standardizedRows, standardizationFlagsByRowId, skippedStandardizationRows) =
+                applyStage5Standardization(rows);
+            if (skippedStandardizationRows > 0)
+            {
+                _logger.LogDebug(
+                    "Stage 5 - Skipping {Count} AE source rows during MedDRA/name standardization ({Reason})",
+                    skippedStandardizationRows,
+                    "AE_STD:EXCLUDED_NON_AE");
+            }
+
+            rows = standardizedRows;
+            if (rows.Count == 0)
+                return 0;
+
             var entities = new List<LabelView.FlattenedAdverseEventTable>();
             var nullTableDesign = new RelativeRiskCalculator.TrialDesignClassification(
                 false, RelativeRiskCalculator.TrialDesignKind.SINGLE_ARM, null);
@@ -270,7 +292,11 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                                 dRef,
                                 dRefUnit,
                                 design,
-                                getStage5ArmNFlags(row, comparator, stage5ArmNFlags)));
+                                getStage5CalculationFlags(
+                                    row,
+                                    comparator,
+                                    stage5ArmNFlags,
+                                    standardizationFlagsByRowId)));
                         }
                     }
                 }
@@ -279,12 +305,21 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             if (entities.Count == 0)
                 return 0;
 
+            var persistableEntities = entities
+                .Where(e => e.RR is not null)
+                .ToList();
+
+            logNullRrExclusions(entities);
+
+            if (persistableEntities.Count == 0)
+                return 0;
+
             try
             {
-                _dbContext.AddRange(entities);
+                _dbContext.AddRange(persistableEntities);
                 await _dbContext.SaveChangesAsync(ct);
                 _dbContext.ChangeTracker.Clear();
-                return entities.Count;
+                return persistableEntities.Count;
             }
             catch (OperationCanceledException)
             {
@@ -298,6 +333,51 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     "Stage 5 — Batch save failed; aborting Phase 2 to avoid leaving a partial denormalized table");
                 throw;
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies Stage 5-only AE term/SOC standardization before comparator grouping.
+        /// </summary>
+        /// <remarks>
+        /// Standardizing before <see cref="ComparatorGrouper"/> is required because
+        /// the grouper keys on <see cref="LabelView.FlattenedStandardizedTable.ParameterName"/>.
+        /// Rows are loaded <c>AsNoTracking()</c>, so mutations are batch-local and only
+        /// affect the denormalized Stage 5 output.
+        /// </remarks>
+        /// <param name="rows">Eligible source rows.</param>
+        /// <returns>Standardized rows, audit flags by row id, and skipped-row count.</returns>
+        /// <seealso cref="AeMeddraTermStandardizer"/>
+        /// <seealso cref="ComparatorGrouper"/>
+        private (List<LabelView.FlattenedStandardizedTable> Rows,
+                 Dictionary<int, HashSet<string>> FlagsByRowId,
+                 int SkippedRows) applyStage5Standardization(
+            IReadOnlyList<LabelView.FlattenedStandardizedTable> rows)
+        {
+            #region implementation
+
+            var standardizedRows = new List<LabelView.FlattenedStandardizedTable>(rows.Count);
+            var flagsByRowId = new Dictionary<int, HashSet<string>>();
+            var skippedRows = 0;
+
+            foreach (var row in rows)
+            {
+                var result = _termStandardizer.Standardize(row);
+                if (result.IsExcluded)
+                {
+                    skippedRows++;
+                    continue;
+                }
+
+                if (result.Flags.Count > 0)
+                    flagsByRowId[row.Id] = new HashSet<string>(result.Flags, StringComparer.Ordinal);
+
+                standardizedRows.Add(row);
+            }
+
+            return (standardizedRows, flagsByRowId, skippedRows);
 
             #endregion
         }
@@ -426,6 +506,42 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
+        /// Collects row, comparator, and MedDRA standardization flags for output.
+        /// </summary>
+        /// <param name="row">Current treatment row.</param>
+        /// <param name="comparator">Selected comparator row.</param>
+        /// <param name="armNFlagsByRowId">Backfill/conflict flags by source row id.</param>
+        /// <param name="standardizationFlagsByRowId">Name/category standardization flags by source row id.</param>
+        /// <returns>Distinct calculation flags to append.</returns>
+        /// <seealso cref="AeStatEntityBuilder.Build"/>
+        private static IReadOnlyList<string> getStage5CalculationFlags(
+            LabelView.FlattenedStandardizedTable row,
+            LabelView.FlattenedStandardizedTable? comparator,
+            IReadOnlyDictionary<int, HashSet<string>> armNFlagsByRowId,
+            IReadOnlyDictionary<int, HashSet<string>> standardizationFlagsByRowId)
+        {
+            #region implementation
+
+            var flags = new List<string>();
+            flags.AddRange(getStage5ArmNFlags(row, comparator, armNFlagsByRowId));
+
+            if (standardizationFlagsByRowId.TryGetValue(row.Id, out var rowStandardizationFlags))
+                flags.AddRange(rowStandardizationFlags);
+            if (comparator is not null &&
+                standardizationFlagsByRowId.TryGetValue(comparator.Id, out var comparatorStandardizationFlags))
+            {
+                flags.AddRange(comparatorStandardizationFlags);
+            }
+
+            return flags
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Classifies trial design for one non-null TextTableID group.
         /// </summary>
         /// <remarks>
@@ -452,6 +568,74 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 .ToList();
 
             return RelativeRiskCalculator.ClassifyTrialDesign(distinctArms);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Logs rows that were calculated but excluded from persistence because RR is null.
+        /// </summary>
+        /// <param name="entities">Built Stage 5 entities before RR filtering.</param>
+        /// <seealso cref="AeStatEntityBuilder"/>
+        private void logNullRrExclusions(IReadOnlyList<LabelView.FlattenedAdverseEventTable> entities)
+        {
+            #region implementation
+
+            var nullRrEntities = entities
+                .Where(e => e.RR is null)
+                .ToList();
+
+            if (nullRrEntities.Count == 0)
+                return;
+
+            _logger.LogDebug(
+                "Stage 5 - Skipping {Count} AE output rows with NULL RR ({ReasonSummary})",
+                nullRrEntities.Count,
+                summarizeReasonFamilies(nullRrEntities));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Summarizes null-RR exclusion reason families for structured batch logging.
+        /// </summary>
+        /// <param name="entities">Null-RR entities.</param>
+        /// <returns>Comma-delimited family counts.</returns>
+        private static string summarizeReasonFamilies(IEnumerable<LabelView.FlattenedAdverseEventTable> entities)
+        {
+            #region implementation
+
+            var reasonFamilies = new[]
+            {
+                AeDenormalizationConstants.NoArmNFlag,
+                AeDenormalizationConstants.NoComparatorNFlag,
+                AeDenormalizationConstants.NoComparatorFlag,
+                "MIXED_VALUE_TYPES",
+                "UNCOMPARABLE_VALUE_TYPE",
+                "INVALID_EVENT_COUNT",
+                "EVENTS_EXCEED_ARMN",
+                "PERCENT_OUT_OF_RANGE"
+            };
+
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var entity in entities)
+            {
+                var flags = (entity.CalculationFlags ?? string.Empty)
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                var family = reasonFamilies.FirstOrDefault(reason => flags.Contains(reason, StringComparer.Ordinal)) ??
+                             "UNKNOWN_NULL_RR";
+                counts[family] = counts.TryGetValue(family, out var count) ? count + 1 : 1;
+            }
+
+            return string.Join(
+                ", ",
+                counts
+                    .OrderByDescending(kvp => kvp.Value)
+                    .ThenBy(kvp => kvp.Key, StringComparer.Ordinal)
+                    .Select(kvp => $"{kvp.Key}={kvp.Value}"));
 
             #endregion
         }

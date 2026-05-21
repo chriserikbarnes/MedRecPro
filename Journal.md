@@ -4045,3 +4045,15 @@ Expanded `SampleSizeParser` arm-header denominator recognition conservatively so
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SampleSizeParserTests|FullyQualifiedName~ArmNResolverTests" --logger "trx;LogFileName=sample-size-regex-focused.trx" --logger "console;verbosity=minimal"` passed 29/29. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SampleSizeParserTests|FullyQualifiedName~ArmNResolverTests|FullyQualifiedName~TableParserTests|FullyQualifiedName~AeArmRecoveryParserTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests" --logger "trx;LogFileName=ae-armn-regex-focused.trx" --logger "console;verbosity=minimal"` passed 300/300 with 1 existing skipped. `git diff --check` passed with line-ending warnings only.
 
 ---
+
+### 2026-05-21 3:52 PM EST — AE MedDRA Visualization Standardization
+
+Implemented the Stage 5 AE visualization-quality standardization pass. Added `AeMeddraTermStandardizer` to canonicalize AE `ParameterName` values before comparator grouping, translate raw/legacy categories into the official 27 MedDRA SOC labels, rescue null categories from curated name evidence, exclude threshold-only/non-AE rows, and emit auditable `AE_STD:*` flags into `CalculationFlags`.
+
+Updated `AdverseEventDenormalizationService` to run the standardizer on in-memory source rows before `ComparatorGrouper.Group`, pass standardization flags into `AeStatEntityBuilder`, log pre-group standardization exclusions, and persist only rows with non-null `RR` while preserving valid reference-dose rows with null `DNRR`. Extended `SourceRowEligibility`/`AeColumnContextResolver` for threshold-only AE name suppression and refreshed Stage 5 README/model comments for the new canonical output behavior.
+
+Added `AeMeddraTermStandardizerTests` for official SOC guards, raw category alias coverage, explicit unmappable category coverage, name-authority overrides, null-category rescue, acronym-preserving title case, bad-name boundaries, and JSONL-derived category/name coverage from `C:\Users\chris\Downloads\name-category_ae.jsonl`. Updated `AdverseEventDenormalizationServiceTests` so null-RR outputs are no longer expected, canonical name/category values are verified before grouping, and reference-dose/null-DNRR behavior remains covered.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests"` passed 63/63. `dotnet test MedRecProTest\MedRecProTest.csproj` passed 2,059/2,060 with 1 existing skipped test. Initial restore-enabled test execution inside the sandbox was blocked by access to the user NuGet config, so the test commands were rerun with approved elevated access.
+
+---
