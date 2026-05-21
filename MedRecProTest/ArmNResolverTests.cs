@@ -1,4 +1,5 @@
 using MedRecProImportClass.Models;
+using MedRecProImportClass.Service.TransformationServices.AdverseEventTableFlattening;
 using MedRecProImportClass.Service.TransformationServices.SampleSize;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -113,6 +114,41 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual(200, result.ArmN);
             Assert.AreEqual(ArmNResolver.RejectedConflictingNFlag, result.ValidationFlag);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Count-percent inference is labeled distinctly from fraction and inline suffix evidence.
+        /// </summary>
+        [TestMethod]
+        public void ArmNResolver_CountPercentInference_UsesInferenceValidationFlag()
+        {
+            #region implementation
+
+            var arm = new ArmDefinition { Name = "Drug" };
+            var parsed = new ParsedValue { SampleSize = 100, ParseRule = "count_percent_inference" };
+
+            var result = ArmNResolver.ResolveForAeObservation(arm, parsed);
+
+            Assert.AreEqual(100, result.ArmN);
+            Assert.AreEqual(ArmNResolver.FromCountPercentInferenceFlag, result.ValidationFlag);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parser and Stage 5 conflicting-N diagnostics share one canonical string.
+        /// </summary>
+        [TestMethod]
+        public void ArmNResolver_ConflictingNConstants_RemainSharedAcrossParserAndStage5()
+        {
+            #region implementation
+
+            Assert.AreEqual(SampleSizeParser.ConflictingNDiagnostic, ArmNResolver.RejectedConflictingNFlag);
+            Assert.AreEqual(AeDenormalizationConstants.ArmNRejectedConflictingNFlag, ArmNResolver.RejectedConflictingNFlag);
 
             #endregion
         }

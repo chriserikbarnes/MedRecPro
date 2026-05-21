@@ -494,6 +494,268 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
+        /// Detects and consumes AE denominator metadata rows before observation emission.
+        /// </summary>
+        /// <param name="table">Source reconstructed table.</param>
+        /// <param name="row">Candidate body row.</param>
+        /// <param name="arms">Resolved treatment-arm definitions.</param>
+        /// <param name="paramName">Cleaned column-zero row label.</param>
+        /// <param name="hasEmittedAeObservation">Whether a reportable AE row has already emitted.</param>
+        /// <param name="followsResetBoundary">Whether the row follows a section/category reset.</param>
+        /// <param name="tableLevelArmN">Persistent table-level denominator map.</param>
+        /// <param name="sectionArmNOverrides">Resettable section-level denominator map.</param>
+        /// <param name="denominatorScope">Detected denominator lifetime.</param>
+        /// <param name="subpopulationName">Subpopulation name when the row opens a subpopulation scope.</param>
+        /// <param name="subpopulationOverrides">Subpopulation denominator map when applicable.</param>
+        /// <returns>True when the row was consumed as denominator metadata or rejected evidence.</returns>
+        /// <seealso cref="AeDenominatorRowDetector"/>
+        private protected bool tryConsumeAeDenominatorRow(
+            ReconstructedTable table,
+            ReconstructedRow row,
+            IEnumerable<ArmDefinition> arms,
+            string? paramName,
+            bool hasEmittedAeObservation,
+            bool followsResetBoundary,
+            IDictionary<int, int> tableLevelArmN,
+            IDictionary<int, int> sectionArmNOverrides,
+            out AeDenominatorRowScope denominatorScope,
+            out string? subpopulationName,
+            out IDictionary<int, int>? subpopulationOverrides)
+        {
+            #region implementation
+
+            denominatorScope = AeDenominatorRowScope.None;
+            subpopulationName = null;
+            subpopulationOverrides = null;
+
+            var detection = AeDenominatorRowDetector.Detect(
+                row,
+                arms,
+                paramName,
+                new AeDenominatorRowContext(hasEmittedAeObservation, followsResetBoundary));
+
+            if (detection.Scope == AeDenominatorRowScope.None)
+                return false;
+
+            denominatorScope = detection.Scope;
+            var validationFlag = detection.DiagnosticFlag ?? ArmNResolver.FromMetadataRowFlag;
+            var reason = detection.DiagnosticReason ?? "AE denominator metadata row captured before observation emission.";
+
+            var conflict = detection.Scope switch
+            {
+                AeDenominatorRowScope.TableLevel => hasConflictingDenominator(tableLevelArmN, detection.PerColumnN),
+                AeDenominatorRowScope.SectionLevel => hasConflictingDenominator(sectionArmNOverrides, detection.PerColumnN),
+                _ => false
+            };
+
+            if (conflict)
+            {
+                validationFlag = ArmNResolver.RejectedConflictingNFlag;
+                reason = "Conflicting denominator metadata row rejected; existing scoped ArmN preserved.";
+            }
+            else
+            {
+                switch (detection.Scope)
+                {
+                    case AeDenominatorRowScope.TableLevel:
+                        copyDenominatorValues(detection.PerColumnN, tableLevelArmN);
+                        break;
+
+                    case AeDenominatorRowScope.SectionLevel:
+                        copyDenominatorValues(detection.PerColumnN, sectionArmNOverrides);
+                        break;
+
+                    case AeDenominatorRowScope.Subpopulation:
+                        subpopulationName = detection.SubpopulationName;
+                        subpopulationOverrides = new Dictionary<int, int>(detection.PerColumnN);
+                        break;
+                }
+            }
+
+            recordSuppressedStructuralRow(
+                table,
+                row,
+                null,
+                TableCategory.ADVERSE_EVENT,
+                paramName,
+                null,
+                paramName,
+                detection.SubpopulationName ?? paramName,
+                detection.Scope == AeDenominatorRowScope.Subpopulation ? "Subpopulation" : "ArmN",
+                reason,
+                validationFlag);
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Chooses the active scoped AE denominator for one arm column.
+        /// </summary>
+        /// <param name="columnIndex">Resolved arm column index.</param>
+        /// <param name="subpopulationArmN">Most-specific subpopulation denominator map.</param>
+        /// <param name="sectionArmN">Section-level denominator map.</param>
+        /// <param name="tableLevelArmN">Persistent table-level denominator map.</param>
+        /// <returns>The active scoped denominator, or null.</returns>
+        /// <seealso cref="ArmNResolver.BuildValueContextArm"/>
+        protected static int? getScopedAeArmN(
+            int? columnIndex,
+            IDictionary<int, int> subpopulationArmN,
+            IDictionary<int, int> sectionArmN,
+            IDictionary<int, int> tableLevelArmN)
+        {
+            #region implementation
+
+            if (!columnIndex.HasValue)
+                return null;
+
+            if (subpopulationArmN.TryGetValue(columnIndex.Value, out var subpopulationN))
+                return subpopulationN;
+
+            if (sectionArmN.TryGetValue(columnIndex.Value, out var sectionN))
+                return sectionN;
+
+            if (tableLevelArmN.TryGetValue(columnIndex.Value, out var tableN))
+                return tableN;
+
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Infers strict column-consensus ArmN values from repeated count-percent AE cells.
+        /// </summary>
+        /// <param name="rows">Candidate data rows.</param>
+        /// <param name="arms">Resolved treatment-arm definitions.</param>
+        /// <returns>Inferred sample sizes by arm column index.</returns>
+        /// <seealso cref="SampleSizeParser.TryInferColumnConsensusSampleSize"/>
+        protected static IDictionary<int, int> inferAeColumnConsensusArmN(
+            IEnumerable<ReconstructedRow> rows,
+            IEnumerable<ArmDefinition> arms)
+        {
+            #region implementation
+
+            var inferred = new Dictionary<int, int>();
+            foreach (var arm in arms.Where(hasUsableTreatmentArm))
+            {
+                if (!arm.ColumnIndex.HasValue || arm.SampleSize is > 0)
+                    continue;
+
+                var observations = new List<(int count, decimal percent)>();
+                foreach (var row in rows)
+                {
+                    var (paramName, _) = getParameterName(row);
+                    if (string.IsNullOrWhiteSpace(paramName) ||
+                        AeDenominatorRowDetector.Detect(
+                            row,
+                            new[] { arm },
+                            paramName,
+                            new AeDenominatorRowContext(true, true)).Scope != AeDenominatorRowScope.None)
+                    {
+                        continue;
+                    }
+
+                    var cell = getCellAtColumn(row, arm.ColumnIndex.Value);
+                    if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
+                        continue;
+
+                    var parsed = ValueParser.Parse(cell.CleanedText);
+                    if (!string.Equals(parsed.ParseRule, "n_pct", StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(parsed.PrimaryValueType, "Percentage", StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(parsed.SecondaryValueType, "Count", StringComparison.OrdinalIgnoreCase) ||
+                        parsed.PrimaryValue is not > 0 ||
+                        parsed.SecondaryValue is not > 0)
+                    {
+                        continue;
+                    }
+
+                    observations.Add(((int)Math.Round(parsed.SecondaryValue.Value), (decimal)parsed.PrimaryValue.Value));
+                }
+
+                if (SampleSizeParser.TryInferColumnConsensusSampleSize(observations, out var evidence) &&
+                    evidence.IsExact &&
+                    evidence.Value is > 0)
+                {
+                    inferred[arm.ColumnIndex.Value] = evidence.Value.Value;
+                }
+            }
+
+            return inferred;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies column-consensus ArmN evidence to a parsed AE value when no stronger N exists.
+        /// </summary>
+        /// <param name="parsed">Parsed value to enrich.</param>
+        /// <param name="arm">Resolved treatment-arm definition.</param>
+        /// <param name="scopedArmN">Current scoped denominator, if any.</param>
+        /// <param name="columnConsensusArmN">Consensus denominators by column index.</param>
+        /// <seealso cref="ArmNResolver.FromCountPercentInferenceFlag"/>
+        protected static void applyAeColumnConsensusArmN(
+            ParsedValue parsed,
+            ArmDefinition arm,
+            int? scopedArmN,
+            IDictionary<int, int> columnConsensusArmN)
+        {
+            #region implementation
+
+            if (scopedArmN is > 0 ||
+                arm.SampleSize is > 0 ||
+                parsed.SampleSize is > 0 ||
+                !arm.ColumnIndex.HasValue ||
+                !string.Equals(parsed.ParseRule, "n_pct", StringComparison.OrdinalIgnoreCase) ||
+                !columnConsensusArmN.TryGetValue(arm.ColumnIndex.Value, out var inferredN))
+            {
+                return;
+            }
+
+            parsed.SampleSize = inferredN;
+            parsed.ParseRule = "count_percent_inference";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Detects whether incoming denominator values conflict with an active map.
+        /// </summary>
+        private static bool hasConflictingDenominator(
+            IDictionary<int, int> active,
+            IReadOnlyDictionary<int, int> incoming)
+        {
+            #region implementation
+
+            return incoming.Any(kvp =>
+                active.TryGetValue(kvp.Key, out var existing) &&
+                existing != kvp.Value);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Copies exact denominator values into an active scope map.
+        /// </summary>
+        private static void copyDenominatorValues(
+            IReadOnlyDictionary<int, int> source,
+            IDictionary<int, int> target)
+        {
+            #region implementation
+
+            foreach (var kvp in source)
+                target[kvp.Key] = kvp.Value;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Detects combined/all-patient row labels that should suppress the row and reset subpopulation context.
         /// </summary>
         /// <param name="paramName">Cleaned row label from column 0.</param>
@@ -1717,6 +1979,10 @@ namespace MedRecProImportClass.Service.TransformationServices
             string? currentCategory = null;
             string? currentSubpopulation = null;
             IDictionary<int, int> subpopArmNOverrides = new Dictionary<int, int>();
+            IDictionary<int, int> sectionArmNOverrides = new Dictionary<int, int>();
+            IDictionary<int, int> tableLevelArmN = new Dictionary<int, int>();
+            var hasEmittedAeObservation = false;
+            var followsAeResetBoundary = false;
             var dataRows = getDataBodyRows(table);
 
             // Body rows may carry header-continuation metadata (dose, N=, format
@@ -1728,6 +1994,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             }
 
             applySingleProductArmFallback(table, arms);
+            var columnConsensusArmN = inferAeColumnConsensusArmN(dataRows, arms);
             if (!arms.Any(hasUsableTreatmentArm))
             {
                 recordUnrescuableAeRows(
@@ -1748,6 +2015,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
                     currentSubpopulation = null;
                     subpopArmNOverrides = new Dictionary<int, int>();
+                    sectionArmNOverrides = new Dictionary<int, int>();
+                    followsAeResetBoundary = true;
                     continue;
                 }
 
@@ -1755,14 +2024,31 @@ namespace MedRecProImportClass.Service.TransformationServices
                 if (string.IsNullOrWhiteSpace(paramName))
                     continue;
 
-                if (tryDetectSubpopulationHeader(row, arms, paramName, out var subpopName, out var nOverrides))
+                if (tryConsumeAeDenominatorRow(
+                    table,
+                    row,
+                    arms,
+                    paramName,
+                    hasEmittedAeObservation,
+                    followsAeResetBoundary,
+                    tableLevelArmN,
+                    sectionArmNOverrides,
+                    out var denominatorScope,
+                    out var subpopName,
+                    out var nOverrides))
                 {
-                    currentSubpopulation = subpopName;
-                    subpopArmNOverrides = nOverrides;
-                    recordSuppressedStructuralRow(
-                        table, row, null, TableCategory.ADVERSE_EVENT,
-                        paramName, null, paramName, subpopName!, "Subpopulation",
-                        "Mid-body subpopulation N-row captured as subpopulation context");
+                    if (denominatorScope == AeDenominatorRowScope.Subpopulation)
+                    {
+                        currentSubpopulation = subpopName;
+                        subpopArmNOverrides = nOverrides ?? new Dictionary<int, int>();
+                    }
+                    else if (denominatorScope is AeDenominatorRowScope.TableLevel or AeDenominatorRowScope.SectionLevel)
+                    {
+                        currentSubpopulation = null;
+                        subpopArmNOverrides = new Dictionary<int, int>();
+                    }
+
+                    followsAeResetBoundary = false;
                     continue;
                 }
 
@@ -1770,6 +2056,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                 {
                     currentSubpopulation = null;
                     subpopArmNOverrides = new Dictionary<int, int>();
+                    sectionArmNOverrides = new Dictionary<int, int>();
+                    followsAeResetBoundary = true;
                     recordSuppressedStructuralRow(
                         table, row, null, TableCategory.ADVERSE_EVENT,
                         paramName, null, paramName, paramName, "Subpopulation",
@@ -1782,6 +2070,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     currentCategory = paramName;
                     currentSubpopulation = null;
                     subpopArmNOverrides = new Dictionary<int, int>();
+                    sectionArmNOverrides = new Dictionary<int, int>();
+                    followsAeResetBoundary = true;
                     recordSuppressedStructuralRow(
                         table, row, null, TableCategory.ADVERSE_EVENT,
                         paramName, null, paramName, paramName, "ParameterCategory",
@@ -1794,6 +2084,8 @@ namespace MedRecProImportClass.Service.TransformationServices
                     currentCategory = paramName;
                     currentSubpopulation = null;
                     subpopArmNOverrides = new Dictionary<int, int>();
+                    sectionArmNOverrides = new Dictionary<int, int>();
+                    followsAeResetBoundary = true;
                     continue;
                 }
 
@@ -1814,6 +2106,9 @@ namespace MedRecProImportClass.Service.TransformationServices
                 var capturedCategory = currentCategory;
                 var capturedSubpopulation = currentSubpopulation;
                 var capturedSubpopArmNOverrides = subpopArmNOverrides;
+                var capturedSectionArmNOverrides = sectionArmNOverrides;
+                var capturedTableLevelArmN = tableLevelArmN;
+                var beforeRowObservationCount = observations.Count;
 
                 parseRowSafe(table, row, observations, (r, obs) =>
                 {
@@ -1846,10 +2141,11 @@ namespace MedRecProImportClass.Service.TransformationServices
                         o.Subpopulation = capturedSubpopulation;
                         o.PValue = rowPValue;
 
-                        var scopedArmN = arm.ColumnIndex.HasValue &&
-                                         capturedSubpopArmNOverrides.TryGetValue(arm.ColumnIndex.Value, out var overrideN)
-                            ? overrideN
-                            : (int?)null;
+                        var scopedArmN = getScopedAeArmN(
+                            arm.ColumnIndex,
+                            capturedSubpopArmNOverrides,
+                            capturedSectionArmNOverrides,
+                            capturedTableLevelArmN);
                         var parseArm = ArmNResolver.BuildValueContextArm(arm, scopedArmN);
                         var parsed = parseValueWithAeEfficacyContext(
                             cell.CleanedText,
@@ -1864,6 +2160,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                             parsed = applyCaptionHint(parsed, captionHint);
                         }
 
+                        applyAeColumnConsensusArmN(parsed, arm, scopedArmN, columnConsensusArmN);
                         applyParsedValue(o, parsed);
                         applyResolvedAeArmN(o, arm, parsed, scopedArmN);
                         if (shouldSuppressAeStructuralObservation(o, parsed))
@@ -1898,6 +2195,12 @@ namespace MedRecProImportClass.Service.TransformationServices
                         rowPValue,
                         obs);
                 });
+
+                if (observations.Count > beforeRowObservationCount)
+                {
+                    hasEmittedAeObservation = true;
+                    followsAeResetBoundary = false;
+                }
             }
 
             return observations;

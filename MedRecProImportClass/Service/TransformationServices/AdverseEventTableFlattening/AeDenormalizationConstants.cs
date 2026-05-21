@@ -1,3 +1,5 @@
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
+
 namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableFlattening
 {
     /**************************************************************/
@@ -41,6 +43,6 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>Flag emitted when Stage 5 rejects same-arm backfill due to conflicting Ns.</summary>
-        internal const string ArmNRejectedConflictingNFlag = "AE_ARMN_REJECTED_CONFLICTING_N";
+        internal const string ArmNRejectedConflictingNFlag = AeArmNValidationFlags.RejectedConflictingN;
     }
 }

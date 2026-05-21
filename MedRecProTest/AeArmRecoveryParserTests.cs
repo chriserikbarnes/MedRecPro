@@ -1,5 +1,6 @@
 using MedRecProImportClass.Models;
 using MedRecProImportClass.Service.TransformationServices;
+using MedRecProImportClass.Service.TransformationServices.SampleSize;
 using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -923,6 +924,190 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("Drug A", results[0].TreatmentArm);
             Assert.AreEqual("Incidence", results[0].ParameterSubtype);
             Assert.AreEqual(6.0, results[0].PrimaryValue);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Simple-arm AE rows consume table-level denominator metadata and keep it across later category resets.
+        /// </summary>
+        [TestMethod]
+        public void AeArmN_TableLevelMetadataRow_PersistsAcrossSimpleArmCategoryReset()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Drug A", "Placebo" },
+                new List<string?[]>
+                {
+                    new[] { "Total patients studied", "291", "303" },
+                    new[] { "Gastrointestinal disorders", "", "" },
+                    new[] { "Nausea", "29 (10.0%)", "30 (9.9%)" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Drug A" && r.ArmN == 291));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Placebo" && r.ArmN == 303));
+            Assert.IsTrue(results.All(r => r.ValidationFlags != null &&
+                                           r.ValidationFlags!.Contains(ArmNResolver.FromMetadataRowFlag)));
+            Assert.IsTrue(suppressed.Any(r => r.ValidationFlag == ArmNResolver.FromMetadataRowFlag));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Shared multilevel AE parsing consumes the same table-level denominator rows as simple-arm parsing.
+        /// </summary>
+        [TestMethod]
+        public void AeArmN_TableLevelMetadataRow_PopulatesMultilevelAeParser()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Incidence", "Incidence" },
+                new List<string?[]>
+                {
+                    new[] { "Number of Patients", "291", "303" },
+                    new[] { "Nausea", "29 (10.0%)", "30 (9.9%)" }
+                });
+            var columns = table.Header!.Columns!;
+            table.Header.HeaderRowCount = 2;
+            columns[1].HeaderPath = new List<string> { "Drug A", "Incidence" };
+            columns[2].HeaderPath = new List<string> { "Placebo", "Incidence" };
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Drug A" && r.ArmN == 291));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Placebo" && r.ArmN == 303));
+            Assert.IsTrue(results.All(r => r.ValidationFlags != null &&
+                                           r.ValidationFlags!.Contains(ArmNResolver.FromMetadataRowFlag)));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Section-level N rows apply only until the next SOC/category boundary.
+        /// </summary>
+        [TestMethod]
+        public void AeArmN_SectionLevelMetadataRow_DoesNotLeakAcrossNextCategory()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Drug A", "Placebo" },
+                new List<string?[]>
+                {
+                    new[] { "Gastrointestinal disorders", "", "" },
+                    new[] { "N", "77", "78" },
+                    new[] { "Nausea", "7 (9.1%)", "8 (10.3%)" },
+                    new[] { "Nervous system disorders", "", "" },
+                    new[] { "Headache", "5 (5.0%)", "6 (6.0%)" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.IsTrue(results.Any(r => r.ParameterName == "Nausea" && r.TreatmentArm == "Drug A" && r.ArmN == 77));
+            Assert.IsTrue(results.Any(r => r.ParameterName == "Nausea" && r.TreatmentArm == "Placebo" && r.ArmN == 78));
+            Assert.IsTrue(results.Where(r => r.ParameterName == "Headache").All(r => r.ArmN == null));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Subpopulation N rows accept percent-format denominator echoes such as <c>425 (%)</c>.
+        /// </summary>
+        [TestMethod]
+        public void AeArmN_SubpopulationNRow_AcceptsPercentFormatDenominatorEcho()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Drug A", "Placebo" },
+                new List<string?[]>
+                {
+                    new[] { "n (males)", "425 (%)", "194 (%)" },
+                    new[] { "Nausea", "20 (4.7%)", "10 (5.2%)" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Drug A" && r.ArmN == 425));
+            Assert.IsTrue(results.Any(r => r.TreatmentArm == "Placebo" && r.ArmN == 194));
+            Assert.IsTrue(results.All(r => r.Subpopulation != null &&
+                                           r.Subpopulation!.Contains("males", StringComparison.OrdinalIgnoreCase)));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Conflicting scoped N metadata is suppressed without overwriting the existing denominator.
+        /// </summary>
+        [TestMethod]
+        public void AeArmN_ConflictingMetadataRow_IsSuppressedAndDoesNotOverwriteExistingN()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Drug A", "Placebo" },
+                new List<string?[]>
+                {
+                    new[] { "Total patients studied", "100", "100" },
+                    new[] { "Total patients studied", "200", "100" },
+                    new[] { "Nausea", "10 (10.0%)", "5 (5.0%)" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+            var suppressed = ((ITableParserDiagnostics)parser).SuppressedRows;
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.All(r => r.ArmN == 100));
+            Assert.IsTrue(suppressed.Any(r => r.ValidationFlag == ArmNResolver.RejectedConflictingNFlag));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Three or more consistent count-percent AE rows infer a column denominator when no stronger N exists.
+        /// </summary>
+        [TestMethod]
+        public void AeArmN_CountPercentConsensus_InferColumnNForSimpleArmRows()
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "Drug A", "Placebo" },
+                new List<string?[]>
+                {
+                    new[] { "Nausea", "10 (10.0%)", "20 (10.0%)" },
+                    new[] { "Headache", "20 (20.0%)", "40 (20.0%)" },
+                    new[] { "Dizziness", "30 (30.0%)", "60 (30.0%)" }
+                });
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(6, results.Count);
+            Assert.IsTrue(results.Where(r => r.TreatmentArm == "Drug A").All(r => r.ArmN == 100));
+            Assert.IsTrue(results.Where(r => r.TreatmentArm == "Placebo").All(r => r.ArmN == 200));
+            Assert.IsTrue(results.All(r => r.ValidationFlags != null &&
+                                           r.ValidationFlags!.Contains(ArmNResolver.FromCountPercentInferenceFlag)));
+
+            #endregion
         }
 
         #endregion Recovery Tests

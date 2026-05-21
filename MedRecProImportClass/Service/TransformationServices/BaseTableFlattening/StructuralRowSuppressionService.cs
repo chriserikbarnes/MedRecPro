@@ -282,57 +282,19 @@ namespace MedRecProImportClass.Service.TransformationServices
             subpopName = null;
             nOverrides = new Dictionary<int, int>();
 
-            if (string.IsNullOrWhiteSpace(paramName))
+            var detection = AeDenominatorRowDetector.Detect(
+                row,
+                arms,
+                paramName,
+                new AeDenominatorRowContext(
+                    HasEmittedAeObservation: true,
+                    FollowsResetBoundary: true));
+
+            if (detection.Scope != AeDenominatorRowScope.Subpopulation)
                 return false;
 
-            if (IsStructuralRowLabel(paramName) ||
-                _aeHeaderEchoParameterPattern.IsMatch(paramName) ||
-                _aeNonObservationMetricPattern.IsMatch(paramName))
-            {
-                return false;
-            }
-
-            var usableArms = arms.Where(ArmDefinitionExtractor.HasUsableTreatmentArm).ToList();
-            if (usableArms.Count == 0)
-                return false;
-
-            int parsedNCount = 0;
-
-            foreach (var arm in usableArms)
-            {
-                var cell = GetCellAtColumn(row, arm.ColumnIndex ?? 0);
-                if (cell == null || string.IsNullOrWhiteSpace(cell.CleanedText))
-                    continue;
-
-                var text = cell.CleanedText.Trim();
-                if (SampleSizeParser.TryParseStandaloneSampleSizeCell(text, out var evidence))
-                {
-                    if (evidence.Value is > 0)
-                    {
-                        if (arm.ColumnIndex.HasValue)
-                            nOverrides[arm.ColumnIndex.Value] = evidence.Value.Value;
-                        parsedNCount++;
-                        continue;
-                    }
-
-                    nOverrides.Clear();
-                    return false;
-                }
-
-                if (!_structuralAeValueCellPattern.IsMatch(text))
-                {
-                    nOverrides.Clear();
-                    return false;
-                }
-            }
-
-            if (parsedNCount == 0)
-            {
-                nOverrides.Clear();
-                return false;
-            }
-
-            subpopName = paramName.Trim();
+            subpopName = detection.SubpopulationName;
+            nOverrides = new Dictionary<int, int>(detection.PerColumnN);
             return true;
 
             #endregion

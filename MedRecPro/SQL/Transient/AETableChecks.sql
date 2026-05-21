@@ -8,6 +8,20 @@
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
   where  RR is null and IsPlaceboControlled = 1)
 
+    select distinct TextTableID
+  from [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable]
+  where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
+  where  RR is null and ArmN is not null)
+
+SELECT *
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
+  where RR is not null and IsPlaceboControlled = 1
+
+  SELECT distinct ParameterName, ParameterCategory
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
+  where RR is not null and IsPlaceboControlled = 1
+
   SELECT COUNT(*) AS CiEligibleCount
 FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
 WHERE TreatmentArm <> ComparatorArm
@@ -20,13 +34,13 @@ WHERE TreatmentArm <> ComparatorArm
   AND ComparatorN > 0;
 
 select distinct *
-  from [dbo].[tmp_FlattenedAdverseEventTable]
+  from [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
   where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
   FROM  [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable]
   where TextTableID = 26461)
 
   select distinct *
-  from .[dbo].[tmp_FlattenedAdverseEventTable]
+  from [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
   where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
   FROM  [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable]
   where TextTableID in (select distinct TextTableID
@@ -34,7 +48,39 @@ select distinct *
   where tmp_FlattenedStandardizedTableID in (SELECT tmp_FlattenedStandardizedTableID
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
   where  RR is null and IsPlaceboControlled = 1)))
+  --
 
+  WITH TargetTables AS
+(
+    SELECT DISTINCT fst.TextTableID
+    FROM [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] fst
+    INNER JOIN [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] ae
+        ON ae.tmp_FlattenedStandardizedTableID = fst.tmp_FlattenedStandardizedTableID
+    WHERE ae.RR IS NOT NULL
+      AND ae.IsPlaceboControlled = 1
+)
+SELECT
+    (
+        SELECT
+            tt.TextTableID,
+            JSON_QUERY((
+                SELECT DISTINCT
+                    ae.ParameterName,
+                    ae.ParameterCategory
+                FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] ae
+                INNER JOIN [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] fst
+                    ON fst.tmp_FlattenedStandardizedTableID = ae.tmp_FlattenedStandardizedTableID
+                WHERE fst.TextTableID = tt.TextTableID
+                  AND ae.RR IS NOT NULL
+                  AND ae.IsPlaceboControlled = 1
+                FOR JSON PATH, INCLUDE_NULL_VALUES
+            )) AS adverseEventParameters
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER, INCLUDE_NULL_VALUES
+    ) AS JsonLine
+FROM TargetTables tt
+ORDER BY tt.TextTableID;
+
+  --
  WITH TargetTables AS
 (
     SELECT DISTINCT fst.TextTableID

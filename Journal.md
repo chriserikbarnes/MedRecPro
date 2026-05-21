@@ -4007,3 +4007,41 @@ Corrected Stage 5 AE relative-risk calculation so percentage-only rows no longer
 **Verification.** A text scan of `C:\Users\chris\Downloads\problem_ae_2.jsonl` found 686 event chunks with non-null `RR` despite at least one missing prerequisite field, including Remodulin and PAXIL examples with null `ArmN`, `ComparatorN`, `EventsTreatment`, and `EventsComparator`. `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventDenormalizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests" --no-restore` first hit locked `MedRecProConsole\bin` outputs held by Visual Studio/MedRecProConsole, then a `C:\tmp` sandbox write denial. The final rerun with `-p:OutDir=C:\Users\chris\OneDrive\Documents\Repos\.codex-test-out\` passed 68/68 with only pre-existing build warnings; the temporary output folder was removed afterward.
 
 ---
+
+### 2026-05-21 9:55 AM EST — AE ArmN Population Expansion Plan Reviewed & Revised
+
+Evaluated and hardened the pending AE ArmN Population Expansion implementation handoff at [(pending) AE ArmN Population Expansion Plan.md](<Plans/(pending) AE ArmN Population Expansion Plan.md>). Documentation-only session — no production code or tests changed.
+
+**Key finding.** Verified against the live code that much of the draft's original "add" work already ships from the 2026-05-20 denominator implementation: [ArmNResolver.cs](MedRecProImportClass/Service/TransformationServices/SampleSize/ArmNResolver.cs) owns precedence/conflict policy and `AE_ARMN_FROM_*` flags; [BaseTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/BaseTableParser.cs) has the shared `parseAdverseEventArmRows` subpopulation-N map/reset/suppression flow; [SimpleArmTableParser.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/SimpleArmTableParser.cs) has a parallel AE loop that must be kept in sync; and [SampleSizeParser.cs](MedRecProImportClass/Service/TransformationServices/SampleSize/SampleSizeParser.cs) already has the existing sibling-N count-percent inference method. Re-scoped the plan as a surgical detector/syntax/test hardening extension rather than a greenfield denominator rebuild.
+
+**Substantive revisions.** Hardened the denominator model from two scopes to three explicit lifetimes: persistent table-level N, resettable section-level N, and resettable/tagged subpopulation N. Added the missing SimpleArm parser call-path requirement, same-scope conflict handling, partial-column behavior, mixed-row rejection rules, and explicit `recordSuppressedStructuralRow(..., validationFlag: ...)` provenance. Preserved the spaced-comma fix as comma-adjacent whitespace normalization with original `RawText` retained for diagnostics, kept `425 (%)` as an N-row-only parse, required explicit `MidpointRounding` for consensus inference, and blocked circular inference between inferred denominators.
+
+**Design/tests.** Applied .NET pattern guidance by keeping the detector/inferrer as focused collaborators, preserving the existing syntax-vs-policy split, retaining MSTest instead of migrating frameworks, and deliberately declining Chain of Responsibility for the resolver until the source cascade becomes materially more complex. Expanded the regression plan with detector operation-result cases, section-leakage coverage, SimpleArm fixtures, same-scope conflict/partial-row tests, focused `FullyQualifiedName~...` test commands with TRX output, and the known `ProductRenderingServiceTests` `Security:DB:PKSecret` caveat for full-suite interpretation. Corrected the Stage 5 domain note so comparator grouping and `D_ref` follow `DocumentGUID` + `TextTableID` plus normalized `(ParameterName, ParameterSubtype, StudyContext, Population, Subpopulation)`.
+
+**Verification.** Read back the revised plan, checked live code anchors with `rg` and targeted file reads, confirmed the test project uses MSTest packages/attributes, and ran `git diff --check -- Journal.md MedRecPro/SQL/Transient/AETableChecks.sql` with no reported whitespace errors. `Plans/` remains ignored in this checkout, so the plan-file verification was by direct readback rather than `git status`.
+
+---
+
+### 2026-05-21 10:26 AM EST — AE ArmN Population Expansion Implemented
+
+Implemented the AE ArmN Population Expansion plan by extending denominator syntax parsing, adding scoped AE denominator-row detection, and wiring the shared and simple AE parser loops to table-level, section-level, subpopulation, conflict, and count-percent consensus ArmN evidence.
+
+**Parser changes.** Added shared AE conflicting-N validation constants, added `TryParseNRowDenominatorCell` and strict column-consensus inference to `SampleSizeParser`, hardened arm-header parsing so comma-adjacent whitespace is normalized without accepting arbitrary digit-separated N text, and centralized AE denominator-row recognition in `AeDenominatorRowDetector`. Updated `BaseTableParser`, `SimpleArmTableParser`, `StructuralRowSuppressionService`, and `ArmMetadataEnrichmentService` so AE denominator rows are consumed as scoped metadata or rejected audit evidence before observation emission.
+
+**Tests.** Extended `SampleSizeParserTests`, `ArmNResolverTests`, and `AeArmRecoveryParserTests` for spaced-comma parsing, N-row-only `425 (%)` denominators, three-row count-percent consensus, shared conflicting-N constants, table-level persistence, section non-leakage, subpopulation format echoes, same-scope conflict suppression, and SimpleArm/multilevel parser coverage.
+
+**Verification.** `dotnet build MedRecProImportClass\MedRecProImportClass.csproj --no-restore --configuration Debug` passed with 0 warnings and 0 errors. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SampleSizeParserTests|FullyQualifiedName~ArmNResolverTests|FullyQualifiedName~TableParserTests|FullyQualifiedName~AeArmRecoveryParserTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests" --logger "trx;LogFileName=ae-armn-focused.trx" --logger "console;verbosity=minimal"` passed 293/293 with 1 existing skipped and wrote `MedRecProTest\TestResults\ae-armn-focused.trx`. A first restore-enabled test command was blocked by sandboxed access to the user NuGet config, so verification used `--no-restore`. `git diff --check` passed with line-ending warnings only.
+
+---
+
+### 2026-05-21 12:44 PM EST — AE ArmN Header Regex Expansion
+
+Expanded `SampleSizeParser` arm-header denominator recognition conservatively so exact `N=` annotations can be recovered when followed by known display/context tokens such as `% of patients`, `Number (%)`, `(% incidence)`, `n (EAIR)`, `(%)`, `(100%)`, and bounded week/month/day ranges.
+
+**Implementation.** Kept the change syntax-only and deterministic: no body-row mapping, no API/intelligent inference changes, and no broad digit-separated denominator repair. Narrowed comma-adjacent whitespace normalization to digit-comma-digit contexts so ordinary arm names such as `Xermelo 250 mg Three Times Daily, N=45 (%)` keep their spacing while `n =1 , 142` still parses as `1142`. Risky OCR-like forms such as `N= 4 2 n (%)` and `N=414 6` remain rejected.
+
+**Tests.** Added `SampleSizeParser_ArmHeaderN_AcceptsKnownTrailingContextTokens` coverage for the smoke-test shapes and extended the comma/spacing test with the rejected OCR-like forms.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SampleSizeParserTests|FullyQualifiedName~ArmNResolverTests" --logger "trx;LogFileName=sample-size-regex-focused.trx" --logger "console;verbosity=minimal"` passed 29/29. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SampleSizeParserTests|FullyQualifiedName~ArmNResolverTests|FullyQualifiedName~TableParserTests|FullyQualifiedName~AeArmRecoveryParserTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests" --logger "trx;LogFileName=ae-armn-regex-focused.trx" --logger "console;verbosity=minimal"` passed 300/300 with 1 existing skipped. `git diff --check` passed with line-ending warnings only.
+
+---

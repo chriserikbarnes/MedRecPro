@@ -149,7 +149,8 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             return Regex.IsMatch(trimmed,
                 @"^(?:Col\s*0|Adverse\s+(?:Reaction|Reactions|Event|Events)(?:\s*\(.*\))?|Body\s+System(?:\s*\(.*\))?|System\s+Organ\s+Class|Preferred\s+Term|Treatment\s+Arm|Arm|Group|Study\s+Drug)\s*$",
-                RegexOptions.IgnoreCase);
+                RegexOptions.IgnoreCase) ||
+                   AeDenominatorRowDetector.IsLeadingMetadataRowLabel(trimmed);
 
             #endregion
         }

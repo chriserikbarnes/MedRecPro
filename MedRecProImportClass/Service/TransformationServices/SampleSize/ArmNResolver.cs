@@ -37,7 +37,7 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
 
         /**************************************************************/
         /// <summary>Validation flag for conflicting denominator evidence.</summary>
-        internal const string RejectedConflictingNFlag = "AE_ARMN_REJECTED_CONFLICTING_N";
+        internal const string RejectedConflictingNFlag = AeArmNValidationFlags.RejectedConflictingN;
 
         /**************************************************************/
         /// <summary>

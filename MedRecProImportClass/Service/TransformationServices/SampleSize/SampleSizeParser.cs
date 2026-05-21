@@ -24,7 +24,7 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
 
         /**************************************************************/
         /// <summary>Diagnostic emitted when multiple exact N candidates conflict.</summary>
-        internal const string ConflictingNDiagnostic = "AE_ARMN_REJECTED_CONFLICTING_N";
+        internal const string ConflictingNDiagnostic = AeArmNValidationFlags.RejectedConflictingN;
 
         #endregion Diagnostic Constants
 
@@ -32,16 +32,30 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
 
         private const string FootnoteMarkerPattern = @"[*\u2020\u2021\u00A7\u00B6#]?";
         private const string UnitContextPattern = @"(?:\s+(?:patients?|subjects?|eyes?))?";
-        private const string FormatHintPattern = @"(?:%|n\s*\(\s*%\s*\))?";
+        private const string FormatHintPattern =
+            @"(?:" +
+              @"%|" +
+              @"%\s+of\s+(?:patients?|subjects?|participants)|" +
+              @"%\s+incidence|" +
+              @"\(\s*%\s*\)|" +
+              @"\(\s*%\s+(?:of\s+)?(?:patients?|subjects?|participants)\s*\)|" +
+              @"\(\s*%\s+incidence\s*\)|" +
+              @"(?:Number|No\.?|Count)\s*\(\s*%\s*\)|" +
+              @"n|" +
+              @"n\s*\(\s*%\s*\)|" +
+              @"n\s*\(\s*EAIR\s*\)|" +
+              @"\(\s*100(?:\.0)?\s*%\s*\)|" +
+              @"\(\s*(?:Weeks?|Months?|Days?)\s+\d+\s*(?:-|to|\u2013|\u2014)\s*\d+\s*\)" +
+            @")?";
 
         private static readonly Regex _armHeaderParenPattern = new(
             @"^(.+?)\s*[\(\[]\s*[Nn]\s*\*?\s*=\s*(\d[\d,]*)\s*" +
-            FootnoteMarkerPattern + UnitContextPattern + @"\s*[\)\]]\s*(.*)$",
+            FootnoteMarkerPattern + UnitContextPattern + @"\s*[\)\]]\s*(" + FormatHintPattern + @")\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex _armHeaderNoParenPattern = new(
             @"^(.+?)\s+[Nn]\s*\*?\s*=\s*(\d[\d,]*)\s*" +
-            FootnoteMarkerPattern + UnitContextPattern + @"\s*(.*)$",
+            FootnoteMarkerPattern + UnitContextPattern + @"\s*(" + FormatHintPattern + @")\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex _standaloneSampleSizePattern = new(
@@ -55,6 +69,10 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
             FootnoteMarkerPattern + UnitContextPattern + @"\s*\]\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly Regex _nRowDenominatorCellPattern = new(
+            @"^\s*(\d[\d,]*)\s*(?:\(\s*(?:%|[Nn])\s*\))?\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         private static readonly Regex _fractionDenominatorPattern = new(
             @"^\s*(\d[\d,]*)\s*/\s*(\d[\d,]*)(?:\s*\([^)]*\))?\s*$",
             RegexOptions.Compiled);
@@ -66,7 +84,7 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
 
         private static readonly Regex _bareTrailingSampleSizePattern = new(
             @"\s+[Nn]\s*\*?\s*=\s*(\d[\d,]*)\s*" +
-            FootnoteMarkerPattern + UnitContextPattern + @"\s*$",
+            FootnoteMarkerPattern + UnitContextPattern + @"\s*" + FormatHintPattern + @"\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex _rangeOnlySampleSizePattern = new(
@@ -134,10 +152,49 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
                 return false;
 
             var trimmed = text.Trim();
-            var match = _standaloneSampleSizePattern.Match(trimmed);
+            var matchText = normalizeCommaAdjacentWhitespace(trimmed);
+            var match = _standaloneSampleSizePattern.Match(matchText);
             if (!match.Success)
-                match = _standaloneBracketSampleSizePattern.Match(trimmed);
+                match = _standaloneBracketSampleSizePattern.Match(matchText);
 
+            if (!match.Success || !tryParsePositiveInt(match.Groups[1].Value, out var value))
+                return false;
+
+            evidence = SampleSizeEvidence.Exact(
+                value,
+                SampleSizeSourceKind.BodyMetadataRow,
+                trimmed,
+                cleanedText: null);
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses denominator cells that appear only inside an explicit N-row context.
+        /// </summary>
+        /// <remarks>
+        /// This accepts plain integer cells such as <c>425</c> and format-token cells
+        /// such as <c>425 (%)</c>. It deliberately rejects event-like cells such as
+        /// <c>20 (5%)</c>; callers must only use this from a row-level denominator
+        /// detector.
+        /// </remarks>
+        /// <param name="text">Candidate denominator cell text.</param>
+        /// <param name="evidence">Structured sample-size evidence.</param>
+        /// <returns>True when the cell is exact N-row denominator evidence.</returns>
+        /// <seealso cref="SampleSizeSourceKind.BodyMetadataRow"/>
+        internal static bool TryParseNRowDenominatorCell(string? text, out SampleSizeEvidence evidence)
+        {
+            #region implementation
+
+            evidence = null!;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var trimmed = text.Trim();
+            var matchText = normalizeCommaAdjacentWhitespace(trimmed);
+            var match = _nRowDenominatorCellPattern.Match(matchText);
             if (!match.Success || !tryParsePositiveInt(match.Groups[1].Value, out var value))
                 return false;
 
@@ -393,6 +450,78 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
 
         /**************************************************************/
         /// <summary>
+        /// Infers a column-level sample size from repeated count-percent rows.
+        /// </summary>
+        /// <remarks>
+        /// The inference is intentionally strict: at least three non-zero rows must
+        /// round to the same unique denominator using the supplied one-decimal
+        /// SPL rounding mode. Ambiguous denominator candidates return rejected
+        /// evidence instead of an exact value.
+        /// </remarks>
+        /// <param name="columnObservations">Count and percent pairs from one arm column.</param>
+        /// <param name="evidence">Inferred evidence or rejected conflict evidence.</param>
+        /// <returns>True when inference produced exact or rejected audit evidence.</returns>
+        /// <seealso cref="TryInferCountPercentSampleSize"/>
+        internal static bool TryInferColumnConsensusSampleSize(
+            IReadOnlyList<(int count, decimal percent)> columnObservations,
+            out SampleSizeEvidence evidence)
+        {
+            #region implementation
+
+            evidence = null!;
+            var usable = columnObservations
+                .Where(o => o.count > 0 && o.percent > 0m)
+                .ToList();
+
+            if (usable.Count < 3)
+                return false;
+
+            var candidateSets = usable
+                .Select(getRoundedDenominatorCandidates)
+                .ToList();
+
+            if (candidateSets.Any(c => c.Count == 0))
+                return false;
+
+            var survivors = candidateSets
+                .Skip(1)
+                .Aggregate(
+                    new HashSet<int>(candidateSets[0]),
+                    (acc, next) =>
+                    {
+                        acc.IntersectWith(next);
+                        return acc;
+                    })
+                .OrderBy(n => n)
+                .ToList();
+
+            var rawText = string.Join("; ", usable.Select(o =>
+                $"{o.count} ({o.percent.ToString(CultureInfo.InvariantCulture)}%)"));
+
+            if (survivors.Count == 0)
+                return false;
+
+            if (survivors.Count > 1)
+            {
+                evidence = SampleSizeEvidence.Rejected(
+                    SampleSizeSourceKind.CountPercentInference,
+                    rawText,
+                    ConflictingNDiagnostic,
+                    "More than one sample size can explain the column's count-percent observations.");
+                return true;
+            }
+
+            evidence = SampleSizeEvidence.Exact(
+                survivors[0],
+                SampleSizeSourceKind.CountPercentInference,
+                rawText);
+            return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Parses arm-scoped N evidence from parenthesized or bare header forms.
         /// </summary>
         private static bool tryParseArmScopedSampleSize(
@@ -409,9 +538,10 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
                 return false;
 
             var trimmed = text.Trim();
-            var match = _armHeaderParenPattern.Match(trimmed);
+            var matchText = normalizeCommaAdjacentWhitespace(trimmed);
+            var match = _armHeaderParenPattern.Match(matchText);
             if (!match.Success)
-                match = _armHeaderNoParenPattern.Match(trimmed);
+                match = _armHeaderNoParenPattern.Match(matchText);
 
             if (!match.Success || !tryParsePositiveInt(match.Groups[2].Value, out var value))
                 return false;
@@ -426,6 +556,48 @@ namespace MedRecProImportClass.Service.TransformationServices.SampleSize
                 armCandidate: armText,
                 formatHint: formatHint);
             return true;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collapses spaces adjacent to thousands separators before regex matching.
+        /// </summary>
+        private static string normalizeCommaAdjacentWhitespace(string text)
+        {
+            #region implementation
+
+            return Regex.Replace(text, @"(?<=\d)\s*,\s*(?=\d)", ",");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets possible denominators that round one count to the reported percent.
+        /// </summary>
+        private static HashSet<int> getRoundedDenominatorCandidates((int count, decimal percent) observation)
+        {
+            #region implementation
+
+            var candidates = new HashSet<int>();
+            if (observation.count <= 0 || observation.percent <= 0m)
+                return candidates;
+
+            var lower = (int)Math.Floor(observation.count * 100m / (observation.percent + 0.05m));
+            var upper = (int)Math.Ceiling(observation.count * 100m / Math.Max(0.0001m, observation.percent - 0.05m));
+            lower = Math.Max(lower - 2, observation.count);
+            upper = Math.Max(upper + 2, lower);
+
+            for (var n = lower; n <= upper; n++)
+            {
+                var rounded = Math.Round((decimal)observation.count / n * 100m, 1, MidpointRounding.AwayFromZero);
+                if (rounded == observation.percent)
+                    candidates.Add(n);
+            }
+
+            return candidates;
 
             #endregion
         }
