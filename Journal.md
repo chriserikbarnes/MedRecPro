@@ -4079,3 +4079,39 @@ Corrected the Stage 5 AE MedDRA weight-change dictionary in [AeMeddraTermStandar
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 81/81. `git diff --check` passed with line-ending warnings only.
 
 ---
+
+### 2026-05-22 9:22 AM EST — AE MedDRA Outlier Alignment Follow-Up
+
+Corrected the next set of Stage 5 AE MedDRA dictionary outliers in [AeMeddraTermStandardizer.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AeMeddraTermStandardizer.cs). Vulvovaginal terms now resolve from the name to `Reproductive System and Breast Disorders`, `Agitation/Irritability` resolves to `Psychiatric Disorders`, abdominal stomachache/pain-discomfort clusters normalize to gastrointestinal terms, and leading dash bullets are trimmed from lab-style names.
+
+**Dictionary alignment.** Added canonical variants for `Vulvovaginal Pruritus`, `Vulvovaginitis`, `Agitation/Irritability`, `Abdominal Pain`, and `Abdominal Discomfort`. Added explicit Stage 5 investigation mappings for elevated lab terms so legacy fill-only mappings such as `Elevated creatinine` cannot override the visualization dictionary.
+
+**Tests.** Extended [AeMeddraTermStandardizerTests.cs](MedRecProTest/AeMeddraTermStandardizerTests.cs) with screenshot-backed cases for vulvovaginal reproductive SOC rescue, neuropsychiatric agitation/irritability override, abdominal synonym canonicalization, and leading dash removal including the Unicode minus form.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 91/91. `git diff --check` passed with line-ending warnings only. `MedRecPro/SQL/Transient/AETableChecks.sql` was already modified before this pass and was left untouched.
+
+---
+
+### 2026-05-22 9:41 AM EST — AE Visual Disturbance Null Rescue
+
+Evaluated the remaining visual-disturbance null-category rows and corrected the Stage 5 AE MedDRA dictionary in [AeMeddraTermStandardizer.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AeMeddraTermStandardizer.cs). Plural `Visual Disturbances` now canonicalizes to `Visual Disturbance` and resolves null categories to `Eye Disorders`; related visual acuity and visual impairment terms are also explicit eye-disorder name evidence.
+
+**Implementation.** Added `VISUAL` to the conservative Eye Disorders name-pattern resolver, added canonical variants for `Visual Disturbance`, `Visual Acuity Reduced`, and `Visual Impairment`, and added those canonical names to the Stage 5 official SOC map.
+
+**Tests.** Extended [AeMeddraTermStandardizerTests.cs](MedRecProTest/AeMeddraTermStandardizerTests.cs) with null-category visual-disturbance cases that assert both `AE_STD:SOC_FROM_NAME:<null>->Eye Disorders` and old-to-new name normalization for the plural forms.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 94/94. `git diff --check` passed with line-ending warnings only. `MedRecPro/SQL/Transient/AETableChecks.sql` remains a pre-existing unrelated modification.
+
+---
+
+### 2026-05-22 9:53 AM EST — AE Null Category Edge Case Rescue
+
+Resolved the next screenshot-backed set of Stage 5 AE MedDRA null-category outliers in [AeMeddraTermStandardizer.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AeMeddraTermStandardizer.cs). Added curated name evidence for clinical terms including `Buffalo Hump`, `Death`, `Delayed Recovery From Anesthesia`, `Fever In Absence Of Neutropenia`, `Hypoacusis`, `Oral Moniliasis`, `Serum Alkaline Phosphatase Increased`, `Special Senses Otitis Media`, `Swollen Ankles`, `Tongue Discoloration`, and `Wound Complication` so null or non-SOC category evidence resolves to an official MedDRA SOC.
+
+**Structural filtering.** Added explicit visualization exclusions for screenshot rows that are not AE terms, including `% Overall`, `% Severe`, `Rate (episodes/patient-year)`, `Median, months`, `Total`, `Cardiovascular System`, and `Hemic and Lymphatic Systems`.
+
+**Tests.** Extended [AeMeddraTermStandardizerTests.cs](MedRecProTest/AeMeddraTermStandardizerTests.cs) with screenshot null-category rescue coverage and structural-row exclusion coverage.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 129/129. `git diff --check` passed with line-ending warnings only. `MedRecPro/SQL/Transient/AETableChecks.sql` remains a pre-existing unrelated modification.
+
+---

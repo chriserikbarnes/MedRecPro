@@ -541,7 +541,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             if (containsAny(key, "ANXIETY", "DEPRESS", "MOOD", "PANIC", "PSYCH", "SCHIZOPHRENIA", "OBSESSIVE", "JITTERY", "NERVOUSNESS", "SLEEPDISTURB", "INSOMNIA"))
                 return "Psychiatric Disorders";
 
-            if (containsAny(key, "OCULAR", "INTRAOCULAR", "IOP", "VISION", "AMBLYOPIA", "KERATITIS", "RETINAL", "MACULAR", "EYE", "BLEPHAROSPASM"))
+            if (containsAny(key, "OCULAR", "INTRAOCULAR", "IOP", "VISION", "VISUAL", "AMBLYOPIA", "KERATITIS", "RETINAL", "MACULAR", "EYE", "BLEPHAROSPASM"))
                 return "Eye Disorders";
 
             if (containsAny(key, "DYSPNEA", "COUGH", "WHEEZ", "RESPIRATORY", "LUNG", "ASTHMA", "SPUTUM", "VOICE", "NASAL", "PHARYNG", "BRADYPNEA", "ATELECTASIS", "PULMONARYEDEMA", "SINUSABNORMALITY"))
@@ -854,6 +854,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 .Replace("â€”", "-", StringComparison.Ordinal)
                 .Replace("â€‘", "-", StringComparison.Ordinal)
                 .Replace("Â", "", StringComparison.Ordinal)
+                .Replace('\u2212', '-')
                 .Replace('\u2013', '-')
                 .Replace('\u2014', '-')
                 .Replace('\u00A0', ' ');
@@ -901,7 +902,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         {
             #region implementation
 
-            var stripped = Regex.Replace(name, @"\s*\((?:nonserious|NOS|NEC)\)\s*$", "", RegexOptions.IgnoreCase);
+            var stripped = Regex.Replace(name, @"^\s*[-]+\s*", "", RegexOptions.None);
+            stripped = Regex.Replace(stripped, @"\s*\((?:nonserious|NOS|NEC)\)\s*$", "", RegexOptions.IgnoreCase);
             stripped = Regex.Replace(stripped, @"\s+(?:NOS|NEC)\s*$", "", RegexOptions.IgnoreCase);
             stripped = stripped.Trim('*', '^', ' ', '\t');
             return stripped.Trim();
@@ -1139,10 +1141,12 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     map[normalizeLookupKey(variant)] = canonical;
             }
 
-            add("Abdominal Pain", "Abdominal pain", "Abdominal Pain NOS");
+            add("Abdominal Discomfort", "Abdominal - pain/discomfort/stomach pain/ cramps/pressure", "Abdominal pain, discomfort", "Abdominal Pain or Discomfort");
+            add("Abdominal Pain", "Abdominal pain", "Abdominal Pain NOS", "Abdominal Pain (stomachache)");
             add("ALT Increased", "ALT increased", "Increased ALT", "ALT greater than 3x ULN", "ALT (>5 x ULN)", "SGPT Elevation");
             add("AST Increased", "AST increased", "Increased AST", "AST (>5 x ULN)", "SGOT increased");
             add("Anemia", "Anemia NOS", "Postoperative Anemia");
+            add("Agitation/Irritability", "Irritability, agitation");
             add("Anxiety", "Anxiety NEC", "Anxiety/anxiety aggravated");
             add("Application Site Pain", "Application site pain", "Procedural Pain");
             add("Back Pain", "Back pain", "Back Ache", "Body asaWhole Back Pain", "Musculoskeletal disorders Back pain");
@@ -1150,10 +1154,14 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             add("Blood Bilirubin Increased", "Blood bilirubin increased", "High Total Bilirubin", "Total bilirubin");
             add("Blood Creatine Phosphokinase Increased", "Blood creatine phosphokinase increased (CPK)", "Creatine Phosphokinase Increase", "CPK Increased");
             add("Blood Glucose Increased", "Blood glucose increased", "Glucose increased");
+            add("Buffalo Hump", "Buffalo Hump");
             add("Cholelithiasis", "Cholelithiasis");
             add("Conjunctivitis", "Conjunctivitis NEC");
             add("Cough", "Cough Increased", "Respiratory, thoracic and mediastinal disorders Cough");
             add("Creatinine Increased", "Serum Creatinine Elevated", "Serum creatinine increase", "Serum creatinine increased");
+            add("Death", "Death");
+            add("Delayed Recovery From Anesthesia", "Delayed recovery from anesthesia");
+            add("Dermatological Rash", "Dermatological Rash");
             add("Diarrhea", "Gastrointestinal system Diarrhea", "Gastrointestinal disorders Diarrhea");
             add("Dizziness", "Central/Peripheral nervous system Dizziness", "Dizziness, lightheadedness, giddiness", "Dizziness, postural");
             add("Dry Eye", "Eye disorders Dry eyes");
@@ -1162,26 +1170,57 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             add("Edema Peripheral", "General disorders Edema peripheral", "Pedal Edema", "Other Edema", "Edema/swelling");
             add("Elevated Liver Enzymes", "Elevated liver enzymes", "Increased Hepatic Enzyme", "Liver Function Abnormalities", "Liver test abnormality", "Transaminase elevations", "Transaminases increased (ALT, AST)");
             add("Female Genital Mycotic Infections", "Female genital mycotic infections");
+            add("Fever In Absence Of Neutropenia", "Fever in absence of neutropenia (ANC < 1.0 x 10/L)");
             add("Headache", "Headache NOS", "Headache (NOS)", "Sinus headache");
             add("Hot Flush", "Hot flushes NOS", "Hot flushes", "Vascular disorders Hot flushes", "Hot flashes/sweats", "Flushing, heat sensation");
+            add("Hunger", "Hunger");
             add("Hypertension", "Hypertension NOS", "Vascular disorders Hypertension", "Supine hypertension");
+            add("Hypoacusis", "Hypoacusis");
+            add("Hypoesthesia Oral", "Hypoesthesia oral");
+            add("Hypomagnesaemia", "Hypomagnesaemia");
+            add("Hypopnea", "Hypopnea");
             add("Increased ALP", "Increased ALP", "Alkaline Phosphatase Increased", "Blood alkaline phosphatase increased");
             add("Increased Heart Rate", "Increased Heart Rate");
+            add("Increased Lacrimation", "Increased Lacrimation");
+            add("Infused Vein Complication", "Infused vein complication");
+            add("Injection Site Reactions", "Injection Site Reactions, any");
             add("Joint Sprain", "Joint Sprain");
             add("Ligament Sprain", "Ligament Sprain");
+            add("Lip Swelling", "Lip Swelling");
             add("Male Genital Mycotic Infections", "Male genital mycotic infections");
             add("Nausea", "Digestive System Nausea");
+            add("Oral Moniliasis", "Oral moniliasis");
+            add("Other Constitutional Symptoms", "Other constitutional symptoms");
             add("Other Extrapyramidal Event", "Other extrapyramidal event", "Any extrapyramidal event", "Extrapyramidal event");
+            add("Other GI Toxicity", "Other GI toxicity");
+            add("Otitis Media", "Special Senses Otitis Media");
             add("Paresthesia", "Circumoral paresthesia", "Paraesthesia Oral");
             add("Pneumonia", "Pneumonia NOS");
             add("Pruritus", "Itching", "Generalized Pruritus");
             add("Rash", "Rash (including dermatitis)", "Skin disorders Rash", "Skin and subcutaneous tissue disorders Rash", "Skin/Skin Appendages Disorder Rash");
+            add("Rigors/Chills", "Rigors/chills");
             add("Restless Legs Syndrome", "Restless Legs Syndrome");
+            add("Seroma", "Seroma");
+            add("Serum Alkaline Phosphatase Increased", "Serum alkaline phosphatase increased");
+            add("Shivering", "Shivering");
+            add("Small Intestinal Obstruction", "Small intestinal obstruction");
+            add("Sneezing", "Sneezing");
+            add("Swollen Ankles", "Swollen Ankles");
+            add("Symptom Of Nose", "Symptom of Nose");
+            add("Tachypnea", "Tachypnea");
+            add("Tongue Discoloration", "Tongue discoloration");
             add("Upper Respiratory Tract Infection", "Upper Respiratory Tract Infection NOS", "Upper Respiratory Infection (URI)", "Upper Respiratory Tract Inf. NOS");
             add("Urinary Tract Infection", "Urinary Tract Infection (NOS)", "Urogenital System Urinary Tract Infection", "Infections Urinary tract infection", "Infections and Infestations Urinary tract infections");
+            add("Visual Acuity Reduced", "Visual acuity reduced");
+            add("Visual Disturbance", "Visual disturbance", "Visual Disturbances", "Visual disturbances");
+            add("Visual Impairment", "Visual Impairment");
             add("Viral Infection", "Viral Infection");
+            add("Vulvovaginal Dryness", "Vulvovaginal dryness");
+            add("Vulvovaginal Pruritus", "Vulvovaginal pruritus");
+            add("Vulvovaginitis", "Vulvovaginitis");
             add("Weight Decreased", "Weight decreased", "Weight decrease", "Decreased weight", "Decreased Weight*", "Weight Loss", "Weight loss", "Weight decreased*", "Lost >5 lbs");
             add("Weight Increased", "Weight increased", "Weight increase", "Increased weight", "Weight, increased", "Weight gain", "Weight Gain", "Weight gain/increased", "Gained >5 lbs", "Investigations Weight increased");
+            add("Wound Complication", "Wound complication");
 
             return map;
 
@@ -1204,26 +1243,27 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     map[normalizeLookupKey(name)] = soc;
             }
 
-            add("Gastrointestinal Disorders", "Nausea", "Diarrhea", "Vomiting", "Constipation", "Dyspepsia", "Dry Mouth", "Abdominal Pain", "Abdominal Discomfort", "Digestive System Nausea", "Nausea, heartburn", "Abnormal stools", "Indigestion", "Rectal pain", "Mouth and aphthous ulcers", "Ulcerative stomatitis", "Esophagitis", "Large intestine polyp");
-            add("Nervous System Disorders", "Headache", "Dizziness", "Somnolence", "Tremor", "Paresthesia", "Other Extrapyramidal Event", "Dystonic Event", "Dyskinetic Event", "Restless Legs Syndrome", "Atypical Sensations", "Parkinsonism", "Parkinsonism/bradykinesia", "Bradykinesia", "Tardive Dyskinesia", "Fatigue/Somnolence", "Sluggishness", "Paresis", "Sensory Loss", "Unsteady gait", "Multiple sclerosis relapse", "Cataplexy", "Gait Disturbances", "Mental Status Change", "Taste Disorder", "Taste Disorders", "Special Senses taste perversion", "Smell Disorder");
-            add("Psychiatric Disorders", "Anxiety", "Feeling Jittery", "Nervousness, mood changes", "Mood changes", "Mood altered, mood swings", "Depression/emotional lability", "Depressed mood, depression, depressive symptoms and/or tearfulness", "Panic reaction", "Psychosomatic disorder", "Schizophrenia", "Obsessive reaction", "Psychiatric Disorders Insomnia", "Sleep changes", "Sleep disturbances");
-            add("Skin and Subcutaneous Tissue Disorders", "Rash", "Pruritus", "Alopecia", "Dry Skin", "Generalized Pruritus", "Skin hemorrhage", "Dryness", "Itching", "Burning", "Piloerection", "Striae rubrae", "Oiliness/Peeling", "Rash (including dermatitis)", "Skin disorders Rash", "Skin warm", "Somnolece", "Pain of skin", "Skin burning sensation", "Hyperhydrosis", "Skin reactions", "Pigmentation", "Scaling", "Stinging", "Application site burning/stinging", "Exfoliation", "Irritation", "Abnormal skin odor", "nodule", "site warmth", "skin tightness");
-            add("General Disorders and Administration Site Conditions", "Application Site Pain", "Application Site Exfoliation", "Application Site Reactions", "Application Site Erythema", "Application site burning/stinging", "Infusion site erythema", "Infusion site nodule", "General pain", "Pain (generalized)", "Pedal Edema", "Other Edema", "Edema/swelling", "Fatigue", "Body asawhole Fatigue", "Chest discomfort/pain", "Chest Pain (non-cardiac)", "Pain Chest, Non-Cardiac", "Pressure sensation", "Feeling of heaviness", "Heaviness", "Cold sensation", "Warm/hot sensation", "Moon face", "Hyperpyrexia", "Increased Body Temperature", "Decreased Mobility", "Hospitalized, nonfatal");
-            add("Eye Disorders", "Conjunctivitis", "Blurred Vision", "Eye Pain", "Blurry Vision", "Dry Eye", "Intraocular pressure increased", "IOP elevation >= 10 mmHg from Baseline", "IOP elevation > 30 mmHg", "IOP elevation >= 30 mmHg", "Ocular hypertension", "Punctate keratitis", "Retinal hemorrhage", "Posterior capsule opacification", "Intraocular inflammation", "Neovascular age-related macular degeneration", "Ocular discomfort", "Blepharospasm");
-            add("Respiratory, Thoracic and Mediastinal Disorders", "Cough", "Dyspnea", "Rhinitis", "Pharyngolaryngeal Pain", "Nasal congestion, sore throat", "Dyspnea, cough, wheezing", "Bradypnea", "Atelectasis", "Pulmonary Edema", "Decreased lung function", "Respiratory System Dyspnea", "Asthma symptoms", "Respiratory System Nasopharyngitis", "Nasal burning/nasal irritation", "Respiratory Tract Infection (Upper and Lower)", "Nasal Congestion (Including sinus congestion)", "Respiratory failure, respiratory disorder, hypoxia", "Sputum Increased", "Voice Alteration", "Lung Function Decreased", "Respiratory, thoracic and mediastinal disorders Hyperventilation", "Respiratory, thoracic, and mediastinal disorders Dyspnea", "Respiratory system disorder Sinusitis", "Respiration abnormal");
-            add("Infections and Infestations", "Upper Respiratory Tract Infection", "Nasopharyngitis", "Sinusitis", "Viral Infection", "Female Genital Mycotic Infections", "Male Genital Mycotic Infections", "Urinary Tract Infection", "Dialysis Access Site Infection", "Tinea infection", "Vaginal Candidiasis", "Sinusitis (NOS)", "Upper Respiratory Infection (URI)", "Upper Respiratory Tract Inf. NOS", "Gingivitis", "Ingrown toenail");
-            add("Investigations", "Blood Glucose Increased", "Blood Bilirubin Increased", "Serum Creatinine Elevated", "Creatinine Increased", "ALT Increased", "AST Increased", "Leukocytes Decreased", "Platelets Decreased", "Increased ALP", "Elevated Liver Enzymes", "Decreased blood cortisol", "Albumin urine present", "Blood insulin increased", "Elevated Amylase", "Elevated INR", "Elevated Lipase", "QTc prolonged", "Electrocardiogram QT prolongation", "Blood creatine phosphokinase increased (CPK)", "Gamma-glutamyl transferase increased (GGT)", "Increased Gamma-Glutamyltransferase", "Serum creatinine increase", "Laboratory Abnormality", "Weight Increased", "Weight Decreased");
+            add("Gastrointestinal Disorders", "Nausea", "Diarrhea", "Vomiting", "Constipation", "Dyspepsia", "Dry Mouth", "Abdominal Pain", "Abdominal Discomfort", "Other GI Toxicity", "Small Intestinal Obstruction", "Tongue Discoloration", "Digestive System Nausea", "Nausea, heartburn", "Abnormal stools", "Indigestion", "Rectal pain", "Mouth and aphthous ulcers", "Ulcerative stomatitis", "Esophagitis", "Large intestine polyp");
+            add("Nervous System Disorders", "Headache", "Dizziness", "Somnolence", "Tremor", "Paresthesia", "Hypoesthesia Oral", "Other Extrapyramidal Event", "Dystonic Event", "Dyskinetic Event", "Restless Legs Syndrome", "Atypical Sensations", "Parkinsonism", "Parkinsonism/bradykinesia", "Bradykinesia", "Tardive Dyskinesia", "Fatigue/Somnolence", "Sluggishness", "Paresis", "Sensory Loss", "Unsteady gait", "Multiple sclerosis relapse", "Cataplexy", "Gait Disturbances", "Mental Status Change", "Taste Disorder", "Taste Disorders", "Special Senses taste perversion", "Smell Disorder");
+            add("Psychiatric Disorders", "Agitation/Irritability", "Anxiety", "Feeling Jittery", "Nervousness, mood changes", "Mood changes", "Mood altered, mood swings", "Depression/emotional lability", "Depressed mood, depression, depressive symptoms and/or tearfulness", "Panic reaction", "Psychosomatic disorder", "Schizophrenia", "Obsessive reaction", "Psychiatric Disorders Insomnia", "Sleep changes", "Sleep disturbances");
+            add("Skin and Subcutaneous Tissue Disorders", "Rash", "Dermatological Rash", "Pruritus", "Alopecia", "Dry Skin", "Generalized Pruritus", "Skin hemorrhage", "Dryness", "Itching", "Burning", "Piloerection", "Striae rubrae", "Oiliness/Peeling", "Rash (including dermatitis)", "Skin disorders Rash", "Skin warm", "Somnolece", "Pain of skin", "Skin burning sensation", "Hyperhydrosis", "Skin reactions", "Pigmentation", "Scaling", "Stinging", "Application site burning/stinging", "Exfoliation", "Irritation", "Abnormal skin odor", "nodule", "site warmth", "skin tightness", "Lip Swelling");
+            add("General Disorders and Administration Site Conditions", "Application Site Pain", "Application Site Exfoliation", "Application Site Reactions", "Application Site Erythema", "Application site burning/stinging", "Infusion site erythema", "Infusion site nodule", "Injection Site Reactions", "General pain", "Pain (generalized)", "Pedal Edema", "Other Edema", "Edema/swelling", "Swollen Ankles", "Fatigue", "Body asawhole Fatigue", "Chest discomfort/pain", "Chest Pain (non-cardiac)", "Pain Chest, Non-Cardiac", "Pressure sensation", "Feeling of heaviness", "Heaviness", "Cold sensation", "Warm/hot sensation", "Rigors/Chills", "Shivering", "Moon face", "Hyperpyrexia", "Fever In Absence Of Neutropenia", "Other Constitutional Symptoms", "Increased Body Temperature", "Decreased Mobility", "Hospitalized, nonfatal", "Death");
+            add("Eye Disorders", "Conjunctivitis", "Blurred Vision", "Eye Pain", "Blurry Vision", "Dry Eye", "Increased Lacrimation", "Intraocular pressure increased", "IOP elevation >= 10 mmHg from Baseline", "IOP elevation > 30 mmHg", "IOP elevation >= 30 mmHg", "Ocular hypertension", "Punctate keratitis", "Retinal hemorrhage", "Posterior capsule opacification", "Intraocular inflammation", "Neovascular age-related macular degeneration", "Ocular discomfort", "Blepharospasm", "Visual Acuity Reduced", "Visual Disturbance", "Visual Impairment");
+            add("Respiratory, Thoracic and Mediastinal Disorders", "Cough", "Dyspnea", "Rhinitis", "Pharyngolaryngeal Pain", "Hypopnea", "Sneezing", "Symptom Of Nose", "Tachypnea", "Nasal congestion, sore throat", "Dyspnea, cough, wheezing", "Bradypnea", "Atelectasis", "Pulmonary Edema", "Decreased lung function", "Respiratory System Dyspnea", "Asthma symptoms", "Respiratory System Nasopharyngitis", "Nasal burning/nasal irritation", "Respiratory Tract Infection (Upper and Lower)", "Nasal Congestion (Including sinus congestion)", "Respiratory failure, respiratory disorder, hypoxia", "Sputum Increased", "Voice Alteration", "Lung Function Decreased", "Respiratory, thoracic and mediastinal disorders Hyperventilation", "Respiratory, thoracic, and mediastinal disorders Dyspnea", "Respiratory system disorder Sinusitis", "Respiration abnormal");
+            add("Infections and Infestations", "Upper Respiratory Tract Infection", "Nasopharyngitis", "Sinusitis", "Viral Infection", "Female Genital Mycotic Infections", "Male Genital Mycotic Infections", "Urinary Tract Infection", "Dialysis Access Site Infection", "Tinea infection", "Vaginal Candidiasis", "Oral Moniliasis", "Otitis Media", "Sinusitis (NOS)", "Upper Respiratory Infection (URI)", "Upper Respiratory Tract Inf. NOS", "Gingivitis", "Ingrown toenail");
+            add("Investigations", "Blood Glucose Increased", "Blood Bilirubin Increased", "Serum Creatinine Elevated", "Creatinine Increased", "ALT Increased", "AST Increased", "Leukocytes Decreased", "Platelets Decreased", "Increased ALP", "Serum Alkaline Phosphatase Increased", "Elevated Alkaline Phosphatase", "Elevated Bilirubin", "Elevated Creatinine", "Elevated SGOT (AST)", "Elevated SGPT (ALT)", "Elevated Liver Enzymes", "Decreased blood cortisol", "Albumin urine present", "Blood insulin increased", "Elevated Amylase", "Elevated INR", "Elevated Lipase", "QTc prolonged", "Electrocardiogram QT prolongation", "Blood creatine phosphokinase increased (CPK)", "Gamma-glutamyl transferase increased (GGT)", "Increased Gamma-Glutamyltransferase", "Serum creatinine increase", "Laboratory Abnormality", "Weight Increased", "Weight Decreased");
             add("Musculoskeletal and Connective Tissue Disorders", "Back Pain", "Arthralgia", "Myalgia", "Ligament Sprain", "Joint Sprain", "Muscle cramps, tremor", "Musculoskeletal (Bone, Muscle Or Joint) Pain", "Musculoskeletal System Pain - Extremities", "Jaw pain", "Skeletal Pain", "Musculoskeletal Traumatism", "Arthralgia and arthritis", "Musculoskeletal and connective tissue disorders Muscle twitching", "Tenosynovitis");
             add("Vascular Disorders", "Hypertension", "Hot Flush", "Peripheral Edema", "Flushing, heat sensation", "Vasomotor symptoms", "Procedural Hypotension", "Hypotension, postural", "Supine hypertension");
             add("Cardiac Disorders", "Increased Heart Rate", "Torsade de Pointes", "Ventricular fibrillation", "Ventricular arrhythmias", "AV Block First Degree", "Cardiac Failure", "Increased Angina", "Sustained Tachycardia", "Subjective Cardiac Rhythm Disturbance");
             add("Hepatobiliary Disorders", "Cholelithiasis", "Liver test abnormality", "Liver Function Abnormalities", "High Total Bilirubin");
             add("Renal and Urinary Disorders", "Oliguria", "Urine Output Decreased", "Urogenital System Urinary Tract Infection", "Discomfort with urination", "Glycosuria");
-            add("Reproductive System and Breast Disorders", "Gynecological disorder", "UROGENITAL SYSTEM Impotence", "Urogenital System Endometrial thickening", "Spontaneous Penile Erection", "Retrograde Ejaculation", "Libido change", "Orgasmic Disturbance", "Decreased sexual desire and arousal", "Uterine Pain", "Breast changes/tenderness/pain");
-            add("Metabolism and Nutrition Disorders", "Hypovolemia", "Hypoglycemia in T2DM", "Fat-soluble vitamin deficiency (A, D, E)", "Central obesity", "Metabolism and nutrition disorders Appetite decreased", "Metabolism and nutrition disorders Hyponatremia");
-            add("Endocrine Disorders", "Cushingoid appearance", "Hormone Level Altered");
+            add("Reproductive System and Breast Disorders", "Gynecological disorder", "UROGENITAL SYSTEM Impotence", "Urogenital System Endometrial thickening", "Spontaneous Penile Erection", "Retrograde Ejaculation", "Libido change", "Orgasmic Disturbance", "Decreased sexual desire and arousal", "Uterine Pain", "Breast changes/tenderness/pain", "Vulvovaginal Dryness", "Vulvovaginal Pruritus", "Vulvovaginitis");
+            add("Metabolism and Nutrition Disorders", "Hunger", "Hypomagnesaemia", "Hypovolemia", "Hypoglycemia in T2DM", "Fat-soluble vitamin deficiency (A, D, E)", "Central obesity", "Metabolism and nutrition disorders Appetite decreased", "Metabolism and nutrition disorders Hyponatremia");
+            add("Endocrine Disorders", "Buffalo Hump", "Cushingoid appearance", "Hormone Level Altered");
             add("Blood and Lymphatic System Disorders", "Postoperative Anemia", "Hematocrit / hemoglobin Increased", "Any noncerebral bleeding", "Any noncerebral bleeding (nonmajor)", "Fatal bleeding", "Major noncerebral", "Major noncerebral or cerebral bleeding", "Intracranial hemorrhage", "Hemorrhagic stroke");
-            add("Injury, Poisoning and Procedural Complications", "Head Injury", "Injury", "Laceration (head)", "Post-procedural Hemorrhage", "Post Procedural Hematoma", "nerve injury", "hematoma/bruising", "Injury, poisoning, and procedural complications Road traffic accident", "Injury, poisoning and procedural complications Fall");
+            add("Injury, Poisoning and Procedural Complications", "Delayed Recovery From Anesthesia", "Infused Vein Complication", "Seroma", "Wound Complication", "Head Injury", "Injury", "Laceration (head)", "Post-procedural Hemorrhage", "Post Procedural Hematoma", "nerve injury", "hematoma/bruising", "Injury, poisoning, and procedural complications Road traffic accident", "Injury, poisoning and procedural complications Fall");
             add("Neoplasms Benign, Malignant and Unspecified (Incl Cysts and Polyps)", "Large intestine polyp");
+            add("Ear and Labyrinth Disorders", "Hypoacusis");
 
             return map;
 
@@ -1290,6 +1330,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             return new HashSet<string>(
                 new[]
                 {
+                    "% Overall",
+                    "% Severe",
                     "All",
                     "All adverse reactions",
                     "All EPS events",
@@ -1297,6 +1339,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     "At least 1 AE",
                     "At least one treatment-emergent event",
                     "Average exposure duration (days)",
+                    "Cardiovascular System",
                     "Composite of first event of CV death, non-fatal myocardial infarction (MI), or non-fatal stroke (MACE)",
                     "CRNM",
                     "CV death*",
@@ -1304,9 +1347,12 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     "Digestive",
                     "Discontinuation at any time",
                     "Fatal",
+                    "Hemic and Lymphatic System",
+                    "Hemic and Lymphatic Systems",
                     "Major",
                     "Major leg amputation",
                     "Major + CRNM",
+                    "Median, months",
                     "Median exposure (weeks)",
                     "Men only",
                     "Minor",
@@ -1319,11 +1365,13 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                     "PATIENTS WITH AT LEAST ONE AR",
                     "Permanent discontinuation",
                     "Preferred Term",
+                    "Rate (episodes/patient-year)",
                     "Serious adverse reactions",
                     "Subjects with at least one adverse reaction, Number (%) of Subjects",
                     "TIMI Major",
                     "TIMI Major or Minor",
                     "TIMI Major or Minor or Requiring medical attention",
+                    "Total",
                     "Total # of reports",
                     "Total number of AEs",
                     "Weight gain/loss",

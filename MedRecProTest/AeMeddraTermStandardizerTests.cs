@@ -188,6 +188,190 @@ namespace MedRecPro.Service.Test
         }
 
         /**************************************************************/
+        /// <summary>Visual disturbance variants rescue null categories to Eye Disorders.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        /// <param name="expectedName">Expected canonical ParameterName.</param>
+        [DataTestMethod]
+        [DataRow("Visual Disturbances", "Visual Disturbance")]
+        [DataRow("Visual disturbances", "Visual Disturbance")]
+        [DataRow("Visual disturbance", "Visual Disturbance")]
+        public void Standardize_VisualDisturbanceVariants_ResolveNullCategoryToEyeDisorders(string rawName, string expectedName)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, null);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual(expectedName, row.ParameterName);
+            Assert.AreEqual("Eye Disorders", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME");
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_FROM_NAME:<null>->Eye Disorders");
+
+            if (!string.Equals(rawName, expectedName, StringComparison.Ordinal))
+                CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:NAME_NORMALIZED:{rawName}->{expectedName}");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Screenshot null-category AE terms resolve by curated name evidence.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        /// <param name="rawCategory">Raw ParameterCategory value.</param>
+        /// <param name="expectedName">Expected canonical ParameterName.</param>
+        /// <param name="expectedSoc">Expected official MedDRA SOC.</param>
+        [DataTestMethod]
+        [DataRow("Buffalo Hump", null, "Buffalo Hump", "Endocrine Disorders")]
+        [DataRow("Death", "Systemic:", "Death", "General Disorders and Administration Site Conditions")]
+        [DataRow("Delayed recovery from anesthesia", null, "Delayed Recovery From Anesthesia", "Injury, Poisoning and Procedural Complications")]
+        [DataRow("Fever in absence of neutropenia (ANC < 1.0 x 10/L)", null, "Fever In Absence Of Neutropenia", "General Disorders and Administration Site Conditions")]
+        [DataRow("Hunger", null, "Hunger", "Metabolism and Nutrition Disorders")]
+        [DataRow("Hypoacusis", null, "Hypoacusis", "Ear and Labyrinth Disorders")]
+        [DataRow("Hypoesthesia oral", null, "Hypoesthesia Oral", "Nervous System Disorders")]
+        [DataRow("Hypomagnesaemia", null, "Hypomagnesaemia", "Metabolism and Nutrition Disorders")]
+        [DataRow("Hypopnea", null, "Hypopnea", "Respiratory, Thoracic and Mediastinal Disorders")]
+        [DataRow("Increased Lacrimation", null, "Increased Lacrimation", "Eye Disorders")]
+        [DataRow("Infused vein complication", "Local:", "Infused Vein Complication", "Injury, Poisoning and Procedural Complications")]
+        [DataRow("Injection Site Reactions, any", null, "Injection Site Reactions", "General Disorders and Administration Site Conditions")]
+        [DataRow("Lip Swelling", null, "Lip Swelling", "Skin and Subcutaneous Tissue Disorders")]
+        [DataRow("Oral moniliasis", null, "Oral Moniliasis", "Infections and Infestations")]
+        [DataRow("Other constitutional symptoms", null, "Other Constitutional Symptoms", "General Disorders and Administration Site Conditions")]
+        [DataRow("Other GI toxicity", null, "Other GI Toxicity", "Gastrointestinal Disorders")]
+        [DataRow("Rigors/chills", null, "Rigors/Chills", "General Disorders and Administration Site Conditions")]
+        [DataRow("Seroma", null, "Seroma", "Injury, Poisoning and Procedural Complications")]
+        [DataRow("Serum alkaline phosphatase increased", null, "Serum Alkaline Phosphatase Increased", "Investigations")]
+        [DataRow("Shivering", null, "Shivering", "General Disorders and Administration Site Conditions")]
+        [DataRow("Small intestinal obstruction", null, "Small Intestinal Obstruction", "Gastrointestinal Disorders")]
+        [DataRow("Sneezing", null, "Sneezing", "Respiratory, Thoracic and Mediastinal Disorders")]
+        [DataRow("Special Senses Otitis Media", "Body System/Event", "Otitis Media", "Infections and Infestations")]
+        [DataRow("Swollen Ankles", null, "Swollen Ankles", "General Disorders and Administration Site Conditions")]
+        [DataRow("Symptom of Nose", null, "Symptom Of Nose", "Respiratory, Thoracic and Mediastinal Disorders")]
+        [DataRow("Tachypnea", null, "Tachypnea", "Respiratory, Thoracic and Mediastinal Disorders")]
+        [DataRow("Tongue discoloration", null, "Tongue Discoloration", "Gastrointestinal Disorders")]
+        [DataRow("Wound complication", null, "Wound Complication", "Injury, Poisoning and Procedural Complications")]
+        public void Standardize_ScreenshotNullCategoryTerms_ResolveFromName(string rawName, string? rawCategory, string expectedName, string expectedSoc)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, rawCategory);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual(expectedName, row.ParameterName);
+            Assert.AreEqual(expectedSoc, row.ParameterCategory);
+            Assert.IsTrue(AeMeddraTermStandardizer.IsOfficialSoc(row.ParameterCategory));
+            Assert.IsTrue(result.Flags.Any(f => f.StartsWith("AE_STD:SOC_FROM_NAME:", StringComparison.Ordinal)));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Vulvovaginal adverse effects use reproductive SOC evidence from the AE name.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        /// <param name="rawCategory">Raw ParameterCategory value.</param>
+        /// <param name="expectedName">Expected canonical ParameterName.</param>
+        /// <param name="expectedDetailFlag">Expected old-value/new-value audit detail.</param>
+        [DataTestMethod]
+        [DataRow("Vulvovaginal pruritus", null, "Vulvovaginal Pruritus", "AE_STD:SOC_FROM_NAME:<null>->Reproductive System and Breast Disorders")]
+        [DataRow("Vulvovaginitis", "Urogenital", "Vulvovaginitis", "AE_STD:SOC_ALIGNED:Urogenital->Reproductive System and Breast Disorders")]
+        [DataRow("Vulvovaginal dryness", "Renal and Urinary Disorders", "Vulvovaginal Dryness", "AE_STD:SOC_ALIGNED:Renal and Urinary Disorders->Reproductive System and Breast Disorders")]
+        public void Standardize_VulvovaginalTerms_MapToReproductiveSoc(string rawName, string? rawCategory, string expectedName, string expectedDetailFlag)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, rawCategory);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual(expectedName, row.ParameterName);
+            Assert.AreEqual("Reproductive System and Breast Disorders", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), expectedDetailFlag);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Agitation and irritability combinations remain psychiatric despite neuropsychiatric headers.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        /// <param name="expectedName">Expected canonical ParameterName.</param>
+        [DataTestMethod]
+        [DataRow("Agitation/Irritability", "Agitation/Irritability")]
+        [DataRow("Irritability, agitation", "Agitation/Irritability")]
+        public void Standardize_AgitationIrritability_MapToPsychiatricSoc(string rawName, string expectedName)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, "NEUROPSYCHIATRIC AND COGNITIVE DYSFUNCTION");
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual(expectedName, row.ParameterName);
+            Assert.AreEqual("Psychiatric Disorders", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:SOC_ALIGNED:NEUROPSYCHIATRIC AND COGNITIVE DYSFUNCTION->Psychiatric Disorders");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Abdominal synonym clusters use gastrointestinal SOC evidence and canonical names.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        /// <param name="rawCategory">Raw ParameterCategory value.</param>
+        /// <param name="expectedName">Expected canonical ParameterName.</param>
+        [DataTestMethod]
+        [DataRow("Abdominal Pain (stomachache)", "General", "Abdominal Pain")]
+        [DataRow("Abdominal - pain/discomfort/stomach pain/ cramps/pressure", "PAIN AND PRESSURE SENSATIONS", "Abdominal Discomfort")]
+        public void Standardize_AbdominalSynonyms_MapToGastrointestinalSoc(string rawName, string rawCategory, string expectedName)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, rawCategory);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual(expectedName, row.ParameterName);
+            Assert.AreEqual("Gastrointestinal Disorders", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:NAME_NORMALIZED:{rawName}->{expectedName}");
+            CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:SOC_ALIGNED:{rawCategory}->Gastrointestinal Disorders");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Leading dash bullets are removed from AE names while preserving investigation SOC alignment.</summary>
+        /// <param name="rawName">Raw ParameterName value.</param>
+        /// <param name="expectedName">Expected display name after dash trimming.</param>
+        [DataTestMethod]
+        [DataRow("- Elevated creatinine", "Elevated Creatinine")]
+        [DataRow("\u2212 Elevated bilirubin", "Elevated Bilirubin")]
+        [DataRow("- Elevated SGOT (AST)", "Elevated SGOT (AST)")]
+        public void Standardize_LeadingDashBullet_TrimmedFromName(string rawName, string expectedName)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(rawName, "Biochemistry parameters");
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsFalse(result.IsExcluded);
+            Assert.AreEqual(expectedName, row.ParameterName);
+            Assert.AreEqual("Investigations", row.ParameterCategory);
+            CollectionAssert.Contains(result.Flags.ToList(), $"AE_STD:NAME_NORMALIZED:{rawName.Replace('\u2212', '-')}->{expectedName}");
+
+            #endregion
+        }
+
+        /**************************************************************/
         /// <summary>One-direction weight increase variants canonicalize to the MedDRA investigation term.</summary>
         /// <param name="rawName">Raw ParameterName value.</param>
         [DataTestMethod]
@@ -315,6 +499,33 @@ namespace MedRecPro.Service.Test
 
             Assert.IsTrue(result.IsExcluded);
             Assert.IsTrue(AeMeddraTermStandardizer.IsExcludedFromVisualization("Weight gain/loss"));
+            CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:EXCLUDED_NON_AE");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>Screenshot structural rows are excluded rather than assigned a MedDRA SOC.</summary>
+        /// <param name="name">Structural ParameterName value.</param>
+        [DataTestMethod]
+        [DataRow("% Overall")]
+        [DataRow("% Severe")]
+        [DataRow("Rate (episodes/patient-year)")]
+        [DataRow("Median, months")]
+        [DataRow("Total")]
+        [DataRow("Cardiovascular System")]
+        [DataRow("Hemic and Lymphatic Systems")]
+        public void Standardize_ScreenshotStructuralRows_AreExcluded(string name)
+        {
+            #region implementation
+
+            var standardizer = new AeMeddraTermStandardizer();
+            var row = createRow(name, null);
+
+            var result = standardizer.Standardize(row);
+
+            Assert.IsTrue(result.IsExcluded);
+            Assert.IsTrue(AeMeddraTermStandardizer.IsExcludedFromVisualization(name));
             CollectionAssert.Contains(result.Flags.ToList(), "AE_STD:EXCLUDED_NON_AE");
 
             #endregion

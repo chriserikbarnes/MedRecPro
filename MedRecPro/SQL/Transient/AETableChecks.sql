@@ -14,9 +14,24 @@
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
   where  RR is null and ArmN is not null)
 
-SELECT *
-  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
+SELECT b.ParameterName as Old_Name,
+a.ParameterName as New_Name,
+b.ParameterCategory as Old_Cat,
+a.ParameterCategory as New_Cat
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] A
+  inner join [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] B
+  on a.tmp_FlattenedStandardizedTableID = b.tmp_FlattenedStandardizedTableID
   where RR is not null and IsPlaceboControlled = 1
+
+  SELECT b.TextTableID,
+  b.ParameterName as Old_Name,
+a.ParameterName as New_Name,
+b.ParameterCategory as Old_Cat,
+a.ParameterCategory as New_Cat
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] A
+  inner join [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] B
+  on a.tmp_FlattenedStandardizedTableID = b.tmp_FlattenedStandardizedTableID
+  order by New_Name
 
   SELECT distinct ParameterName, ParameterCategory
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable]
