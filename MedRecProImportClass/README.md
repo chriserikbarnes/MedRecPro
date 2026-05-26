@@ -12,7 +12,7 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
 - **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 41-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, five concrete section-aware parsers, structural-row suppression audit, category downgrade gates, 4-phase column standardization with explicit Phase 1 / Phase 2 ordering pipelines, deterministic parse-quality gate, shadow-mode QCNet diagnostics, guarded Claude AI correction, post-processing extraction, automated validation, and shared DI registration through `AddTableStandardization(...)`
-- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service + helper decomposition + `RelativeRiskCalculator` utility) are both shipped
+- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable`, then materializes `dbo.vw_AeRisk` into `tmp_FlattenedAdverseEventRiskTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service + helper decomposition + `RelativeRiskCalculator` utility) are both shipped
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -104,7 +104,7 @@ MedRecProImportClass/
         +-- BatchValidationService.cs           # Stage 4: aggregate reporting
         +-- AdverseEventTableFlattening/        # Stage 5 (Phase 2): AE denormalization
         |   +-- IAdverseEventDenormalizationService.cs # Service contract
-        |   +-- AdverseEventDenormalizationService.cs  # Population service (truncate + stream + classify + write)
+        |   +-- AdverseEventDenormalizationService.cs  # Population service (truncate + stream + classify + write + risk materialize)
         |   +-- SourceRowEligibility.cs                # Source row inclusion / exclusion rules
         |   +-- ComparatorGrouper.cs                   # Study-group keying for comparator selection
         |   +-- ComparatorSelector.cs                  # Placebo / low-dose / no-comparator cascade
@@ -336,8 +336,10 @@ Stage 4: Validation
         |
 Stage 5: AE Denormalization (Phase 1 SQL DDL + Phase 2 service both shipped)
   AdverseEventDenormalizationService + helper services -> tmp_FlattenedAdverseEventTable
+  dbo.vw_AeRisk -> tmp_FlattenedAdverseEventRiskTable
         (one row per eligible AE source row except the comparator chosen per study group;
-         RR/DNRR/CI pre-computed; PERSISTED log columns auto-maintained by SQL Server)
+         RR/DNRR/CI pre-computed; PERSISTED log columns auto-maintained by SQL Server;
+         risk view materialized as the final Stage 5 step)
 ```
 
 ### Stage 0: Bioequivalent Label Dedup
@@ -574,14 +576,14 @@ Validation results are returned as in-memory DTOs (`BatchValidationReport`) and 
 
 ### Stage 5: Adverse Event Denormalization
 
-Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering) bind directly without runtime joins or stats. The DDL is at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`.
+Stage 5 produces two outputs. `tmp_FlattenedAdverseEventTable` is a denormalized, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics. `tmp_FlattenedAdverseEventRiskTable` is a persistent materialization of `dbo.vw_AeRisk` refreshed after the AE stats table is populated, so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering, product/class risk views) bind directly without runtime joins or stats. The DDL scripts are at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql` and `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`.
 
-**Status:** Phase 1 (SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service, EF entity, DTO, `RelativeRiskCalculator` utility, helper decomposition, orchestrator hook, DI registration) are both shipped.
+**Status:** Phase 1 (SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service, EF entities, DTO, `RelativeRiskCalculator` utility, helper decomposition, orchestrator hook, DI registration, and final risk-table materialization) are both shipped.
 
 **Entry points:**
 
 - Pipeline-integrated: `TableParsingOrchestrator.ProcessAllWithValidationAsync` invokes `IAdverseEventDenormalizationService.PopulateAsync` after Stage 4 validation when the dependency was provided.
-- Standalone: resolve `IAdverseEventDenormalizationService` from DI and call `PopulateAsync` directly to re-run AE denormalization without re-doing Stage 3/4.
+- Standalone: resolve `IAdverseEventDenormalizationService` from DI and call `PopulateAsync` directly to re-run AE denormalization and risk-table materialization without re-doing Stage 3/4.
 
 **Helper decomposition:**
 
@@ -625,6 +627,8 @@ Stage 5 produces `tmp_FlattenedAdverseEventTable` — a denormalized, AE-only pr
 - **Calculation provenance (2)**: `CalculationMethod` (e.g. `KATZ_LOG`), `CalculationFlags` (semicolon-delimited audit, e.g. `ZERO_CELL_CORRECTED;PLACEBO_COMPARATOR`)
 
 Five nonclustered indexes: `DocumentGUID`, `UNII`, `ParameterName`, `ParameterCategory`, and the source FK column.
+
+`tmp_FlattenedAdverseEventRiskTable` materializes the full `dbo.vw_AeRisk` projection. It adds `tmp_FlattenedAdverseEventRiskTableID` as an identity primary key, stores the source AE/standardized IDs, product/class identifiers and names, AE fields, significance fields, denominators/events, number-needed fields, RR/log-RR fields, provenance/context, `Dose decimal(18, 6)`, and `IsCombo bit`. Its nonclustered indexes cover source AE ID, source standardized ID, `DocumentGUID`, `(PharmacologicClassID, Significance)`, `(IsPlaceboControlled, Significance)`, `ParameterCategory`, plus computed prefix keys for long `UNII` and `ParameterName` values.
 
 #### Statistical Contract (what Phase 2 must produce)
 

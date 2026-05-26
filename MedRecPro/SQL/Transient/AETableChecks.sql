@@ -31,6 +31,19 @@ a.ParameterCategory as New_Cat
   FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] A
   inner join [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] B
   on a.tmp_FlattenedStandardizedTableID = b.tmp_FlattenedStandardizedTableID
+  --where a.ParameterCategory is null
+  order by New_Name
+
+
+    SELECT b.TextTableID,
+  b.ParameterName as Old_Name,
+a.ParameterName as New_Name,
+b.ParameterCategory as Old_Cat,
+a.ParameterCategory as New_Cat
+  FROM [MedRecLocal].[dbo].[tmp_FlattenedAdverseEventTable] A
+  inner join [MedRecLocal].[dbo].[tmp_FlattenedStandardizedTable] B
+  on a.tmp_FlattenedStandardizedTableID = b.tmp_FlattenedStandardizedTableID
+  where RRUpperBound < 1 or RRLowerBound > 1
   order by New_Name
 
   SELECT distinct ParameterName, ParameterCategory

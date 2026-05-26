@@ -3812,6 +3812,199 @@ namespace MedRecPro.Models
             #endregion Calculation Provenance Properties
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Entity for tmp_FlattenedAdverseEventRiskTable -- the materialized
+        /// Stage 5 risk projection sourced from <c>dbo.vw_AeRisk</c>.
+        /// </summary>
+        /// <remarks>
+        /// The table is rebuilt after <see cref="FlattenedAdverseEventTable"/>
+        /// so downstream dashboards can read product/class context, RR
+        /// significance, and number-needed estimates without executing the view
+        /// for every request.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var elevated = await db.Set&lt;LabelView.FlattenedAdverseEventRiskTable&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(r =&gt; r.Significance == "elevated")
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="FlattenedAdverseEventTable"/>
+        /// <seealso cref="FlattenedStandardizedTable"/>
+        [Table("tmp_FlattenedAdverseEventRiskTable")]
+        public class FlattenedAdverseEventRiskTable
+        {
+            #region Source and Product/Class Properties
+
+            /**************************************************************/
+            /// <summary>Surrogate primary key for the materialized risk row.</summary>
+            [Key]
+            [Column("tmp_FlattenedAdverseEventRiskTableID")]
+            public int Id { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source SPL document identifier carried by the AE row.</summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source Stage 5 AE statistics row identifier.</summary>
+            [Column("tmp_FlattenedAdverseEventTableID")]
+            public int FlattenedAdverseEventTableId { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source Stage 3 standardized row identifier.</summary>
+            [Column("tmp_FlattenedStandardizedTableID")]
+            public int FlattenedStandardizedTableId { get; set; }
+
+            /**************************************************************/
+            /// <summary>Active moiety identifier from pharmacologic-class context.</summary>
+            public int? ActiveMoietyID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Ingredient substance identifier from pharmacologic-class context.</summary>
+            public int? IngredientSubstanceID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Pharmacologic class identifier used for class-level filtering.</summary>
+            public int? PharmacologicClassID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Product name resolved through pharmacologic-class product context.</summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Active ingredient substance name resolved for the product.</summary>
+            public string? SubstanceName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Pharmacologic class code.</summary>
+            public string? PharmClassCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>Pharmacologic class display name.</summary>
+            public string? PharmClassName { get; set; }
+
+            #endregion Source and Product/Class Properties
+
+            #region AE Signal Properties
+
+            /**************************************************************/
+            /// <summary>Row-level flag indicating whether the selected comparator was placebo-like.</summary>
+            public bool IsPlaceboControlled { get; set; }
+
+            /**************************************************************/
+            /// <summary>Canonical adverse-event term.</summary>
+            public string? ParameterName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Canonical adverse-event SOC/category.</summary>
+            public string? ParameterCategory { get; set; }
+
+            /**************************************************************/
+            /// <summary>Risk-signal classification from the RR confidence interval.</summary>
+            public string? Significance { get; set; }
+
+            /**************************************************************/
+            /// <summary>Number-needed interpretation, either NNH or NNT when significant.</summary>
+            public string? NumberNeededType { get; set; }
+
+            #endregion AE Signal Properties
+
+            #region Risk Estimate Properties
+
+            /**************************************************************/
+            /// <summary>Treatment-arm denominator.</summary>
+            public int? ArmN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Comparator-arm denominator.</summary>
+            public int? ComparatorN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Derived treatment-arm event count.</summary>
+            public double? EventsTreatment { get; set; }
+
+            /**************************************************************/
+            /// <summary>Derived comparator-arm event count.</summary>
+            public double? EventsComparator { get; set; }
+
+            /**************************************************************/
+            /// <summary>Number-needed point estimate for significant intervals.</summary>
+            public double? NumberNeeded { get; set; }
+
+            /**************************************************************/
+            /// <summary>Lower bound for number-needed estimates.</summary>
+            public double? NumberNeededLowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Upper bound for number-needed estimates.</summary>
+            public double? NumberNeededUpperBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Relative Risk point estimate.</summary>
+            public double? RR { get; set; }
+
+            /**************************************************************/
+            /// <summary>Lower bound of the 95% confidence interval for RR.</summary>
+            public double? RRLowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Upper bound of the 95% confidence interval for RR.</summary>
+            public double? RRUpperBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Natural log of <see cref="RR"/> materialized from the AE stats table.</summary>
+            public double? LogRR { get; set; }
+
+            /**************************************************************/
+            /// <summary>Natural log of <see cref="RRLowerBound"/>.</summary>
+            public double? LogRRLowerBound { get; set; }
+
+            /**************************************************************/
+            /// <summary>Natural log of <see cref="RRUpperBound"/>.</summary>
+            public double? LogRRUpperBound { get; set; }
+
+            #endregion Risk Estimate Properties
+
+            #region Provenance and Context Properties
+
+            /**************************************************************/
+            /// <summary>Plus-delimited active-ingredient UNIIs from the AE stats row.</summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>Flag indicating that the source UNII field represents a combination product.</summary>
+            public bool IsCombo { get; set; }
+
+            /**************************************************************/
+            /// <summary>Stage 5 calculation and provenance flags.</summary>
+            public string? CalculationFlags { get; set; }
+
+            /**************************************************************/
+            /// <summary>Colspan-derived study context.</summary>
+            public string? StudyContext { get; set; }
+
+            /**************************************************************/
+            /// <summary>Caption-derived population context.</summary>
+            public string? Population { get; set; }
+
+            /**************************************************************/
+            /// <summary>In-table subpopulation context.</summary>
+            public string? Subpopulation { get; set; }
+
+            /**************************************************************/
+            /// <summary>Treatment-arm dose copied from the AE stats row.</summary>
+            public decimal? Dose { get; set; }
+
+            /**************************************************************/
+            /// <summary>Dose unit copied from the AE stats row.</summary>
+            public string? DoseUnit { get; set; }
+
+            #endregion Provenance and Context Properties
+        }
+
         #endregion SPL Table Normalization Views
     }
 }

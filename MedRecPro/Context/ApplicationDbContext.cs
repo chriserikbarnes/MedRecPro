@@ -155,6 +155,25 @@ namespace MedRecPro.Data
                         continue;
                     }
 
+                    // FlattenedAdverseEventRiskTable is the materialized dbo.vw_AeRisk
+                    // projection refreshed at the end of Stage 5.
+                    if (entityType == typeof(LabelView.FlattenedAdverseEventRiskTable))
+                    {
+                        builder.Entity<LabelView.FlattenedAdverseEventRiskTable>(e =>
+                        {
+                            e.ToTable("tmp_FlattenedAdverseEventRiskTable");
+                            e.HasKey(x => x.Id);
+                            e.Property(x => x.Id)
+                                .HasColumnName("tmp_FlattenedAdverseEventRiskTableID")
+                                .ValueGeneratedOnAdd();
+
+                            // Match DDL DECIMAL(18,6).
+                            e.Property(x => x.Dose)
+                                .HasColumnType("decimal(18, 6)");
+                        });
+                        continue;
+                    }
+
                     var entityBuilder = builder.Entity(entityType);
 
                     // Check for [Table] attribute to get view name

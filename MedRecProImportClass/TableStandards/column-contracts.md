@@ -365,6 +365,48 @@ IX_FAE_ParameterCategory                         nonclustered on ParameterCatego
 IX_FAE_SourceID                                  nonclustered on tmp_FlattenedStandardizedTableID
 ```
 
+## tmp_FlattenedAdverseEventRiskTable (Stage 5 AE Risk Materialization)
+
+Persistent SQL table that materializes `dbo.vw_AeRisk` after
+`tmp_FlattenedAdverseEventTable` has been truncated, rebuilt, and saved. The
+table is a refreshable snapshot of the view projection; it does not duplicate
+the risk math in C#.
+
+### Refresh Contract
+
+| Step | Contract |
+|------|----------|
+| Source | `dbo.vw_AeRisk` |
+| Target | `dbo.tmp_FlattenedAdverseEventRiskTable` |
+| Owner | `AdverseEventDenormalizationService.PopulateAsync` |
+| Ordering | Final Stage 5 step, after all AE denormalization batches complete |
+| Truncation | `TruncateAsync` clears the risk table before `tmp_FlattenedAdverseEventTable` |
+
+### Column Groups
+
+| Group | Columns |
+|-------|---------|
+| Surrogate key | `tmp_FlattenedAdverseEventRiskTableID INT IDENTITY` |
+| Source lineage | Source AE ID, source standardized ID, `DocumentGUID`, table/document context |
+| Product/class projection | product IDs, product/class names, `UNII`, `IsCombo` |
+| AE projection | `ParameterName`, `ParameterCategory`, `TreatmentArm`, dose fields, value fields |
+| Comparator/statistics | comparator arm/N, event counts, RR/log-RR fields, NNH/NNT fields |
+| Risk classification | significance fields, placebo-controlled flag, provenance/context fields |
+
+### Indexes
+
+```
+PK_tmp_FlattenedAdverseEventRiskTable            clustered on tmp_FlattenedAdverseEventRiskTableID
+IX_FAER_AdverseEventID                           nonclustered on tmp_FlattenedAdverseEventTableID
+IX_FAER_SourceID                                 nonclustered on tmp_FlattenedStandardizedTableID
+IX_FAER_DocumentGUID                             nonclustered on DocumentGUID
+IX_FAER_PharmClassSignificance                   nonclustered on PharmacologicClassID, Significance
+IX_FAER_PlaceboSignificance                      nonclustered on IsPlaceboControlled, Significance
+IX_FAER_ParameterCategory                        nonclustered on ParameterCategory
+IX_FAER_UNII                                     nonclustered on UNII_IndexKey
+IX_FAER_ParameterName                            nonclustered on ParameterName_IndexKey
+```
+
 ### Visualization Field-Shape Mapping
 
 ```

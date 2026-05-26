@@ -39,7 +39,15 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>Target table used for both raw TRUNCATE and DbSet access.</summary>
-        private const string TargetTable = "tmp_FlattenedAdverseEventTable";
+        private const string TargetTable = "dbo.tmp_FlattenedAdverseEventTable";
+
+        /**************************************************************/
+        /// <summary>Materialized risk table refreshed from <see cref="RiskSourceView"/>.</summary>
+        private const string RiskTargetTable = "dbo.tmp_FlattenedAdverseEventRiskTable";
+
+        /**************************************************************/
+        /// <summary>Source view for the materialized adverse-event risk table.</summary>
+        private const string RiskSourceView = "dbo.vw_AeRisk";
 
         #endregion Constants
 
@@ -133,7 +141,11 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             if (docIds.Count == 0)
             {
-                _logger.LogInformation("Stage 5 — No AE rows found, exiting");
+                var riskRows = await materializeRiskTableAsync(ct);
+                _logger.LogInformation(
+                    "Stage 5 — No AE rows found; {RiskTable} refreshed with {Rows} rows",
+                    RiskTargetTable,
+                    riskRows);
                 return 0;
             }
 
@@ -166,10 +178,11 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 });
             }
 
+            var riskRowCount = await materializeRiskTableAsync(ct);
             stopwatch.Stop();
             _logger.LogInformation(
-                "Stage 5 — Phase 2 complete: {Rows} rows in {Batches} batches ({Elapsed})",
-                totalRows, batchNumber, stopwatch.Elapsed);
+                "Stage 5 — Phase 2 complete: {Rows} AE rows in {Batches} batches; {RiskRows} risk rows materialized ({Elapsed})",
+                totalRows, batchNumber, riskRowCount, stopwatch.Elapsed);
 
             return totalRows;
 
@@ -185,15 +198,20 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             if (providerName.Equals(InMemoryProvider, StringComparison.OrdinalIgnoreCase))
             {
-                var existing = _dbContext.Set<LabelView.FlattenedAdverseEventTable>().ToList();
-                if (existing.Count > 0)
+                var existingRiskRows = _dbContext.Set<LabelView.FlattenedAdverseEventRiskTable>().ToList();
+                var existingAeRows = _dbContext.Set<LabelView.FlattenedAdverseEventTable>().ToList();
+                if (existingRiskRows.Count > 0 || existingAeRows.Count > 0)
                 {
-                    _dbContext.RemoveRange(existing);
+                    _dbContext.RemoveRange(existingRiskRows);
+                    _dbContext.RemoveRange(existingAeRows);
                     await _dbContext.SaveChangesAsync(ct);
                     _dbContext.ChangeTracker.Clear();
                 }
                 return;
             }
+
+            _logger.LogInformation("Stage 5 — Truncating {Table}", RiskTargetTable);
+            await _dbContext.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE {RiskTargetTable}", ct);
 
             _logger.LogInformation("Stage 5 — Truncating {Table}", TargetTable);
             await _dbContext.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE {TargetTable}", ct);
@@ -202,6 +220,124 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         }
 
         #endregion IAdverseEventDenormalizationService Implementation
+
+        #region Risk Materialization
+
+        /**************************************************************/
+        /// <summary>
+        /// Materializes the final Stage 5 risk projection from <c>dbo.vw_AeRisk</c>.
+        /// </summary>
+        /// <remarks>
+        /// The view remains the single SQL definition for joins and number-needed
+        /// math. This method only snapshots the view output after the AE stats table
+        /// has been populated. The EF Core InMemory provider skips the SQL-only view
+        /// so service tests can continue exercising the C# denormalization path.
+        /// </remarks>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>Number of risk rows inserted.</returns>
+        /// <seealso cref="PopulateAsync"/>
+        /// <seealso cref="TruncateAsync"/>
+        private async Task<int> materializeRiskTableAsync(CancellationToken ct)
+        {
+            #region implementation
+
+            var providerName = _dbContext.Database.ProviderName ?? string.Empty;
+            if (providerName.Equals(InMemoryProvider, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug(
+                    "Stage 5 — Skipping {RiskTable} materialization for EF InMemory provider",
+                    RiskTargetTable);
+                return 0;
+            }
+
+            _logger.LogInformation(
+                "Stage 5 — Materializing {RiskTable} from {RiskSourceView}",
+                RiskTargetTable,
+                RiskSourceView);
+
+            return await _dbContext.Database.ExecuteSqlRawAsync($"""
+                INSERT INTO {RiskTargetTable} (
+                    [DocumentGUID],
+                    [tmp_FlattenedAdverseEventTableID],
+                    [tmp_FlattenedStandardizedTableID],
+                    [ActiveMoietyID],
+                    [IngredientSubstanceID],
+                    [PharmacologicClassID],
+                    [ProductName],
+                    [SubstanceName],
+                    [PharmClassCode],
+                    [PharmClassName],
+                    [IsPlaceboControlled],
+                    [ParameterName],
+                    [ParameterCategory],
+                    [Significance],
+                    [NumberNeededType],
+                    [ArmN],
+                    [ComparatorN],
+                    [EventsTreatment],
+                    [EventsComparator],
+                    [NumberNeeded],
+                    [NumberNeededLowerBound],
+                    [NumberNeededUpperBound],
+                    [RR],
+                    [RRLowerBound],
+                    [RRUpperBound],
+                    [LogRR],
+                    [LogRRLowerBound],
+                    [LogRRUpperBound],
+                    [UNII],
+                    [IsCombo],
+                    [CalculationFlags],
+                    [StudyContext],
+                    [Population],
+                    [Subpopulation],
+                    [Dose],
+                    [DoseUnit]
+                )
+                SELECT
+                    [DocumentGUID],
+                    [tmp_FlattenedAdverseEventTableID],
+                    [tmp_FlattenedStandardizedTableID],
+                    [ActiveMoietyID],
+                    [IngredientSubstanceID],
+                    [PharmacologicClassID],
+                    [ProductName],
+                    [SubstanceName],
+                    [PharmClassCode],
+                    [PharmClassName],
+                    [IsPlaceboControlled],
+                    [ParameterName],
+                    [ParameterCategory],
+                    [Significance],
+                    [NumberNeededType],
+                    [ArmN],
+                    [ComparatorN],
+                    [EventsTreatment],
+                    [EventsComparator],
+                    [NumberNeeded],
+                    [NumberNeededLowerBound],
+                    [NumberNeededUpperBound],
+                    [RR],
+                    [RRLowerBound],
+                    [RRUpperBound],
+                    [LogRR],
+                    [LogRRLowerBound],
+                    [LogRRUpperBound],
+                    [UNII],
+                    [IsCombo],
+                    [CalculationFlags],
+                    [StudyContext],
+                    [Population],
+                    [Subpopulation],
+                    [Dose],
+                    [DoseUnit]
+                FROM {RiskSourceView};
+                """, ct);
+
+            #endregion
+        }
+
+        #endregion Risk Materialization
 
         #region Batch Processing
 

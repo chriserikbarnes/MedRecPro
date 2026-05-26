@@ -1681,6 +1681,7 @@ SELECT
         WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
         WHEN v.name LIKE '%Section%' THEN 'Section Content'
         WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
+        WHEN v.name LIKE '%AeRisk%' THEN 'Adverse Event Risk'
         WHEN v.name LIKE '%Product%' THEN 'Product Information'
         WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
         ELSE 'General'
@@ -1706,6 +1707,8 @@ SELECT
             'Query with: WHERE IngredientUNII IN (''UNII1'', ''UNII2'')'
         WHEN v.name = 'vw_DEAScheduleLookup' THEN 
             'Query with: WHERE DEAScheduleCode IS NOT NULL'
+        WHEN v.name = 'vw_AeRisk' THEN
+            'Query with: WHERE Significance IN (''elevated'', ''protective'') OR NumberNeededType = ''NNH'''
         WHEN v.name = 'vw_ProductSummary' THEN 
             'Query with: WHERE ProductID = 123 OR ProductName LIKE ''%Lipitor%'''
         WHEN v.name = 'vw_RelatedProducts' THEN 
@@ -3002,6 +3005,7 @@ SELECT
         WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
         WHEN v.name LIKE '%Section%' THEN 'Section Content'
         WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
+        WHEN v.name LIKE '%AeRisk%' THEN 'Adverse Event Risk'
         WHEN v.name LIKE '%Product%' THEN 'Product Information'
         WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
         WHEN v.name LIKE '%API%' THEN 'API Metadata'
@@ -3289,6 +3293,150 @@ GO
 
 --#endregion
 
+--#region vw_AeRisk
+
+/**************************************************************/
+-- View: vw_AeRisk
+-- Purpose: Combines Stage 5 adverse-event risk statistics with product and
+--          pharmacologic-class context for number-needed analysis.
+-- Usage: Identify elevated or protective AE signals by product, substance,
+--        pharmacologic class, placebo control, population, and dose context.
+-- Returns: One row per flattened AE risk row and pharmacologic-class product
+--          linkage, including RR confidence bounds, significance, and NNH/NNT.
+-- Indexes Used: IX_FAE_DocumentGUID, IX_FAE_SourceID,
+--               IX_FAE_UNII, IX_FAE_ParameterName, IX_FAE_ParameterCategory
+-- See also: tmp_FlattenedAdverseEventTable, vw_ProductsByPharmacologicClass
+
+IF OBJECT_ID('dbo.vw_AeRisk', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_AeRisk;
+GO
+
+CREATE VIEW dbo.vw_AeRisk
+AS
+/**************************************************************/
+-- Projects adverse-event rows into product/class risk facts. Significant RR
+-- intervals above 1 emit NNH, significant intervals below 1 emit NNT, and
+-- non-significant rows retain the RR/log-RR context without number-needed math.
+/**************************************************************/
+SELECT
+    -- Source and product/class identification
+    fae.DocumentGUID,
+    fae.tmp_FlattenedAdverseEventTableID,
+    fae.tmp_FlattenedStandardizedTableID,
+    pc.ActiveMoietyID,
+    pc.IngredientSubstanceID,
+    pc.PharmacologicClassID,
+    pc.ProductName,
+    pc.SubstanceName,
+    pc.PharmClassCode,
+    pc.PharmClassName,
+
+    -- AE signal classification
+    fae.IsPlaceboControlled,
+    fae.ParameterName,
+    fae.ParameterCategory,
+    sig.Significance,
+    CASE sig.Significance
+        WHEN 'elevated' THEN 'NNH'
+        WHEN 'protective' THEN 'NNT'
+    END AS NumberNeededType,
+
+    -- Denominators and observed event counts
+    fae.ArmN,
+    fae.ComparatorN,
+    fae.EventsTreatment,
+    fae.EventsComparator,
+
+    -- Number-needed estimates only apply when the CI excludes 1
+    CASE
+        WHEN sig.IsSignificant = 1
+        THEN ABS(1.0 / NULLIF(r.RiskT - r.RiskC, 0))
+    END AS NumberNeeded,
+    CASE
+        WHEN sig.IsSignificant = 1
+        THEN CASE WHEN nnt.AtLower < nnt.AtUpper THEN nnt.AtLower ELSE nnt.AtUpper END
+    END AS NumberNeededLowerBound,
+    CASE
+        WHEN sig.IsSignificant = 1
+        THEN CASE WHEN nnt.AtLower > nnt.AtUpper THEN nnt.AtLower ELSE nnt.AtUpper END
+    END AS NumberNeededUpperBound,
+
+    -- RR point estimates and log-scale companions
+    fae.RR,
+    fae.RRLowerBound,
+    fae.RRUpperBound,
+    fae.LogRR,
+    fae.LogRRLowerBound,
+    fae.LogRRUpperBound,
+
+    -- Ingredient/combo and provenance context
+    fae.UNII,
+    combo.IsCombo,
+    fae.CalculationFlags,
+    fae.StudyContext,
+    fae.Population,
+    fae.Subpopulation,
+    fae.Dose,
+    fae.DoseUnit
+FROM dbo.tmp_FlattenedAdverseEventTable AS fae
+INNER JOIN (
+    SELECT DISTINCT
+        DocumentGUID,
+        ActiveMoietyID,
+        IngredientSubstanceID,
+        PharmacologicClassID,
+        ProductName,
+        SubstanceName,
+        PharmClassCode,
+        PharmClassName
+    FROM dbo.vw_ProductsByPharmacologicClass
+) AS pc
+    ON pc.DocumentGUID = fae.DocumentGUID
+CROSS APPLY (VALUES (
+     1.0 * fae.EventsTreatment  / NULLIF(fae.ArmN, 0),
+     1.0 * fae.EventsComparator / NULLIF(fae.ComparatorN, 0)
+)) AS r (RiskT, RiskC)
+CROSS APPLY (VALUES (
+     ABS(1.0 / NULLIF(r.RiskC * (fae.RRLowerBound - 1.0), 0)),
+     ABS(1.0 / NULLIF(r.RiskC * (fae.RRUpperBound - 1.0), 0))
+)) AS nnt (AtLower, AtUpper)
+CROSS APPLY (VALUES (
+    CASE
+        WHEN fae.RRLowerBound IS NULL OR fae.RRUpperBound IS NULL THEN NULL
+        WHEN fae.RRLowerBound > 1 AND fae.RRUpperBound > 1 THEN 'elevated'
+        WHEN fae.RRLowerBound < 1 AND fae.RRUpperBound < 1 THEN 'protective'
+        ELSE 'not significant'
+    END,
+    CASE
+        WHEN (fae.RRLowerBound > 1 AND fae.RRUpperBound > 1)
+            OR (fae.RRLowerBound < 1 AND fae.RRUpperBound < 1) THEN 1
+        ELSE 0
+    END
+)) AS sig (Significance, IsSignificant)
+CROSS APPLY (VALUES (
+    CAST(CASE WHEN fae.UNII LIKE '%+%' THEN 1 ELSE 0 END AS bit)
+)) AS combo (IsCombo);
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_AeRisk')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Combines Stage 5 flattened adverse-event RR statistics with product and pharmacologic-class context. Classifies elevated/protective/not-significant confidence intervals and exposes NNH/NNT estimates with population, dose, combo, placebo-control, and calculation provenance metadata.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_AeRisk';
+END
+GO
+
+PRINT 'Created view: vw_AeRisk';
+GO
+
+--#endregion
+
 --#region vw_OrangeBookPatent
 
 /**************************************************************/
@@ -3418,6 +3566,7 @@ PRINT '  - vw_InactiveIngredients: Inactive ingredients (IACT) with normalized a
 PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized app numbers';
 PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination';
 PRINT '  - vw_InventorySummary: Comprehensive inventory summary for AI discovery';
+PRINT '  - vw_AeRisk: Adverse event RR signals with pharmacologic class and NNH/NNT context';
 PRINT '  - vw_OrangeBookPatent: NDA patent data with SPL label cross-reference and flags';
 PRINT '';
 

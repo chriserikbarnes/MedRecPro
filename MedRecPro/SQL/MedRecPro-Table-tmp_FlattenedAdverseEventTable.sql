@@ -17,7 +17,7 @@
  *
  * Re-runnable: IF NOT EXISTS guard. Truncate-on-rerun via Phase 2 service.
  ******************************************************************************/
-USE MedRecLocal
+USE MedRecProDB
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'tmp_FlattenedAdverseEventTable')
 BEGIN
     CREATE TABLE tmp_FlattenedAdverseEventTable (

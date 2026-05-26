@@ -501,12 +501,14 @@ COL_STD:PK_NON_PK_MARKER_DETECTED    IPA / VASP-PRI etc. flagged for review
 
 ## 7. Stage 5 — AE Denormalization (RR / DNRR / 95% CI)
 
-Rules for populating `tmp_FlattenedAdverseEventTable`. These run **after**
+Rules for populating `tmp_FlattenedAdverseEventTable` and then materializing
+`tmp_FlattenedAdverseEventRiskTable` from `dbo.vw_AeRisk`. These run **after**
 Stage 4 validation has completed and `tmp_FlattenedStandardizedTable` is fully
-written. Phase 1 (the SQL DDL) is shipped; Phase 2 (the population service
-`AdverseEventDenormalizationService`) is planned.
+written. The SQL DDL and population service
+`AdverseEventDenormalizationService` are shipped.
 
-For column-level contracts, see `column-contracts.md` §tmp_FlattenedAdverseEventTable.
+For column-level contracts, see `column-contracts.md` §tmp_FlattenedAdverseEventTable
+and §tmp_FlattenedAdverseEventRiskTable.
 
 ### 7.0 NULL Preservation Rule (governs every rule in §7)
 

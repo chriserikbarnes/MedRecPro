@@ -3,8 +3,9 @@
 **Stage 5** of the pipeline: AdverseEvent statistical denormalization. This folder reads the
 already-parsed, already-standardized AE rows from `tmp_FlattenedStandardizedTable`
 (`TableCategory = 'ADVERSE_EVENT'`) and produces **`tmp_FlattenedAdverseEventTable`**, where
-every row carries a pre-computed risk-statistics packet so visualizations bind to numbers
-directly — no runtime statistics.
+every row carries a pre-computed risk-statistics packet. After that table is populated,
+the service materializes **`tmp_FlattenedAdverseEventRiskTable`** from `dbo.vw_AeRisk`
+so visualizations bind to numbers directly — no runtime statistics.
 
 Stage 5 now persists only rows with a non-null `RR`. It still calculates intermediate
 diagnostics for skipped rows in memory, logs the null-RR reason families per batch, and
@@ -20,6 +21,8 @@ Each output row pairs a treatment arm against a chosen comparator arm and stores
 
 The `Log*` companion columns (`LogRR`, `LogDNRR`, and their bounds) are **SQL Server
 PERSISTED computed columns** — they are materialized by the database, never written by C#.
+The risk table is a persistent snapshot of `dbo.vw_AeRisk`; SQL Server builds it with an
+explicit-column `INSERT INTO ... SELECT ... FROM dbo.vw_AeRisk` after all AE batches save.
 
 > See the [parent README](../README.md) for where Stage 5 sits in the overall flow. It runs
 > once at the end of `ProcessAllAsync` / `ProcessAllWithValidationAsync`, after Stage 3 (and
@@ -32,7 +35,7 @@ PERSISTED computed columns** — they are materialized by the database, never wr
 
 ```
 AdverseEventDenormalizationService.PopulateAsync
-  ├─ TruncateAsync                              wipe tmp_FlattenedAdverseEventTable (idempotent rerun)
+  ├─ TruncateAsync                              wipe both Stage 5 output tables (idempotent rerun)
   ├─ SELECT DISTINCT DocumentGUID  WHERE TableCategory='ADVERSE_EVENT'
   └─ for each batch of documents → processBatchAsync:
         load standardized rows (AsNoTracking)
@@ -54,6 +57,7 @@ AdverseEventDenormalizationService.PopulateAsync
                          └─ RelativeRiskCalculator.ComputeDnrr        DNRR + 95% CI (log-linear)
                        → FlattenedAdverseEventTable entity
         AddRange → SaveChangesAsync → ChangeTracker.Clear()
+  └─ materializeRiskTableAsync                 insert explicit-column SELECT from dbo.vw_AeRisk
 ```
 
 The comparator row itself is **excluded** from the output; its identity/N appear on the
@@ -65,7 +69,7 @@ treatment rows as `ComparatorArm` / `ComparatorN`.
 
 | File | Responsibility |
 |---|---|
-| `IAdverseEventDenormalizationService.cs` / `AdverseEventDenormalizationService.cs` | Orchestrates the stage. Public surface: `PopulateAsync` (truncate → batch by document → group → compute → bulk insert) and `TruncateAsync`. Disables EF change-tracking for bulk insert; fails fast on save errors. |
+| `IAdverseEventDenormalizationService.cs` / `AdverseEventDenormalizationService.cs` | Orchestrates the stage. Public surface: `PopulateAsync` (truncate → batch by document → group → compute → bulk insert → materialize risk table) and `TruncateAsync`. Disables EF change-tracking for bulk insert; fails fast on save errors. |
 | `SourceRowEligibility.cs` | The eligibility gate. A source row is denormalizable iff it has a DocumentGUID, a `PrimaryValue`, and a `ParameterName`/`TreatmentArm` that is not a caption, body-system label, threshold fragment, or value-axis token (delegates to `AeColumnContextResolver`). |
 | `AeMeddraTermStandardizer.cs` | Stage 5-only MedDRA standardizer. Canonicalizes AE names before grouping, maps category aliases to the official 27 SOC labels, fills null categories from known AE terms, and emits auditable `AE_STD:*` flags. |
 | `ComparatorGrouper.cs` | Groups one table's rows into comparison cohorts keyed by `{ParameterName, ParameterSubtype, StudyContext, Population, Subpopulation}` — each dimension normalized (trim, collapse whitespace, upper-invariant). Scope is per-`TextTableID`. |

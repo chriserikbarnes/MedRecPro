@@ -134,6 +134,33 @@ namespace MedRecPro.Service.Test
         }
 
         /**************************************************************/
+        /// <summary>
+        /// The InMemory provider does not have <c>dbo.vw_AeRisk</c>, so
+        /// <see cref="AdverseEventDenormalizationService.PopulateAsync"/> must skip
+        /// the SQL materialization step while preserving AE table behavior.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_InMemory_DoesNotRequireRiskView()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var drug = aeRow(1, doc, 100, "Nausea", "Drug A 50mg", 100, 50m, "mg", 20.0, "Percentage");
+            var placebo = aeRow(2, doc, 100, "Nausea", "Placebo", 100, 0m, null, 10.0, "Percentage", sourceRowSeq: 2);
+
+            var (service, db) = createService(drug, placebo);
+
+            var written = await service.PopulateAsync();
+
+            Assert.AreEqual(1, written);
+            Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventRiskTable>().Count(),
+                "The SQL-only risk view is skipped for InMemory service tests.");
+
+            #endregion
+        }
+
+        /**************************************************************/
         /// <summary>Single arm: null-RR row is excluded from visualization output.</summary>
         [TestMethod]
         public async Task PopulateAsync_SingleArm_NoComparator()
@@ -911,27 +938,61 @@ namespace MedRecPro.Service.Test
         }
 
         /**************************************************************/
-        /// <summary>TruncateAsync clears the AE table even when called directly.</summary>
+        /// <summary>TruncateAsync clears both Stage 5 tables even when called directly.</summary>
         [TestMethod]
-        public async Task TruncateAsync_ClearsTable()
+        public async Task TruncateAsync_ClearsAeAndRiskTables()
         {
             #region implementation
 
             var (service, db) = createService();
-            // Pre-populate output table directly
+
             db.Set<LabelView.FlattenedAdverseEventTable>().Add(new LabelView.FlattenedAdverseEventTable
             {
                 FlattenedStandardizedTableId = 1,
                 DocumentGUID = Guid.NewGuid(),
                 ParameterName = "Test"
             });
+            db.Set<LabelView.FlattenedAdverseEventRiskTable>().Add(new LabelView.FlattenedAdverseEventRiskTable
+            {
+                FlattenedAdverseEventTableId = 1,
+                FlattenedStandardizedTableId = 1,
+                DocumentGUID = Guid.NewGuid(),
+                ParameterName = "Test",
+                Significance = "elevated"
+            });
             await db.SaveChangesAsync();
 
             Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
+            Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventRiskTable>().Count());
 
             await service.TruncateAsync();
 
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventRiskTable>().Count());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the materialized risk entity maps as a keyed table with the
+        /// same decimal precision as the SQL DDL.
+        /// </summary>
+        [TestMethod]
+        public void ApplicationDbContext_MapsFlattenedAdverseEventRiskTableAsKeyedTable()
+        {
+            #region implementation
+
+            var (_, db) = createService();
+
+            var entityType = db.Model.FindEntityType(typeof(LabelView.FlattenedAdverseEventRiskTable));
+            Assert.IsNotNull(entityType);
+            Assert.AreEqual("tmp_FlattenedAdverseEventRiskTable", entityType!.GetTableName());
+            Assert.IsNotNull(entityType.FindPrimaryKey());
+
+            var doseProperty = entityType.FindProperty(nameof(LabelView.FlattenedAdverseEventRiskTable.Dose));
+            Assert.IsNotNull(doseProperty);
+            Assert.AreEqual("decimal(18, 6)", doseProperty!.FindAnnotation("Relational:ColumnType")?.Value);
 
             #endregion
         }

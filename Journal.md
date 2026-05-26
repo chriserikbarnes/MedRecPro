@@ -4115,3 +4115,25 @@ Resolved the next screenshot-backed set of Stage 5 AE MedDRA null-category outli
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AeMeddraTermStandardizerTests|FullyQualifiedName~AdverseEventDenormalizationServiceTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 129/129. `git diff --check` passed with line-ending warnings only. `MedRecPro/SQL/Transient/AETableChecks.sql` remains a pre-existing unrelated modification.
 
 ---
+
+### 2026-05-26 11:08 AM EST — AE Risk View Added
+
+Added [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql) support for `vw_AeRisk`, an adverse-event risk projection that joins Stage 5 flattened AE statistics to `vw_ProductsByPharmacologicClass`, classifies RR confidence intervals as elevated, protective, or not significant, and exposes NNH/NNT estimates with denominator, event-count, placebo-control, combo, population, dose, and provenance context.
+
+**Implementation.** Followed the file's existing view creation pattern with an idempotent drop/create region, inline documentation, an `MS_Description` extended property, a `PRINT` output line, and the final "New Views Added" summary entry. Added API guide/category hints so `vw_AeRisk` is discoverable as adverse-event risk metadata instead of falling through as a generic view.
+
+**Verification.** `git diff --check -- MedRecPro/SQL/MedRecPro_Views.sql` passed with the checkout's LF-to-CRLF warning only. The view script was not executed against `MedRecLocal`; verification was limited to static diff review to avoid applying the full views script to the local database.
+
+---
+
+### 2026-05-26 12:08 PM EST — AE Risk Table Materialization
+
+Implemented Stage 5 materialization of `dbo.vw_AeRisk` into `tmp_FlattenedAdverseEventRiskTable`. Added the persistent table DDL, keyed EF entities in both model/context copies, and service wiring so `TruncateAsync` clears the risk table before the AE stats table while `PopulateAsync` refreshes the risk table as the final Stage 5 step without changing the returned AE denormalization count.
+
+**Implementation.** Added explicit-column SQL insert materialization from `dbo.vw_AeRisk`, InMemory skip behavior for tests, console truncate/status text for all three standardization outputs, and Stage 5 documentation/contracts for the AE stats table plus the materialized risk table. Existing user changes in `MedRecPro/SQL/MedRecPro_Views.sql` and `MedRecPro/SQL/Transient/AETableChecks.sql` were left intact.
+
+**Tests.** Extended `AdverseEventDenormalizationServiceTests` with InMemory coverage for clearing both Stage 5 tables, skipping SQL-only risk view materialization, and asserting keyed risk-table mapping with `Dose decimal(18, 6)`.
+
+**Verification.** `dotnet test MedRecProTest/MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventDenormalizationServiceTests|FullyQualifiedName~TableStandardizationServiceCollectionExtensionsTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 35/35 after sandbox escalation for NuGet.Config access. `dotnet build MedRecProImportClass/MedRecProImportClass.csproj --no-restore` and `dotnet build MedRecProConsole/MedRecProConsole.csproj --no-restore` both passed with 0 warnings. `git diff --check` passed with LF-to-CRLF warnings only.
+
+---

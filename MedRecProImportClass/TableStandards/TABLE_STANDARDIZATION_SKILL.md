@@ -2,12 +2,13 @@
 name: table-parser-data-dictionary
 description: >
   Standardized data dictionary for the tmp_FlattenedStandardizedTable schema (39
-  data columns, fixed width) and the downstream tmp_FlattenedAdverseEventTable
-  (Stage 5 AE denormalization). Defines strict per-TableCategory contracts for
+  data columns, fixed width), the downstream tmp_FlattenedAdverseEventTable
+  (Stage 5 AE denormalization), and the materialized tmp_FlattenedAdverseEventRiskTable.
+  Defines strict per-TableCategory contracts for
   every parser column — same column name, different documented meaning depending
   on the table type being parsed (AdverseEvent, PK, DrugInteraction, Efficacy) —
   plus the calculation contract (RR, DNRR, 95% CI, log companions) for the AE
-  denormalized table. Use this skill when building or extending the table parser,
+  denormalized table and its vw_AeRisk materialization. Use this skill when building or extending the table parser,
   writing ParseRule patterns, normalizing values, classifying TableCategory,
   triaging DoseRegimen content, defining PrimaryValueType enums, writing cross-
   table comparison queries, training ML.NET models, or implementing the Phase 2
@@ -41,7 +42,7 @@ WHERE clause — not a reinterpretation exercise.
 
 | File                               | Read When                                        |
 |------------------------------------|--------------------------------------------------|
-| `references/column-contracts.md`   | Building parser logic for any column; writing SQL queries; validating output. Also contains the contract for `tmp_FlattenedAdverseEventTable` (Stage 5). |
+| `references/column-contracts.md`   | Building parser logic for any column; writing SQL queries; validating output. Also contains the contracts for `tmp_FlattenedAdverseEventTable` and `tmp_FlattenedAdverseEventRiskTable` (Stage 5). |
 | `references/normalization-rules.md`| Cleaning dirty columns: DoseRegimen triage, PrimaryValueType enum, Unit scrub, ParameterCategory SOC mapping, ParameterName cleanup, TreatmentArm cleanup. Also contains §7 (Stage 5 AE denormalization formulas: comparator pairing, Katz RR + Haldane correction, log-linear DNRR, IsPlaceboControlled trial-design classification). |
 | `references/table-types.md`        | Classifying tables; understanding per-type column expectations; writing comparison keys |
 
@@ -172,12 +173,14 @@ CoAdministeredDrug column.
 
 ---
 
-## Stage 5: tmp_FlattenedAdverseEventTable (AE Denormalization)
+## Stage 5: AE Denormalization and Risk Materialization
 
 Downstream of the parser pipeline, Stage 5 produces a denormalized AE-only
 projection where each row already carries pre-computed Relative Risk (RR),
 Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions —
 so visualizations bind without runtime statistics.
+After the AE table is populated, Stage 5 materializes `dbo.vw_AeRisk` into
+`tmp_FlattenedAdverseEventRiskTable` as the final refresh step.
 
 ```
 SCHEMA AT A GLANCE (31 columns)
@@ -215,6 +218,7 @@ and `references/normalization-rules.md` §7):
   itself gets DNRR = NULL with flag `IS_REFERENCE_DOSE`.
 
 **Status:** Phase 1 (DDL at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`)
-is shipped. Phase 2 (the population service `AdverseEventDenormalizationService`,
-`RelativeRiskCalculator` utility, EF entity, DTO, orchestrator hook, DI registration)
-is planned.
+and the risk-table DDL at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`
+are shipped. Phase 2 (the population service `AdverseEventDenormalizationService`,
+`RelativeRiskCalculator` utility, EF entities, DTO, orchestrator hook, DI registration,
+and final `vw_AeRisk` materialization) is shipped.

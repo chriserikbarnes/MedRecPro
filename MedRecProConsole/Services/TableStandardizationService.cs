@@ -103,10 +103,10 @@ namespace MedRecProConsole.Services
                 // Truncate the Stage 3 output table.
                 await orchestrator.TruncateAsync();
 
-                // Truncate the Stage 5 (Phase 2) output table too — when the Stage 3 source
-                // is wiped, the AE denormalization is stale by definition. Resolved from DI
-                // (rather than constructed inline) so the InMemory-provider fallback inside
-                // AdverseEventDenormalizationService.TruncateAsync remains usable.
+                // Truncate the Stage 5 output tables too — when the Stage 3 source
+                // is wiped, AE denormalization and risk materialization are stale by
+                // definition. Resolved from DI so the InMemory-provider fallback
+                // inside AdverseEventDenormalizationService.TruncateAsync remains usable.
                 var aeDenormalizer = scope.ServiceProvider
                     .GetService<IAdverseEventDenormalizationService>();
                 if (aeDenormalizer != null)
@@ -126,7 +126,7 @@ namespace MedRecProConsole.Services
                 {
                     AnsiConsole.MarkupLine(
                         aeDenormalizer != null
-                            ? "[green]tmp_FlattenedStandardizedTable and tmp_FlattenedAdverseEventTable truncated successfully.[/]"
+                            ? "[green]tmp_FlattenedStandardizedTable, tmp_FlattenedAdverseEventTable, and tmp_FlattenedAdverseEventRiskTable truncated successfully.[/]"
                             : "[green]tmp_FlattenedStandardizedTable truncated successfully.[/]");
                 }
 
@@ -574,7 +574,8 @@ namespace MedRecProConsole.Services
                         statusTask.IsIndeterminate = false;
                         statusTask.Value = 100;
 
-                        // Stage 5 (Phase 2): denormalize AE rows. ExecuteParseWithStagesAsync
+                        // Stage 5 (Phase 2): denormalize AE rows and refresh the
+                        // materialized risk table. ExecuteParseWithStagesAsync
                         // drives its own batch loop via ProcessBatchWithStagesAsync, so the
                         // orchestrator's ProcessAll* Stage 5 hooks never fire here. Resolve
                         // the AE denormalizer from DI directly and invoke it after the parse
@@ -589,7 +590,7 @@ namespace MedRecProConsole.Services
                                 batchSize: 5000, progress: null, ct: ctx.Cts.Token);
                             aeTask.IsIndeterminate = false;
                             aeTask.Value = 100;
-                            aeTask.Description = $"Stage 5: {aeRows:N0} AE rows denormalized";
+                            aeTask.Description = $"Stage 5: {aeRows:N0} AE rows denormalized and risk table refreshed";
                         }
                     });
 

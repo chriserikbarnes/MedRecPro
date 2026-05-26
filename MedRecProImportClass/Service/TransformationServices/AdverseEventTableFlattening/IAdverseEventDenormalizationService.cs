@@ -4,11 +4,11 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     /// <summary>
     /// Stage 5 (Phase 2) service that projects adverse-event rows from
     /// <c>tmp_FlattenedStandardizedTable</c> into the denormalized
-    /// <c>tmp_FlattenedAdverseEventTable</c> with pre-computed Relative Risk (RR),
-    /// Dose-Normalized RR (DNRR), 95% CI bounds, the row-level
-    /// <c>IsPlaceboControlled</c> bit (set iff the row's chosen comparator was a
-    /// placebo arm), and per-table trial-design diagnostics surfaced through
-    /// <c>CalculationFlags</c>.
+    /// <c>tmp_FlattenedAdverseEventTable</c>, then materializes
+    /// <c>dbo.vw_AeRisk</c> into <c>tmp_FlattenedAdverseEventRiskTable</c>.
+    /// The AE table stores pre-computed Relative Risk (RR), Dose-Normalized RR
+    /// (DNRR), 95% CI bounds, the row-level <c>IsPlaceboControlled</c> bit, and
+    /// per-table trial-design diagnostics surfaced through <c>CalculationFlags</c>.
     /// </summary>
     /// <remarks>
     /// ## Pipeline Position
@@ -17,8 +17,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     /// when invoked from a CLI / host.
     ///
     /// ## Idempotency
-    /// <see cref="PopulateAsync"/> truncates the destination table at the start of
-    /// every call so reruns produce identical state. Unlike Stage 3 the service is
+    /// <see cref="PopulateAsync"/> truncates both Stage 5 destination tables at
+    /// the start of every call so reruns produce identical state. Unlike Stage 3 the service is
     /// fail-fast on errors — a partial denormalized table is more dangerous than a
     /// failed run.
     /// </remarks>
@@ -28,11 +28,13 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     {
         /**************************************************************/
         /// <summary>
-        /// Truncates <c>tmp_FlattenedAdverseEventTable</c>, then streams AE rows from
+        /// Truncates Stage 5 outputs, then streams AE rows from
         /// <c>tmp_FlattenedStandardizedTable</c>, classifies trial design per
         /// (DocumentGUID, TextTableID) for diagnostic flagging, selects comparators per
         /// study group, sets <c>IsPlaceboControlled</c> per-row from the comparator
-        /// selection, computes RR/DNRR/CI, and bulk-writes the result.
+        /// selection, computes RR/DNRR/CI, bulk-writes the result, and finally
+        /// materializes <c>tmp_FlattenedAdverseEventRiskTable</c> from
+        /// <c>dbo.vw_AeRisk</c>.
         /// </summary>
         /// <param name="batchSize">Documents per batch (default 5000).</param>
         /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
@@ -46,7 +48,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
-        /// Truncates <c>tmp_FlattenedAdverseEventTable</c> for a clean rerun.
+        /// Truncates <c>tmp_FlattenedAdverseEventRiskTable</c> and
+        /// <c>tmp_FlattenedAdverseEventTable</c> for a clean rerun.
         /// Falls back to <c>RemoveRange</c> + <c>SaveChanges</c> on the
         /// EF Core InMemoryDatabase test provider, which does not support raw SQL.
         /// </summary>
