@@ -4137,3 +4137,15 @@ Implemented Stage 5 materialization of `dbo.vw_AeRisk` into `tmp_FlattenedAdvers
 **Verification.** `dotnet test MedRecProTest/MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventDenormalizationServiceTests|FullyQualifiedName~TableStandardizationServiceCollectionExtensionsTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` passed 35/35 after sandbox escalation for NuGet.Config access. `dotnet build MedRecProImportClass/MedRecProImportClass.csproj --no-restore` and `dotnet build MedRecProConsole/MedRecProConsole.csproj --no-restore` both passed with 0 warnings. `git diff --check` passed with LF-to-CRLF warnings only.
 
 ---
+
+### 2026-05-27 10:06 AM EST — MedRecPro Prototypes README
+
+Created `MedRecProPrototypes/README.md` documenting the new (untracked) prototypes folder and its sole contents, the *AE Dashboard 01* prototype.
+
+**Scope.** Documented the prototype's three per-product views (Triage, Forest, Quadrant), its two cross-product tools (symptom→drug reverse lookup, therapeutic-interchange differential), supporting UI (typeahead drug picker with localStorage recents/favorites, KPI strip, coverage badges, host-driven tweaks panel), and the synthetic AE data model (NNH/NNT, RR with 95% CI, tight/wide/fragile precision tiers, MedDRA SOC, data-quality flags). Included a file-by-file layout table.
+
+**Key decisions.** Noted that no `index.html` is checked in — the six `.jsx` files are exported from a prototyping host and share components via `Object.assign(window, …)` rather than ES modules, so script load order matters and `app.jsx` must run last. Provided a reconstructed `index.html` (React 18 + ReactDOM + Babel standalone, files in dependency order) plus a local static-server note, since Babel fetches the JSX over HTTP. Flagged the folder as synthetic/prototype data, not for clinical use.
+
+**Verification.** Documentation only — no code executed. The dependency order and host `postMessage` protocol were inferred from reading the source, so the sample `index.html` is a best-effort reconstruction rather than a verified runbook; this caveat is stated to the user. No build or test run applicable.
+
+---
