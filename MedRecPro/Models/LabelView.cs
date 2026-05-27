@@ -4005,6 +4005,131 @@ namespace MedRecPro.Models
             #endregion Provenance and Context Properties
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// View entity for vw_AeDrugSummary.
+        /// Aggregates materialized adverse-event risk rows into one dashboard
+        /// summary row per product, document, substance, and pharmacologic class.
+        /// </summary>
+        /// <remarks>
+        /// Use this read-only view as the server-side source for AE dashboard
+        /// product pickers, KPI strips, and cross-product comparisons. It only
+        /// exposes deterministic aggregate values; chart-worthiness scoring and
+        /// explanatory reasons are populated later by dashboard derivation logic.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var products = await db.Set&lt;LabelView.AeDrugSummary&gt;()
+        ///     .AsNoTracking()
+        ///     .Where(d =&gt; d.SignificantElevatedCount &gt; 0)
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="FlattenedAdverseEventRiskTable"/>
+        [Table("vw_AeDrugSummary")]
+        public class AeDrugSummary
+        {
+            #region Product and Class Properties
+
+            /**************************************************************/
+            /// <summary>Source SPL document identifier represented by this summary row.</summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Product display name resolved through pharmacologic-class context.</summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Active ingredient substance name represented by the product row.</summary>
+            public string? SubstanceName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Plus-delimited active-ingredient UNIIs represented by the product row.</summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>Pharmacologic class code used by the dashboard grouping layer.</summary>
+            public string? PharmClassCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>Pharmacologic class display name used by the dashboard grouping layer.</summary>
+            public string? PharmClassName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative active moiety identifier for downstream encrypted DTO mapping.</summary>
+            public int? ActiveMoietyID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative ingredient substance identifier for downstream encrypted DTO mapping.</summary>
+            public int? IngredientSubstanceID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative pharmacologic class identifier for downstream encrypted DTO mapping.</summary>
+            public int? PharmacologicClassID { get; set; }
+
+            #endregion Product and Class Properties
+
+            #region Denominator Coverage Properties
+
+            /**************************************************************/
+            /// <summary>Representative treatment-arm denominator across rows in the product summary.</summary>
+            public int? ArmN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative comparator-arm denominator across rows in the product summary.</summary>
+            public int? ComparatorN { get; set; }
+
+            #endregion Denominator Coverage Properties
+
+            #region Signal Count Properties
+
+            /**************************************************************/
+            /// <summary>Total number of materialized AE risk rows represented by the product summary.</summary>
+            public int RowCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>Count of elevated or protective AE rows with confidence intervals excluding one.</summary>
+            public int SignificantCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>Count of protective AE rows where risk appears lower than the comparator.</summary>
+            public int SignificantProtectiveCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>Count of elevated AE rows where risk appears higher than the comparator.</summary>
+            public int SignificantElevatedCount { get; set; }
+
+            #endregion Signal Count Properties
+
+            #region Dashboard Coverage Properties
+
+            /**************************************************************/
+            /// <summary>Flag indicating whether any represented row used a placebo-like comparator.</summary>
+            public bool PlaceboCoverage { get; set; }
+
+            /**************************************************************/
+            /// <summary>Flag indicating whether any represented row used an active comparator.</summary>
+            public bool ActiveCoverage { get; set; }
+
+            /**************************************************************/
+            /// <summary>Fraction of represented rows with a populated treatment-arm dose.</summary>
+            public double DoseCoverage { get; set; }
+
+            /**************************************************************/
+            /// <summary>Number of distinct AE system-organ-class categories represented by the summary row.</summary>
+            public int SocBreadth { get; set; }
+
+            /**************************************************************/
+            /// <summary>Total SOC denominator used by the prototype coverage display.</summary>
+            public int SocTotal { get; set; }
+
+            /**************************************************************/
+            /// <summary>Aggregate mono/combo composition label: mono, combo, or mixed.</summary>
+            public string? MonoComboMix { get; set; }
+
+            #endregion Dashboard Coverage Properties
+        }
+
         #endregion SPL Table Normalization Views
     }
 }

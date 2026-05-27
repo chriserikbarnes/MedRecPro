@@ -4149,3 +4149,35 @@ Created `MedRecProPrototypes/README.md` documenting the new (untracked) prototyp
 **Verification.** Documentation only — no code executed. The dependency order and host `postMessage` protocol were inferred from reading the source, so the sample `index.html` is a best-effort reconstruction rather than a verified runbook; this caveat is stated to the user. No build or test run applicable.
 
 ---
+
+### 2026-05-27 10:51 AM EST — AE Dashboard DTO Plan Encryption Update
+
+Updated [Plans/(pending) AE Model and DTO creation.md](<Plans/(pending) AE Model and DTO creation.md>) so the future AE dashboard DTO implementation follows the existing encrypted client identifier pattern instead of exposing raw integer IDs.
+
+**Plan change.** Replaced the direct/raw-ID DTO guidance with explicit encrypted-ID requirements: client payloads should expose `Encrypted...ID` string fields populated via the existing encryption helper / `pkSecret` flow, while any raw integer ID accessors needed for server-side mapping must be `[Newtonsoft.Json.JsonIgnore]` and decrypted from the encrypted value. Added concrete coverage for AE risk signal source IDs and drug-summary pharmacologic-class IDs.
+
+**Verification.** Reviewed the patched plan sections with `Select-String` and confirmed the file now calls out `EncryptedFlattenedAdverseEventRiskTableID`, `EncryptedFlattenedAdverseEventTableID`, `EncryptedFlattenedStandardizedTableID`, `EncryptedActiveMoietyID`, `EncryptedIngredientSubstanceID`, and `EncryptedPharmacologicClassID`. No build or tests were run because this was a local ignored plan-only edit.
+
+---
+
+### 2026-05-27 11:03 AM EST — AE Dashboard Model and DTO Shapes
+
+Implemented the AE dashboard class shapes from [Plans/(pending) AE Model and DTO creation.md](<Plans/(pending) AE Model and DTO creation.md>) without adding the deferred derivation, endpoint, or mapping services.
+
+**Models and DTOs.** Added `LabelView.AeDrugSummary` in [LabelView.cs](MedRecPro/Models/LabelView.cs) as a keyless `[Table("vw_AeDrugSummary")]` view entity that the existing reflection registration can pick up automatically. Added [AeDashboardDto.cs](MedRecPro/Models/AeDashboardDto.cs) with the per-signal DTO, product summary DTO, triage/forest/quadrant/reverse-lookup/interchange containers, typed enums, and display-only metadata constants. Client-facing integer identifiers are represented as encrypted string `Encrypted...ID` fields rather than raw public integer IDs.
+
+**SQL contract.** Added `dbo.vw_AeDrugSummary` to [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql), co-located after `vw_AeRisk`, with deterministic product/document/substance/class aggregates over `tmp_FlattenedAdverseEventRiskTable`: row counts, elevated/protective counts, placebo and active comparator coverage, dose coverage, SOC breadth, `SocTotal = 17`, and mono/combo/mixed classification. The script now drops `vw_AeDrugSummary` before recreating `vw_AeRisk` so dependent-view reruns remain valid.
+
+**Verification.** `dotnet build MedRecPro\MedRecPro.csproj` initially failed in the sandbox on `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`, then passed after escalation with 179 existing warnings and 0 errors. `Select-String` confirmed `AeDashboardDto.cs` has no public raw integer `Id` or `*ID` properties. `git diff --check` passed with LF-to-CRLF warnings only.
+
+---
+
+### 2026-05-27 11:29 AM EST — AE Dashboard DTO Internal ID Accessors
+
+Updated [AeDashboardDto.cs](MedRecPro/Models/AeDashboardDto.cs) to follow the existing encrypted-ID DTO navigation pattern while preserving explicit dashboard-shaped payload properties.
+
+**Implementation.** Added `MedRecPro.Helpers` and `[Newtonsoft.Json.JsonIgnore]` decrypted integer accessors beside every encrypted dashboard identifier: `FlattenedAdverseEventRiskTableID`, `FlattenedAdverseEventTableID`, `FlattenedStandardizedTableID`, `ActiveMoietyID`, `IngredientSubstanceID`, and `PharmacologicClassID`. The public client-facing fields remain the encrypted `Encrypted...ID` string properties; normal numeric metrics such as denominators, counts, and scores remain serializable.
+
+**Verification.** `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with 179 existing warnings and 0 errors. `Select-String` confirmed every public nullable integer `*ID` accessor in `AeDashboardDto.cs` is preceded by `[Newtonsoft.Json.JsonIgnore]`. `git diff --check` passed with LF-to-CRLF warnings only.
+
+---

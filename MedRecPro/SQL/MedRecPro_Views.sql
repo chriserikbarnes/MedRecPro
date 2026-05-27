@@ -1709,6 +1709,8 @@ SELECT
             'Query with: WHERE DEAScheduleCode IS NOT NULL'
         WHEN v.name = 'vw_AeRisk' THEN
             'Query with: WHERE Significance IN (''elevated'', ''protective'') OR NumberNeededType = ''NNH'''
+        WHEN v.name = 'vw_AeDrugSummary' THEN
+            'Query with: WHERE SignificantElevatedCount > 0 OR PlaceboCoverage = 1'
         WHEN v.name = 'vw_ProductSummary' THEN 
             'Query with: WHERE ProductID = 123 OR ProductName LIKE ''%Lipitor%'''
         WHEN v.name = 'vw_RelatedProducts' THEN 
@@ -3307,6 +3309,10 @@ GO
 --               IX_FAE_UNII, IX_FAE_ParameterName, IX_FAE_ParameterCategory
 -- See also: tmp_FlattenedAdverseEventTable, vw_ProductsByPharmacologicClass
 
+IF OBJECT_ID('dbo.vw_AeDrugSummary', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_AeDrugSummary;
+GO
+
 IF OBJECT_ID('dbo.vw_AeRisk', 'V') IS NOT NULL
     DROP VIEW dbo.vw_AeRisk;
 GO
@@ -3433,6 +3439,86 @@ END
 GO
 
 PRINT 'Created view: vw_AeRisk';
+GO
+
+--#endregion
+
+--#region vw_AeDrugSummary
+
+/**************************************************************/
+-- View: vw_AeDrugSummary
+-- Purpose: Aggregates the materialized AE risk table into one product-level
+--          dashboard summary row per document, substance, and pharmacologic class.
+-- Usage: Populate AE dashboard product pickers, KPI strips, and cross-product
+--        comparisons before later derivation logic adds chart-worthiness scores.
+-- Returns: Deterministic row counts, significant-signal counts, comparator
+--          coverage, dose coverage, SOC breadth, and mono/combo mix.
+-- Indexes Used: IX_FAER_DocumentGUID, IX_FAER_PharmClassSignificance,
+--               IX_FAER_PlaceboSignificance, IX_FAER_ParameterCategory
+-- See also: tmp_FlattenedAdverseEventRiskTable, vw_AeRisk
+
+CREATE VIEW dbo.vw_AeDrugSummary
+AS
+/**************************************************************/
+-- Keeps non-deterministic dashboard fields out of SQL. Score, score reason,
+-- precision, counseling tier, and interchange labels are intentionally derived
+-- by a later dashboard mapping service.
+/**************************************************************/
+SELECT
+    r.DocumentGUID,
+    r.ProductName,
+    r.SubstanceName,
+    r.UNII,
+    r.PharmClassCode,
+    r.PharmClassName,
+    r.ActiveMoietyID,
+    r.IngredientSubstanceID,
+    r.PharmacologicClassID,
+    MAX(r.ArmN) AS ArmN,
+    MAX(r.ComparatorN) AS ComparatorN,
+    COUNT(*) AS [RowCount],
+    SUM(CASE WHEN r.Significance IN ('elevated', 'protective') THEN 1 ELSE 0 END) AS SignificantCount,
+    SUM(CASE WHEN r.Significance = 'protective' THEN 1 ELSE 0 END) AS SignificantProtectiveCount,
+    SUM(CASE WHEN r.Significance = 'elevated' THEN 1 ELSE 0 END) AS SignificantElevatedCount,
+    CAST(MAX(CASE WHEN r.IsPlaceboControlled = 1 THEN 1 ELSE 0 END) AS bit) AS PlaceboCoverage,
+    CAST(MAX(CASE WHEN r.IsPlaceboControlled = 0 THEN 1 ELSE 0 END) AS bit) AS ActiveCoverage,
+    AVG(CASE WHEN r.Dose IS NOT NULL THEN 1.0 ELSE 0.0 END) AS DoseCoverage,
+    COUNT(DISTINCT r.ParameterCategory) AS SocBreadth,
+    CAST(17 AS int) AS SocTotal,
+    CASE
+        WHEN MIN(CASE WHEN r.IsCombo = 1 THEN 1 ELSE 0 END) = 1
+            AND MAX(CASE WHEN r.IsCombo = 1 THEN 1 ELSE 0 END) = 1 THEN 'combo'
+        WHEN MAX(CASE WHEN r.IsCombo = 1 THEN 1 ELSE 0 END) = 0 THEN 'mono'
+        ELSE 'mixed'
+    END AS MonoComboMix
+FROM dbo.tmp_FlattenedAdverseEventRiskTable AS r
+GROUP BY
+    r.DocumentGUID,
+    r.ProductName,
+    r.SubstanceName,
+    r.UNII,
+    r.PharmClassCode,
+    r.PharmClassName,
+    r.ActiveMoietyID,
+    r.IngredientSubstanceID,
+    r.PharmacologicClassID;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties
+    WHERE major_id = OBJECT_ID('dbo.vw_AeDrugSummary')
+    AND name = 'MS_Description'
+)
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'Aggregates materialized AE risk rows into one product/document/substance/pharmacologic-class summary row for dashboard pickers, KPI strips, and cross-product comparison entry points. Non-deterministic score and tier fields are intentionally derived outside SQL.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_AeDrugSummary';
+END
+GO
+
+PRINT 'Created view: vw_AeDrugSummary';
 GO
 
 --#endregion
@@ -3567,6 +3653,7 @@ PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized a
 PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination';
 PRINT '  - vw_InventorySummary: Comprehensive inventory summary for AI discovery';
 PRINT '  - vw_AeRisk: Adverse event RR signals with pharmacologic class and NNH/NNT context';
+PRINT '  - vw_AeDrugSummary: Product-level AE dashboard summary rows';
 PRINT '  - vw_OrangeBookPatent: NDA patent data with SPL label cross-reference and flags';
 PRINT '';
 
