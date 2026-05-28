@@ -26,41 +26,10 @@
  */
 /**************************************************************/
 
+import { buildUrl, getApiBaseUrl, getFetchOptions, isLocalDevelopment } from '../shared/api-config.js';
+
 export const ChatConfig = (function () {
     'use strict';
-
-    /**************************************************************/
-    /**
-     * Detects if the application is running in a local development environment.
-     *
-     * @returns {boolean} True if running on localhost, local IP, or IPv6 loopback
-     *
-     * @description
-     * Identifies local development by checking the hostname against common local patterns:
-     * - localhost: Standard local development hostname
-     * - 127.0.0.1: IPv4 loopback address
-     * - 192.168.x.x: Private network addresses (local network testing)
-     * - 10.x.x.x: Private network addresses (corporate networks)
-     * - ::1: IPv6 loopback address
-     *
-     * @example
-     * if (isLocalDevelopment()) {
-     *     console.log('Running in development mode');
-     * }
-     *
-     * @see buildApiConfig - Uses this function to determine API base URL
-     */
-    /**************************************************************/
-    function isLocalDevelopment() {
-        const hostname = window.location.hostname;
-
-        // Check for common local development hostnames and IP patterns
-        return hostname === 'localhost' ||
-            hostname === '127.0.0.1' ||
-            hostname.startsWith('192.168.') ||
-            hostname.startsWith('10.') ||
-            hostname === '::1';
-    }
 
     /**************************************************************/
     /**
@@ -90,15 +59,8 @@ export const ChatConfig = (function () {
      */
     /**************************************************************/
     function buildApiConfig() {
-        // Determine base URL based on environment
-        // Local development uses explicit localhost URL for cross-origin requests
-        // Production uses relative URLs since API is same-origin
-        const baseUrl = isLocalDevelopment()
-            ? 'http://localhost:5093'  // Local API server (requires CORS)
-            : '';                       // Relative URLs for production (same-origin)
-
         return {
-            baseUrl: baseUrl,
+            baseUrl: getApiBaseUrl(),
 
             /**************************************************************/
             /**
@@ -142,67 +104,6 @@ export const ChatConfig = (function () {
     // Log environment information for debugging
     console.log('[MedRecPro Chat] Environment:', isLocalDevelopment() ? 'Local Development' : 'Production');
     console.log('[MedRecPro Chat] API Base URL:', API_CONFIG.baseUrl || '(relative)');
-
-    /**************************************************************/
-    /**
-     * Builds a full API URL from an endpoint path.
-     *
-     * @param {string} endpointPath - The endpoint path (e.g., '/api/Ai/context')
-     * @returns {string} Full URL for the API call
-     *
-     * @description
-     * Combines the configured base URL with the endpoint path.
-     * - In production (empty baseUrl): Returns just the endpoint for same-origin requests
-     * - In local development: Prepends the localhost server URL
-     *
-     * @example
-     * // Production
-     * buildUrl('/api/Ai/interpret');  // Returns '/api/Ai/interpret'
-     *
-     * // Local development
-     * buildUrl('/api/Ai/interpret');  // Returns 'http://localhost:5093/api/Ai/interpret'
-     *
-     * @see API_CONFIG.baseUrl - The base URL used for URL construction
-     */
-    /**************************************************************/
-    function buildUrl(endpointPath) {
-        return API_CONFIG.baseUrl + endpointPath;
-    }
-
-    /**************************************************************/
-    /**
-     * Gets fetch options with credentials included for cookie-based authentication.
-     *
-     * @param {Object} [options={}] - Additional fetch options to merge
-     * @returns {Object} Fetch options with credentials: 'include'
-     *
-     * @description
-     * Ensures cookies are sent with all API requests, required for authentication
-     * to work in both local and production environments. The 'include' credentials
-     * mode sends cookies even for cross-origin requests.
-     *
-     * @example
-     * // Basic usage
-     * fetch(url, getFetchOptions());
-     *
-     * // With additional options
-     * fetch(url, getFetchOptions({
-     *     method: 'POST',
-     *     headers: { 'Content-Type': 'application/json' },
-     *     body: JSON.stringify(data)
-     * }));
-     *
-     * @see buildUrl - Often used together with this function
-     */
-    /**************************************************************/
-    function getFetchOptions(options = {}) {
-        // Always include credentials for cookie-based authentication
-        // CORS is configured on the server to accept credentials from localhost origins
-        return {
-            credentials: 'include',
-            ...options
-        };
-    }
 
     /**************************************************************/
     /**

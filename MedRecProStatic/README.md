@@ -34,6 +34,7 @@ MedRecProStatic runs at the **root path** (`/`) as the parent IIS application. T
 |---|---|---|
 | `/` | MedRecProStatic | Home page, marketing content |
 | `/Home/Chat` | MedRecProStatic | AI chat interface |
+| `/adverse-events` | MedRecProStatic | Client-side adverse event dashboard backed by MedRecPro API endpoints |
 | `/Home/Terms` | MedRecProStatic | Terms of Service |
 | `/Home/Privacy` | MedRecProStatic | Privacy Policy |
 | `/.well-known/*` | MedRecProStatic | OAuth/MCP discovery metadata |
@@ -160,6 +161,39 @@ wwwroot/js/chat/
 - `POST /api/Ai/interpret` — NLP query to API endpoint mapping
 - `POST /api/Ai/synthesize` — API results to human-readable responses
 - `GET /api/Ai/chat` — Convenience endpoint for simple queries
+
+### Adverse Events Dashboard JavaScript Modules
+
+The adverse event dashboard at `/adverse-events` is a vanilla ES module application hosted by MedRecProStatic and backed by the MedRecPro API. Local development resolves API calls to `http://localhost:5093`; production uses same-origin `/api/*` paths.
+
+```
+wwwroot/js/adverse-events/
+  index.js                         # Main orchestrator - route state, view loading, export, save URL
+  api-client.js                    # HTTP client for /api/AdverseEvent endpoints
+  normalizers.js                   # DTO casing and enum normalization for browser-safe view models
+  state.js                         # Shared client-side dashboard state
+  storage.js                       # Versioned recent-product snapshots in localStorage
+  formatters.js                    # Numbers, rates, comparator labels, and risk formatting
+  dom.js                           # Small DOM factory and reusable status states
+  renderers/
+    product-picker.js              # Searchable product picker, favorites, and recent products
+    kpi-strip.js                   # Summary metric cards
+    triage-view.js                 # Counseling priority tiers and expandable AE rows
+    forest-view.js                 # Risk-ratio confidence interval plot
+    quadrant-view.js               # Magnitude/precision scatter plot
+    reverse-lookup-panel.js        # Exact-term AE lookup by document scope
+    interchange-panel.js           # Cross-product counseling comparison
+```
+
+**Key API endpoints called by the adverse event dashboard:**
+- `GET /api/AdverseEvent/products` - Product search, favorites, and initial catalog data
+- `POST /api/AdverseEvent/favorites/{documentGuid}` - User favorite persistence
+- `DELETE /api/AdverseEvent/favorites/{documentGuid}` - User favorite removal
+- `GET /api/AdverseEvent/{documentGuid}/triage` - Counseling-priority tiers
+- `GET /api/AdverseEvent/{documentGuid}/forest` - Forest plot signal payload
+- `GET /api/AdverseEvent/{documentGuid}/quadrant` - Quadrant chart signal payload
+- `GET /api/AdverseEvent/reverse-lookup` - Exact adverse-event term lookup
+- `GET /api/AdverseEvent/interchange` - Cross-product comparison payload
 
 ## Tarpit Middleware (Rate Limiting)
 

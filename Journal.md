@@ -4289,3 +4289,29 @@ Fixed the AE dashboard product catalog cast failure that surfaced through [Adver
 **Verification.** `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with 0 warnings and 0 errors. A sandboxed focused test rerun using `C:\tmp\MedRecProTestOut\` was blocked by access-denied copy errors in the output directory, then the approved rerun `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~AdverseEventControllerTests|FullyQualifiedName~AeDashboard" -p:BaseOutputPath="C:\tmp\MedRecProTestOutAeCoverage\"` passed with 28 passed, 0 failed, and existing test-project warnings. `git diff --check` passed with LF-to-CRLF warnings only.
 
 ---
+
+### 2026-05-28 1:51 PM EST — AE Dashboard Client-Side Plan
+
+Created the client-side implementation handoff for moving the adverse-event dashboard prototypes into `MedRecProStatic` on live API data.
+
+**Plan.** Added [Plans/(pending) AE Dashboard Client-Side Implementation Plan.md](<Plans/(pending) AE Dashboard Client-Side Implementation Plan.md>) following the existing `(pending)` handoff convention. The plan maps the prototype product picker, KPI strip, triage, forest, quadrant, reverse lookup, and interchange views to the live `AdverseEventController` endpoints, and keeps the implementation aligned with the static site's ASP.NET Core MVC plus vanilla ES-module structure.
+
+**Architecture.** The plan chooses a repo-native static implementation instead of adding a React build pipeline, centralizes API base URL and credential handling through a shared helper, and calls out the current reverse-lookup autocomplete gap so production code does not preserve synthetic symptom data.
+
+**Verification.** Read back the saved plan, confirmed the exact file exists under `Plans/`, checked targeted endpoint/acceptance sections, and verified `Plans/` remains git-ignored (`!! Plans/`), so direct file reads are the discovery path for this local handoff. No build or test run was needed for this plan-only documentation change.
+
+---
+
+### 2026-05-28 3:50 PM EST — AE Dashboard Static Client
+
+Implemented the client-side adverse-event dashboard in `MedRecProStatic`, moving the prototype experience onto the live `AdverseEventController` API without adding a React/Vite pipeline.
+
+**Static route and API access.** Added [AdverseEventDashboardController.cs](MedRecProStatic/Controllers/AdverseEventDashboardController.cs) and [Index.cshtml](MedRecProStatic/Views/AdverseEventDashboard/Index.cshtml) for `/adverse-events`. Added shared API helpers in [api-config.js](MedRecProStatic/wwwroot/js/shared/api-config.js) and [api-error.js](MedRecProStatic/wwwroot/js/shared/api-error.js), then refactored [config.js](MedRecProStatic/wwwroot/js/chat/config.js) to reuse the same local/production base URL and credential handling.
+
+**Dashboard modules.** Added the vanilla ES-module dashboard under [wwwroot/js/adverse-events](MedRecProStatic/wwwroot/js/adverse-events), including live product search/favorites, triage, forest, quadrant, exact-term reverse lookup, interchange comparison, URL state, export JSON, recent-product storage, DTO normalization, and encrypted source-row identifier handling. The client uses `DocumentGUID` in URLs and request parameters and does not expose raw integer table IDs.
+
+**Styling and docs.** Added [adverse-events.css](MedRecProStatic/wwwroot/css/adverse-events.css) to match the supplied MedRecPro dashboard prototype visual language, including the dark top bar, KPI cards, comparator chips, tiered counseling rows, forest plot, quadrant plot, reverse lookup, and interchange panels. Updated [README.md](MedRecProStatic/README.md) with the new route, module map, and live API endpoint list.
+
+**Verification.** `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore` passed with 0 warnings and 0 errors. The ES-module syntax sweep checked 16 dashboard/shared JavaScript modules successfully. Browser smoke testing at `http://localhost:5017/adverse-events` confirmed the route loads, `adverse-events.css` and the module script are present, no console errors were captured, and the no-product shell no longer renders a stray `null` text node. `git diff --check` passed with LF-to-CRLF warnings only. The live MedRecPro API was not running during the browser smoke, so product data was not loaded in-browser.
+
+---

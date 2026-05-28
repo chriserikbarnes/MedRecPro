@@ -1,0 +1,42 @@
+@*
+    /**************************************************************/
+    /// <summary>
+    /// Adverse Events Dashboard View - Provides product-level AE triage and visualization.
+    /// </summary>
+    /// <remarks>
+    /// This view hosts a self-contained client-side dashboard implemented with
+    /// vanilla JavaScript ES modules. API calls are made directly from the browser
+    /// to the MedRecPro adverse-event dashboard endpoints.
+    /// </remarks>
+    /// <seealso cref="MedRecPro.Static.Controllers.AdverseEventDashboardController.Index"/>
+*@
+
+@using MedRecPro.Static.Models
+@{
+    Layout = null;
+    var config = ViewBag.Config as SiteConfig ?? new SiteConfig { SiteName = "MedRecPro" };
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Adverse Events - @config.SiteName</title>
+    <link rel="stylesheet" href="~/css/adverse-events.css" asp-append-version="true" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="48x36" href="/favicon-48x36.png" />
+    <link rel="icon" type="image/png" sizes="32x24" href="/favicon-32x24.png" />
+    <link rel="icon" type="image/png" sizes="16x12" href="/favicon-16x12.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+</head>
+<body>
+    <div id="aeDashboardApp" class="ae-dashboard-page"></div>
+    <noscript>
+        <div class="ae-noscript">
+            The adverse-event dashboard requires JavaScript to load live product and signal data.
+        </div>
+    </noscript>
+    <script src="~/js/adverse-events/index.js" type="module" asp-append-version="true"></script>
+</body>
+</html>
