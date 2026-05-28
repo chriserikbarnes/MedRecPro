@@ -1,0 +1,1413 @@
+using MedRecPro.Models;
+
+namespace MedRecPro.DataAccess
+{
+    /**************************************************************/
+    /// <summary>
+    /// Provides deterministic AE dashboard derivation and assembly helpers.
+    /// </summary>
+    /// <remarks>
+    /// This class contains pure functions only. It does not access EF Core,
+    /// configuration providers, loggers, caches, clocks, or mutable static state.
+    /// Data-access methods pass mapped DTOs through these helpers so controllers
+    /// do not duplicate scoring, tiering, quadrant, reverse-lookup, or interchange
+    /// logic.
+    ///
+    /// The comments in this file intentionally document each local data-shaping
+    /// step because these helpers are the handoff point between persisted Stage 5
+    /// values and the dashboard's display contract. Future maintainers should be
+    /// able to trace how raw view columns become typed enums, ranking values,
+    /// warning labels, chart coordinates, and user-facing explanations.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var derived = AeDashboardDerivation.DeriveSignal(signal);
+    /// var triage = AeDashboardDerivation.BuildTriageView(product, signals);
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeRiskSignalDto"/>
+    /// <seealso cref="AeDrugSummaryDto"/>
+    public static class AeDashboardDerivation
+    {
+        #region public methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Populates derived fields on one AE dashboard signal.
+        /// </summary>
+        /// <param name="signal">Signal DTO to enrich.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>The same <see cref="AeRiskSignalDto"/> instance after enrichment.</returns>
+        /// <remarks>
+        /// The derivation maps persisted significance and calculation flags into typed
+        /// dashboard fields, then classifies precision and counseling tier.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var signal = AeDashboardDerivation.DeriveSignal(rawSignal);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeRiskSignalDto"/>
+        /// <seealso cref="AeDashboardDerivationSettings"/>
+        public static AeRiskSignalDto DeriveSignal(
+            AeRiskSignalDto signal,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Use the dashboard defaults whenever the caller does not provide an
+            // override, keeping all thresholds centralized in the settings object.
+            settings ??= AeDashboardDerivationSettings.Default;
+
+            // Convert the persisted free-text significance into the typed enum
+            // that the rest of the dashboard logic can compare safely.
+            signal.RiskSignificance = ParseRiskSignificance(signal.Significance);
+
+            // Treat elevated and protective rows as statistically significant,
+            // while leaving "not significant" rows available for reassurance UI.
+            signal.IsSignificant = signal.RiskSignificance == AeRiskSignificance.Elevated
+                || signal.RiskSignificance == AeRiskSignificance.Protective;
+
+            // Protective rows are significant, but they should sort and render
+            // differently from elevated risk rows.
+            signal.IsProtective = signal.RiskSignificance == AeRiskSignificance.Protective;
+
+            // Convert the persisted NNH/NNT label into a typed value before tier
+            // and reverse-lookup logic read the number-needed fields.
+            signal.NumberNeededKind = ParseNumberNeededType(signal.NumberNeededType);
+
+            // Normalize Stage 5 calculation diagnostics into the compact dashboard
+            // flag list used by precision and display decisions.
+            signal.Flags = ParseFlags(signal.CalculationFlags);
+
+            // Precision must be calculated before counseling tier because fragile
+            // evidence overrides otherwise causal-looking direction.
+            signal.PrecisionClass = ClassifyPrecision(signal, settings);
+
+            // Counseling tier is the final single-signal rollup consumed by the
+            // triage cards.
+            signal.CounselingTier = ClassifyCounselingTier(signal);
+
+            // Return the same instance so callers can keep object identity when
+            // they pass lists that are already referenced elsewhere.
+            return signal;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Populates derived fields on a sequence of AE dashboard signals.
+        /// </summary>
+        /// <param name="signals">Signal DTOs to enrich.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>A materialized list of enriched signal DTOs.</returns>
+        /// <remarks>
+        /// This helper preserves input object identity and order while ensuring every
+        /// signal has typed flags, significance, precision, and counseling tier.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var signals = AeDashboardDerivation.DeriveSignals(rawSignals);
+        /// </code>
+        /// </example>
+        /// <seealso cref="DeriveSignal(AeRiskSignalDto, AeDashboardDerivationSettings?)"/>
+        public static List<AeRiskSignalDto> DeriveSignals(
+            IEnumerable<AeRiskSignalDto> signals,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Materialize immediately so every caller receives a stable list of
+            // enriched signals rather than a deferred query that could re-run.
+            return signals
+                .Select(signal => DeriveSignal(signal, settings))
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Populates product-level AE dashboard score fields.
+        /// </summary>
+        /// <param name="product">Product summary DTO to enrich.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>The same <see cref="AeDrugSummaryDto"/> instance after enrichment.</returns>
+        /// <remarks>
+        /// The score is a bounded, deterministic chart-worthiness indicator based on
+        /// comparator coverage, elevated-signal density, dose coverage, SOC breadth,
+        /// and row volume.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var product = AeDashboardDerivation.DeriveProduct(summary);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeDrugSummaryDto"/>
+        /// <seealso cref="AeDashboardScoreWeights"/>
+        public static AeDrugSummaryDto DeriveProduct(
+            AeDrugSummaryDto product,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Use the same threshold object as per-signal derivation unless the
+            // caller intentionally provides a scenario-specific override.
+            settings ??= AeDashboardDerivationSettings.Default;
+
+            // Guard every denominator used by the score so empty or malformed
+            // source rows cannot produce divide-by-zero values.
+            var rowCount = Math.Max(product.RowCount, 1);
+
+            // SOC total is independently guarded because some labels may have row
+            // counts but incomplete SOC aggregation.
+            var socTotal = Math.Max(product.SocTotal, 1);
+
+            // Row target is guarded so configuration cannot accidentally make row
+            // volume division invalid.
+            var rowTarget = Math.Max(settings.ScoreRowCountTarget, 1);
+
+            // Convert boolean comparator coverage into fractional score inputs.
+            var placeboCoverage = product.PlaceboCoverage ? 1.0 : 0.0;
+
+            // Active-comparator coverage is tracked separately because it has a
+            // smaller score weight but matters for interchange confidence.
+            var activeCoverage = product.ActiveCoverage ? 1.0 : 0.0;
+
+            // Significant elevated density rewards products with actionable risk
+            // findings while capping the contribution at full credit.
+            var elevatedDensity = Math.Min((double)product.SignificantElevatedCount / rowCount, 1.0);
+
+            // Dose coverage and SOC breadth may come from aggregate SQL ratios, so
+            // clamp them before they are multiplied into the weighted score.
+            var doseCoverage = clamp(product.DoseCoverage, 0.0, 1.0);
+
+            // SOC breadth is normalized by the guarded SOC total to create a
+            // fractional coverage measure.
+            var socBreadth = clamp((double)product.SocBreadth / socTotal, 0.0, 1.0);
+
+            // Row volume is capped so large labels do not dominate the chart
+            // worthiness score solely because they have many AE rows.
+            var rowVolume = Math.Min((double)product.RowCount / rowTarget, 1.0);
+
+            // Combine normalized score inputs with configured weights and scale
+            // the result onto the 0-100 dashboard display range.
+            var score = 100.0 * (
+                settings.ScoreWeights.PlaceboCoverage * placeboCoverage
+                + settings.ScoreWeights.ActiveCoverage * activeCoverage
+                + settings.ScoreWeights.SignificantElevatedDensity * elevatedDensity
+                + settings.ScoreWeights.DoseCoverage * doseCoverage
+                + settings.ScoreWeights.SocBreadth * socBreadth
+                + settings.ScoreWeights.RowVolume * rowVolume);
+
+            // Round away from zero so .5 values consistently appear as the next
+            // visible whole-number score on product picker cards.
+            product.Score = (int)Math.Round(score, MidpointRounding.AwayFromZero);
+
+            // Persist a short explanation beside the score so UI and tests can
+            // explain which source dimensions drove the value.
+            product.ScoreReason = buildScoreReason(
+                product,
+                settings,
+                placeboCoverage,
+                activeCoverage,
+                elevatedDensity,
+                doseCoverage,
+                socBreadth,
+                rowVolume);
+
+            // Return the same DTO instance after adding derived score fields.
+            return product;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Populates product-level AE dashboard score fields for a sequence.
+        /// </summary>
+        /// <param name="products">Product summary DTOs to enrich.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>A materialized list of enriched product DTOs.</returns>
+        /// <remarks>
+        /// This helper is used by product picker and favorites data-access methods
+        /// after query projection and favorite enrichment.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var products = AeDashboardDerivation.DeriveProducts(rawProducts);
+        /// </code>
+        /// </example>
+        /// <seealso cref="DeriveProduct(AeDrugSummaryDto, AeDashboardDerivationSettings?)"/>
+        public static List<AeDrugSummaryDto> DeriveProducts(
+            IEnumerable<AeDrugSummaryDto> products,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Product lists are materialized after each DTO has received score and
+            // score-reason values.
+            return products
+                .Select(product => DeriveProduct(product, settings))
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the tiered AE triage DTO for a product.
+        /// </summary>
+        /// <param name="product">Product summary context.</param>
+        /// <param name="signals">Product-specific AE signals.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>A triage view DTO with all counseling tiers present.</returns>
+        /// <remarks>
+        /// Signals are derived before tiering. Each tier is sorted deterministically by
+        /// clinical priority and adverse-event term.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var view = AeDashboardDerivation.BuildTriageView(product, signals);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeTriageViewDto"/>
+        /// <seealso cref="AeCounselingTierDto"/>
+        public static AeTriageViewDto BuildTriageView(
+            AeDrugSummaryDto product,
+            IEnumerable<AeRiskSignalDto> signals,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Derive signals once before tier filtering so each tier uses the same
+            // precision, significance, and counseling classification decisions.
+            var derivedSignals = DeriveSignals(signals, settings);
+
+            // Use an explicit tier order so empty tiers still render in the same
+            // clinical flow instead of depending on whatever rows are present.
+            var tierOrder = new[]
+            {
+                AeCounselingTier.Counsel,
+                AeCounselingTier.Watch,
+                AeCounselingTier.Reassure,
+                AeCounselingTier.Fragile
+            };
+
+            // Build the full triage payload: one derived product context plus a
+            // stable list of tier buckets and deterministically sorted signals.
+            return new AeTriageViewDto
+            {
+                Product = DeriveProduct(product, settings),
+                Tiers = tierOrder.Select(tier => new AeCounselingTierDto
+                {
+                    Tier = tier,
+                    Name = AeDashboardMetadata.TierNames[tier],
+                    Description = AeDashboardMetadata.TierDescriptions[tier],
+                    Signals = derivedSignals
+                        .Where(signal => signal.CounselingTier == tier)
+                        .OrderBy(signal => signal.NumberNeeded ?? double.MaxValue)
+                        .ThenByDescending(signal => signal.RR ?? 0.0)
+                        .ThenBy(signal => signal.ParameterName)
+                        .ToList()
+                }).ToList()
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the forest plot DTO from product-specific AE signals.
+        /// </summary>
+        /// <param name="signals">Signals to include in the plot.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>A forest plot DTO sorted by descending relative risk.</returns>
+        /// <remarks>
+        /// The DTO keeps the static log-scale axis ticks defined by
+        /// <see cref="AeForestPlotDto"/> and only supplies the sorted signal payload.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var plot = AeDashboardDerivation.BuildForestPlot(signals);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeForestPlotDto"/>
+        public static AeForestPlotDto BuildForestPlot(
+            IEnumerable<AeRiskSignalDto> signals,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Forest plots are signal-only views; derive first, then sort largest
+            // relative risk first so the riskiest rows appear at the top.
+            return new AeForestPlotDto
+            {
+                Signals = DeriveSignals(signals, settings)
+                    .OrderByDescending(signal => signal.RR ?? 0.0)
+                    .ThenBy(signal => signal.ParameterName)
+                    .ToList()
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the quadrant DTO from product-specific AE signals.
+        /// </summary>
+        /// <param name="signals">Signals to convert into quadrant points.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>A quadrant view DTO with coordinates clamped from zero to one.</returns>
+        /// <remarks>
+        /// Coordinates are derived from confidence-interval width and RR magnitude.
+        /// Bubble size is derived from treatment and comparator event counts.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var quadrant = AeDashboardDerivation.BuildQuadrantView(signals);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeQuadrantViewDto"/>
+        /// <seealso cref="AeQuadrantPointDto"/>
+        public static AeQuadrantViewDto BuildQuadrantView(
+            IEnumerable<AeRiskSignalDto> signals,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Convert each derived signal into chart coordinates before ordering
+            // points by risk magnitude for deterministic rendering and testing.
+            var points = DeriveSignals(signals, settings)
+                .Select(signal => buildQuadrantPoint(signal))
+                .OrderByDescending(point => point.Signal?.RR ?? 0.0)
+                .ThenBy(point => point.Signal?.ParameterName)
+                .ToList();
+
+            // The DTO keeps chart metadata elsewhere; this method supplies only the
+            // point payload.
+            return new AeQuadrantViewDto { Points = points };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a reverse-lookup result for one adverse-event term.
+        /// </summary>
+        /// <param name="symptom">Adverse-event term being searched.</param>
+        /// <param name="products">Candidate product summaries.</param>
+        /// <param name="signals">Candidate AE signals.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>A ranked reverse-lookup result DTO.</returns>
+        /// <remarks>
+        /// Matching is case-insensitive on <see cref="AeRiskSignalDto.ParameterName"/>.
+        /// Ranking favors elevated significant matches with lower NNH, then protective
+        /// matches, then not-significant matches, with fragile matches last.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var lookup = AeDashboardDerivation.BuildReverseLookupResult("Nausea", products, signals);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeReverseLookupResultDto"/>
+        /// <seealso cref="AeReverseLookupMatchDto"/>
+        public static AeReverseLookupResultDto BuildReverseLookupResult(
+            string symptom,
+            IEnumerable<AeDrugSummaryDto> products,
+            IEnumerable<AeRiskSignalDto> signals,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Trim the searched symptom once so matching treats leading/trailing
+            // user input whitespace as non-semantic.
+            var normalizedSymptom = symptom.Trim();
+
+            // Build a product lookup keyed by SPL document so each matched signal
+            // can attach its already-derived product card context.
+            var productByDocument = products
+                .Where(product => product.DocumentGUID.HasValue)
+                .GroupBy(product => product.DocumentGUID!.Value)
+                .ToDictionary(group => group.Key, group => DeriveProduct(group.First(), settings));
+
+            // Filter signal rows to the requested AE term, discard rows whose
+            // product context is unavailable, then rank the remaining matches.
+            var matches = DeriveSignals(signals, settings)
+                .Where(signal => string.Equals(
+                    signal.ParameterName?.Trim(),
+                    normalizedSymptom,
+                    StringComparison.OrdinalIgnoreCase))
+                .Where(signal => signal.DocumentGUID.HasValue && productByDocument.ContainsKey(signal.DocumentGUID.Value))
+                .Select(signal => new AeReverseLookupMatchDto
+                {
+                    Drug = productByDocument[signal.DocumentGUID!.Value],
+                    Signal = signal,
+                    Verdict = ClassifyReverseLookupVerdict(signal)
+                })
+                .OrderBy(match => reverseLookupRank(match))
+                .ThenBy(match => match.Signal?.NumberNeeded ?? double.MaxValue)
+                .ThenByDescending(match => match.Signal?.RR ?? 0.0)
+                .ThenBy(match => match.Drug?.ProductName)
+                .ToList();
+
+            // AllReassuring is true only when no matched row looks plausibly causal;
+            // empty match sets are therefore naturally reassuring.
+            return new AeReverseLookupResultDto
+            {
+                Symptom = symptom,
+                Matches = matches,
+                AllReassuring = !matches.Any(match => match.Verdict == AeReverseLookupVerdict.PlausiblyCausal)
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds an interchange comparison DTO for two dashboard products.
+        /// </summary>
+        /// <param name="productA">First product summary.</param>
+        /// <param name="productB">Second product summary.</param>
+        /// <param name="signalsA">Signals for the first product.</param>
+        /// <param name="signalsB">Signals for the second product.</param>
+        /// <param name="differencesOnly">Whether to remove rows classified as similar.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>An interchange comparison DTO with row counts and warnings.</returns>
+        /// <remarks>
+        /// Shared adverse-event terms are compared on log10 RR distance. Rows present
+        /// on only one product are classified directly.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var comparison = AeDashboardDerivation.BuildInterchangeComparison(a, b, signalsA, signalsB);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeInterchangeComparisonDto"/>
+        /// <seealso cref="AeInterchangeRowDto"/>
+        public static AeInterchangeComparisonDto BuildInterchangeComparison(
+            AeDrugSummaryDto productA,
+            AeDrugSummaryDto productB,
+            IEnumerable<AeRiskSignalDto> signalsA,
+            IEnumerable<AeRiskSignalDto> signalsB,
+            bool differencesOnly = false,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Derive both products up front so the comparison header exposes the
+            // same scoring fields as the standalone product picker.
+            productA = DeriveProduct(productA, settings);
+            productB = DeriveProduct(productB, settings);
+
+            // Collapse product A duplicate AE terms to one representative signal so
+            // the comparison has one row per adverse-event term.
+            var signalLookupA = DeriveSignals(signalsA, settings)
+                .Where(signal => !string.IsNullOrWhiteSpace(signal.ParameterName))
+                .GroupBy(signal => signal.ParameterName!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => chooseRepresentativeSignal(group), StringComparer.OrdinalIgnoreCase);
+
+            // Build the same normalized lookup for product B, using identical
+            // grouping rules so term matching is symmetric.
+            var signalLookupB = DeriveSignals(signalsB, settings)
+                .Where(signal => !string.IsNullOrWhiteSpace(signal.ParameterName))
+                .GroupBy(signal => signal.ParameterName!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => chooseRepresentativeSignal(group), StringComparer.OrdinalIgnoreCase);
+
+            // Union both key sets so rows that appear on only one product are still
+            // visible and can be classified as OnlyA or OnlyB.
+            var terms = signalLookupA.Keys
+                .Union(signalLookupB.Keys, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(term => term, StringComparer.OrdinalIgnoreCase);
+
+            // Build the row list and optionally suppress "similar" rows for a
+            // differences-only UI mode.
+            var rows = terms
+                .Select(term => buildInterchangeRow(term, signalLookupA, signalLookupB))
+                .Where(row => !differencesOnly || row.Classification != AeInterchangeClass.Similar)
+                .ToList();
+
+            // Count the rendered rows by classification so the dashboard can show
+            // comparison summary chips without recomputing on the client.
+            return new AeInterchangeComparisonDto
+            {
+                ProductA = productA,
+                ProductB = productB,
+                Rows = rows,
+                OnlyACount = rows.Count(row => row.Classification == AeInterchangeClass.OnlyA),
+                OnlyBCount = rows.Count(row => row.Classification == AeInterchangeClass.OnlyB),
+                SimilarCount = rows.Count(row => row.Classification == AeInterchangeClass.Similar),
+                AWorseCount = rows.Count(row => row.Classification == AeInterchangeClass.AWorse),
+                BWorseCount = rows.Count(row => row.Classification == AeInterchangeClass.BWorse),
+                ClassMismatchWarning = buildClassMismatchWarning(productA, productB),
+                ComparatorMismatchWarning = buildComparatorMismatchWarning(productA, productB)
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses persisted AE risk significance text into a typed dashboard value.
+        /// </summary>
+        /// <param name="significance">Persisted significance text.</param>
+        /// <returns>The typed risk significance value.</returns>
+        /// <remarks>
+        /// Unknown, blank, or not-significant values return
+        /// <see cref="AeRiskSignificance.NotSignificant"/>.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var significance = AeDashboardDerivation.ParseRiskSignificance("elevated");
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeRiskSignificance"/>
+        public static AeRiskSignificance ParseRiskSignificance(string? significance)
+        {
+            #region implementation
+
+            // Blank or missing source text means there is no risk direction to
+            // communicate, so default to the reassuring/not-significant state.
+            if (string.IsNullOrWhiteSpace(significance))
+            {
+                return AeRiskSignificance.NotSignificant;
+            }
+
+            // Stage 5 and SQL view text may vary slightly, so match on a stable
+            // substring rather than requiring one exact literal.
+            if (significance.Contains("protect", StringComparison.OrdinalIgnoreCase))
+            {
+                return AeRiskSignificance.Protective;
+            }
+
+            // Elevated/increased wording both indicate a harmful significant
+            // direction in the dashboard.
+            if (significance.Contains("elevat", StringComparison.OrdinalIgnoreCase)
+                || significance.Contains("increas", StringComparison.OrdinalIgnoreCase))
+            {
+                return AeRiskSignificance.Elevated;
+            }
+
+            // Unknown non-blank text is treated conservatively as not significant
+            // instead of inventing a new display bucket.
+            return AeRiskSignificance.NotSignificant;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses persisted number-needed text into a typed dashboard value.
+        /// </summary>
+        /// <param name="numberNeededType">Persisted number-needed type.</param>
+        /// <returns>The typed number-needed interpretation.</returns>
+        /// <remarks>
+        /// Unknown or blank values return <see cref="AeNumberNeededType.None"/>.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var kind = AeDashboardDerivation.ParseNumberNeededType("NNH");
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeNumberNeededType"/>
+        public static AeNumberNeededType ParseNumberNeededType(string? numberNeededType)
+        {
+            #region implementation
+
+            // NNH means elevated harm and is displayed differently from NNT.
+            if (string.Equals(numberNeededType, "NNH", StringComparison.OrdinalIgnoreCase))
+            {
+                return AeNumberNeededType.NNH;
+            }
+
+            // NNT means a protective benefit row.
+            if (string.Equals(numberNeededType, "NNT", StringComparison.OrdinalIgnoreCase))
+            {
+                return AeNumberNeededType.NNT;
+            }
+
+            // Missing or unrecognized labels have no number-needed interpretation.
+            return AeNumberNeededType.None;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses Stage 5 calculation flags into dashboard data-quality flags.
+        /// </summary>
+        /// <param name="calculationFlags">Delimited calculation flags from the risk row.</param>
+        /// <returns>Recognized dashboard data-quality flags.</returns>
+        /// <remarks>
+        /// Both semicolon and comma delimiters are supported. Unknown flags are ignored
+        /// so new Stage 5 diagnostics do not break dashboard rendering.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var flags = AeDashboardDerivation.ParseFlags("ZERO_CELL_CORRECTED;SOC_REMAP");
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeDataQualityFlag"/>
+        public static List<AeDataQualityFlag> ParseFlags(string? calculationFlags)
+        {
+            #region implementation
+
+            // Empty diagnostic text means no recognized quality caveats should be
+            // shown on the dashboard row.
+            if (string.IsNullOrWhiteSpace(calculationFlags))
+            {
+                return new List<AeDataQualityFlag>();
+            }
+
+            // Split, normalize, map, and de-duplicate known flag tokens while
+            // ignoring future Stage 5 tokens that the dashboard does not yet use.
+            return calculationFlags
+                .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(normalizeFlag)
+                .Select(flag => flag switch
+                {
+                    "zerocellcorrected" => AeDataQualityFlag.ZeroCellCorrected,
+                    "socremap" => AeDataQualityFlag.SocRemap,
+                    "wideci" => AeDataQualityFlag.WideCi,
+                    "loweventcount" => AeDataQualityFlag.LowEventCount,
+                    _ => (AeDataQualityFlag?)null
+                })
+                .Where(flag => flag.HasValue)
+                .Select(flag => flag!.Value)
+                .Distinct()
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Classifies AE signal precision from interval width, events, and flags.
+        /// </summary>
+        /// <param name="signal">Signal DTO to classify.</param>
+        /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
+        /// <returns>The precision class.</returns>
+        /// <remarks>
+        /// SocRemap alone remains a display caveat and does not force fragile
+        /// precision. WideCi, LowEventCount, and ZeroCellCorrected do.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var precision = AeDashboardDerivation.ClassifyPrecision(signal);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AePrecisionClass"/>
+        public static AePrecisionClass ClassifyPrecision(
+            AeRiskSignalDto signal,
+            AeDashboardDerivationSettings? settings = null)
+        {
+            #region implementation
+
+            // Resolve settings first because the same thresholds drive fragile,
+            // wide, and tight precision outcomes.
+            settings ??= AeDashboardDerivationSettings.Default;
+
+            // Prefer already-derived flags when available; otherwise parse the raw
+            // calculation flag text from the risk-table row.
+            var flags = signal.Flags.Count > 0 ? signal.Flags : ParseFlags(signal.CalculationFlags);
+
+            // Total observed events are used as a proxy for statistical stability.
+            var totalEvents = (signal.EventsTreatment ?? 0.0) + (signal.EventsComparator ?? 0.0);
+
+            // Certain Stage 5 diagnostics force fragile precision because they
+            // indicate corrected or sparse evidence.
+            var hasFragileFlag = flags.Contains(AeDataQualityFlag.WideCi)
+                || flags.Contains(AeDataQualityFlag.LowEventCount)
+                || flags.Contains(AeDataQualityFlag.ZeroCellCorrected);
+
+            // Fragile precision wins when explicit flags, low event counts, or
+            // unusable confidence bounds make the RR too weak for normal tiering.
+            if (hasFragileFlag
+                || totalEvents < settings.PrecisionFragileEventCount
+                || !hasPositiveInterval(signal))
+            {
+                return AePrecisionClass.Fragile;
+            }
+
+            // Confidence interval width is measured on the log scale because RR is
+            // multiplicative; equal ratios above and below 1.0 should be symmetric.
+            var logCiWidth = Math.Log10(signal.RRUpperBound!.Value) - Math.Log10(signal.RRLowerBound!.Value);
+
+            // Wide precision still has usable direction, but should be visually
+            // caveated when the interval is broad or the event count is modest.
+            if (logCiWidth >= settings.PrecisionLogCiWideThreshold
+                || totalEvents < settings.PrecisionAdequateEventCount)
+            {
+                return AePrecisionClass.Wide;
+            }
+
+            // Tight is reserved for rows with adequate event support and a narrower
+            // confidence interval.
+            return AePrecisionClass.Tight;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Classifies a signal into the dashboard counseling tier.
+        /// </summary>
+        /// <param name="signal">Derived or raw signal DTO to classify.</param>
+        /// <returns>The counseling tier.</returns>
+        /// <remarks>
+        /// Raw signals are derived first when the required typed fields are absent.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var tier = AeDashboardDerivation.ClassifyCounselingTier(signal);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCounselingTier"/>
+        public static AeCounselingTier ClassifyCounselingTier(AeRiskSignalDto signal)
+        {
+            #region implementation
+
+            // Populate precision on raw DTOs so callers can use this method either
+            // before or after full signal derivation.
+            if (!signal.PrecisionClass.HasValue)
+            {
+                signal.PrecisionClass = ClassifyPrecision(signal);
+            }
+
+            // Populate significance on raw DTOs for the same defensive reason.
+            if (!signal.RiskSignificance.HasValue)
+            {
+                signal.RiskSignificance = ParseRiskSignificance(signal.Significance);
+            }
+
+            // These nullable booleans are derived from the typed significance value
+            // only when a prior derivation step has not already set them.
+            signal.IsSignificant ??= signal.RiskSignificance == AeRiskSignificance.Elevated
+                || signal.RiskSignificance == AeRiskSignificance.Protective;
+            signal.IsProtective ??= signal.RiskSignificance == AeRiskSignificance.Protective;
+
+            // Fragile rows are isolated first so weak evidence does not accidentally
+            // land in a counsel, watch, or reassure bucket.
+            if (signal.PrecisionClass == AePrecisionClass.Fragile)
+            {
+                return AeCounselingTier.Fragile;
+            }
+
+            // Non-significant and protective rows are reassuring rather than
+            // counseling alerts.
+            if (signal.IsSignificant != true || signal.IsProtective == true)
+            {
+                return AeCounselingTier.Reassure;
+            }
+
+            // Tight elevated rows with low NNH are the clearest counseling targets.
+            if (signal.PrecisionClass == AePrecisionClass.Tight
+                && signal.NumberNeeded.HasValue
+                && signal.NumberNeeded.Value <= 50.0)
+            {
+                return AeCounselingTier.Counsel;
+            }
+
+            // Serious SOC rows or less intense elevated findings still deserve a
+            // watch tier even when they do not meet the strongest counsel rule.
+            if (isSeriousSoc(signal.ParameterCategory)
+                || (signal.NumberNeeded.HasValue && signal.NumberNeeded.Value > 50.0))
+            {
+                return AeCounselingTier.Watch;
+            }
+
+            // Remaining elevated, non-fragile rows should still surface as counsel
+            // because they are significant and not protective.
+            return AeCounselingTier.Counsel;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Classifies a reverse-lookup signal verdict.
+        /// </summary>
+        /// <param name="signal">Derived or raw signal DTO to classify.</param>
+        /// <returns>The reverse-lookup verdict.</returns>
+        /// <remarks>
+        /// Fragile precision wins over signal direction so low-confidence rows do not
+        /// appear as causal or protective in the picker.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var verdict = AeDashboardDerivation.ClassifyReverseLookupVerdict(signal);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeReverseLookupVerdict"/>
+        public static AeReverseLookupVerdict ClassifyReverseLookupVerdict(AeRiskSignalDto signal)
+        {
+            #region implementation
+
+            // If callers passed a raw DTO, derive the fields this verdict depends on
+            // before applying the reverse-lookup labels.
+            if (!signal.PrecisionClass.HasValue || !signal.RiskSignificance.HasValue)
+            {
+                DeriveSignal(signal);
+            }
+
+            // Low-confidence evidence should not be presented as causal or
+            // protective, even when the source significance text has a direction.
+            if (signal.PrecisionClass == AePrecisionClass.Fragile)
+            {
+                return AeReverseLookupVerdict.LowConfidence;
+            }
+
+            // Elevated, non-fragile rows are the reverse lookup's causal-looking
+            // matches.
+            if (signal.RiskSignificance == AeRiskSignificance.Elevated)
+            {
+                return AeReverseLookupVerdict.PlausiblyCausal;
+            }
+
+            // Protective, non-fragile rows are explicitly labeled as protective.
+            if (signal.RiskSignificance == AeRiskSignificance.Protective)
+            {
+                return AeReverseLookupVerdict.Protective;
+            }
+
+            // Anything else is present but not significantly elevated for the
+            // searched term.
+            return AeReverseLookupVerdict.NotSignificantlyElevated;
+
+            #endregion
+        }
+
+        #endregion public methods
+
+        #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a deterministic explanation for a product score.
+        /// </summary>
+        private static string buildScoreReason(
+            AeDrugSummaryDto product,
+            AeDashboardDerivationSettings settings,
+            double placeboCoverage,
+            double activeCoverage,
+            double elevatedDensity,
+            double doseCoverage,
+            double socBreadth,
+            double rowVolume)
+        {
+            #region implementation
+
+            // Pair every score component with its weighted contribution so the
+            // reason text can identify the strongest positive drivers.
+            var contributors = new List<(string Label, double Value)>
+            {
+                ("placebo coverage", settings.ScoreWeights.PlaceboCoverage * placeboCoverage),
+                ("active comparator coverage", settings.ScoreWeights.ActiveCoverage * activeCoverage),
+                ("elevated signal density", settings.ScoreWeights.SignificantElevatedDensity * elevatedDensity),
+                ("dose coverage", settings.ScoreWeights.DoseCoverage * doseCoverage),
+                ("SOC breadth", settings.ScoreWeights.SocBreadth * socBreadth),
+                ("row volume", settings.ScoreWeights.RowVolume * rowVolume)
+            };
+
+            // Pick at most two non-zero contributors to keep the score explanation
+            // readable in card-sized UI.
+            var top = contributors
+                .Where(item => item.Value > 0.0)
+                .OrderByDescending(item => item.Value)
+                .ThenBy(item => item.Label)
+                .Take(2)
+                .Select(item => item.Label)
+                .ToList();
+
+            // Collect human-readable limiters in priority order; later text takes
+            // the first two so the message stays compact.
+            var limiters = new List<string>();
+
+            // Missing placebo rows limits interpretability against the safest
+            // comparator baseline.
+            if (!product.PlaceboCoverage)
+            {
+                limiters.Add("no placebo coverage");
+            }
+
+            // Missing active-comparator rows limits interchange-style comparisons.
+            if (!product.ActiveCoverage)
+            {
+                limiters.Add("no active comparator coverage");
+            }
+
+            // Low dose coverage means the dashboard has less dose-response context.
+            if (product.DoseCoverage < 0.5)
+            {
+                limiters.Add("limited dose coverage");
+            }
+
+            // Narrow SOC breadth means the product has fewer body-system categories
+            // represented in the risk table.
+            if (product.SocBreadth < Math.Max(product.SocTotal, 1) / 2.0)
+            {
+                limiters.Add("limited SOC breadth");
+            }
+
+            // Low row volume means fewer observations support the product summary.
+            if (product.RowCount < settings.ScoreRowCountTarget)
+            {
+                limiters.Add("limited row volume");
+            }
+
+            // Build fallback text so every product has a complete explanation even
+            // when no contributor or limiter is present.
+            var topText = top.Count > 0 ? string.Join(", ", top) : "no major contributors";
+
+            // Keep limiter text equally defensive so the final sentence is always
+            // complete.
+            var limiterText = limiters.Count > 0 ? string.Join(", ", limiters.Take(2)) : "no major limiters";
+
+            // Return a deterministic sentence used directly by dashboard cards.
+            return $"Top contributors: {topText}. Limiters: {limiterText}.";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates one quadrant point from a derived signal.
+        /// </summary>
+        private static AeQuadrantPointDto buildQuadrantPoint(AeRiskSignalDto signal)
+        {
+            #region implementation
+
+            // Wider confidence intervals reduce precision on the X axis; missing or
+            // invalid bounds use the widest supported value.
+            var logCiWidth = hasPositiveInterval(signal)
+                ? Math.Log10(signal.RRUpperBound!.Value) - Math.Log10(signal.RRLowerBound!.Value)
+                : 3.0;
+
+            // RR defaults to neutral 1.0 when missing or invalid so log10 math
+            // remains safe and the point centers vertically.
+            var rr = signal.RR.HasValue && signal.RR.Value > 0.0 ? signal.RR.Value : 1.0;
+
+            // Bubble size reflects observed evidence volume but never goes below
+            // zero when event columns are missing.
+            var totalEvents = Math.Max(0.0, (signal.EventsTreatment ?? 0.0) + (signal.EventsComparator ?? 0.0));
+
+            // Direction is derived from the already-computed signal flags so chart
+            // styling matches triage and reverse-lookup semantics.
+            var direction = signal.IsSignificant == true
+                ? signal.IsProtective == true ? AeRiskSignificance.Protective : AeRiskSignificance.Elevated
+                : AeRiskSignificance.NotSignificant;
+
+            // Clamp coordinates into the chart's expected 0-1 range and keep the
+            // encrypted row ID attached for downstream selection or drill-in.
+            return new AeQuadrantPointDto
+            {
+                EncryptedFlattenedAdverseEventRiskTableID = signal.EncryptedFlattenedAdverseEventRiskTableID,
+                Signal = signal,
+                PrecisionX = clamp(1.0 - logCiWidth / 3.0, 0.0, 1.0),
+                MagnitudeY = clamp((Math.Log10(rr) + 1.5) / 3.0, 0.0, 1.0),
+                BubbleSize = 8.0 + Math.Sqrt(totalEvents) * 1.6,
+                Direction = direction
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one interchange row for a normalized adverse-event term.
+        /// </summary>
+        private static AeInterchangeRowDto buildInterchangeRow(
+            string term,
+            IReadOnlyDictionary<string, AeRiskSignalDto> signalLookupA,
+            IReadOnlyDictionary<string, AeRiskSignalDto> signalLookupB)
+        {
+            #region implementation
+
+            // Try both product lookups because a term may exist on either side or
+            // both sides of the comparison.
+            signalLookupA.TryGetValue(term, out var signalA);
+            signalLookupB.TryGetValue(term, out var signalB);
+
+            // Classification is separated from DTO assembly so counts and labels
+            // can share the same interpretation.
+            var classification = classifyInterchange(signalA, signalB);
+
+            // Prefer the original source term casing from whichever signal exists,
+            // falling back to the normalized dictionary key only if both are absent.
+            return new AeInterchangeRowDto
+            {
+                ParameterName = signalA?.ParameterName ?? signalB?.ParameterName ?? term,
+                ParameterCategory = signalA?.ParameterCategory ?? signalB?.ParameterCategory,
+                SignalA = signalA,
+                SignalB = signalB,
+                Classification = classification,
+                DeltaLabel = buildDeltaLabel(classification, signalA, signalB)
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Classifies an interchange row from two optional signals.
+        /// </summary>
+        private static AeInterchangeClass classifyInterchange(
+            AeRiskSignalDto? signalA,
+            AeRiskSignalDto? signalB)
+        {
+            #region implementation
+
+            // A term found only on product A is a product-A-only difference.
+            if (signalA != null && signalB == null)
+            {
+                return AeInterchangeClass.OnlyA;
+            }
+
+            // A term found only on product B is a product-B-only difference.
+            if (signalA == null && signalB != null)
+            {
+                return AeInterchangeClass.OnlyB;
+            }
+
+            // This null-safety branch should rarely run after the only-side checks,
+            // but keeps the helper stable if called directly with two nulls.
+            if (signalA == null || signalB == null)
+            {
+                return AeInterchangeClass.Similar;
+            }
+
+            // If neither row is significant, or either RR cannot support log math,
+            // the row is not a meaningful comparative difference.
+            var neitherSignificant = signalA.IsSignificant != true && signalB.IsSignificant != true;
+
+            // The actual early-exit branch combines significance and RR validity
+            // because either condition makes the products similar for this view.
+            if (neitherSignificant || !hasPositiveValue(signalA.RR) || !hasPositiveValue(signalB.RR))
+            {
+                return AeInterchangeClass.Similar;
+            }
+
+            // Log-scale distance compares multiplicative risk differences rather
+            // than raw RR subtraction.
+            var logDiff = Math.Abs(Math.Log10(signalA.RR!.Value) - Math.Log10(signalB.RR!.Value));
+
+            // Treat tiny log-scale gaps as clinically similar for this dashboard
+            // comparison.
+            if (logDiff < 0.15)
+            {
+                return AeInterchangeClass.Similar;
+            }
+
+            // The larger RR is labeled worse when both products have comparable
+            // significant evidence for the same adverse-event term.
+            return signalA.RR > signalB.RR
+                ? AeInterchangeClass.AWorse
+                : AeInterchangeClass.BWorse;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds display text for an interchange row classification.
+        /// </summary>
+        private static string buildDeltaLabel(
+            AeInterchangeClass classification,
+            AeRiskSignalDto? signalA,
+            AeRiskSignalDto? signalB)
+        {
+            #region implementation
+
+            // Map internal comparison classes to concise display labels; signal
+            // parameters are retained in the signature for future label expansion.
+            return classification switch
+            {
+                AeInterchangeClass.OnlyA => "Only product A has this signal",
+                AeInterchangeClass.OnlyB => "Only product B has this signal",
+                AeInterchangeClass.AWorse => "Higher RR on product A",
+                AeInterchangeClass.BWorse => "Higher RR on product B",
+                _ => "Similar AE profile"
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Chooses a representative signal from duplicate terms.
+        /// </summary>
+        private static AeRiskSignalDto chooseRepresentativeSignal(IEnumerable<AeRiskSignalDto> signals)
+        {
+            #region implementation
+
+            // Prefer non-fragile, significant, low-number-needed, high-RR rows so a
+            // duplicate AE term is represented by the most actionable signal.
+            return signals
+                .OrderBy(signal => signal.PrecisionClass == AePrecisionClass.Fragile ? 1 : 0)
+                .ThenByDescending(signal => signal.IsSignificant == true)
+                .ThenBy(signal => signal.NumberNeeded ?? double.MaxValue)
+                .ThenByDescending(signal => signal.RR ?? 0.0)
+                .First();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a pharmacologic class mismatch warning when product classes differ.
+        /// </summary>
+        private static string? buildClassMismatchWarning(AeDrugSummaryDto productA, AeDrugSummaryDto productB)
+        {
+            #region implementation
+
+            // Prefer class code because it is more stable than display text, then
+            // fall back to the human-readable class name.
+            var classA = !string.IsNullOrWhiteSpace(productA.PharmClassCode)
+                ? productA.PharmClassCode
+                : productA.PharmClassName;
+
+            // Product B uses the same code-first fallback so both sides compare
+            // equivalent class representations.
+            var classB = !string.IsNullOrWhiteSpace(productB.PharmClassCode)
+                ? productB.PharmClassCode
+                : productB.PharmClassName;
+
+            // Emit a warning only when both products have class information and the
+            // normalized values differ.
+            if (!string.IsNullOrWhiteSpace(classA)
+                && !string.IsNullOrWhiteSpace(classB)
+                && !string.Equals(classA, classB, StringComparison.OrdinalIgnoreCase))
+            {
+                return "Products have different pharmacologic classes.";
+            }
+
+            // No warning is returned when either class is missing or both match.
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a comparator coverage mismatch warning when products differ.
+        /// </summary>
+        private static string? buildComparatorMismatchWarning(AeDrugSummaryDto productA, AeDrugSummaryDto productB)
+        {
+            #region implementation
+
+            // Comparator coverage affects interpretability, so surface a warning
+            // when one product has placebo or active coverage that the other lacks.
+            if (productA.PlaceboCoverage != productB.PlaceboCoverage
+                || productA.ActiveCoverage != productB.ActiveCoverage)
+            {
+                return "Products have different comparator coverage mixes.";
+            }
+
+            // Matching comparator coverage requires no warning text.
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Computes reverse lookup ordering priority.
+        /// </summary>
+        private static int reverseLookupRank(AeReverseLookupMatchDto match)
+        {
+            #region implementation
+
+            // Lower ranks sort earlier in reverse lookup results; causal-looking
+            // matches therefore appear before protective or neutral matches.
+            return match.Verdict switch
+            {
+                AeReverseLookupVerdict.PlausiblyCausal => 0,
+                AeReverseLookupVerdict.Protective => 1,
+                AeReverseLookupVerdict.NotSignificantlyElevated => 2,
+                _ => 4
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks whether a signal has positive confidence interval bounds.
+        /// </summary>
+        private static bool hasPositiveInterval(AeRiskSignalDto signal)
+        {
+            #region implementation
+
+            // Both lower and upper RR bounds must be positive before any log10
+            // precision math can run safely.
+            return hasPositiveValue(signal.RRLowerBound) && hasPositiveValue(signal.RRUpperBound);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks whether a nullable number is positive.
+        /// </summary>
+        private static bool hasPositiveValue(double? value)
+        {
+            #region implementation
+
+            // Positive finite values are the only safe inputs for RR log operations.
+            return value.HasValue && value.Value > 0.0 && !double.IsNaN(value.Value) && !double.IsInfinity(value.Value);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Checks whether the supplied SOC is treated as serious dashboard context.
+        /// </summary>
+        private static bool isSeriousSoc(string? parameterCategory)
+        {
+            #region implementation
+
+            // A blank SOC cannot be treated as serious; otherwise trim before
+            // matching the metadata list.
+            return !string.IsNullOrWhiteSpace(parameterCategory)
+                && AeDashboardMetadata.SocSerious.Contains(parameterCategory.Trim());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes a Stage 5 flag token for tolerant parsing.
+        /// </summary>
+        private static string normalizeFlag(string flag)
+        {
+            #region implementation
+
+            // Remove punctuation and casing differences so Stage 5 flag text can be
+            // matched even if delimiters or naming style drift.
+            return flag
+                .Replace("_", string.Empty, StringComparison.Ordinal)
+                .Replace("-", string.Empty, StringComparison.Ordinal)
+                .Replace(" ", string.Empty, StringComparison.Ordinal)
+                .ToLowerInvariant();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Bounds a number to the supplied inclusive range.
+        /// </summary>
+        private static double clamp(double value, double min, double max)
+        {
+            #region implementation
+
+            // Clamp by applying the lower bound first and then the upper bound.
+            return Math.Min(Math.Max(value, min), max);
+
+            #endregion
+        }
+
+        #endregion private methods
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Settings used by AE dashboard derivation helpers.
+    /// </summary>
+    /// <remarks>
+    /// Defaults mirror the FeatureFlags:AeDashboard appsettings section so data
+    /// access can remain controller-ready without hard-coded threshold references
+    /// scattered through query methods.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var settings = AeDashboardDerivationSettings.Default;
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeDashboardDerivation"/>
+    public sealed class AeDashboardDerivationSettings
+    {
+        #region properties
+
+        /**************************************************************/
+        /// <summary>Gets the default dashboard derivation settings.</summary>
+        public static AeDashboardDerivationSettings Default => new();
+
+        /**************************************************************/
+        /// <summary>Gets or sets the log10 confidence interval width threshold for wide precision.</summary>
+        public double PrecisionLogCiWideThreshold { get; set; } = 0.5;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the event-count threshold below which precision is wide.</summary>
+        public int PrecisionAdequateEventCount { get; set; } = 30;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the event-count threshold below which precision is fragile.</summary>
+        public int PrecisionFragileEventCount { get; set; } = 10;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the score weights used by product score derivation.</summary>
+        public AeDashboardScoreWeights ScoreWeights { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Gets or sets the row-count target that gives full score credit for row volume.</summary>
+        public int ScoreRowCountTarget { get; set; } = 40;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the favorite ordering mode used by favorite data access.</summary>
+        public string FavoriteOrdering { get; set; } = "CreatedAtDescending";
+
+        /**************************************************************/
+        /// <summary>Gets or sets the favorite delete mode used by favorite data access.</summary>
+        public string FavoriteDeleteMode { get; set; } = "HardDelete";
+
+        #endregion properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Score weights used by AE dashboard product score derivation.
+    /// </summary>
+    /// <remarks>
+    /// Values are interpreted as fractions of the total product score and mirror
+    /// the FeatureFlags:AeDashboard:ScoreWeights defaults.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var weights = new AeDashboardScoreWeights { PlaceboCoverage = 0.25 };
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeDashboardDerivationSettings"/>
+    public sealed class AeDashboardScoreWeights
+    {
+        #region properties
+
+        /**************************************************************/
+        /// <summary>Gets or sets the placebo comparator coverage score weight.</summary>
+        public double PlaceboCoverage { get; set; } = 0.25;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the active comparator coverage score weight.</summary>
+        public double ActiveCoverage { get; set; } = 0.05;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the significant elevated signal density score weight.</summary>
+        public double SignificantElevatedDensity { get; set; } = 0.25;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the dose coverage score weight.</summary>
+        public double DoseCoverage { get; set; } = 0.15;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the SOC breadth score weight.</summary>
+        public double SocBreadth { get; set; } = 0.20;
+
+        /**************************************************************/
+        /// <summary>Gets or sets the row volume score weight.</summary>
+        public double RowVolume { get; set; } = 0.10;
+
+        #endregion properties
+    }
+}

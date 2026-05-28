@@ -225,6 +225,26 @@ namespace MedRecPro.Controllers
         ///   "caching": true,
         ///   "fileStorage": true,
         ///   "razorTemplates": true,
+        ///   "aeDashboard": {
+        ///     "enabled": true,
+        ///     "precision": {
+        ///       "logCiWideThreshold": 0.5,
+        ///       "adequateEventCount": 30,
+        ///       "fragileEventCount": 10
+        ///     },
+        ///     "scoreWeights": {
+        ///       "placeboCoverage": 0.25,
+        ///       "activeCoverage": 0.05,
+        ///       "significantElevatedDensity": 0.25,
+        ///       "doseCoverage": 0.15,
+        ///       "socBreadth": 0.20,
+        ///       "rowVolume": 0.10
+        ///     },
+        ///     "scoreRowCountTarget": 40,
+        ///     "favoriteOrdering": "CreatedAtDescending",
+        ///     "favoriteDeleteMode": "HardDelete",
+        ///     "serverSideRecentsEnabled": false
+        ///   },
         ///   "tarpitEnabled": true,
         ///   "tarpitTriggerThreshold": 5,
         ///   "tarpitMaxDelayMs": 30000,
@@ -250,6 +270,8 @@ namespace MedRecPro.Controllers
             {
 
                 var featureFlagsSection = _configuration.GetSection("FeatureFlags");
+                var aeDashboardSection = featureFlagsSection.GetSection("AeDashboard");
+                var aeDashboardScoreSection = aeDashboardSection.GetSection("ScoreWeights");
                 var tarpitSection = _configuration.GetSection("TarpitSettings");
 
                 var response = new
@@ -269,6 +291,29 @@ namespace MedRecPro.Controllers
                     caching = _configuration.GetValue<bool>("ComparisonSettings:EnableCaching", true),
                     fileStorage = _configuration.GetSection("FileStorageSettings").Exists(),
                     razorTemplates = _configuration.GetSection("RazorLight").Exists(),
+                    aeDashboard = new
+                    {
+                        enabled = aeDashboardSection.GetValue<bool>("Enabled", true),
+                        precision = new
+                        {
+                            logCiWideThreshold = aeDashboardSection.GetValue<double>("PrecisionLogCiWideThreshold", 0.5),
+                            adequateEventCount = aeDashboardSection.GetValue<int>("PrecisionAdequateEventCount", 30),
+                            fragileEventCount = aeDashboardSection.GetValue<int>("PrecisionFragileEventCount", 10)
+                        },
+                        scoreWeights = new
+                        {
+                            placeboCoverage = aeDashboardScoreSection.GetValue<double>("PlaceboCoverage", 0.25),
+                            activeCoverage = aeDashboardScoreSection.GetValue<double>("ActiveCoverage", 0.05),
+                            significantElevatedDensity = aeDashboardScoreSection.GetValue<double>("SignificantElevatedDensity", 0.25),
+                            doseCoverage = aeDashboardScoreSection.GetValue<double>("DoseCoverage", 0.15),
+                            socBreadth = aeDashboardScoreSection.GetValue<double>("SocBreadth", 0.20),
+                            rowVolume = aeDashboardScoreSection.GetValue<double>("RowVolume", 0.10)
+                        },
+                        scoreRowCountTarget = aeDashboardSection.GetValue<int>("ScoreRowCountTarget", 40),
+                        favoriteOrdering = aeDashboardSection.GetValue<string>("FavoriteOrdering", "CreatedAtDescending"),
+                        favoriteDeleteMode = aeDashboardSection.GetValue<string>("FavoriteDeleteMode", "HardDelete"),
+                        serverSideRecentsEnabled = aeDashboardSection.GetValue<bool>("ServerSideRecentsEnabled", false)
+                    },
                     tarpitEnabled = tarpitSection.GetValue<bool>("Enabled", true),
                     tarpitTriggerThreshold = tarpitSection.GetValue<int>("TriggerThreshold", 5),
                     tarpitMaxDelayMs = tarpitSection.GetValue<int>("MaxDelayMs", 30000),

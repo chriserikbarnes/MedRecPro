@@ -126,6 +126,9 @@
 		<None Update="Skills\interfaces\api\pharmacologic-class.md">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<None Update="Skills\interfaces\api\orange-book-patents.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 		<!-- AI service skill files (ClaudeSearchService) -->
 		<None Update="Skills\product-extraction.md">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

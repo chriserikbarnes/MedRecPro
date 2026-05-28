@@ -1700,6 +1700,154 @@ namespace MedRecProTest
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Seeds a row into the vw_AeDrugSummary backing table via raw SQL.
+        /// </summary>
+        public static void SeedAeDrugSummaryView(
+            SqliteConnection connection,
+            Guid? documentGuid = null,
+            string productName = "ASPIRIN",
+            string substanceName = "Aspirin",
+            string unii = "R16CO5Y76E",
+            string pharmClassCode = "N0000175722",
+            string pharmClassName = "Nonsteroidal Anti-inflammatory Drug",
+            int? activeMoietyId = 10,
+            int? ingredientSubstanceId = 20,
+            int? pharmacologicClassId = 30,
+            int? armN = 100,
+            int? comparatorN = 100,
+            int rowCount = 40,
+            int significantCount = 4,
+            int significantProtectiveCount = 1,
+            int significantElevatedCount = 3,
+            bool placeboCoverage = true,
+            bool activeCoverage = false,
+            double doseCoverage = 0.75,
+            int socBreadth = 8,
+            int socTotal = 17,
+            string monoComboMix = "mono")
+        {
+            #region implementation
+
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"INSERT INTO ""vw_AeDrugSummary""
+                (DocumentGUID, ProductName, SubstanceName, UNII, PharmClassCode, PharmClassName,
+                 ActiveMoietyID, IngredientSubstanceID, PharmacologicClassID, ArmN, ComparatorN,
+                 RowCount, SignificantCount, SignificantProtectiveCount, SignificantElevatedCount,
+                 PlaceboCoverage, ActiveCoverage, DoseCoverage, SocBreadth, SocTotal, MonoComboMix)
+                VALUES ($docGuid, $productName, $substanceName, $unii, $classCode, $className,
+                        $activeMoietyId, $ingredientSubstanceId, $pharmacologicClassId, $armN, $comparatorN,
+                        $rowCount, $significantCount, $significantProtectiveCount, $significantElevatedCount,
+                        $placeboCoverage, $activeCoverage, $doseCoverage, $socBreadth, $socTotal, $monoComboMix)";
+            cmd.Parameters.AddWithValue("$docGuid", (documentGuid ?? TestDocumentGuid).ToString("D").ToUpper());
+            cmd.Parameters.AddWithValue("$productName", productName);
+            cmd.Parameters.AddWithValue("$substanceName", substanceName);
+            cmd.Parameters.AddWithValue("$unii", unii);
+            cmd.Parameters.AddWithValue("$classCode", pharmClassCode);
+            cmd.Parameters.AddWithValue("$className", pharmClassName);
+            cmd.Parameters.AddWithValue("$activeMoietyId", (object?)activeMoietyId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ingredientSubstanceId", (object?)ingredientSubstanceId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pharmacologicClassId", (object?)pharmacologicClassId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$armN", (object?)armN ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$comparatorN", (object?)comparatorN ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$rowCount", rowCount);
+            cmd.Parameters.AddWithValue("$significantCount", significantCount);
+            cmd.Parameters.AddWithValue("$significantProtectiveCount", significantProtectiveCount);
+            cmd.Parameters.AddWithValue("$significantElevatedCount", significantElevatedCount);
+            cmd.Parameters.AddWithValue("$placeboCoverage", placeboCoverage ? 1 : 0);
+            cmd.Parameters.AddWithValue("$activeCoverage", activeCoverage ? 1 : 0);
+            cmd.Parameters.AddWithValue("$doseCoverage", doseCoverage);
+            cmd.Parameters.AddWithValue("$socBreadth", socBreadth);
+            cmd.Parameters.AddWithValue("$socTotal", socTotal);
+            cmd.Parameters.AddWithValue("$monoComboMix", monoComboMix);
+            cmd.ExecuteNonQuery();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Seeds a row into the tmp_FlattenedAdverseEventRiskTable backing table via raw SQL.
+        /// </summary>
+        public static void SeedAeRiskSignalTable(
+            SqliteConnection connection,
+            Guid? documentGuid = null,
+            int riskId = 1,
+            int adverseEventId = 11,
+            int standardizedId = 111,
+            string productName = "ASPIRIN",
+            string substanceName = "Aspirin",
+            string unii = "R16CO5Y76E",
+            bool isPlaceboControlled = true,
+            bool isCombo = false,
+            string parameterName = "Headache",
+            string parameterCategory = "Nervous System",
+            string significance = "elevated",
+            string numberNeededType = "NNH",
+            int? armN = 100,
+            int? comparatorN = 100,
+            double? eventsTreatment = 30,
+            double? eventsComparator = 10,
+            double? rr = 3.0,
+            double? rrLowerBound = 1.4,
+            double? rrUpperBound = 6.2,
+            double? numberNeeded = 25,
+            string? calculationFlags = null,
+            decimal? dose = 10,
+            string? doseUnit = "mg")
+        {
+            #region implementation
+
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"INSERT INTO ""tmp_FlattenedAdverseEventRiskTable""
+                (""tmp_FlattenedAdverseEventRiskTableID"", DocumentGUID,
+                 ""tmp_FlattenedAdverseEventTableID"", ""tmp_FlattenedStandardizedTableID"",
+                 ActiveMoietyID, IngredientSubstanceID, PharmacologicClassID,
+                 ProductName, SubstanceName, PharmClassCode, PharmClassName,
+                 IsPlaceboControlled, ParameterName, ParameterCategory, Significance, NumberNeededType,
+                 ArmN, ComparatorN, EventsTreatment, EventsComparator, NumberNeeded,
+                 NumberNeededLowerBound, NumberNeededUpperBound, RR, RRLowerBound, RRUpperBound,
+                 LogRR, LogRRLowerBound, LogRRUpperBound, UNII, IsCombo, CalculationFlags,
+                 StudyContext, Population, Subpopulation, Dose, DoseUnit)
+                VALUES ($riskId, $docGuid,
+                        $adverseEventId, $standardizedId,
+                        10, 20, 30,
+                        $productName, $substanceName, 'N0000175722', 'Nonsteroidal Anti-inflammatory Drug',
+                        $isPlaceboControlled, $parameterName, $parameterCategory, $significance, $numberNeededType,
+                        $armN, $comparatorN, $eventsTreatment, $eventsComparator, $numberNeeded,
+                        NULL, NULL, $rr, $rrLowerBound, $rrUpperBound,
+                        NULL, NULL, NULL, $unii, $isCombo, $calculationFlags,
+                        'Trial', 'Adults', NULL, $dose, $doseUnit)";
+            cmd.Parameters.AddWithValue("$riskId", riskId);
+            cmd.Parameters.AddWithValue("$docGuid", (documentGuid ?? TestDocumentGuid).ToString("D").ToUpper());
+            cmd.Parameters.AddWithValue("$adverseEventId", adverseEventId);
+            cmd.Parameters.AddWithValue("$standardizedId", standardizedId);
+            cmd.Parameters.AddWithValue("$productName", productName);
+            cmd.Parameters.AddWithValue("$substanceName", substanceName);
+            cmd.Parameters.AddWithValue("$isPlaceboControlled", isPlaceboControlled ? 1 : 0);
+            cmd.Parameters.AddWithValue("$parameterName", parameterName);
+            cmd.Parameters.AddWithValue("$parameterCategory", parameterCategory);
+            cmd.Parameters.AddWithValue("$significance", significance);
+            cmd.Parameters.AddWithValue("$numberNeededType", numberNeededType);
+            cmd.Parameters.AddWithValue("$armN", (object?)armN ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$comparatorN", (object?)comparatorN ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$eventsTreatment", (object?)eventsTreatment ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$eventsComparator", (object?)eventsComparator ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$numberNeeded", (object?)numberNeeded ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$rr", (object?)rr ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$rrLowerBound", (object?)rrLowerBound ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$rrUpperBound", (object?)rrUpperBound ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$unii", unii);
+            cmd.Parameters.AddWithValue("$isCombo", isCombo ? 1 : 0);
+            cmd.Parameters.AddWithValue("$calculationFlags", (object?)calculationFlags ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dose", (object?)dose ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$doseUnit", (object?)doseUnit ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+
+            #endregion
+        }
+
         #endregion LabelView Raw SQL Seed Methods
     }
 }

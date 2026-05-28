@@ -417,6 +417,10 @@ namespace MedRecPro.Models
         /// <summary>Typed mono/combo/mixed product composition classification.</summary>
         public AeMonoComboMix? MonoComboMix { get; set; }
 
+        /**************************************************************/
+        /// <summary>Flag indicating whether the current authenticated user has favorited this product.</summary>
+        public bool IsFavorite { get; set; }
+
         #endregion Dashboard Coverage Properties
 
         #region Deferred Score Properties

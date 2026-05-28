@@ -40,6 +40,17 @@ namespace MedRecPro.Data
 
         public DbSet<ActivityLog> ActivityLogs { get; set; } // Maps to AspNetUserActivityLog table
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets or sets persisted AE dashboard product favorites for authenticated users.
+        /// </summary>
+        /// <remarks>
+        /// Maps to dbo.AspNetUserFavorite and is used by dashboard data-access methods
+        /// to enrich product summaries with user-specific favorite state.
+        /// </remarks>
+        /// <seealso cref="AspNetUserFavorite"/>
+        public DbSet<AspNetUserFavorite> AspNetUserFavorites { get; set; } = null!;
+
         public DbSet<SplData> SplData { get; set; }
 
         #region Custom Database Functions
@@ -266,6 +277,41 @@ namespace MedRecPro.Data
 
                 // EncryptedUserId is explicitly NotMapped.
                 // UserIdInternal is NotMapped.
+            });
+
+            builder.Entity<AspNetUserFavorite>(entity =>
+            {
+                entity.ToTable("AspNetUserFavorite");
+                entity.HasKey(e => e.AspNetUserFavoriteID);
+
+                entity.Property(e => e.AspNetUserFavoriteID)
+                    .ValueGeneratedOnAdd();
+
+                entity.Property(e => e.UserId)
+                    .IsRequired();
+
+                entity.Property(e => e.DocumentGUID)
+                    .IsRequired();
+
+                entity.Property(e => e.CreatedAt)
+                    .HasDefaultValueSql("SYSUTCDATETIME()")
+                    .IsRequired();
+
+                entity.HasOne(e => e.User)
+                    .WithMany()
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                entity.HasIndex(e => new { e.UserId, e.DocumentGUID })
+                    .IsUnique()
+                    .HasDatabaseName("UX_AspNetUserFavorite_User_Document");
+
+                entity.HasIndex(e => e.UserId)
+                    .HasDatabaseName("IX_AspNetUserFavorite_UserId");
+
+                entity.HasIndex(e => e.DocumentGUID)
+                    .HasDatabaseName("IX_AspNetUserFavorite_DocumentGUID");
             });
 
             builder.Entity<IdentityRole<long>>(entity =>

@@ -4181,3 +4181,73 @@ Updated [AeDashboardDto.cs](MedRecPro/Models/AeDashboardDto.cs) to follow the ex
 **Verification.** `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with 179 existing warnings and 0 errors. `Select-String` confirmed every public nullable integer `*ID` accessor in `AeDashboardDto.cs` is preceded by `[Newtonsoft.Json.JsonIgnore]`. `git diff --check` passed with LF-to-CRLF warnings only.
 
 ---
+
+### 2026-05-28 9:15 AM EST — AE Dashboard Data Access Plan Revision
+
+Reviewed and rewrote [Plans/(pending) AE Data Access for Dashboards.md](<Plans/(pending) AE Data Access for Dashboards.md>) for the upcoming AE dashboard data-access implementation.
+
+**Plan revision.** Added the missing `AspNetUserFavorite` table requirement, including an idempotent SQL script path, FK to `AspNetUsers.Id` (`bigint`), EF model/DbContext mapping, favorite data-access methods, and demo-mode table preservation. Tightened the implementation scope so this pass stops at the data-access layer and leaves `AeDashboardController` for a later thin-controller slice.
+
+**Testing contract.** Added an auditable public-method matrix requiring MSTest coverage for every new dashboard/favorite public method. The plan now calls for focused derivation, data-access, favorite-persistence, and DbContext-mapping tests using the repo's MSTest/Moq/SQLite patterns instead of introducing xUnit conventions.
+
+**Verification.** Read back the revised plan head and tail to confirm the artifact was saved at the requested ignored `Plans/` path. No build or test run was applicable because this was a plan-only revision.
+
+---
+
+### 2026-05-28 9:58 AM EST — AE Dashboard Feature Flags Plan Update
+
+Adjusted [Plans/(pending) AE Data Access for Dashboards.md](<Plans/(pending) AE Data Access for Dashboards.md>) after confirming the existing `AspNetUsers` table shape, demo settings, and `ActivityLog`/`AspNetUserActivityLog` audit path.
+
+**Plan closure.** Closed the user-table creation gap by documenting that `dbo.AspNetUsers` already exists with `[Id] BIGINT IDENTITY(1,1)`, kept favorite persistence scoped to a new `AspNetUserFavorite` table only, and redirected favorite add/remove auditing to the existing activity logging path instead of adding a duplicate audit table.
+
+**Feature flags.** Added `AspNetUserFavorite` to `DemoModeSettings:PreserveTables`, introduced `FeatureFlags:AeDashboard` defaults in [appsettings.json](MedRecPro/appsettings.json), and surfaced those values through [SettingsController.cs](MedRecPro/Controllers/SettingsController.cs) so former confirmation decisions are now configurable.
+
+**Verification.** `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with 179 existing warnings and 0 errors. `git diff --check -- appsettings.json Controllers/SettingsController.cs` passed with LF-to-CRLF warnings only.
+
+---
+
+### 2026-05-28 10:08 AM EST — AE Dashboard Plan Readiness Wording
+
+Updated [Plans/(pending) AE Data Access for Dashboards.md](<Plans/(pending) AE Data Access for Dashboards.md>) so the opening review outcome no longer reads like an unresolved warning from the prior review pass.
+
+**Plan wording.** Changed the first sentence to state that the plan has been revised and is ready for implementation, while leaving the existing gap list and implementation guidance intact for historical context and execution detail.
+
+**Verification.** Read back the first eight lines of the plan and confirmed the new sentence appears under `Review Outcome`. No build or test run was needed for this documentation-only wording change.
+
+---
+
+### 2026-05-28 10:51 AM EST — AE Dashboard Data Access and Favorites
+
+Implemented the AE dashboard data-access layer from [Plans/(pending) AE Data Access for Dashboards.md](<Plans/(pending) AE Data Access for Dashboards.md>), stopping before controller work as planned.
+
+**Data access and derivation.** Added [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs), [AeDashboardFavoriteAccess.cs](MedRecPro/DataAccess/AeDashboardFavoriteAccess.cs), and [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs). The new surface reads `vw_AeDrugSummary` and `tmp_FlattenedAdverseEventRiskTable`, encrypts integer IDs, derives precision/tiering/scoring/quadrant/reverse-lookup/interchange fields, keeps anonymous catalog caching separate from user-specific favorite state, and exposes favorite add/remove/list methods through the existing `DtoLabelAccess` partial pattern.
+
+**Favorites persistence.** Added [AspNetUserFavorite.cs](MedRecPro/Models/AspNetUserFavorite.cs), [MedRecPro-Table-AspNetUserFavorite.sql](MedRecPro/SQL/MedRecPro-Table-AspNetUserFavorite.sql), explicit `ApplicationDbContext` mapping, and `AeDrugSummaryDto.IsFavorite`. The favorite table references `AspNetUsers.Id`, uses a unique `(UserId, DocumentGUID)` index, keeps hard-delete behavior, and leaves audit history to the existing activity-log pipeline.
+
+**Tests and packaging.** Added focused MSTest coverage in [AeDashboardDerivationTests.cs](MedRecProTest/AeDashboardDerivationTests.cs), [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs), and [AeDashboardFavoriteAccessTests.cs](MedRecProTest/AeDashboardFavoriteAccessTests.cs), with AE view seed helpers in [DtoLabelAccessTestHelper.cs](MedRecProTest/DtoLabelAccessTestHelper.cs). Also added `Skills/interfaces/api/orange-book-patents.md` to [MedRecPro.csproj](MedRecPro/MedRecPro.csproj) after the full suite exposed that existing skill file was not copied to the test output.
+
+**Verification.** `dotnet build MedRecPro/MedRecPro.csproj --no-restore` passed with existing warnings and 0 errors. Focused dashboard tests passed: `dotnet test MedRecProTest/MedRecProTest.csproj --filter "FullyQualifiedName~AeDashboardDerivationTests|FullyQualifiedName~AeDashboardDataAccessTests|FullyQualifiedName~AeDashboardFavoriteAccessTests" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` reported 17 passed, 0 failed. `dotnet build MedRecProImportClass/MedRecProImportClass.csproj --no-restore` and `dotnet build MedRecProConsole/MedRecProConsole.csproj --no-restore` passed with 0 warnings and 0 errors. Full regression passed after the skill copy fix: `dotnet test MedRecProTest/MedRecProTest.csproj -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` reported 2144 passed, 1 skipped, 0 failed. `git diff --check` passed with LF-to-CRLF warnings only.
+
+---
+
+### 2026-05-28 10:52 AM EST — AE Dashboard Data Access and Favorites
+
+Implemented the AE dashboard data-access plan for dashboard read models, pure derivation logic, and user favorites.
+
+**Data access and derivation.** Added `AspNetUserFavorite` EF/SQL support, dashboard read methods in `DtoLabelAccess`, favorite add/remove/list methods, and a pure `AeDashboardDerivation` helper for signal scoring, triage, forest plot, quadrant, reverse lookup, and interchange projection. Dashboard product summaries now expose `IsFavorite` while preserving encrypted client-facing identifier patterns.
+
+**Tests and packaging.** Added focused MSTest coverage for derivation branches, AE dashboard data-access methods, and favorite persistence/mapping. Added the missing `orange-book-patents.md` copy rule in `MedRecPro.csproj`, which fixed the unrelated full-suite skill-interface resource failures encountered during verification.
+
+**Verification.** `dotnet build MedRecPro\MedRecPro.csproj --no-restore`, `dotnet build MedRecProImportClass\MedRecProImportClass.csproj --no-restore`, and `dotnet build MedRecProConsole\MedRecProConsole.csproj --no-restore` passed. Focused AE dashboard tests passed with 17 tests. The full `MedRecProTest` suite passed with 2144 passed, 1 skipped, and 0 failed. `git diff --check` passed with LF-to-CRLF warnings only.
+
+---
+
+### 2026-05-28 11:11 AM EST — AE Dashboard Code Commentary Expansion
+
+Expanded the internal documentation in the AE dashboard data-access and derivation files so future dashboard work can trace how data moves from EF view/table rows into encrypted DTOs, derived risk classifications, chart payloads, and user favorite state.
+
+**Documentation.** Added detailed explanatory comments in [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs), [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs), and [AeDashboardFavoriteAccess.cs](MedRecPro/DataAccess/AeDashboardFavoriteAccess.cs). The new comments cover local variable purpose, query/materialization boundaries, cache eligibility, encryption choices, favorite ordering/idempotency branches, score inputs, precision thresholds, counseling tier branches, reverse-lookup ranking, quadrant coordinate derivation, and interchange comparison decisions.
+
+**Verification.** Confirmed each local `var`, `if`, `foreach`, `try/catch`, and switch expression in the three edited files has a preceding explanatory comment. `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with the existing 179 warnings and 0 errors. `git diff --check -- MedRecPro\DataAccess\AeDashboardDerivation.cs MedRecPro\DataAccess\DtoLabelAccess-AeDashboard.cs MedRecPro\DataAccess\AeDashboardFavoriteAccess.cs` passed with no output.
+
+---
