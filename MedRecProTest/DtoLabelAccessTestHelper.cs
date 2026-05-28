@@ -1723,7 +1723,7 @@ namespace MedRecProTest
             int significantElevatedCount = 3,
             bool placeboCoverage = true,
             bool activeCoverage = false,
-            double doseCoverage = 0.75,
+            decimal doseCoverage = 0.75m,
             int socBreadth = 8,
             int socTotal = 17,
             string monoComboMix = "mono")

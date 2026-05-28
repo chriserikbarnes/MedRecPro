@@ -4251,3 +4251,41 @@ Expanded the internal documentation in the AE dashboard data-access and derivati
 **Verification.** Confirmed each local `var`, `if`, `foreach`, `try/catch`, and switch expression in the three edited files has a preceding explanatory comment. `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with the existing 179 warnings and 0 errors. `git diff --check -- MedRecPro\DataAccess\AeDashboardDerivation.cs MedRecPro\DataAccess\DtoLabelAccess-AeDashboard.cs MedRecPro\DataAccess\AeDashboardFavoriteAccess.cs` passed with no output.
 
 ---
+
+### 2026-05-28 11:50 AM EST — AE Dashboard AdverseEventController API Plan
+
+Created a controller-only implementation plan for the AE dashboard API surface requested for `MedRecPro/Controllers/AdverseEventController.cs`.
+
+**Plan.** Added [Plans/(pending) AE Dashboard AdverseEventController API Plan.md](<Plans/(pending) AE Dashboard AdverseEventController API Plan.md>) following the existing `(pending)` plan filename convention. The plan maps the React prototype views to thin controller endpoints, keeps `jsx -> api -> data access` boundaries explicit, and routes all data shaping through the existing AE dashboard data-access and derivation files.
+
+**Authentication and Swagger.** The plan requires favorite reads/writes to resolve the current user from authenticated claims through `UserDataAccess`, never from a client-supplied user id, matching the strict gating pattern in `UsersController.cs`. It also specifies Swagger-friendly XML remarks, examples, response metadata, and controller tests for feature gating, validation, and authentication behavior.
+
+**Verification.** Read back the saved plan content, confirmed the target file path exists under `Plans/`, and verified `Plans/` remains git-ignored (`!! ../Plans/`), so direct file reads are the discovery path for this handoff. No build or test run was needed for this plan-only documentation change.
+
+---
+
+### 2026-05-28 12:15 PM EST — AE Dashboard AdverseEventController API
+
+Implemented the controller-only AE dashboard API plan for [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs), keeping the controller thin over the existing dashboard data-access surface.
+
+**Controller.** Added product catalog, favorites list, favorite add/remove, triage, forest, quadrant, reverse-lookup, and interchange endpoints under `/api/AdverseEvent`. The implementation enforces `FeatureFlags:AeDashboard:Enabled`, validates paging/GUID/query inputs, applies database throttle attributes, returns HTTP status codes instead of error payloads, and delegates query/derivation/favorite persistence to `DtoLabelAccess`.
+
+**Authentication and audit.** Favorite reads and writes now require `ApiAccess`, resolve the current user from claims through `ClaimHelper` and `UserDataAccess`, never accept a client-supplied user id, and apply `ActivityLogActionFilter` to favorite mutations. Public product catalog reads optionally enrich favorite state for a valid authenticated user and return `401` for stale or malformed authenticated principals.
+
+**Tests.** Added [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) using the existing MSTest/SQLite dashboard seed helpers. Coverage includes product pagination headers, anonymous versus authenticated favorite state, strict user gating, feature-disabled responses across every endpoint, favorite mutation semantics, visualization/reverse-lookup/interchange validation, and Swagger/auth/audit metadata.
+
+**Verification.** The first sandboxed focused test attempt was blocked by `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config` access, then reran with approved access. Focused verification passed: `dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventControllerTests|FullyQualifiedName~AeDashboard" -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` reported 27 passed, 0 failed. `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with the existing 179 warnings and 0 errors. Full regression passed: `dotnet test MedRecProTest\MedRecProTest.csproj -p:BaseOutputPath="C:\tmp\MedRecProTestOut\"` reported 2154 passed, 1 skipped, 0 failed. `git diff --check` passed with the existing LF-to-CRLF warning on `Journal.md`.
+
+---
+
+### 2026-05-28 12:47 PM EST — AE Dashboard DoseCoverage Cast Fix
+
+Fixed the AE dashboard product catalog cast failure that surfaced through [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs) when Entity Framework materialized `vw_AeDrugSummary.DoseCoverage`.
+
+**Implementation.** Updated [LabelView.cs](MedRecPro/Models/LabelView.cs) so `LabelView.AeDrugSummary.DoseCoverage` matches SQL Server's decimal materialization for the view's `AVG(CASE ... 1.0 ... 0.0 ...)` expression, then converted that decimal to the public DTO double shape in [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs). Adjusted [DtoLabelAccessTestHelper.cs](MedRecProTest/DtoLabelAccessTestHelper.cs) so AE drug summary seed data uses decimal dose coverage values.
+
+**Tests.** Added controller regression coverage in [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) to seed a decimal `DoseCoverage`, call `GetProducts`, verify the EF view model keeps the provider decimal type, and verify the returned `AeDrugSummaryDto.DoseCoverage` remains the expected double value.
+
+**Verification.** `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with 0 warnings and 0 errors. A sandboxed focused test rerun using `C:\tmp\MedRecProTestOut\` was blocked by access-denied copy errors in the output directory, then the approved rerun `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~AdverseEventControllerTests|FullyQualifiedName~AeDashboard" -p:BaseOutputPath="C:\tmp\MedRecProTestOutAeCoverage\"` passed with 28 passed, 0 failed, and existing test-project warnings. `git diff --check` passed with LF-to-CRLF warnings only.
+
+---

@@ -4113,7 +4113,12 @@ namespace MedRecPro.Models
 
             /**************************************************************/
             /// <summary>Fraction of represented rows with a populated treatment-arm dose.</summary>
-            public double DoseCoverage { get; set; }
+            /// <remarks>
+            /// SQL Server materializes the view's <c>AVG(CASE ... 1.0 ... 0.0 ...)</c>
+            /// expression as decimal, so the keyless EF view model keeps the same
+            /// provider type and lets DTO mapping convert to the public double shape.
+            /// </remarks>
+            public decimal DoseCoverage { get; set; }
 
             /**************************************************************/
             /// <summary>Number of distinct AE system-organ-class categories represented by the summary row.</summary>

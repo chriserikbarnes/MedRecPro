@@ -777,7 +777,7 @@ namespace MedRecPro.DataAccess
                 // picker filtering.
                 PlaceboCoverage = entity.PlaceboCoverage,
                 ActiveCoverage = entity.ActiveCoverage,
-                DoseCoverage = entity.DoseCoverage,
+                DoseCoverage = (double)entity.DoseCoverage,
                 SocBreadth = entity.SocBreadth,
 
                 // Fall back to dashboard metadata when the view does not provide a
