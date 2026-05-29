@@ -36,6 +36,7 @@ MedRecProStatic runs at the **root path** (`/`) as the parent IIS application. T
 | `/Home/Chat` | MedRecProStatic | AI chat interface |
 | `/Home/Terms` | MedRecProStatic | Terms of Service |
 | `/Home/Privacy` | MedRecProStatic | Privacy Policy |
+| `/adverse-events` | MedRecProStatic | React adverse-event dashboard island |
 | `/.well-known/*` | MedRecProStatic | OAuth/MCP discovery metadata |
 | `/api/*` | MedRecPro API | REST API (IIS virtual application) |
 | `/mcp` | MedRecProMCP | MCP Streamable HTTP transport (IIS virtual application) |
@@ -100,6 +101,7 @@ MedRecProStatic/
   appsettings.Development.json        # Local dev overrides
   Controllers/
     HomeController.cs                 # 4 actions: Index, Terms, Privacy, Chat
+    AdverseEventDashboardController.cs # /adverse-events React island host
   Middleware/
     TarpitMiddleware.cs               # Progressive delay for 404 abuse and endpoint rate limiting
   Models/
@@ -109,6 +111,8 @@ MedRecProStatic/
     ContentService.cs                 # Singleton JSON content loader
     TarpitService.cs                  # IP tracking, delay calculation, endpoint abuse detection
   Views/
+    AdverseEventDashboard/
+      Index.cshtml                    # Layout-free React dashboard host
     Home/
       Index.cshtml                    # Home/landing page
       Terms.cshtml                    # Terms of Service
@@ -116,6 +120,8 @@ MedRecProStatic/
       Chat.cshtml                     # AI chat interface
     Shared/
       _Layout.cshtml                  # Master layout template
+  wwwroot/
+    ae-dashboard/                     # Committed Vite build output from MedRecProReact
   Content/
     config.json                       # Site config (URLs, branding, version)
     pages.json                        # Page content (home, terms, privacy)

@@ -1,111 +1,2527 @@
+/* Dashboard-scoped design tokens aligned with the AE prototype. */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
-
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
+  --color-primary: #e5771e;
+  --color-primary-dark: #b95617;
+  --color-primary-soft: #fff1e5;
+  --color-teal: #75c8ae;
+  --color-teal-deep: #207867;
+  --color-teal-soft: #e8f5f0;
+  --color-cream: #fff8e6;
+  --color-brown: #342e2a;
+  --color-bg: #f6f8f7;
+  --color-surface: #ffffff;
+  --color-surface-soft: #faf7f3;
+  --color-border: #d8dfdc;
+  --color-border-strong: #c8d0cd;
+  --color-text: #1f2524;
+  --color-text-secondary: #56635f;
+  --color-text-tertiary: #7a8582;
+  --color-danger: #b42318;
+  --shadow-panel: 0 14px 42px rgba(35, 47, 45, 0.08);
+  --shadow-picker: 0 18px 48px rgba(35, 47, 45, 0.18);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --font-primary: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+  font-family: var(--font-primary);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
+/* The MVC island and Vite dev root share the same stable page sizing. */
 body {
   margin: 0;
+  color: var(--color-text);
+  background: var(--color-bg);
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+/* Standard box sizing prevents panel math from drifting across browsers. */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+/* Both mount IDs are supported so standalone and MVC-hosted modes behave alike. */
+#aeDashboardApp,
+#root {
+  min-height: 100vh;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
+/* The page background echoes the prototype without relying on decorative blobs. */
+.ae-dashboard-page {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, #edf4f2 0, #f6f8f7 240px),
+    var(--color-bg);
 }
 
-code,
-.counter {
-  font-family: var(--mono);
+/* The prototype app uses a wide, dense canvas with comfortable edge gutters. */
+.app {
+  width: min(1840px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 0 0 36px;
+}
+
+/* Shared focus styling keeps keyboard navigation visible and consistent. */
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid rgba(117, 200, 174, 0.42);
+  outline-offset: 2px;
+}
+
+/* All buttons inherit the dashboard font and avoid browser-default mismatch. */
+button {
+  font-family: var(--font-primary);
+}
+
+/* Disabled controls keep their footprint while communicating availability. */
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+/* ============================================================
+   Top Bar
+   ============================================================ */
+
+/* The top bar mirrors the prototype's compact product chrome. */
+.topbar {
+  height: 58px;
+  display: flex;
+  align-items: center;
+}
+
+/* The inner bar reserves one row for brand and utility actions. */
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+}
+
+/* Brand styling keeps the logo as the first-viewport identity signal. */
+.brand {
   display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+  align-items: center;
+  gap: 9px;
+  color: var(--color-brown);
+  font-size: 0.98rem;
+  font-weight: 800;
+  text-decoration: none;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
+/* The separator matches the prototype's quiet product-title split. */
+.brand-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--color-border-strong);
+}
+
+/* The product area name is intentionally lighter than the brand. */
+.brand-sub {
+  color: var(--color-text-secondary);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+/* Spacer pushes actions to the right edge without fixed widths. */
+.topbar-spacer {
+  flex: 1;
+  min-width: 12px;
+}
+
+/* Utility buttons stay compact like the prototype save/export controls. */
+.topbar-action {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* Available actions get a subtle lift on hover. */
+.topbar-action:not(:disabled):hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-dark);
+  background: var(--color-primary-soft);
+}
+
+/* ============================================================
+   Page Header and Product Picker
+   ============================================================ */
+
+/* The page header is unframed, matching the prototype's open dashboard layout. */
+.page-header {
+  display: grid;
+  gap: 18px;
+  padding: 24px 0 18px;
+}
+
+/* Breadcrumbs provide quiet orientation above the product title. */
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+/* Product selector groups the title trigger with coverage badges. */
+.drug-selector {
+  display: grid;
+  gap: 12px;
+  max-width: 1080px;
+}
+
+/* The picker wraps the title button and floating search panel. */
+.drug-title-wrap {
+  position: relative;
+  width: min(760px, 100%);
+}
+
+/* The title trigger replaces the earlier top search card. */
+.drug-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 2.6rem;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Long product names wrap cleanly instead of overflowing. */
+.drug-title span {
+  overflow-wrap: anywhere;
+}
+
+/* The chevron rotates when the floating picker is open. */
+.drug-title-chev {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  color: var(--color-primary);
+  transition: transform 160ms ease;
+}
+
+/* Open state mirrors the prototype drop-down affordance. */
+.drug-title.is-open .drug-title-chev {
+  transform: rotate(180deg);
+}
+
+/* Product metadata sits directly under the large title. */
+.drug-meta {
+  margin-top: 6px;
+  color: var(--color-text-secondary);
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+
+/* Hydration warnings stay close to the product identity. */
+.header-warning {
+  margin: 0;
+  color: var(--color-primary-dark);
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+/* Coverage badges line up with the prototype's compact pill row. */
+.coverage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Coverage badges reserve a stable pill footprint. */
+.cov-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+/* Active badges use teal as a positive coverage signal. */
+.cov-badge.is-on {
+  border-color: rgba(32, 120, 103, 0.22);
+  background: var(--color-teal-soft);
+  color: var(--color-teal-deep);
+}
+
+/* Inactive badges stay neutral but visible. */
+.cov-badge.is-off {
+  background: #f4f2f0;
+  color: var(--color-text-tertiary);
+}
+
+/* Badge dots match the active or inactive state. */
+.cov-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* Numeric badge details keep their own weight. */
+.cov-num {
+  font-weight: 900;
+}
+
+/* The floating picker follows the original prototype panel shape. */
+.picker {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 12px);
+  left: 0;
+  width: min(720px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-picker);
+}
+
+/* Search row reserves space for the icon, input, and count. */
+.picker-search {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: #fbfcfc;
+}
+
+/* Search icon is quiet and non-interactive. */
+.picker-search-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-tertiary);
+}
+
+/* Search input uses the prototype's flat control treatment. */
+.picker-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.96rem;
+  font-weight: 650;
+}
+
+/* Count text gives quick feedback without dominating search. */
+.picker-count {
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Picker body scrolls independently to keep the title anchored. */
+.picker-body {
+  max-height: 430px;
+  overflow: auto;
+}
+
+/* Section labels support fast scanning. */
+.picker-section-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: #f7faf9;
+  color: var(--color-text-tertiary);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+/* Product rows use the prototype's three-part list layout. */
+.picker-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 34px;
+  align-items: center;
+  gap: 14px;
+  min-height: 70px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+/* Hover, keyboard active, and selected states stay restrained. */
+.picker-item:hover,
+.picker-item.is-active {
+  background: var(--color-teal-soft);
+}
+
+/* Selected rows get the prototype left accent. */
+.picker-item.is-selected {
+  box-shadow: inset 4px 0 0 var(--color-primary);
+}
+
+/* Product identity text truncates within the row. */
+.pi-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* Product name is the dominant row label. */
+.pi-name {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Product subtitle carries generic and class context. */
+.pi-sub {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Right-side metrics stay compact and right aligned. */
+.pi-right {
+  display: grid;
+  gap: 3px;
+  justify-items: end;
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Score text uses the brand color for quick scanning. */
+.pi-score {
+  color: var(--color-primary-dark);
+}
+
+/* Star button is icon-only to keep rows dense. */
+.pi-star {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+/* Favorited rows use the brand color. */
+.pi-star.is-on {
+  border-color: rgba(229, 119, 30, 0.34);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/* The star SVG is fixed-size so labels never affect row height. */
+.pi-star-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Picker footer carries account-state messages. */
+.picker-foot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+}
+
+/* ============================================================
+   KPI Strip
+   ============================================================ */
+
+/* KPI grid uses four prototype cards on desktop. */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* KPI cards are repeated items with stable dimensions. */
+.kpi-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 126px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+/* KPI labels match the prototype's compact uppercase labels. */
+.kpi-label {
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+/* KPI values are large but constrained to their card. */
+.kpi-value {
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: 1.62rem;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+/* Unit text is smaller inside the value line. */
+.kpi-unit {
+  margin-left: 4px;
+  color: var(--color-text-secondary);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+/* KPI subtext supports multiple chips or a sentence. */
+.kpi-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: var(--color-text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+/* Pips mimic the prototype's small directional labels. */
+.kpi-pip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 850;
+}
+
+/* Pips add their own colored dot. */
+.kpi-pip::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* Elevated pips use brand orange. */
+.kpi-pip.orange {
+  color: var(--color-primary-dark);
+}
+
+/* Protective pips use teal. */
+.kpi-pip.teal {
+  color: var(--color-teal-deep);
+}
+
+/* Score bar uses ten stable segments. */
+.score-bar {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+  width: 100%;
+  max-width: 190px;
+}
+
+/* Empty score segments are visible but quiet. */
+.score-seg {
+  height: 9px;
+  border-radius: 999px;
+  background: #e7ecea;
+}
+
+/* Filled score segments use the prototype brand gradient reduced to a solid color. */
+.score-seg.on {
+  background: var(--color-primary);
+}
+
+/* ============================================================
+   Primary Panel and Controls
+   ============================================================ */
+
+/* The primary panel is the framed analytical tool surface from the prototype. */
+.panel {
+  margin-top: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+/* Panel header aligns title copy with tabs. */
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Heading block flexes while tabs preserve their size. */
+.panel-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Panel title follows the prototype's dense work-surface scale. */
+.panel-title {
+  color: var(--color-text);
+  font-size: 1.08rem;
+  font-weight: 900;
+}
+
+/* Panel subtitle stays quiet and single-purpose. */
+.panel-sub {
+  margin-top: 3px;
+  color: var(--color-text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+/* Tabs are segmented controls rather than large text buttons. */
+.tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(92px, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: #f6f8f7;
+}
+
+/* Tab buttons have fixed height to prevent layout shift. */
+.tab {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+/* Active tab is a filled surface like the prototype. */
+.tab.active {
+  background: var(--color-surface);
+  color: var(--color-primary-dark);
+  box-shadow: 0 1px 4px rgba(35, 47, 45, 0.1);
+}
+
+/* Filter row wraps naturally under the panel header. */
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Filter label is intentionally compact. */
+.filter-label {
+  margin-right: 4px;
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+/* Comparator chips use pill controls from the prototype. */
+.chip,
+.chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+/* Active comparator chips use brand orange. */
+.chip.active {
+  border-color: rgba(229, 119, 30, 0.32);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+}
+
+/* Toggle chips align to the right when space allows. */
+.chip-toggle {
+  margin-left: auto;
+}
+
+/* Toggle on state uses teal to distinguish it from comparator filtering. */
+.chip-toggle.on {
+  border-color: rgba(32, 120, 103, 0.26);
+  background: var(--color-teal-soft);
+  color: var(--color-teal-deep);
+}
+
+/* Switch track is fixed-size inside the toggle chip. */
+.sw {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  border-radius: 999px;
+  background: #cbd4d1;
+}
+
+/* Switch knob moves inside the fixed track. */
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  transition: transform 160ms ease;
+}
+
+/* On-state switch uses the same teal as the chip. */
+.chip-toggle.on .sw {
+  background: var(--color-teal-deep);
+}
+
+/* On-state knob moves right. */
+.chip-toggle.on .sw::after {
+  transform: translateX(12px);
+}
+
+/* ============================================================
+   Triage View
+   ============================================================ */
+
+/* Triage content keeps tier sections vertically stacked. */
+.triage-view {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px 18px;
+}
+
+/* Each tier has a colored marker but no nested card styling. */
+.tier {
+  display: grid;
+  gap: 8px;
+}
+
+/* Tier header matches prototype marker/count structure. */
+.tier-header {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+}
+
+/* Tier marker picks up tier-specific colors. */
+.tier-marker {
+  width: 10px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--color-primary);
+}
+
+/* Watch tier is deeper orange for seriousness. */
+.tier-watch .tier-marker {
+  background: #b95617;
+}
+
+/* Reassure tier uses teal. */
+.tier-reassure .tier-marker {
+  background: var(--color-teal-deep);
+}
+
+/* Fragile tier is neutral and subdued. */
+.tier-fragile .tier-marker {
+  background: #9da7a3;
+}
+
+/* Tier metadata truncates safely. */
+.tier-meta {
+  min-width: 0;
+}
+
+/* Tier names are compact clinical labels. */
+.tier-name {
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+/* Tier descriptions stay readable without overtaking rows. */
+.tier-desc {
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+/* Tier count is a small rounded counter. */
+.tier-count {
+  min-width: 32px;
   padding: 4px 8px;
-  background: var(--code-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+/* AE rows use a stable three-column grid with optional detail expansion. */
+.ae-row {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr) 132px;
+  gap: 14px;
+  align-items: center;
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+/* Hover state gently separates rows. */
+.ae-row:hover,
+.ae-row.expanded {
+  border-color: var(--color-border-strong);
+  background: #fcfdfd;
+}
+
+/* Fragile rows are visible but desaturated. */
+.ae-row.fragile {
+  opacity: 0.64;
+  background: #fbfbfa;
+}
+
+/* Number-needed block is intentionally fixed-width. */
+.ae-nnh {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-height: 64px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-soft);
+}
+
+/* Protective rows use a teal number-needed block. */
+.ae-row.protective .ae-nnh,
+.ae-row.reassure .ae-nnh {
+  background: var(--color-teal-soft);
+}
+
+/* Low-confidence rows use a neutral number-needed block. */
+.ae-row.fragile .ae-nnh {
+  background: #eef1f0;
+}
+
+/* Number-needed labels are small and explicit. */
+.ae-nnh-label,
+.ae-nnh-bounds,
+.ae-nnh-na span {
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+/* Number-needed value is the row's strongest visual anchor. */
+.ae-nnh-value {
+  color: var(--color-text);
+  font-size: 1.42rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+/* Prefix keeps approximation clear without using oversized glyphs. */
+.ae-nnh-prefix {
+  margin-right: 2px;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+
+/* Missing NNH state remains centered inside the fixed block. */
+.ae-nnh-na {
+  color: var(--color-text-secondary);
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+/* Main AE body truncates safely in the center column. */
+.ae-body {
+  min-width: 0;
+}
+
+/* AE term is the row title. */
+.ae-name {
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+/* Metadata tags wrap under long terms. */
+.ae-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+/* AE tags share a compact pill style. */
+.ae-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: #f7faf9;
+  color: var(--color-text-secondary);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+/* SOC tag gets slightly stronger contrast. */
+.ae-tag.soc {
+  background: var(--color-surface-soft);
+  color: var(--color-brown);
+}
+
+/* RR tag is numeric and brand-colored. */
+.ae-tag.rr {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+}
+
+/* Serious SOC tags use the danger color. */
+.ae-tag.serious {
+  border-color: rgba(180, 35, 24, 0.24);
+  background: #fff1f0;
+  color: var(--color-danger);
+}
+
+/* Combination and flag tags are neutral but distinct. */
+.ae-tag.combo,
+.ae-tag.flag {
+  background: #f1f3f2;
+}
+
+/* Right column aligns precision and details affordance. */
+.ae-right {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+/* Precision pill has a fixed visual structure. */
+.precision-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: lowercase;
+}
+
+/* Precision dot is fixed-size. */
+.precision-pill .pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* Tight precision uses teal. */
+.precision-pill.tight {
+  color: var(--color-teal-deep);
+}
+
+/* Wide precision uses orange. */
+.precision-pill.wide {
+  color: var(--color-primary-dark);
+}
+
+/* Fragile precision uses muted gray. */
+.precision-pill.fragile,
+.precision-pill.unknown {
+  color: var(--color-text-tertiary);
+}
+
+/* Details affordance is small and text-based. */
+.ae-expand {
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+/* Detail grid spans below the main row columns. */
+.ae-detail {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Detail cells have stable dimensions and no nested card shadow. */
+.ae-detail-cell {
+  display: grid;
+  gap: 3px;
+  min-height: 50px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: #f7faf9;
+}
+
+/* Wide detail cells span the row for explanatory flag text. */
+.ae-detail-cell.wide-cell {
+  grid-column: 1 / -1;
+}
+
+/* Detail labels are compact and uppercase. */
+.ae-detail-cell .lbl {
+  color: var(--color-text-tertiary);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+/* Detail values preserve readable line height. */
+.ae-detail-cell .val {
+  color: var(--color-text);
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+/* Secondary rate text stays muted. */
+.ae-detail-cell .val span {
+  color: var(--color-text-tertiary);
+}
+
+/* Wide detail text wraps normally. */
+.ae-detail-cell .val.wide {
+  font-weight: 700;
+}
+
+/* ============================================================
+   Forest Plot
+   ============================================================ */
+
+/* Forest view has prototype padding inside the panel. */
+.forest-view {
+  padding: 16px 18px 18px;
+}
+
+/* Legend wraps into multiple rows on smaller screens. */
+.forest-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+/* Legend items align dots and text. */
+.forest-legend-item,
+.forest-legend-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+/* Legend note is muted. */
+.forest-legend-note {
+  color: var(--color-text-tertiary);
+}
+
+/* Legend dots match chart direction colors. */
+.forest-legend-dot {
+  width: 10px;
+  height: 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+/* Elevated direction uses orange. */
+.forest-legend-dot.elevated {
+  background: var(--color-primary);
+}
+
+/* Protective direction uses teal. */
+.forest-legend-dot.protective {
+  background: var(--color-teal-deep);
+}
+
+/* Neutral direction uses a hollow dot. */
+.forest-legend-dot.neutral {
+  border-color: var(--color-text-tertiary);
+  background: var(--color-surface);
+}
+
+/* Forest chart is one scrollable work surface. */
+.forest-wrap {
+  overflow-x: auto;
+}
+
+/* Axis row reserves label width matching data rows. */
+.forest-axis {
+  display: grid;
+  grid-template-columns: 220px minmax(520px, 1fr);
+  gap: 16px;
+  min-width: 760px;
+  padding: 0 10px 10px;
+}
+
+/* Spacer keeps axis ticks aligned with tracks. */
+.forest-axis-spacer {
+  min-height: 1px;
+}
+
+/* Axis tick container is relative for absolute tick placement. */
+.forest-axis-ticks {
+  position: relative;
+  height: 24px;
+}
+
+/* Axis ticks are tiny but readable. */
+.forest-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  color: var(--color-text-tertiary);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+/* Reference tick is stronger. */
+.forest-tick.ref {
+  color: var(--color-text);
+}
+
+/* Forest rows align labels with tracks. */
+.forest-row {
+  display: grid;
+  grid-template-columns: 220px minmax(520px, 1fr);
+  gap: 16px;
+  align-items: center;
+  min-width: 760px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Fragile rows are muted. */
+.forest-row.fragile {
+  opacity: 0.56;
+}
+
+/* Forest labels truncate while exposing SOC underneath. */
+.forest-label {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.86rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* SOC subtitle is muted and block-level. */
+.forest-label .sub {
+  display: block;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 0.74rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Forest track hosts CI, caps, refline, and point. */
+.forest-track {
+  position: relative;
+  height: 28px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(32, 120, 103, 0.08), transparent 45%, transparent 55%, rgba(229, 119, 30, 0.08)),
+    #f4f6f5;
+}
+
+/* RR=1 reference line spans the track. */
+.forest-refline {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(31, 37, 36, 0.35);
+}
+
+/* Confidence interval bar is centered vertically. */
+.forest-ci {
+  position: absolute;
+  top: 13px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* CI caps mark lower and upper bounds. */
+.forest-ci-cap {
+  position: absolute;
+  top: 9px;
+  width: 2px;
+  height: 11px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* Point estimate is a centered dot. */
+.forest-pt {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--color-surface);
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(31, 37, 36, 0.22);
+}
+
+/* Elevated forest rows use orange. */
+.forest-row.elevated {
+  color: var(--color-primary);
+}
+
+/* Protective forest rows use teal. */
+.forest-row.protective {
+  color: var(--color-teal-deep);
+}
+
+/* Not-significant forest rows are neutral. */
+.forest-row.ns {
+  color: var(--color-text-tertiary);
+}
+
+/* ============================================================
+   Quadrant
+   ============================================================ */
+
+/* Quadrant wrapper uses prototype padding. */
+.quadrant-wrap {
+  padding: 16px 18px 18px;
+}
+
+/* Stage reserves room for the rotated y-axis label. */
+.quadrant-stage {
+  position: relative;
+  padding-left: 24px;
+}
+
+/* Y-axis label is compact and rotated. */
+.axis-y {
+  position: absolute;
+  left: -34px;
+  top: 50%;
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  transform: rotate(-90deg) translateX(-50%);
+  transform-origin: left top;
+  white-space: nowrap;
+}
+
+/* Quadrant canvas keeps a fixed analysis aspect ratio. */
+.quadrant {
+  position: relative;
+  min-height: 420px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(90deg, transparent calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(180deg, transparent calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% + 1px), transparent calc(50% + 1px)),
+    #fbfcfc;
+  overflow: hidden;
+}
+
+/* Quadrant labels occupy each cell without blocking dots. */
+.q-cell {
+  position: absolute;
+  display: grid;
+  gap: 3px;
+  width: 50%;
+  height: 50%;
+  padding: 14px;
+  pointer-events: none;
+}
+
+/* Top-left cell. */
+.q-cell.tl {
+  left: 0;
+  top: 0;
+}
+
+/* Top-right cell. */
+.q-cell.tr {
+  right: 0;
+  top: 0;
+  text-align: right;
+}
+
+/* Bottom-left cell. */
+.q-cell.bl {
+  left: 0;
+  bottom: 0;
+  align-content: end;
+}
+
+/* Bottom-right cell. */
+.q-cell.br {
+  right: 0;
+  bottom: 0;
+  align-content: end;
+  text-align: right;
+}
+
+/* Small quadrant label. */
+.q-cell-label {
+  color: var(--color-text-tertiary);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+/* Human-readable quadrant name. */
+.q-cell-name {
+  color: var(--color-text-secondary);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+/* Dots are real buttons for keyboard tooltip access. */
+.q-dot {
+  position: absolute;
+  z-index: 3;
+  min-width: 8px;
+  min-height: 8px;
+  border: 2px solid var(--color-surface);
+  border-radius: 999px;
+  background: var(--color-text-tertiary);
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 8px rgba(31, 37, 36, 0.22);
+}
+
+/* Elevated dots use orange. */
+.q-dot.elevated {
+  background: var(--color-primary);
+}
+
+/* Protective dots use teal. */
+.q-dot.protective {
+  background: var(--color-teal-deep);
+}
+
+/* Neutral dots are gray. */
+.q-dot.ns {
+  background: var(--color-text-tertiary);
+}
+
+/* Fragile dots are subdued. */
+.q-dot.fragile {
+  opacity: 0.54;
+}
+
+/* Tooltip follows hovered or focused dots. */
+.q-tooltip {
+  position: absolute;
+  z-index: 6;
+  min-width: 190px;
+  max-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  box-shadow: var(--shadow-picker);
+  transform: translate(10px, -50%);
+  pointer-events: none;
+}
+
+/* Tooltip details are muted. */
+.q-tooltip .small {
+  margin-top: 3px;
+  color: var(--color-text-secondary);
+}
+
+/* Quadrant axes sit under the plot. */
+.quadrant-axes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+/* Right axis label aligns right. */
+.quadrant-axes span:last-child {
+  text-align: right;
+}
+
+/* Legend spacing matches forest view. */
+.quadrant-legend {
+  padding-top: 16px;
+  padding-bottom: 0;
+}
+
+/* ============================================================
+   Shared States and Footer
+   ============================================================ */
+
+/* Loading and error states share compact dimensions to avoid row jumps. */
+.loading-state,
+.inline-error,
+.empty-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  margin: 16px 18px;
+  padding: 12px 14px;
+  color: var(--color-text-secondary);
+  font-size: 0.92rem;
+}
+
+/* Loading spinner is decorative and sized independently of label text. */
+.loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #dce5e3;
+  border-top-color: var(--color-teal-deep);
+  border-radius: 50%;
+  animation: ae-spin 0.8s linear infinite;
+}
+
+/* Inline errors use warning color while preserving normal text size. */
+.inline-error {
+  justify-content: space-between;
+  border: 1px solid rgba(180, 35, 24, 0.28);
+  border-radius: var(--radius-md);
+  background: #fff8f6;
+  color: var(--color-danger);
+}
+
+/* Retry buttons reuse a stable utility style. */
+.button,
+.button-secondary {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+/* Empty state keeps successful emptiness visually distinct from failures. */
+.empty-state {
+  display: grid;
+  align-content: center;
+}
+
+/* Empty-state title gets normal text contrast. */
+.empty-state strong {
+  color: var(--color-text);
+}
+
+/* Disabled state centers its message without using nested cards. */
+.disabled-feature {
+  display: grid;
+  align-content: center;
+  min-height: 100vh;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Disabled heading mirrors dashboard title scale. */
+.disabled-feature h1 {
+  margin: 8px 0;
+  font-size: 2rem;
+  letter-spacing: 0;
+}
+
+/* Disabled body text is muted. */
+.disabled-feature p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+/* Footer note is small and quiet like the prototype. */
+.foot-note {
+  margin: 14px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+/* Inline code in the footer uses site-style treatment. */
+.foot-note code {
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  color: var(--color-primary-dark);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+/* Spinner keyframes are the only repeated animation in the dashboard. */
+@keyframes ae-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================================
+   Responsive Behavior
+   ============================================================ */
+
+/* Mid-size layouts keep the prototype density while dropping to two KPI columns. */
+@media (max-width: 1080px) {
+  .app {
+    width: min(100% - 36px, 1840px);
+  }
+
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel-header {
+    display: grid;
+  }
+
+  .tabs {
+    width: 100%;
+  }
+
+  .chip-toggle {
+    margin-left: 0;
+  }
+
+  .ae-row {
+    grid-template-columns: 138px minmax(0, 1fr);
+  }
+
+  .ae-right {
+    grid-column: 1 / -1;
+    grid-template-columns: auto auto;
+    justify-content: start;
+  }
+
+  .ae-detail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Mobile layouts stack controls and maintain fixed-format chart scrolling. */
+@media (max-width: 680px) {
+  .app {
+    width: min(100% - 22px, 1840px);
+  }
+
+  .topbar {
+    height: auto;
+    padding: 12px 0 4px;
+  }
+
+  .topbar-inner {
+    flex-wrap: wrap;
+  }
+
+  .brand-sub,
+  .brand-sep {
+    display: none;
+  }
+
+  .topbar-spacer {
+    flex-basis: 100%;
+    height: 0;
+  }
+
+  .page-header {
+    padding-top: 16px;
+  }
+
+  .drug-title {
+    font-size: 1.86rem;
+  }
+
+  .drug-meta {
+    font-size: 0.96rem;
+  }
+
+  .picker {
+    width: calc(100vw - 22px);
+  }
+
+  .picker-search {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .picker-count {
+    display: none;
+  }
+
+  .picker-item {
+    grid-template-columns: minmax(0, 1fr) 34px;
+  }
+
+  .pi-right {
+    grid-column: 1 / -1;
+    justify-items: start;
+  }
+
+  .kpi-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-row {
+    align-items: stretch;
+  }
+
+  .filter-label {
+    flex-basis: 100%;
+  }
+
+  .chip,
+  .chip-toggle {
+    justify-content: center;
+    flex: 1 1 150px;
+  }
+
+  .ae-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ae-right {
+    grid-column: auto;
+  }
+
+  .ae-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .forest-axis,
+  .forest-row {
+    grid-template-columns: 180px minmax(420px, 1fr);
+    min-width: 640px;
+  }
+
+  .quadrant-stage {
+    padding-left: 0;
+  }
+
+  .axis-y {
+    display: none;
+  }
+
+  .quadrant {
+    min-height: 340px;
+  }
+
+  .q-cell-name {
+    font-size: 0.78rem;
+  }
+
+  .q-tooltip {
+    transform: translate(-50%, -110%);
+  }
+}
+
+/* ============================================================
+   Prototype alignment pass
+   ============================================================ */
+
+/* The AE prototype uses the warmer MedRecPro site palette. */
+:root {
+  --color-primary: #e5771e;
+  --color-primary-dark: #c4621a;
+  --color-primary-soft: #fff3e8;
+  --color-teal: #75c8ae;
+  --color-teal-deep: #167563;
+  --color-teal-soft: #e8f5f0;
+  --color-cream: #fff8e8;
+  --color-brown: #342e2a;
+  --color-bg: #fffdfb;
+  --color-surface: #ffffff;
+  --color-surface-soft: #faf7f3;
+  --color-border: #e4d9cf;
+  --color-border-strong: #d4c9bc;
+  --color-text: #342e2a;
+  --color-text-secondary: #7a5a45;
+  --color-text-tertiary: #9b7d6a;
+  --shadow-panel: none;
+  --shadow-picker: 0 16px 32px rgba(52, 46, 42, 0.16);
+  --font-primary: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+/* The hosted island should look like the prototype's flat document canvas. */
+body,
+.ae-dashboard-page {
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+/* The dashboard content spans the browser width with prototype gutters. */
+.app {
+  width: 100%;
+  margin: 0;
+  padding: 0 26px 36px;
+}
+
+/* The dark app bar is full-bleed even though the React island sits inside .app. */
+.topbar {
+  height: 50px;
+  margin-right: calc(50% - 50vw);
+  margin-left: calc(50% - 50vw);
+  padding: 0 26px;
+  background: var(--color-brown);
+}
+
+/* Top-bar contents align with the page gutter and keep a compact height. */
+.topbar-inner {
+  min-height: 50px;
+  gap: 12px;
+}
+
+/* The brand in the prototype is white text against the dark bar. */
+.brand {
+  gap: 9px;
+  color: #ffffff;
+  font-size: 0.96rem;
+  font-weight: 800;
+}
+
+/* The logo sits inside a white rounded tile. */
+.brand > svg {
+  box-sizing: content-box;
+  width: 24px;
+  height: 18px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+/* The bar separator is visible but subdued. */
+.brand-sep {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* The section label is lighter than the brand but still on the bar. */
+.brand-sub {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+/* Utility actions mirror the prototype's dark rounded buttons. */
+.topbar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* Available utility actions brighten slightly on hover. */
+.topbar-action:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+/* Icons inside utility buttons keep the action labels compact. */
+.topbar-action-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* The product header is open and white, not a green-tinted hero area. */
+.page-header {
+  gap: 14px;
+  padding: 20px 0 14px;
+}
+
+/* Breadcrumbs use the prototype's pale uppercase treatment. */
+.crumbs {
+  gap: 9px;
+  color: #b49684;
+  font-size: 0.74rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* The product selector and coverage pills share one horizontal row. */
+.drug-selector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 18px;
+  max-width: none;
+  align-items: start;
+}
+
+/* Linked-product warnings should not disturb the coverage row. */
+.header-warning {
+  grid-column: 1 / -1;
+}
+
+/* The title trigger is a compact badge-like text button. */
+.drug-title-wrap {
+  width: min(720px, 100%);
+}
+
+/* The product title scale now matches the prototype, not a landing-page H1. */
+.drug-title {
+  min-height: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f5ede8;
+  color: var(--color-text);
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1.12;
+}
+
+/* The chevron is small and orange like the prototype trigger. */
+.drug-title-chev {
+  width: 16px;
+  height: 16px;
+  color: var(--color-primary);
+}
+
+/* Product metadata is a quiet single-line row under the title. */
+.drug-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-top: 7px;
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+/* Metadata separators are drawn in CSS so JSX stays data-only. */
+.drug-meta-item + .drug-meta-item::before {
+  content: "\2022";
+  margin: 0 8px;
+  color: #a9826b;
+}
+
+/* Coverage badges sit to the right of the title row on wide screens. */
+.coverage-row {
+  justify-self: end;
+  align-self: center;
+  gap: 8px;
+}
+
+/* Prototype coverage pills are slimmer and mostly white. */
+.cov-badge {
+  min-height: 25px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Active coverage uses a small teal dot without a filled pill block. */
+.cov-badge.is-on {
+  border-color: var(--color-border);
+  background: #ffffff;
+  color: var(--color-text);
+}
+
+/* Inactive coverage stays pale and neutral. */
+.cov-badge.is-off {
+  background: #ffffff;
+  color: var(--color-text-tertiary);
+}
+
+/* Coverage dots keep the positive/neutral distinction. */
+.cov-badge.is-on .cov-dot {
+  color: var(--color-teal-deep);
+}
+
+/* The picker panel returns to the prototype's compact typeahead footprint. */
+.picker {
+  top: calc(100% + 8px);
+  width: min(448px, calc(100vw - 52px));
+  border-color: var(--color-border);
+  border-radius: 6px;
+}
+
+/* Search row height is reduced to match the original dropdown. */
+.picker-search {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  min-height: 40px;
+  padding: 7px 10px;
+  background: #fffdfb;
+}
+
+/* Search input text is normal-weight and smaller like the prototype. */
+.picker-input {
+  min-height: 28px;
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+/* Count text matches the small right-side product count. */
+.picker-count {
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+/* The dropdown body is shorter and denser. */
+.picker-body {
+  max-height: 340px;
+}
+
+/* Section labels are small, pale, and uppercase. */
+.picker-section-label {
+  padding: 8px 12px 6px;
+  background: #fffdfb;
+  color: #b49684;
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+/* Picker rows are denser and closer to the prototype examples. */
+.picker-item {
+  grid-template-columns: minmax(0, 1fr) auto 24px;
+  gap: 8px;
+  min-height: 50px;
+  padding: 8px 12px;
+  background: #ffffff;
+}
+
+/* Highlighted and active rows use warm paper, not green. */
+.picker-item:hover,
+.picker-item.is-active {
+  background: #fbf7f2;
+}
+
+/* The selected product uses the orange rail from the prototype. */
+.picker-item.is-selected {
+  background: #fbf7f2;
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+/* Product names in the picker are bold but not oversized. */
+.pi-name {
+  font-size: 0.79rem;
+  font-weight: 800;
+}
+
+/* Picker subtitles are intentionally small. */
+.pi-sub {
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+}
+
+/* Row metrics align to the prototype's right edge. */
+.pi-right {
+  gap: 2px;
+  color: var(--color-text-tertiary);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+/* Product score uses a muted badge instead of loud text. */
+.pi-score {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #f5ede8;
+  color: var(--color-text-secondary);
+}
+
+/* Star buttons are icon-sized inside dense rows. */
+.pi-star {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+}
+
+/* Favorited stars stay filled with the same orange. */
+.pi-star.is-on {
+  background: transparent;
+  color: var(--color-primary);
+}
+
+/* Footer shortcut hints match the prototype panel footer. */
+.picker-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 7px 12px;
+  background: #faf7f3;
+  color: var(--color-text-tertiary);
+  font-size: 0.66rem;
+}
+
+/* Keyboard hint pills stay tiny and stable. */
+.picker-foot kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 14px;
+  margin-right: 3px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  background: #ffffff;
+  color: var(--color-text-secondary);
+  font-family: var(--font-primary);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+/* Loading and error states inside the picker must not inherit panel margins. */
+.picker .loading-state,
+.picker .inline-error,
+.picker .empty-state {
+  margin: 8px;
+}
+
+/* KPI cards begin after the product identity rule like the prototype. */
+.kpi-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* KPI cards are shorter and lighter. */
+.kpi-card {
+  min-height: 88px;
+  gap: 7px;
+  padding: 13px 14px;
+  border-color: var(--color-border);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+/* KPI labels follow the small copper uppercase style. */
+.kpi-label {
+  color: #a9826b;
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+/* KPI values are strong but compact. */
+.kpi-value {
+  font-size: 1.42rem;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+/* KPI units are tucked close to the number. */
+.kpi-unit {
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* KPI subcopy mirrors the prototype's muted sentence scale. */
+.kpi-sub {
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+}
+
+/* Score segments are teal in the prototype summary cards. */
+.score-bar {
+  max-width: 170px;
+  gap: 5px;
+}
+
+/* Score segments are narrow strips. */
+.score-seg {
+  height: 4px;
+  background: #e5ddd5;
+}
+
+/* Filled score segments use teal, matching the prototype chart-worthiness card. */
+.score-seg.on {
+  background: #4ba78f;
+}
+
+/* The analytical panel is a light framed tool surface. */
+.panel {
+  margin-top: 14px;
+  border-color: var(--color-border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+/* Panel headers are compact and white. */
+.panel-header {
+  align-items: center;
+  padding: 16px;
+  border-bottom-color: var(--color-border);
+}
+
+/* Panel title matches the prototype work-surface heading. */
+.panel-title {
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+/* Panel subtitle is smaller and warm-muted. */
+.panel-sub {
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+}
+
+/* Tabs use a warm segmented shell. */
+.tabs {
+  grid-template-columns: repeat(3, minmax(72px, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border-color: var(--color-border);
+  background: #fbf7f2;
+}
+
+/* Tab buttons stay small. */
+.tab {
+  min-height: 28px;
+  padding: 0 10px;
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* Active tabs are dark brown like the prototype. */
+.tab.active {
+  background: var(--color-brown);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+/* Comparator controls live on a slim white rule. */
+.filter-row {
+  gap: 7px;
+  padding: 13px 16px;
+  border-bottom-color: var(--color-border);
+}
+
+/* Filter labels use the prototype's small uppercase label style. */
+.filter-label {
+  color: var(--color-text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* Chips are smaller and less pillowy. */
+.chip,
+.chip-toggle {
+  min-height: 24px;
+  padding: 0 10px;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* Active chips are dark brown like the prototype comparator selection. */
+.chip.active {
+  border-color: var(--color-brown);
+  background: var(--color-brown);
+  color: #ffffff;
+}
+
+/* Fragile toggle uses the prototype's warm switch color. */
+.chip-toggle.on {
+  border-color: #f0d3bc;
+  background: #fff7f1;
+  color: var(--color-text);
+}
+
+/* The switch itself is compact. */
+.sw {
+  width: 24px;
+  height: 14px;
+}
+
+/* Orange switch track mirrors the prototype toggle. */
+.chip-toggle.on .sw {
+  background: var(--color-primary);
+}
+
+/* The row list is flat, with tier headers and separators instead of cards. */
+.triage-view {
+  gap: 0;
+  padding: 0;
+}
+
+/* Tiers stack as rule-separated sections. */
+.tier {
+  gap: 0;
+}
+
+/* Tier headers are warm bands with a slim orange rail. */
+.tier-header {
+  grid-template-columns: 5px minmax(0, 1fr) auto;
+  min-height: 54px;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+  background: #fbf7f2;
+}
+
+/* The first tier does not double the filter row border. */
+.tier:first-child .tier-header {
+  border-top: 0;
+}
+
+/* Tier markers are slim vertical rails. */
+.tier-marker {
+  width: 4px;
+  height: 32px;
+  border-radius: 3px;
+  background: var(--color-primary);
+}
+
+/* Watch tier marker keeps the warning tone. */
+.tier-watch .tier-marker {
+  background: #f4a127;
+}
+
+/* Reassure tier marker uses teal. */
+.tier-reassure .tier-marker {
+  background: var(--color-teal-deep);
+}
+
+/* Fragile tier marker stays muted. */
+.tier-fragile .tier-marker {
+  background: var(--color-text-tertiary);
+}
+
+/* Tier names are compact and bold. */
+.tier-name {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+/* Tier descriptions are small and warm-muted. */
+.tier-desc {
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+}
+
+/* Tier counts are small white bubbles. */
+.tier-count {
+  min-width: 26px;
+  padding: 3px 7px;
+  background: #ffffff;
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* AE rows become flat rows with separators. */
+.ae-row {
+  grid-template-columns: 92px minmax(0, 1fr) 86px;
+  gap: 14px;
+  min-height: 72px;
+  padding: 12px 16px;
+  border: 0;
+  border-top: 1px solid #eee5dc;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+/* Hover and expanded rows stay flat. */
+.ae-row:hover,
+.ae-row.expanded {
+  border-color: #eee5dc;
+  background: #fffdfb;
+}
+
+/* Fragile rows are muted but still readable. */
+.ae-row.fragile {
+  opacity: 0.72;
+  background: #fffdfb;
+}
+
+/* Number-needed blocks lose the card fill from the implementation. */
+.ae-nnh,
+.ae-row.protective .ae-nnh,
+.ae-row.reassure .ae-nnh,
+.ae-row.fragile .ae-nnh {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+
+/* NNH labels remain tiny. */
+.ae-nnh-label,
+.ae-nnh-bounds,
+.ae-nnh-na span {
+  color: var(--color-text-secondary);
+  font-size: 0.64rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+/* Number-needed values carry the orange visual weight. */
+.ae-nnh-value {
+  color: var(--color-primary-dark);
+  font-size: 1.22rem;
+  font-weight: 800;
+}
+
+/* Missing-number state should not become a large block. */
+.ae-nnh-na {
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+/* AE names are compact but strong. */
+.ae-name {
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+/* Metadata chips sit close to the row label. */
+.ae-meta {
+  gap: 5px;
+  margin-top: 6px;
+}
+
+/* AE tags are very compact prototype pills. */
+.ae-tag {
+  min-height: 18px;
+  padding: 0 7px;
+  border-color: #eaded4;
+  background: #fbf7f2;
+  color: var(--color-text-secondary);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+/* SOC tags are warm paper chips. */
+.ae-tag.soc {
+  background: #f7eee8;
+  color: var(--color-text-secondary);
+}
+
+/* RR tags use a warm outlined pill. */
+.ae-tag.rr {
+  background: #fffdfb;
+  color: var(--color-primary-dark);
+}
+
+/* Serious SOC keeps the warning accent. */
+.ae-tag.serious {
+  background: #fff0e6;
+  color: var(--color-primary-dark);
+}
+
+/* Right-side row affordances are small. */
+.ae-right {
+  gap: 6px;
+}
+
+/* Precision pills shrink to match the prototype. */
+.precision-pill {
+  min-height: 20px;
+  padding: 0 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+/* Details affordance is warm and understated. */
+.ae-expand {
+  color: var(--color-text-secondary);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+/* Expanded detail uses rule-separated columns instead of nested cards. */
+.ae-detail {
+  gap: 0;
+  padding-top: 12px;
+  border-top-color: #eaded4;
+}
+
+/* Detail cells are flat and compact. */
+.ae-detail-cell {
+  min-height: 42px;
+  padding: 8px 10px;
+  border-right: 1px solid #f0e7df;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* The last detail cell avoids a trailing rule. */
+.ae-detail-cell:nth-child(4n),
+.ae-detail-cell.wide-cell {
+  border-right: 0;
+}
+
+/* Detail labels use the prototype's copper uppercase style. */
+.ae-detail-cell .lbl {
+  color: #a9826b;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+/* Detail values are compact and readable. */
+.ae-detail-cell .val {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* Forest and quadrant surfaces inherit the same warmer line work. */
+.forest-view,
+.quadrant-wrap {
+  padding: 16px;
+}
+
+/* Footer copy should sit close to the panel like the prototype note. */
+.foot-note {
+  margin-top: 12px;
+  color: var(--color-text-tertiary);
+  font-size: 0.7rem;
+}
+
+/* Medium screens keep the header readable without pushing badges off-canvas. */
+@media (max-width: 1120px) {
+  .drug-selector {
+    grid-template-columns: 1fr;
+  }
+
+  .coverage-row {
+    justify-self: start;
+  }
+}
+
+/* Tablet layouts match the prototype density without cramped cards. */
+@media (max-width: 900px) {
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel-header {
+    display: grid;
+  }
+}
+
+/* Mobile keeps the compact visual grammar while stacking safely. */
+@media (max-width: 680px) {
+  .app {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .topbar {
+    margin-right: -12px;
+    margin-left: -12px;
+    padding: 0 12px;
+  }
+
+  .drug-title {
+    font-size: 1.26rem;
+  }
+
+  .picker {
+    width: calc(100vw - 24px);
+  }
+
+  .ae-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ae-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .ae-detail-cell {
+    border-right: 0;
+    border-bottom: 1px solid #f0e7df;
+  }
 }

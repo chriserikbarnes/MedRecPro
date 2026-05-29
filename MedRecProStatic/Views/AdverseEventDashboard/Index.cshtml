@@ -1,0 +1,33 @@
+@*
+    /**************************************************************/
+    /// <summary>
+    /// Adverse-event dashboard island host.
+    /// </summary>
+    /// <remarks>
+    /// This view intentionally opts out of the shared MVC layout and mounts the
+    /// committed Vite bundle from wwwroot/ae-dashboard. The React application
+    /// uses /api/AdverseEvent for all product, favorite, and dashboard data.
+    /// </remarks>
+    /// <seealso cref="MedRecPro.Static.Controllers.AdverseEventDashboardController.Index"/>
+*@
+
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Adverse Events - MedRecPro</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="~/ae-dashboard/ae-dashboard.css" asp-append-version="true" />
+</head>
+<body>
+    <div id="aeDashboardApp"></div>
+    <noscript>JavaScript is required to run the adverse-event dashboard.</noscript>
+    <script type="module" src="~/ae-dashboard/ae-dashboard.js" asp-append-version="true"></script>
+</body>
+</html>

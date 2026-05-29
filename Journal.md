@@ -4289,3 +4289,39 @@ Fixed the AE dashboard product catalog cast failure that surfaced through [Adver
 **Verification.** `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with 0 warnings and 0 errors. A sandboxed focused test rerun using `C:\tmp\MedRecProTestOut\` was blocked by access-denied copy errors in the output directory, then the approved rerun `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~AdverseEventControllerTests|FullyQualifiedName~AeDashboard" -p:BaseOutputPath="C:\tmp\MedRecProTestOutAeCoverage\"` passed with 28 passed, 0 failed, and existing test-project warnings. `git diff --check` passed with LF-to-CRLF warnings only.
 
 ---
+
+### 2026-05-29 8:43 AM EST — AE Dashboard React Phase 1 and 2
+
+Implemented the first client-side AE dashboard stop point from the saved React plan, wiring a live Vite/React island into the MedRecPro static MVC host.
+
+**React client.** Replaced the Vite scaffold in [App.jsx](MedRecProReact/src/App.jsx) and [main.jsx](MedRecProReact/src/main.jsx) with the AE dashboard shell, live API-backed product picker, server search, URL product selection, favorites, local recents, off-page product hydration through triage, and KPI strip. Added the documented API client, error handling, DTO normalization, formatting, storage, and hook layers under [src/api](MedRecProReact/src/api), [src/lib](MedRecProReact/src/lib), [src/hooks](MedRecProReact/src/hooks), and [src/components](MedRecProReact/src/components), with detailed internal comments across variables and control-flow branches.
+
+**Static host and deployment.** Updated [vite.config.js](MedRecProReact/vite.config.js) so `npm run build` emits deterministic `ae-dashboard.js` and `ae-dashboard.css` into [wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard). Added [AdverseEventDashboardController.cs](MedRecProStatic/Controllers/AdverseEventDashboardController.cs) and [Index.cshtml](MedRecProStatic/Views/AdverseEventDashboard/Index.cshtml) for the layout-free `/adverse-events` MVC route, documented the committed bundle workflow in [MedRecProStatic/README.md](MedRecProStatic/README.md), and allowed `http://localhost:50346` in [Program.cs](MedRecPro/Program.cs) for Vite development with credentials.
+
+**Local routing fix.** Follow-up testing from `http://localhost:5001/adverse-events` showed the static host was loading the bundle correctly but the client was still calling same-origin `/api/AdverseEvent`, which belongs only to the deployed IIS virtual-application layout. Updated [apiConfig.js](MedRecProReact/src/api/apiConfig.js) so local static-host ports route API calls to `http://localhost:5093/api/AdverseEvent` for HTTP and `https://localhost:7201/api/AdverseEvent` for HTTPS, while production remains same-origin `/api/AdverseEvent`.
+
+**Verification.** `npm.cmd run lint` passed, `npm.cmd run build` passed, and `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore` passed with the existing `Views/Home/Index.cshtml` nullable warning. `dotnet build MedRecPro\MedRecPro.csproj --no-restore` reached the output-copy stage but could not overwrite locked `MedRecPro.exe`/`MedRecPro.dll` files held by the running MedRecPro process and Visual Studio; the CORS edit was therefore compile-checked up to the existing lock. Vite smoke on `http://127.0.0.1:50346` returned 200 with the `aeDashboardApp` mount, the approved static-host smoke on `http://127.0.0.1:5179/adverse-events` returned 200 with the mount, stylesheet, and bundle tags, and `http://localhost:5093/api/AdverseEvent/products?pageNumber=1&pageSize=1` returned 200 with product JSON after the local routing fix. `git diff --check` passed with LF-to-CRLF warnings only.
+
+---
+
+### 2026-05-29 9:23 AM EST — AE Dashboard Prototype Styling
+
+Adjusted the live AE dashboard React client to match the original prototype style while preserving the local API-backed data flow.
+
+**Prototype alignment.** Reworked [App.jsx](MedRecProReact/src/App.jsx), [PageHeader.jsx](MedRecProReact/src/components/PageHeader.jsx), [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx), [KpiStrip.jsx](MedRecProReact/src/components/KpiStrip.jsx), and [index.css](MedRecProReact/src/index.css) around the prototype's branded top bar, title-trigger product picker, coverage badges, four-card KPI strip, tabbed primary panel, tiered triage rows, forest plot, and risk-vs-precision quadrant. Kept live product search, favorites, recents, URL state, and encrypted/client-safe API view models rather than copying the prototype's synthetic catalog.
+
+**API wiring.** Added forest and quadrant client calls in [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js), normalized server comparator tokens, and expanded [normalizers.js](MedRecProReact/src/lib/normalizers.js) for forest and quadrant payloads. The triage tab now fetches full server-owned tier data for counts and client-side filtering, while forest and quadrant tabs load lazily from the matching API endpoints.
+
+**Verification.** `npm.cmd run lint` passed, `npm.cmd run build` passed and regenerated [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js) plus [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css), and `git diff --check` passed with LF-to-CRLF warnings only. Started the Vite dashboard server at `http://127.0.0.1:50346/ae-dashboard/`; the Vite page returned 200 and the local API check at `http://localhost:5093/api/AdverseEvent/products?pageNumber=1&pageSize=1` returned 200 with product JSON.
+
+---
+
+### 2026-05-29 11:53 AM EST — AE Dashboard Prototype Visual Alignment
+
+Revised the live AE dashboard React client to more closely match the side-by-side prototype screenshots and the referenced prototype assets.
+
+**Visual alignment.** Updated [App.jsx](MedRecProReact/src/App.jsx), [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx), and [index.css](MedRecProReact/src/index.css) to restore the prototype's dark full-width MedRecPro top bar, compact save/export icon buttons, warm MedRecPro palette, smaller product-title trigger, metadata row with UNII context, tighter product picker, keyboard-hint picker footer, shorter KPI cards, dark active tabs/chips, orange fragile-row toggle, and flatter triage rows with rule-separated tier sections instead of card-heavy row blocks. Moved normalization flags out of collapsed AE rows so the triage list reads closer to the prototype while keeping flag details available in expanded rows.
+
+**Verification.** `npm.cmd run lint` passed, `npm.cmd run build` passed and regenerated [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js) plus [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css), and `git diff --check` passed with LF-to-CRLF warnings only. Started Vite through the persistent Node REPL process at `http://127.0.0.1:50346/ae-dashboard/`; the Vite page and generated CSS both returned 200, and the local API check at `http://localhost:5093/api/AdverseEvent/products?pageNumber=1&pageSize=1` returned 200.
+
+---

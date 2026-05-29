@@ -365,6 +365,7 @@ builder.Services.AddCors(options =>
             "http://localhost:5000",
             "http://localhost:5001",
             "http://localhost:5173",   // Vite default
+            "http://localhost:50346",  // MedRecPro AE dashboard Vite dev server
             "http://localhost:3000",   // React/Node default
             "http://localhost:8080",   // Common alternative
 
