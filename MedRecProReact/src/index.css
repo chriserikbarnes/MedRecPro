@@ -529,26 +529,27 @@ button:disabled {
 .kpi-pip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-weight: 850;
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
-/* Pips add their own colored dot. */
+/* The prototype uses label chips here rather than dot-led inline text. */
 .kpi-pip::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: currentColor;
+  content: none;
 }
 
 /* Elevated pips use brand orange. */
 .kpi-pip.orange {
+  background: var(--color-primary-soft);
   color: var(--color-primary-dark);
 }
 
 /* Protective pips use teal. */
 .kpi-pip.teal {
+  background: var(--color-teal-soft);
   color: var(--color-teal-deep);
 }
 
@@ -2108,6 +2109,32 @@ body,
   font-size: 0.72rem;
 }
 
+/* Keep the chip treatment from the prototype alignment after the base override. */
+.kpi-pip {
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* Prevent the earlier dot treatment from returning through cascade order. */
+.kpi-pip::before {
+  content: none;
+}
+
+/* Elevated labels use the prototype's orange paper chip. */
+.kpi-pip.orange {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+}
+
+/* Protective labels use the prototype's teal paper chip. */
+.kpi-pip.teal {
+  background: var(--color-teal-soft);
+  color: var(--color-teal-deep);
+}
+
 /* Score segments are teal in the prototype summary cards. */
 .score-bar {
   max-width: 170px;
@@ -2392,6 +2419,35 @@ body,
 .ae-tag.rr {
   background: #fffdfb;
   color: var(--color-primary-dark);
+}
+
+/* Study and population pills preserve full trial/cohort text instead of clipping. */
+.ae-tag.study-context,
+.ae-tag.population {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 20px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+/* Study context uses a warm neutral chip to pair with trial metadata. */
+.ae-tag.study-context {
+  background: #fbf4ed;
+  color: var(--color-brown);
+}
+
+/* Population uses the teal accent to call out cohort differences. */
+.ae-tag.population {
+  border-color: rgba(22, 117, 99, 0.2);
+  background: #eef7f4;
+  color: var(--color-teal-deep);
 }
 
 /* Serious SOC keeps the warning accent. */

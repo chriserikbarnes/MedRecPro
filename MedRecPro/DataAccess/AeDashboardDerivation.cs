@@ -285,6 +285,19 @@ namespace MedRecPro.DataAccess
             // precision, significance, and counseling classification decisions.
             var derivedSignals = DeriveSignals(signals, settings);
 
+            // Derive the product score from the summary view first so the product picker
+            // and this detail header report the same chart-worthiness value.
+            var derivedProduct = DeriveProduct(product, settings);
+
+            // Reconcile the headline counts with the de-duplicated signal set so the KPI
+            // strip matches the rendered tiers. The signal list is already collapsed to one
+            // row per clinical stratum upstream in the data-access mapper, so trusting the
+            // summary view's pre-collapse aggregate here would over-count the visible rows.
+            derivedProduct.RowCount = derivedSignals.Count;
+            derivedProduct.SignificantCount = derivedSignals.Count(signal => signal.IsSignificant == true);
+            derivedProduct.SignificantElevatedCount = derivedSignals.Count(signal => signal.RiskSignificance == AeRiskSignificance.Elevated);
+            derivedProduct.SignificantProtectiveCount = derivedSignals.Count(signal => signal.RiskSignificance == AeRiskSignificance.Protective);
+
             // Use an explicit tier order so empty tiers still render in the same
             // clinical flow instead of depending on whatever rows are present.
             var tierOrder = new[]
@@ -299,18 +312,39 @@ namespace MedRecPro.DataAccess
             // stable list of tier buckets and deterministically sorted signals.
             return new AeTriageViewDto
             {
-                Product = DeriveProduct(product, settings),
-                Tiers = tierOrder.Select(tier => new AeCounselingTierDto
+                Product = derivedProduct,
+                Tiers = tierOrder.Select(tier =>
                 {
-                    Tier = tier,
-                    Name = AeDashboardMetadata.TierNames[tier],
-                    Description = AeDashboardMetadata.TierDescriptions[tier],
-                    Signals = derivedSignals
+                    // Rows for this tier, which are clustered so every occurrence of one
+                    // adverse-event term renders together instead of scattering by NNH (the
+                    // same term can recur across study contexts, doses, and populations).
+                    var tierSignals = derivedSignals
                         .Where(signal => signal.CounselingTier == tier)
-                        .OrderBy(signal => signal.NumberNeeded ?? double.MaxValue)
-                        .ThenByDescending(signal => signal.RR ?? 0.0)
-                        .ThenBy(signal => signal.ParameterName)
-                        .ToList()
+                        .ToList();
+
+                    // Each term's lowest NNH is its cluster sort key, so the most actionable
+                    // effect (smallest number-needed-to-harm) leads the tier.
+                    var termLowestNumberNeeded = tierSignals
+                        .GroupBy(signal => signal.ParameterName ?? string.Empty)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => group.Min(signal => signal.NumberNeeded ?? double.MaxValue));
+
+                    return new AeCounselingTierDto
+                    {
+                        Tier = tier,
+                        Name = AeDashboardMetadata.TierNames[tier],
+                        Description = AeDashboardMetadata.TierDescriptions[tier],
+                        Signals = tierSignals
+                            // Cluster order: most-concerning effect first, keyed by its lowest NNH.
+                            .OrderBy(signal => termLowestNumberNeeded[signal.ParameterName ?? string.Empty])
+                            // Keep every row of one effect contiguous; break cluster ties by name.
+                            .ThenBy(signal => signal.ParameterName)
+                            // Within a cluster, most-concerning row first; larger RR breaks NNH ties.
+                            .ThenBy(signal => signal.NumberNeeded ?? double.MaxValue)
+                            .ThenByDescending(signal => signal.RR ?? 0.0)
+                            .ToList()
+                    };
                 }).ToList()
             };
 

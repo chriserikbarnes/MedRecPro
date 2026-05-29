@@ -1,5 +1,4 @@
 import {
-  formatComparatorCoverage,
   formatDecimal,
   formatDenominators,
   formatInteger,
@@ -45,6 +44,24 @@ export function KpiStrip({ product }) {
   // The score segments are calculated once for the rendered score.
   const scoreSegments = buildScoreSegments(product.score);
 
+  // Comparator mix subcopy is copied from the prototype's conditional wording.
+  const comparatorMixDescription = product.placeboCoverage && product.activeCoverage
+    ? 'Placebo + active comparator both present'
+    : product.placeboCoverage
+      ? 'Placebo only - RR may overstate real-world risk'
+      : product.activeCoverage
+        ? 'Active-comparator only - no placebo stratum'
+        : 'Comparator coverage limited';
+
+  // Comparator mix label follows the prototype's terse card value.
+  const comparatorMixLabel = product.placeboCoverage && product.activeCoverage
+    ? 'Both'
+    : product.placeboCoverage
+      ? 'Placebo'
+      : product.activeCoverage
+        ? 'Active'
+        : 'Limited';
+
   return (
     <section className="kpi-strip" aria-label="Product adverse-event metrics">
       <article className="kpi-card">
@@ -67,10 +84,10 @@ export function KpiStrip({ product }) {
       <article className="kpi-card">
         <div className="kpi-label">Comparator mix</div>
         <div className="kpi-value">
-          {formatComparatorCoverage(product)}
+          {comparatorMixLabel}
           <span className="kpi-unit"> strata</span>
         </div>
-        <div className="kpi-sub">{product.monoComboMix || 'Mixed source rows'}</div>
+        <div className="kpi-sub">{comparatorMixDescription}</div>
       </article>
 
       <article className="kpi-card">

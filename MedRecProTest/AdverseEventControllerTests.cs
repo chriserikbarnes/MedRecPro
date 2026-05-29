@@ -351,8 +351,8 @@ namespace MedRecProTest
             var controller = createController(context, createConfiguration());
 
             DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, DtoLabelAccessTestHelper.TestDocumentGuid, "ASPIRIN");
-            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, riskId: 1, parameterName: "Headache", rr: 5.0, numberNeeded: 10);
-            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, riskId: 2, parameterName: "Nausea", rr: 2.0, numberNeeded: 30);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, riskId: 1, adverseEventId: 11, parameterName: "Headache", rr: 5.0, numberNeeded: 10);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, riskId: 2, adverseEventId: 12, parameterName: "Nausea", rr: 2.0, numberNeeded: 30);
 
             var badTriage = await controller.GetTriage(Guid.Empty, null, true);
             var missingForest = await controller.GetForest(DtoLabelAccessTestHelper.TestDocumentGuid2, null, true);

@@ -116,20 +116,94 @@ function toToken(value, fallback = '') {
  * @returns {string[]} Clean flag list.
  */
 function normalizeFlags(flags) {
+  // The prototype only treats true data-quality flags as low-confidence row notes.
+  const lowConfidenceFlags = new Set([
+    'ZERO_CELL_CORRECTED',
+    'SocRemap',
+    'SOC_REMAP',
+    'WideCi',
+    'WIDE_CI',
+    'LowEventCount',
+    'LOW_EVENT_COUNT',
+  ]);
+
   // Array flags are accepted if a later API returns a typed collection.
-  if (Array.isArray(flags)) {
-    return flags.map((flag) => toDisplayString(flag)).filter(Boolean);
+  const candidateFlags = Array.isArray(flags)
+    ? flags.map((flag) => toDisplayString(flag)).filter(Boolean)
+    : typeof flags === 'string'
+      ? flags
+          .split(/[;,|]/)
+          .map((flag) => flag.trim())
+          .filter(Boolean)
+      : [];
+
+  // Comparator and standardization provenance flags are intentionally omitted
+  // from the collapsed clinical row because the prototype reserves this slot
+  // for low-confidence interpretation warnings only.
+  return candidateFlags.filter((flag) => lowConfidenceFlags.has(flag));
+}
+
+/**************************************************************/
+/**
+ * Converts ASP.NET enum JSON values into prototype precision tokens.
+ *
+ * @param {unknown} value - PrecisionClass value from the API.
+ * @returns {string} Prototype precision token.
+ */
+function normalizePrecisionClass(value) {
+  // Numeric enum values follow AePrecisionClass: Tight=0, Wide=1, Fragile=2.
+  if (value === 0 || value === '0') {
+    return 'tight';
   }
 
-  // Non-string flags cannot be safely tokenized.
-  if (typeof flags !== 'string') {
-    return [];
+  // Wide rows have broader intervals but are still signal-bearing.
+  if (value === 1 || value === '1') {
+    return 'wide';
   }
 
-  return flags
-    .split(/[;,|]/)
-    .map((flag) => flag.trim())
-    .filter(Boolean);
+  // Fragile rows are low-confidence and may be hidden by the user.
+  if (value === 2 || value === '2') {
+    return 'fragile';
+  }
+
+  // String enum values are normalized case-insensitively.
+  const token = toToken(value, 'unknown');
+
+  // Only the prototype classes should pass through to CSS.
+  if (token === 'tight' || token === 'wide' || token === 'fragile') {
+    return token;
+  }
+
+  return 'unknown';
+}
+
+/**************************************************************/
+/**
+ * Converts ASP.NET enum JSON values into NNH/NNT tokens.
+ *
+ * @param {unknown} value - NumberNeededKind or NumberNeededType value.
+ * @returns {string} Prototype number-needed token.
+ */
+function normalizeNumberNeededKind(value) {
+  // Numeric enum values follow AeNumberNeededType: None=0, NNH=1, NNT=2.
+  if (value === 1 || value === '1') {
+    return 'NNH';
+  }
+
+  // NNT marks protective benefit rows.
+  if (value === 2 || value === '2') {
+    return 'NNT';
+  }
+
+  // String values from the SQL view are already close to the desired display.
+  const token = toDisplayString(value).toUpperCase();
+
+  // Only known prototype values are accepted.
+  if (token === 'NNH' || token === 'NNT') {
+    return token;
+  }
+
+  return '';
 }
 
 /**************************************************************/
@@ -140,6 +214,21 @@ function normalizeFlags(flags) {
  * @returns {string} Chart direction token.
  */
 function normalizeDirection(value) {
+  // Numeric enum values follow AeRiskSignificance: NotSignificant=0, Elevated=1, Protective=2.
+  if (value === 1 || value === '1') {
+    return 'elevated';
+  }
+
+  // Protective rows plot left/teal in the prototype.
+  if (value === 2 || value === '2') {
+    return 'protective';
+  }
+
+  // Explicit zero remains neutral.
+  if (value === 0 || value === '0') {
+    return 'ns';
+  }
+
   // Normalized text lets enum strings and display strings share one path.
   const token = toToken(value, 'not significant');
 
@@ -249,7 +338,7 @@ export function normalizeSignal(dto) {
   );
 
   // Number-needed kind has existed under both Kind and Type names.
-  const numberNeededKind = toDisplayString(
+  const numberNeededKind = normalizeNumberNeededKind(
     readFirst(dto, ['NumberNeededKind', 'numberNeededKind', 'NumberNeededType', 'numberNeededType']),
   );
 
@@ -263,7 +352,7 @@ export function normalizeSignal(dto) {
   );
 
   // The NNH/NNT split is display-only and does not rederive server significance.
-  const isNnt = numberNeededKind.toUpperCase() === 'NNT';
+  const isNnt = numberNeededKind === 'NNT';
 
   // Risk significance may arrive as an enum string or persisted display text.
   const riskSignificance = toDisplayString(
@@ -300,7 +389,7 @@ export function normalizeSignal(dto) {
     comparatorN: toNullableNumber(readFirst(dto, ['ComparatorN', 'comparatorN'])),
     isPlac: toBoolean(readFirst(dto, ['IsPlaceboControlled', 'isPlaceboControlled'])),
     combo: toBoolean(readFirst(dto, ['IsCombo', 'isCombo'])),
-    prec: toToken(readFirst(dto, ['PrecisionClass', 'precisionClass']), 'unknown'),
+    prec: normalizePrecisionClass(readFirst(dto, ['PrecisionClass', 'precisionClass'])),
     sig: isSignificant,
     prot: isProtective,
     riskSignificance,

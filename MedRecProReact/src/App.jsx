@@ -516,6 +516,12 @@ function AeRow({ signal, tierToken, expanded, onToggle }) {
   // Serious SOC is a display tag, while tier assignment remains server-owned.
   const isSerious = SERIOUS_SOC.has(signal.soc) && signal.sig;
 
+  // Study context identifies the trial or analysis setting behind this row.
+  const hasStudyContext = Boolean(signal.studyContext);
+
+  // Population identifies the analysis population behind this row.
+  const hasPopulation = Boolean(signal.population);
+
   return (
     <div
       className={`ae-row ${tierToken}${signal.prec === 'fragile' ? ' fragile' : ''}${expanded ? ' expanded' : ''}`}
@@ -558,6 +564,18 @@ function AeRow({ signal, tierToken, expanded, onToggle }) {
           <span className="ae-tag rr">
             RR {formatDecimal(signal.rr, 2)} [{formatDecimal(signal.rrL, 2)}-{formatDecimal(signal.rrH, 2)}]
           </span>
+          {/* Study context only renders when the API identifies the trial or analysis setting. */}
+          {hasStudyContext ? (
+            <span className="ae-tag study-context" title={signal.studyContext}>
+              Study: {signal.studyContext}
+            </span>
+          ) : null}
+          {/* Population only renders when the API supplies a cohort descriptor. */}
+          {hasPopulation ? (
+            <span className="ae-tag population" title={signal.population}>
+              Population: {signal.population}
+            </span>
+          ) : null}
           {isSerious ? <span className="ae-tag serious">Serious SOC</span> : null}
           {!signal.isPlac ? <span className="ae-tag">vs active comparator</span> : null}
           {signal.combo ? <span className="ae-tag combo">Combination product</span> : null}

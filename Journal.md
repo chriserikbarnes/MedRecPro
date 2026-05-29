@@ -1,7 +1,4 @@
 # Journal
-
----
-
 ### 2026-02-24 12:25 PM EST — Orange Book Patent Import Service
 Created `OrangeBookPatentParsingService.cs` for importing FDA Orange Book patent.txt data. The service follows the same patterns as `OrangeBookProductParsingService`: tilde-delimited file parsing, batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based natural key lookup, and progress reporting via callbacks.
 
@@ -4323,5 +4320,81 @@ Revised the live AE dashboard React client to more closely match the side-by-sid
 **Visual alignment.** Updated [App.jsx](MedRecProReact/src/App.jsx), [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx), and [index.css](MedRecProReact/src/index.css) to restore the prototype's dark full-width MedRecPro top bar, compact save/export icon buttons, warm MedRecPro palette, smaller product-title trigger, metadata row with UNII context, tighter product picker, keyboard-hint picker footer, shorter KPI cards, dark active tabs/chips, orange fragile-row toggle, and flatter triage rows with rule-separated tier sections instead of card-heavy row blocks. Moved normalization flags out of collapsed AE rows so the triage list reads closer to the prototype while keeping flag details available in expanded rows.
 
 **Verification.** `npm.cmd run lint` passed, `npm.cmd run build` passed and regenerated [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js) plus [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css), and `git diff --check` passed with LF-to-CRLF warnings only. Started Vite through the persistent Node REPL process at `http://127.0.0.1:50346/ae-dashboard/`; the Vite page and generated CSS both returned 200, and the local API check at `http://localhost:5093/api/AdverseEvent/products?pageNumber=1&pageSize=1` returned 200.
+
+---
+
+### 2026-05-29 1:11 PM EST — AE Dashboard Duplicate Signal Row De-duplication
+
+Fixed the AE dashboard rendering every adverse-event signal multiple times (117 rows vs 39 unique for WEGOVY, every row appearing ×3).
+
+**Root cause.** `vw_AeRisk` ([MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql)) inner-joins the pharmacologic-class subquery (`vw_ProductsByPharmacologicClass`) on `DocumentGUID` only, so a product with N ingredient substances/classes multiplies every AE statistic row ×N. WEGOVY's UNII is three concatenated substances, hence ×3. This fan-out is baked into the materialized `tmp_FlattenedAdverseEventRiskTable` that the dashboard reads. The card header's `rowCount` (39) was already correct because it comes from a separate aggregate view (`vw_AeDrugSummary`) — so the API was internally inconsistent with itself.
+
+**Decision.** De-duplicated in the C# data-access layer rather than fixing the SQL view + re-materializing (the deeper root cause, deferred to avoid a DB redeploy and to keep the change surgical). Collapsed on `tmp_FlattenedAdverseEventTableID` — the source AE-statistics row id, which is identical across the class-join copies and globally unique per real signal — inside the single shared mapper `buildAeRiskSignalDtos` in [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs) via `DistinctBy`. That one chokepoint fixes triage, forest, quadrant, reverse-lookup, and interchange at once and makes the signal arrays consistent with `rowCount`. No frontend change was needed — the React client counts the returned signals, so its "All (117)" chip self-corrects to "All (39)".
+
+**Tests.** Added `GetAeRiskSignalsByDocumentAsync_DeduplicatesPharmacologicClassFanout` to [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs) (seeds three copies sharing one source id plus one distinct row, asserts two unique signals). Corrected three pre-existing AE tests in [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs) and [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) that seeded genuinely distinct signals while reusing the default source id `11`; gave each distinct signal a distinct id to reflect the production invariant that the FK is a globally-unique PK.
+
+**Verification.** `dotnet build MedRecPro/MedRecPro.csproj` clean (0 errors); all 68 AE-related tests pass (`dotnet test MedRecProTest --filter "FullyQualifiedName~AeDashboard|FullyQualifiedName~AdverseEvent"`), including the new regression test. The live API/UI check against the real WEGOVY data (document `32ff2709-2072-4cd7-9417-79a2b6b0a12e`) was not run from this session because it requires the local SQL Server with the populated risk table plus the running app; the regression test exercises the exact `GetAeRiskSignalsByDocumentAsync` path with data shaped identically to the bug.
+
+---
+
+### 2026-05-29 1:54 PM EST — AE Dashboard Multi-Arm Signal Collapse (Round 2)
+
+Follow-up to the earlier de-duplication fix. After collapsing the pharmacologic-class fan-out (117 → 39 for WEGOVY), the dashboard still showed the same adverse-event term more than once with conflicting numbers, so refined the de-duplication using the user-supplied raw DB query (117 rows) and live API JSON.
+
+**Diagnosis.** The 117 risk rows were 39 distinct `tmp_FlattenedAdverseEventTableID`, each appearing 3× — the multiplier was **3 `PharmacologicClassID` values (440/441/442)**, not three substances (one ActiveMoietyID/IngredientSubstanceID). Round-1's `FlattenedAdverseEventTableID` dedup correctly collapsed those to 39. The residual: **11 AE terms appeared twice** — a pooled arm (ArmN 2,116) and an unlabeled subgroup arm (ArmN 133) at the same dose (2.4 mg) and placebo comparator, with empty `StudyContext`/`Population`/`Subpopulation`. Nine landed in different counseling tiers (e.g. Diarrhea "Expect & counsel" RR 1.88 vs "Reassure" RR 1.16), which is the "inconsistent signals" the user saw.
+
+**Decision.** Per the user's choice, collapse to one row per clinical stratum keeping the most statistically powered arm. Replaced the `DistinctBy(FlattenedAdverseEventTableId)` in `buildAeRiskSignalDtos` with a new `collapseToMostPoweredStratum` helper ([DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs)): groups by (document, term, SOC, dose, comparator, study/population/subpopulation) and keeps the largest-`ArmN` row (tiebreaks: `ComparatorN`, significant-over-not, tighter CI, then source id). Study/population/subpopulation are in the key so genuinely labeled strata are preserved — only rows a reader cannot tell apart are merged. This subsumes the round-1 fan-out collapse. Also reconciled the KPI header in `BuildTriageView` ([AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs)) — `RowCount`/`SignificantCount`/elevated/protective are recomputed from the collapsed signals so the strip matches the list; score stays summary-view-based for product-picker consistency. No frontend change (the React merges the triage response's product into the KPI strip).
+
+**Tests.** Extended `SeedAeRiskSignalTable` with optional `studyContext`/`population`/`subpopulation` params; added `GetAeRiskSignalsByDocumentAsync_CollapsesMultiArmKeepingMostPowered` (same term, ArmN 2116 vs 133 → one row, keeps 2116/RR 2.75) and `GetAeRiskSignalsByDocumentAsync_PreservesDistinctSubpopulations` (different subpopulation → two rows), plus a triage KPI `RowCount` assertion.
+
+**Verification.** Build clean; all 70 AE-related tests pass (was 68). Simulated `collapseToMostPoweredStratum` over the real WEGOVY DB rows: **117 → 28**, every term appears once, none span tiers, all 11 previously-doubled terms keep the pooled ArmN 2,116 arm, and 18 significant signals remain. The live in-browser check was not run from this session (needs the local SQL Server + running app). The durable source fix — correcting the `vw_AeRisk` `DocumentGUID`-only join and aligning the `vw_AeDrugSummary` aggregate so the product picker counts also match — remains the deferred follow-up task.
+
+---
+
+### 2026-05-29 3:17 PM EST — AE Dashboard Literal Prototype Cleanup
+
+Tightened the React dashboard against the circled prototype comparison areas.
+
+**Prototype copy pass.** Updated [normalizers.js](MedRecProReact/src/lib/normalizers.js) so numeric ASP.NET enum values render as the prototype tokens (`tight`, `wide`, `fragile`, `NNH`, `NNT`, elevated/protective/neutral) instead of raw `0`/`1` values. Filtered comparator and standardization provenance out of low-confidence flags so the expanded "Why this row is low confidence" block only appears for true prototype-style data-quality warnings. Updated [KpiStrip.jsx](MedRecProReact/src/components/KpiStrip.jsx) and [index.css](MedRecProReact/src/index.css) so the significant-signal labels are literal orange/teal chips, the comparator mix card uses the prototype's terse value plus conditional explanatory copy, and the generated static bundle reflects those changes.
+
+**Verification.** `npm.cmd run lint` passed, `npm.cmd run build` passed and regenerated [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js) plus [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css), and `git diff --check` passed with LF-to-CRLF warnings only. Verified the enum/flag normalization with a representative DTO sample (`precisionClass: 0` -> `tight`, `numberNeededKind: 1` -> `NNH`, `PLACEBO_COMPARATOR` filtered out, `LOW_EVENT_COUNT` retained). Vite still served `http://127.0.0.1:50346/ae-dashboard/` with status 200; the local API was not listening on `localhost:5093` during the final smoke check.
+
+---
+
+### 2026-05-29 3:31 PM EST — AE Dashboard Multi-Study Outcome Preservation (Round 3)
+
+Refined and locked in the AE de-duplication semantics after reviewing a second product, Afinitor (everolimus), whose label pools six trials.
+
+**Finding.** Unlike WEGOVY (a single trial with null study context), Afinitor reports the same AE term across different studies — e.g. Stomatitis appears six times, once each for BOLERO-2 (breast cancer), EXIST-2 (renal angiomyolipoma), RADIANT-3 (PNET), RADIANT-4 (NET), RECORD-1 (RCC), and EXIST-1 (SEGA). These are **distinct clinical outcomes** carried in `studyContext`/`population`, not duplicates; collapsing them to a single "most-powered" row would destroy real signals. (Null `studyContext`/`population` are omitted from the API JSON, which is exactly why WEGOVY's unlabeled pooled+subgroup arms shared one empty group and collapsed.)
+
+**Confirmation / decision.** The user confirmed the merge key: two rows are "the same" only when term, SOC, `studyContext`, `population`, `subpopulation`, dose, AND comparator all match; when study context and population are both null, collapse to the most-powered (largest-N) arm. This is exactly what round-2's `collapseToMostPoweredStratum` ([DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs)) already implements — `studyContext`/`population`/`subpopulation` are in the grouping key, so different trials/cohorts are preserved and the largest-N pick only breaks ties within an otherwise-identical group. No grouping-logic change was required; the correction was to the framing (it is not a per-term "pick the biggest" collapse).
+
+**Tests.** Added `GetAeRiskSignalsByDocumentAsync_PreservesDistinctStudyContexts` (one term across three trials → three rows retained) and `GetAeRiskSignalsByDocumentAsync_PreservesDistinctPopulations` (one term across two cohorts → two rows retained) to [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs), using the `studyContext`/`population` parameters added to `SeedAeRiskSignalTable` in round 2.
+
+**Verification.** Build clean; all 72 AE-related tests pass (was 70). Confirmed by inspection of the supplied Afinitor API payload that no two same-term rows share the same `studyContext`+`population`, so none are wrongly merged. The live in-browser check was not run from this session (needs the local SQL Server + running app).
+
+---
+
+### 2026-05-29 3:44 PM EST — AE Dashboard Triage Clustering by Adverse-Event Term
+
+Changed the triage tier sort so repeated adverse-event terms cluster together instead of scattering by NNH.
+
+**Problem.** The "Counseling priority" tiers sorted purely by NNH ascending, so the same term reported across several trials (e.g. Afinitor's Stomatitis) appeared at rows 1, 2, 3, 7, 11, 12 — interleaved with other terms — making the list hard to scan.
+
+**Change.** Reworked the per-tier sort in `BuildTriageView` ([AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs)): for each tier, compute each term's lowest NNH, then order by (term's lowest NNH ascending, then term name, then NNH ascending, then RR descending). This clusters every occurrence of an adverse-event term contiguously, orders the clusters so the most-concerning effect (smallest number-needed-to-harm) leads, and within a cluster puts the most-concerning row first. Chosen via the user's selected ordering (ascending within cluster). No frontend change — the client renders in the server's order and the fragile/comparator filters preserve it; Forest and Quadrant remain RR-sorted by design.
+
+**Tests.** Added `GetAeTriageViewAsync_ClustersSignalsByTermOrderedByLowestNnh` to [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs): two terms across two trials each, all elevated/tight/low-NNH so they share the Counsel tier; asserts the "Bravo" cluster (lowest NNH 2) precedes the "Alpha" cluster (lowest NNH 3) — proving cluster order is by NNH, not alphabetical — with each cluster ascending by NNH.
+
+**Verification.** Build clean; all 73 AE-related tests pass (was 72). The live in-browser check was not run from this session (needs the local SQL Server + running app); reloading Afinitor's triage should show each term's rows contiguous, most-concerning first.
+
+---
+
+### 2026-05-29 3:47 PM EST — AE Dashboard Trial Context Pills
+Added row-level AE metadata pills for `studyContext` and `population` in the React dashboard so repeated adverse-event terms from different trials or cohorts can be distinguished directly in the triage list. The new pills render only when the API provides values, include hover titles for long labels, and use compact prototype-aligned chip styling with truncation to avoid widening the row. Rebuilt the production dashboard bundle into `MedRecProStatic/wwwroot/ae-dashboard`, verified lint/build success, and confirmed the Vite dev surface responds at `/ae-dashboard/`.
+
+---
+
+### 2026-05-29 3:51 PM EST — AE Dashboard Context Pill Wrapping
+Adjusted the `studyContext` and `population` AE row pills so long trial and cohort labels are no longer clipped. The contextual chips now allow normal wrapping, visible overflow, and full-width flex shrink behavior with `min-width: 0`, preserving the complete label while keeping the row responsive. Rebuilt the static dashboard bundle and verified lint/build success plus the Vite `/ae-dashboard/` surface.
 
 ---

@@ -1795,7 +1795,10 @@ namespace MedRecProTest
             double? numberNeeded = 25,
             string? calculationFlags = null,
             decimal? dose = 10,
-            string? doseUnit = "mg")
+            string? doseUnit = "mg",
+            string? studyContext = "Trial",
+            string? population = "Adults",
+            string? subpopulation = null)
         {
             #region implementation
 
@@ -1818,7 +1821,7 @@ namespace MedRecProTest
                         $armN, $comparatorN, $eventsTreatment, $eventsComparator, $numberNeeded,
                         NULL, NULL, $rr, $rrLowerBound, $rrUpperBound,
                         NULL, NULL, NULL, $unii, $isCombo, $calculationFlags,
-                        'Trial', 'Adults', NULL, $dose, $doseUnit)";
+                        $studyContext, $population, $subpopulation, $dose, $doseUnit)";
             cmd.Parameters.AddWithValue("$riskId", riskId);
             cmd.Parameters.AddWithValue("$docGuid", (documentGuid ?? TestDocumentGuid).ToString("D").ToUpper());
             cmd.Parameters.AddWithValue("$adverseEventId", adverseEventId);
@@ -1841,6 +1844,9 @@ namespace MedRecProTest
             cmd.Parameters.AddWithValue("$unii", unii);
             cmd.Parameters.AddWithValue("$isCombo", isCombo ? 1 : 0);
             cmd.Parameters.AddWithValue("$calculationFlags", (object?)calculationFlags ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$studyContext", (object?)studyContext ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$population", (object?)population ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$subpopulation", (object?)subpopulation ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$dose", (object?)dose ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$doseUnit", (object?)doseUnit ?? DBNull.Value);
             cmd.ExecuteNonQuery();

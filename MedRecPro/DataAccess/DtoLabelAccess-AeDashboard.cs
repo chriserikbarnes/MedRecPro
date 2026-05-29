@@ -802,10 +802,74 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Map each risk-table row through the single-row mapper so encrypted ID
-            // and nullable-statistic handling are identical across endpoints.
-            return entities
+            // Collapse duplicate risk rows to one signal per viewer-visible clinical stratum
+            // before mapping. This removes both the pharmacologic-class cartesian fan-out from
+            // vw_AeRisk (the class subquery is joined on DocumentGUID only, so a product mapped
+            // to N pharmacologic classes emits each AE statistic N times) and the multi-arm
+            // duplication where the same term/dose/comparator is reported for both a pooled arm
+            // and a smaller, unlabeled subgroup arm. Collapsing at the entity grain also avoids
+            // encrypting throwaway rows.
+            return collapseToMostPoweredStratum(entities)
                 .Select(entity => buildAeRiskSignalDto(entity, pkSecret, logger))
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collapses duplicate AE risk rows to one representative per clinical stratum.
+        /// </summary>
+        /// <param name="entities">Materialized risk-table rows for one or more documents.</param>
+        /// <returns>One row per (document, term, SOC, dose, comparator, study/population context), keeping the most statistically powered arm.</returns>
+        /// <remarks>
+        /// Two sources of duplication are removed here. First, <c>vw_AeRisk</c> joins the
+        /// pharmacologic-class subquery on <c>DocumentGUID</c> only, so a product mapped to
+        /// several pharmacologic classes emits identical copies of every AE statistic. Second,
+        /// the same adverse event at the same dose and comparator can be reported for both a
+        /// pooled arm and a smaller subgroup arm that carries no
+        /// <see cref="LabelView.FlattenedAdverseEventRiskTable.Population"/> or
+        /// <see cref="LabelView.FlattenedAdverseEventRiskTable.Subpopulation"/> label, which
+        /// renders as the same signal with conflicting numbers.
+        ///
+        /// The grouping key intentionally includes study context, population, and subpopulation
+        /// so genuinely labeled strata stay distinct; only rows a reader cannot tell apart are
+        /// merged. Within a group the representative is the most statistically powered arm
+        /// (largest treatment denominator), preferring a significant, tighter-CI row on ties,
+        /// with the source row identifier as a final deterministic tiebreaker.
+        /// </remarks>
+        /// <seealso cref="buildAeRiskSignalDtos"/>
+        /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
+        private static List<LabelView.FlattenedAdverseEventRiskTable> collapseToMostPoweredStratum(
+            IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities)
+        {
+            #region implementation
+
+            // Group by the clinical identity a dashboard reader actually sees. Class and moiety
+            // identifiers are deliberately excluded so class-fan-out copies merge; study and
+            // population context is included so legitimately labeled strata are preserved.
+            return entities
+                .GroupBy(entity => new
+                {
+                    entity.DocumentGUID,
+                    entity.ParameterName,
+                    entity.ParameterCategory,
+                    entity.Dose,
+                    entity.DoseUnit,
+                    entity.IsPlaceboControlled,
+                    entity.StudyContext,
+                    entity.Population,
+                    entity.Subpopulation
+                })
+                // Keep the most statistically powered arm as the stratum representative so the
+                // pooled, tighter-CI estimate wins over a small unlabeled subgroup.
+                .Select(group => group
+                    .OrderByDescending(entity => entity.ArmN ?? 0)
+                    .ThenByDescending(entity => entity.ComparatorN ?? 0)
+                    .ThenBy(entity => string.Equals(entity.Significance, "not significant", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                    .ThenBy(entity => (entity.RRUpperBound ?? double.MaxValue) - (entity.RRLowerBound ?? 0.0))
+                    .ThenBy(entity => entity.FlattenedAdverseEventTableId)
+                    .First())
                 .ToList();
 
             #endregion
