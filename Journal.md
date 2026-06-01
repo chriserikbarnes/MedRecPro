@@ -4431,3 +4431,114 @@ Generalized the adult-starting caption population extraction so captions beginni
 **Verification.** A normal `dotnet test "C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj" --filter PopulationDetectorTests` run was blocked because Visual Studio and the running `MedRecProConsole` process locked `MedRecProConsole\bin\Debug\net8.0\MedRecProImportClass.dll` / `.pdb`. Reran with isolated outputs via `dotnet test "C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj" --filter PopulationDetectorTests --artifacts-path "C:\tmp\medrecpro-popdet-tests"`; this passed 110/110 tests with 0 failed and 0 skipped. The broader solution still emits pre-existing warning noise.
 
 ---
+
+### 2026-06-01 11:07 AM EST — AE Dashboard Visual Parity Forest Plot Plan
+Created [Plans/(pending) AE Dashboard Visual Parity Forest Plot Plan.md](Plans/(pending)%20AE%20Dashboard%20Visual%20Parity%20Forest%20Plot%20Plan.md) to scope the React AE dashboard visual-parity pass against the dashboard prototype.
+
+**Planning.** Reviewed the current React forest plot implementation in [App.jsx](MedRecProReact/src/App.jsx) and [index.css](MedRecProReact/src/index.css), plus the prototype sources under [MedRecProPrototypes/AE Dashboard 01](MedRecProPrototypes/AE%20Dashboard%2001). The plan calls for lighter right-panel typography, thinner forest plot marks, and a reusable logarithmic scale helper that expands beyond the default `0.1` to `10` domain without odd endpoint clipping.
+
+**Verification.** Confirmed the plan file was created at the requested location and inspected its contents. No build or lint command was run because this session produced a planning document only, not React implementation changes.
+
+---
+
+### 2026-06-01 11:26 AM EST — AE Dashboard Forest Plot Visual Parity
+Implemented the React AE dashboard forest-plot visual parity pass so the right-side analytical panel reads closer to the prototype and wide confidence intervals no longer silently clamp at the default chart edge.
+
+**Implementation.** Added [forestScale.js](MedRecProReact/src/lib/forestScale.js) with the default `0.1` to `10` prototype domain, inset log-scale positioning, expanded-domain tick generation, and compact tick formatting. Updated [App.jsx](MedRecProReact/src/App.jsx) so `ForestView` derives one domain from rendered RR/CI values, uses generated ticks for the axis and RR=1 reference line, sorts CI bounds defensively for drawing, exposes actual RR/CI values through row labels, and keeps the default forest tick constants centralized.
+
+**Visual styling.** Tuned the prototype-alignment section in [index.css](MedRecProReact/src/index.css): panel subtitles/tabs/chips are lighter, forest legend/ticks/labels are less bold, row separators stay flat, tracks use a slimmer warm analytical lane, and CI lines, caps, reference lines, and points are thinner. Rebuilt the committed dashboard assets in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `node --input-type=module -e "...forestScale smoke..."` and confirmed default domains stay `0.1`-`10`, high bounds expand to `50`, low bounds expand to `0.02`, and invalid points return `null`. Ran `npm.cmd run lint` with 0 errors and 0 warnings after fixing the hook dependency warning; the first plain `npm run lint` attempt was blocked by the local unsigned `npm.ps1` execution policy. Ran `npm.cmd run build`, producing `ae-dashboard.css` and `ae-dashboard.js` successfully. Browser-smoked `http://localhost:50346/ae-dashboard/?view=forest` against the local API on port 5093, toggled fragile rows off for Afinitor, verified all 172 visible forest rows kept CI bars and point estimates within their tracks, and confirmed the live Vite dashboard remains available at `http://localhost:50346/ae-dashboard/`.
+
+---
+
+### 2026-06-01 11:42 AM EST — AE Dashboard Quadrant Visual Parity
+Adjusted the AE dashboard quadrant view to more closely match the prototype's risk-vs-precision panel and keep bubble detail cards visible at chart edges.
+
+**Implementation.** Updated [App.jsx](MedRecProReact/src/App.jsx) so quadrant hover/focus detail cards receive side-aware placement classes based on bubble position. This lets high-precision/right-edge bubbles place their tooltip inward and upper-edge bubbles place the tooltip downward instead of relying on a single clipped transform.
+
+**Visual styling.** Tuned [index.css](MedRecProReact/src/index.css) for quadrant parity: quadrant cell labels now sit in the upper-left of each respective box, top/bottom/right cells no longer right-align or bottom-align their text, labels and axis copy use lighter weights, cell backgrounds use warmer prototype-aligned tints, dot and tooltip drop shadows were removed, neutral/protective/elevated colors were aligned with the dashboard palette, and the tooltip uses a flat bordered surface. Rebuilt the committed dashboard assets in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked `http://localhost:50346/ae-dashboard/?view=quadrant` against the local API with Afinitor selected, verified the Quadrant view rendered 183 bubbles, confirmed computed styles show no bubble shadows, lighter label weights, visible overflow for the plot, and upper-left cell label alignment, then focused both right-edge and upper-edge bubbles to confirm the detail card used inward/downward placement and stayed within the panel/viewport without quadrant clipping. `git diff --check` passed with only the repository's existing CRLF normalization warnings.
+
+---
+
+### 2026-06-01 12:02 PM EST — AE Dashboard Product Picker Prototype Parity
+Continued the React AE dashboard prototype-matching pass on the drug picker, focusing on product-row hierarchy and the picker table footer.
+
+**Implementation.** Updated [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx) so picker rows use the prototype's middle-dot metadata separator, lowercase `score` label, selected-row `current` pill, and shortcut footer symbols (`↑`, `↓`, `⏎`, `★`, `esc`) instead of spelled-out key names.
+
+**Visual styling.** Tuned [index.css](MedRecProReact/src/index.css) so picker rows are taller, product names are larger but lighter, subtitles and right-side metrics use reduced weights, selected product badges match the orange prototype pill, and the footer text/keycaps are larger. Rebuilt the committed dashboard assets in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked `http://localhost:50346/ae-dashboard/` against the local API, opened the picker, searched `bup`, and confirmed the footer key texts render as `↑`, `↓`, `⏎`, `★`, and `esc`; computed styles showed the row name at about 14.88px / weight 700, subtitle at about 12.48px / weight 400, footer text at about 12.16px, and footer keycaps at 18px min-height. Cleared to the selected product search and confirmed exactly one selected row rendered with the orange `current` pill. `git diff --check` passed with only the repository's existing CRLF normalization warnings.
+
+---
+
+### 2026-06-01 12:13 PM EST — AE Dashboard Product Picker Prototype Copy
+Reworked the React AE dashboard product picker to copy the prototype component more directly instead of approximating the visible style.
+
+**Implementation.** Updated [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx) so the row markup now matches the prototype shape: product identity on the left, a right-side score-plus-star block, no extra significant-count line, prototype star SVG paths, prototype search icon geometry, `text` input behavior, middle-dot recents/results labels, and the same shortcut symbols (`↑`, `↓`, `⏎`, `★`, `esc`). The non-search view now shows Favorites/Recent rows and only falls back to Browse when there are no personalized rows, matching the prototype picker behavior.
+
+**Visual styling.** Replaced the compressed 448px picker override in [index.css](MedRecProReact/src/index.css) with the wider prototype footprint: 720px panel target width, 58px search row, 430px scroll surface, 70px rows, two-column row grid, larger lighter product names, score badge plus unframed star, larger footer keycaps, and the large badge-like title selector. Rebuilt the committed dashboard assets in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked `http://localhost:50346/ae-dashboard/` against the local API, opened the picker, and confirmed the rendered picker has no `.pi-sig` elements, uses a two-column row grid with score/star grouped in `.pi-right`, shows the selected row as product identity plus `score 60`, renders the 15px prototype star glyph, and keeps footer key texts as `↑`, `↓`, `⏎`, `★`, and `esc`. `git diff --check` passed with only the repository's existing CRLF normalization warnings.
+
+---
+
+### 2026-06-01 12:34 PM EST — AE Dashboard Product Picker Circled Style Fixes
+Tuned the React AE dashboard product picker against the marked prototype screenshot, targeting the remaining search-row, count, row-divider, hover, and score-weight mismatches.
+
+**Implementation.** Updated [useProducts.js](MedRecProReact/src/hooks/useProducts.js) so the picker requests 450 products, allowing the count to reflect the available dashboard catalog instead of the previous 25-row page. Kept the prototype row/footer markup from [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx).
+
+**Visual styling.** Updated [index.css](MedRecProReact/src/index.css) to remove per-product horizontal row rules, increase row padding/min-height for more product spacing, show the orange left rail on hover/active rows, lighten `.pi-score` and `.pi-right` to weight 500, suppress the teal app-wide focus ring on `.picker-input`, and give `.picker-count` a visible left pipe with smaller 500-weight text. Added a narrow-pane override so the count remains visible rather than collapsing to zero width. Rebuilt the committed dashboard assets in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked `http://localhost:50346/ae-dashboard/` against the local API, opened the picker, and confirmed focused search has `outline: none` and no shadow, the count renders as `450 products` with a 1px left border and nonzero width, row border-bottom widths are `0px`, rows render at 86px min-height with 18px/28px padding, and score/right-side text uses font weight 500. `git diff --check` passed with only the repository's existing CRLF normalization warnings.
+
+---
+
+### 2026-06-01 12:58 PM EST — AE Dashboard Picker Footer Keycap Parity
+Adjusted the React AE dashboard picker footer shortcuts so the key hints read more like the boxed prototype controls.
+
+**Visual styling.** Updated [index.css](MedRecProReact/src/index.css) so `.picker-foot` uses larger 16px labels, wider 24px shortcut-group spacing, and roomier footer padding. The footer `kbd` elements now render as 34px minimum keycaps with 10px horizontal padding, tan 1px borders, 4px corners, a warm off-white background, and 16px semibold key text, including a wider `esc` key.
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked `http://localhost:50346/ae-dashboard/`, opened the picker, and confirmed computed footer styles: first keycap `34x34`, `esc` key `49x34`, `kbd` border `1px solid rgb(225, 210, 200)`, border radius `4px`, footer gap `24px`, and key texts `↑`, `↓`, `⏎`, `★`, `esc`. `git diff --check` passed with only CRLF normalization warnings.
+
+---
+
+### 2026-06-01 3:53 PM EST — AE Dashboard Picker Footer Keycap Downsize
+Reduced the AE dashboard picker footer controls after the previous keycap pass made the shortcut elements too large.
+
+**Visual styling.** Updated [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx) so the up/down arrow keycaps wrap their glyphs in a small inner span. Updated [index.css](MedRecProReact/src/index.css) to reduce footer group spacing from 24px to 16px, reduce footer padding to `8px 28px 10px`, reduce keycaps to 26px minimum boxes with 7px horizontal padding, and keep the footer label text at the smaller 8pt size. The arrow glyph wrapper applies `translateY(-2px)` so the arrow characters sit 2px closer to the top border without enlarging the keycap boxes.
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. `git diff --check` passed with only CRLF normalization warnings. A DOM-only browser check confirmed the dashboard was loaded at `http://localhost:50346/ae-dashboard/`, but the in-app browser click path timed out while opening the picker and the read-only page context prevented a direct DOM click; live visual re-check was therefore limited by browser automation for this small CSS/markup adjustment.
+
+---
+
+### 2026-06-01 4:21 PM EST — AE Dashboard Quadrant Axis and Precision Labels
+Updated the AE dashboard quadrant view to move the y-axis label into the plot frame and make the right-side quadrant language describe interval precision instead of implying statistical significance.
+
+**Implementation.** Updated [App.jsx](MedRecProReact/src/App.jsx) so the top-right quadrant reads `Review - big, tight interval` and the bottom-right quadrant reads `Reassure - small, tight interval`. This keeps the labels focused on confidence-interval width while leaving significance to the plotted point color and CI relationship to 1.
+
+**Visual styling.** Updated [index.css](MedRecProReact/src/index.css) so `.quadrant-stage` no longer reserves an outside left gutter, `.axis-y` sits inside the plot frame at `left: 18px`, and the left-side quadrant cells add 42px of left padding so their labels clear the rotated axis label. Rebuilt the committed dashboard assets in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked the Quadrant view at `http://localhost:50346/ae-dashboard/?view=quadrant`; the retry confirmed the new quadrant labels rendered in the DOM and the built CSS reported `axis-y` left `18px`, stage padding-left `0px`, and top-left cell padding-left `42px`. The in-app browser was in the narrow mobile breakpoint where `.axis-y` is hidden, so full desktop visual verification was limited to built CSS and DOM values. `git diff --check` passed with only CRLF normalization warnings.
+
+---
+
+### 2026-06-01 4:31 PM EST — AE Dashboard Quadrant Risk Precision Labels
+Simplified the AE dashboard quadrant cell copy to remove positional labels and use explicit risk/precision language.
+
+**Implementation.** Updated [App.jsx](MedRecProReact/src/App.jsx) so the quadrant no longer renders `Top-left`, `Top-right`, `Bottom-left`, or `Bottom-right` labels. The four cell labels now read `Increased Risk/Low Precision`, `Increased Risk/High Precision`, `Reduced Risk/Low Precision`, and `Reduced Risk/High Precision`. Rebuilt the committed dashboard bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Confirmed with `rg` that the old positional and `big/tight/certain/noisy` quadrant label strings no longer remain in [App.jsx](MedRecProReact/src/App.jsx), and only the four new risk/precision labels are present. `git diff --check` passed with only CRLF normalization warnings.
+
+---
+
+### 2026-06-01 4:39 PM EST — AE Dashboard Quadrant Y-Axis Gutter
+Moved the AE dashboard quadrant y-axis label out of the plotted quadrants and into a dedicated white axis gutter.
+
+**Visual styling.** Updated [index.css](MedRecProReact/src/index.css) so `.quadrant-stage` uses a two-column grid with a 54px y-axis gutter and a separate plot column. The `.axis-y` label now centers in that gutter with 14px vertical padding and 10px horizontal padding, while `.quadrant` and `.quadrant-axes` both align to the plot column. Removed the old extra left padding from the top-left and bottom-left quadrant cells because the label no longer overlays those boxes. Rebuilt the committed dashboard bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked the Quadrant view at `http://localhost:50346/ae-dashboard/?view=quadrant&product=d6dd3a62-c183-489b-a846-999a05ba8bf3&comparator=all&fragile=true`; the in-app browser viewport was in the mobile breakpoint where `.axis-y` is intentionally hidden, so desktop placement was verified through source and built CSS rules showing the 54px grid gutter, plot-column alignment, and regenerated static stylesheet. `git diff --check` passed with only CRLF normalization warnings.
+
+---

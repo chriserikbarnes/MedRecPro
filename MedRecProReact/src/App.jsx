@@ -10,6 +10,13 @@ import { Loading } from './components/common/Loading';
 import { useFavorites } from './hooks/useFavorites';
 import { useProducts } from './hooks/useProducts';
 import { useRecents } from './hooks/useRecents';
+import {
+  DEFAULT_FOREST_TICKS,
+  formatForestTick,
+  getForestScaleDomain,
+  getForestTicks,
+  getForestXPercent,
+} from './lib/forestScale';
 import { formatDecimal, formatInteger } from './lib/formatters';
 import { normalizeForest, normalizeQuadrant, normalizeTriage } from './lib/normalizers';
 
@@ -374,32 +381,6 @@ function getSignalDirection(signal) {
 
 /**************************************************************/
 /**
- * Calculates a log-scale x-axis percentage for forest plot values.
- *
- * @param {number | null | undefined} value - RR or CI value.
- * @returns {number | null} Percentage from zero to one hundred.
- */
-function getForestXPercent(value) {
-  // Missing or non-positive values cannot be plotted on a log axis.
-  if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
-    return null;
-  }
-
-  // The prototype domain spans RR 0.1 through 10.
-  const min = 0.1;
-
-  // The maximum intentionally matches the prototype's primary log scale.
-  const max = 10;
-
-  // Values outside the domain are clamped so points stay in-bounds.
-  const clampedValue = Math.min(Math.max(Number(value), min), max);
-
-  // Log10 maps multiplicative RR changes into equal visual distances.
-  return ((Math.log10(clampedValue) - Math.log10(min)) / (Math.log10(max) - Math.log10(min))) * 100;
-}
-
-/**************************************************************/
-/**
  * Renders the MedRecPro logo used by the prototype top bar.
  *
  * @returns {JSX.Element} Logo SVG.
@@ -690,14 +671,37 @@ function TriageView({ tiers }) {
 
 /**************************************************************/
 /**
+ * Builds a compact accessible label for a forest row.
+ *
+ * @param {object} signal - Signal view model.
+ * @param {{ min: number, max: number }} scaleDomain - Current forest scale domain.
+ * @returns {string} Row label with actual RR and CI values.
+ */
+function getForestRowLabel(signal, scaleDomain) {
+  const scaleLabel = `${formatForestTick(scaleDomain.min)} to ${formatForestTick(scaleDomain.max)}`;
+
+  return `${signal.name}; ${signal.soc}; RR ${formatDecimal(signal.rr, 2)} [${formatDecimal(signal.rrL, 2)}-${formatDecimal(signal.rrH, 2)}]; log scale ${scaleLabel}.`;
+}
+
+/**************************************************************/
+/**
  * Renders the prototype-style forest plot.
  *
- * @param {{ signals: object[], axisTicks: number[] }} props - Component props.
+ * @param {{ signals: object[] }} props - Component props.
  * @returns {JSX.Element} Forest view.
  */
-function ForestView({ signals, axisTicks }) {
+function ForestView({ signals }) {
+  // Forest rows are normalized defensively so empty/error payloads stay stable.
+  const forestSignals = useMemo(() => (Array.isArray(signals) ? signals : []), [signals]);
+
+  // The rendered rows determine one shared dynamic log domain.
+  const scaleDomain = useMemo(() => getForestScaleDomain(forestSignals), [forestSignals]);
+
+  // Tick labels follow the expanded domain instead of trusting server bounds.
+  const scaleTicks = useMemo(() => getForestTicks(scaleDomain), [scaleDomain]);
+
   // Empty signal payloads render a stable message.
-  if (signals.length === 0) {
+  if (forestSignals.length === 0) {
     return <EmptyState title="No forest-plot rows match these filters." />;
   }
 
@@ -723,42 +727,65 @@ function ForestView({ signals, axisTicks }) {
         <div className="forest-axis">
           <div className="forest-axis-spacer" />
           <div className="forest-axis-ticks">
-            {axisTicks.map((tick) => {
+            {scaleTicks.map((tick) => {
               // Each tick is positioned on the same log scale as the rows.
-              const left = getForestXPercent(tick);
+              const left = getForestXPercent(tick, scaleDomain);
+
+              // Invalid generated ticks are ignored defensively.
+              if (left === null) {
+                return null;
+              }
 
               return (
                 <span key={tick} className={`forest-tick${tick === 1 ? ' ref' : ''}`} style={{ left: `${left}%` }}>
-                  {tick}
+                  {formatForestTick(tick)}
                 </span>
               );
             })}
           </div>
         </div>
 
-        {signals.map((signal) => {
+        {forestSignals.map((signal) => {
           // Direction drives point color and row class.
           const direction = getSignalDirection(signal);
 
           // Point and interval positions share the same log-scale transform.
-          const pointLeft = getForestXPercent(signal.rr);
+          const pointLeft = getForestXPercent(signal.rr, scaleDomain);
+
+          // CI values are sorted only for drawing so swapped bounds never invert CSS.
+          const lowerBoundValue = Number(signal.rrL);
+          const upperBoundValue = Number(signal.rrH);
+          const hasInterval = Number.isFinite(lowerBoundValue)
+            && lowerBoundValue > 0
+            && Number.isFinite(upperBoundValue)
+            && upperBoundValue > 0;
+          const intervalStartValue = hasInterval ? Math.min(lowerBoundValue, upperBoundValue) : null;
+          const intervalEndValue = hasInterval ? Math.max(lowerBoundValue, upperBoundValue) : null;
 
           // CI lower bound position is nullable when the source bound is absent.
-          const lowerLeft = getForestXPercent(signal.rrL);
+          const lowerLeft = getForestXPercent(intervalStartValue, scaleDomain);
 
           // CI upper bound position is nullable when the source bound is absent.
-          const upperLeft = getForestXPercent(signal.rrH);
+          const upperLeft = getForestXPercent(intervalEndValue, scaleDomain);
 
           // The RR=1 reference line remains fixed in every row.
-          const referenceLeft = getForestXPercent(1);
+          const referenceLeft = getForestXPercent(1, scaleDomain);
 
           // Interval width is clamped to avoid negative CSS widths.
           const intervalWidth = lowerLeft !== null && upperLeft !== null
             ? Math.max(0, upperLeft - lowerLeft)
             : 0;
 
+          // Actual values stay exposed even when the visual domain expands.
+          const rowLabel = getForestRowLabel(signal, scaleDomain);
+
           return (
-            <div key={signal.id || signal.name} className={`forest-row ${direction}${signal.prec === 'fragile' ? ' fragile' : ''}`}>
+            <div
+              key={signal.id || signal.name}
+              className={`forest-row ${direction}${signal.prec === 'fragile' ? ' fragile' : ''}`}
+              title={rowLabel}
+              aria-label={rowLabel}
+            >
               <div className="forest-label" title={signal.name}>
                 {signal.name}
                 <span className="sub">{signal.soc}</span>
@@ -804,20 +831,16 @@ function QuadrantView({ points }) {
         <div className="axis-y">Effect magnitude</div>
         <div className="quadrant">
           <div className="q-cell tl">
-            <span className="q-cell-label">Top-left</span>
-            <span className="q-cell-name">Investigate - big but uncertain</span>
+            <span className="q-cell-name">Increased Risk/Low Precision</span>
           </div>
           <div className="q-cell tr">
-            <span className="q-cell-label">Top-right</span>
-            <span className="q-cell-name">Warn - big and certain</span>
+            <span className="q-cell-name">Increased Risk/High Precision</span>
           </div>
           <div className="q-cell bl">
-            <span className="q-cell-label">Bottom-left</span>
-            <span className="q-cell-name">Ignore - small and noisy</span>
+            <span className="q-cell-name">Reduced Risk/Low Precision</span>
           </div>
           <div className="q-cell br">
-            <span className="q-cell-label">Bottom-right</span>
-            <span className="q-cell-name">Reassure - small and certain</span>
+            <span className="q-cell-name">Reduced Risk/High Precision</span>
           </div>
 
           {points.map((point) => {
@@ -852,7 +875,7 @@ function QuadrantView({ points }) {
 
           {hoverPoint ? (
             <div
-              className="q-tooltip"
+              className={`q-tooltip${hoverPoint.x > 0.66 ? ' is-left' : ' is-right'}${hoverPoint.y > 0.78 ? ' is-lower' : ''}${hoverPoint.y < 0.22 ? ' is-upper' : ''}`}
               style={{
                 left: `${hoverPoint.x * 92 + 4}%`,
                 top: `${(1 - hoverPoint.y) * 92 + 4}%`,
@@ -995,7 +1018,7 @@ function DashboardPanel({
         <TriageView tiers={filteredTiers} />
       ) : null}
       {!activeState.isLoading && !activeState.error && activeView === 'forest' ? (
-        <ForestView signals={forestView.signals} axisTicks={forestView.axisTicks} />
+        <ForestView signals={forestView.signals} />
       ) : null}
       {!activeState.isLoading && !activeState.error && activeView === 'quadrant' ? (
         <QuadrantView points={quadrantView.points} />
@@ -1041,8 +1064,8 @@ function App() {
   // Triage errors are recoverable through retry.
   const [triageError, setTriageError] = useState(null);
 
-  // Forest payload stores chart-ready signals and axis ticks.
-  const [forestView, setForestView] = useState({ signals: [], axisTicks: [0.1, 0.25, 0.5, 1, 2, 4, 10] });
+  // Forest payload stores chart-ready signals and server ticks for API compatibility.
+  const [forestView, setForestView] = useState({ signals: [], axisTicks: DEFAULT_FOREST_TICKS });
 
   // Forest loading runs only when the tab is requested.
   const [isForestLoading, setIsForestLoading] = useState(false);
@@ -1418,7 +1441,7 @@ function App() {
 
       const productWithFavoriteState = applyFavoriteLookup(product, favoriteGuids);
       setSelectedProduct(productWithFavoriteState);
-      setForestView({ signals: [], axisTicks: [0.1, 0.25, 0.5, 1, 2, 4, 10] });
+      setForestView({ signals: [], axisTicks: DEFAULT_FOREST_TICKS });
       setQuadrantView({ points: [] });
       recordRecentProduct(productWithFavoriteState);
       setHydrationError(null);

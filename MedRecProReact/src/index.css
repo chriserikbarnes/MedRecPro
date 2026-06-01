@@ -459,10 +459,13 @@ button:disabled {
 
 /* Picker footer carries account-state messages. */
 .picker-foot {
-  padding: 10px 14px;
-  border-top: 1px solid var(--color-border);
-  color: var(--color-text-tertiary);
-  font-size: 0.78rem;
+    display: flex;
+    gap: 14px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--color-border-x-light);
+    background: var(--color-surface);
+    font-size: 8px;
+    color: var(--color-text-tertiary);
 }
 
 /* ============================================================
@@ -1271,43 +1274,80 @@ button:disabled {
   padding: 16px 18px 18px;
 }
 
-/* Stage reserves room for the rotated y-axis label. */
+/* Stage gives the y-axis label its own white gutter beside the plot frame. */
 .quadrant-stage {
   position: relative;
-  padding-left: 24px;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: stretch;
+  padding-left: 0;
+  overflow: visible;
 }
 
-/* Y-axis label is compact and rotated. */
+/* Y-axis label is compact, padded, and centered in the white axis gutter. */
 .axis-y {
-  position: absolute;
-  left: -34px;
-  top: 50%;
+  position: relative;
+  z-index: 4;
+  display: grid;
+  min-width: 54px;
+  padding: 14px 10px;
+  place-items: center;
   color: var(--color-text-tertiary);
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  transform: rotate(-90deg) translateX(-50%);
-  transform-origin: left top;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  transform-origin: center;
   white-space: nowrap;
+  pointer-events: none;
 }
 
 /* Quadrant canvas keeps a fixed analysis aspect ratio. */
 .quadrant {
   position: relative;
+  grid-column: 2;
   min-height: 420px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background:
-    linear-gradient(90deg, transparent calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% + 1px), transparent calc(50% + 1px)),
-    linear-gradient(180deg, transparent calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% - 1px), rgba(31, 37, 36, 0.14) calc(50% + 1px), transparent calc(50% + 1px)),
-    #fbfcfc;
-  overflow: hidden;
+  background: #fffdfb;
+  overflow: visible;
+}
+
+/* Crosshair rules sit above cell tints but below dots. */
+.quadrant::before,
+.quadrant::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  background: #e1d7ce;
+  pointer-events: none;
+}
+
+/* Vertical precision split. */
+.quadrant::before {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+}
+
+/* Horizontal magnitude split. */
+.quadrant::after {
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
 }
 
 /* Quadrant labels occupy each cell without blocking dots. */
 .q-cell {
   position: absolute;
+  z-index: 0;
   display: grid;
+  align-content: start;
+  align-items: start;
   gap: 3px;
   width: 50%;
   height: 50%;
@@ -1319,43 +1359,63 @@ button:disabled {
 .q-cell.tl {
   left: 0;
   top: 0;
+  border-top-left-radius: calc(var(--radius-md) - 1px);
+  background: #fff8f1;
 }
 
 /* Top-right cell. */
 .q-cell.tr {
   right: 0;
   top: 0;
-  text-align: right;
+  border-top-right-radius: calc(var(--radius-md) - 1px);
+  background: #fffaf5;
+  text-align: left;
 }
 
 /* Bottom-left cell. */
 .q-cell.bl {
   left: 0;
   bottom: 0;
-  align-content: end;
+  border-bottom-left-radius: calc(var(--radius-md) - 1px);
+  background: #f6faf7;
 }
 
 /* Bottom-right cell. */
 .q-cell.br {
   right: 0;
   bottom: 0;
-  align-content: end;
-  text-align: right;
+  border-bottom-right-radius: calc(var(--radius-md) - 1px);
+  background: #fbf8f3;
+  text-align: left;
 }
 
 /* Small quadrant label. */
 .q-cell-label {
-  color: var(--color-text-tertiary);
-  font-size: 0.72rem;
-  font-weight: 900;
+  display: block;
+  color: #a9826b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 /* Human-readable quadrant name. */
 .q-cell-name {
+  display: block;
+  color: var(--color-primary-dark);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+/* Protective/noisy quadrant uses the prototype's teal guidance color. */
+.q-cell.bl .q-cell-name {
+  color: var(--color-teal-deep);
+}
+
+/* Reassuring quadrant keeps the warm neutral text color. */
+.q-cell.br .q-cell-name {
   color: var(--color-text-secondary);
-  font-size: 0.86rem;
-  font-weight: 850;
 }
 
 /* Dots are real buttons for keyboard tooltip access. */
@@ -1364,12 +1424,12 @@ button:disabled {
   z-index: 3;
   min-width: 8px;
   min-height: 8px;
-  border: 2px solid var(--color-surface);
+  border: 1px solid var(--color-surface);
   border-radius: 999px;
   background: var(--color-text-tertiary);
   cursor: pointer;
   transform: translate(-50%, -50%);
-  box-shadow: 0 2px 8px rgba(31, 37, 36, 0.22);
+  box-shadow: none;
 }
 
 /* Elevated dots use orange. */
@@ -1384,46 +1444,86 @@ button:disabled {
 
 /* Neutral dots are gray. */
 .q-dot.ns {
-  background: var(--color-text-tertiary);
+  background: #9b7d6a;
 }
 
 /* Fragile dots are subdued. */
 .q-dot.fragile {
-  opacity: 0.54;
+  opacity: 0.5;
 }
 
 /* Tooltip follows hovered or focused dots. */
 .q-tooltip {
   position: absolute;
-  z-index: 6;
+  z-index: 8;
   min-width: 190px;
   max-width: 260px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  background: var(--color-surface);
+  background: #fffdfb;
   color: var(--color-text);
-  font-size: 0.82rem;
-  box-shadow: var(--shadow-picker);
-  transform: translate(10px, -50%);
+  font-size: 0.74rem;
+  font-weight: 500;
+  box-shadow: none;
   pointer-events: none;
+}
+
+/* Right-side placement keeps tooltips inside the quadrant panel. */
+.q-tooltip.is-right {
+  transform: translate(10px, -50%);
+}
+
+/* Left-side placement prevents high-precision bubbles from clipping on hover. */
+.q-tooltip.is-left {
+  transform: translate(calc(-100% - 10px), -50%);
+}
+
+/* Upper-edge bubbles place the tooltip below the point. */
+.q-tooltip.is-lower.is-right {
+  transform: translate(10px, 10px);
+}
+
+/* Upper-right bubbles place the tooltip down and inward. */
+.q-tooltip.is-lower.is-left {
+  transform: translate(calc(-100% - 10px), 10px);
+}
+
+/* Lower-edge bubbles place the tooltip above the point. */
+.q-tooltip.is-upper.is-right {
+  transform: translate(10px, calc(-100% - 10px));
+}
+
+/* Lower-right bubbles place the tooltip up and inward. */
+.q-tooltip.is-upper.is-left {
+  transform: translate(calc(-100% - 10px), calc(-100% - 10px));
+}
+
+/* Tooltip heading is strong but not shadow-heavy. */
+.q-tooltip strong {
+  font-weight: 700;
 }
 
 /* Tooltip details are muted. */
 .q-tooltip .small {
   margin-top: 3px;
   color: var(--color-text-secondary);
+  font-size: 0.68rem;
+  font-weight: 500;
 }
 
 /* Quadrant axes sit under the plot. */
 .quadrant-axes {
   display: grid;
+  grid-column: 2;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 8px;
   color: var(--color-text-tertiary);
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 /* Right axis label aligns right. */
@@ -1682,6 +1782,7 @@ button:disabled {
   }
 
   .quadrant-stage {
+    display: block;
     padding-left: 0;
   }
 
@@ -1845,25 +1946,25 @@ body,
 
 /* The title trigger is a compact badge-like text button. */
 .drug-title-wrap {
-  width: min(720px, 100%);
+  width: min(760px, 100%);
 }
 
-/* The product title scale now matches the prototype, not a landing-page H1. */
+/* The product title uses the prototype's large badge-like selector. */
 .drug-title {
-  min-height: 0;
-  padding: 4px 8px;
-  border-radius: 6px;
+  min-height: 48px;
+  padding: 4px 12px;
+  border-radius: 8px;
   background: #f5ede8;
   color: var(--color-text);
-  font-size: 1.45rem;
+  font-size: 2.6rem;
   font-weight: 800;
-  line-height: 1.12;
+  line-height: 1.05;
 }
 
 /* The chevron is small and orange like the prototype trigger. */
 .drug-title-chev {
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   color: var(--color-primary);
 }
 
@@ -1920,43 +2021,60 @@ body,
   color: var(--color-teal-deep);
 }
 
-/* The picker panel returns to the prototype's compact typeahead footprint. */
+/* The picker panel copies the prototype's wide typeahead footprint. */
 .picker {
-  top: calc(100% + 8px);
-  width: min(448px, calc(100vw - 52px));
-  border-color: var(--color-border);
-  border-radius: 6px;
+  top: calc(100% + 12px);
+  width: min(720px, calc(100vw - 48px));
+  border-color: var(--color-border-strong);
+  border-radius: var(--radius-md);
 }
 
-/* Search row height is reduced to match the original dropdown. */
+/* Search row reserves the same icon/input/count columns as the prototype. */
 .picker-search {
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  min-height: 40px;
-  padding: 7px 10px;
+  grid-template-columns: 20px minmax(0, 1fr) max-content;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 28px;
   background: #fffdfb;
 }
 
-/* Search input text is normal-weight and smaller like the prototype. */
+/* Search input text is normal-weight like the prototype dropdown. */
 .picker-input {
-  min-height: 28px;
-  font-size: 0.82rem;
+  min-height: 38px;
+  border-color: transparent;
+  font-size: 0.96rem;
   font-weight: 400;
+}
+
+/* The picker search does not use the app-wide teal focus ring. */
+.picker-input:focus,
+.picker-input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
 }
 
 /* Count text matches the small right-side product count. */
 .picker-count {
-  font-size: 0.68rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding-left: 14px;
+  border-left: 1px solid #eaded4;
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
   font-weight: 500;
+  white-space: nowrap;
 }
 
-/* The dropdown body is shorter and denser. */
+/* The dropdown body uses the prototype's taller scroll surface. */
 .picker-body {
-  max-height: 340px;
+  max-height: 430px;
 }
 
 /* Section labels are small, pale, and uppercase. */
 .picker-section-label {
-  padding: 8px 12px 6px;
+  padding: 18px 28px 10px;
   background: #fffdfb;
   color: #b49684;
   font-size: 0.66rem;
@@ -1966,57 +2084,110 @@ body,
 
 /* Picker rows are denser and closer to the prototype examples. */
 .picker-item {
-  grid-template-columns: minmax(0, 1fr) auto 24px;
-  gap: 8px;
-  min-height: 50px;
-  padding: 8px 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  min-height: 86px;
+  padding: 18px 28px;
+  border-bottom: 0;
   background: #ffffff;
+  box-shadow: none;
 }
 
-/* Highlighted and active rows use warm paper, not green. */
+/* Highlighted and active rows use the prototype's orange left rule. */
 .picker-item:hover,
 .picker-item.is-active {
-  background: #fbf7f2;
+  background: #fffdfb;
+  box-shadow: inset 4px 0 0 var(--color-primary);
 }
 
-/* The selected product uses the orange rail from the prototype. */
+/* The selected product uses warm fill; hover/focus adds the rule. */
 .picker-item.is-selected {
-  background: #fbf7f2;
-  box-shadow: inset 3px 0 0 var(--color-primary);
+  background: #fff1e5;
+  box-shadow: none;
 }
 
-/* Product names in the picker are bold but not oversized. */
+/* Selected rows still show the orange rule when active or hovered. */
+.picker-item.is-selected:hover,
+.picker-item.is-selected.is-active {
+  box-shadow: inset 4px 0 0 var(--color-primary);
+}
+
+/* Product identity spacing mirrors the airier prototype rows. */
+.pi-info {
+  gap: 8px;
+}
+
+/* Product names copy the prototype's larger, lighter selector rows. */
 .pi-name {
-  font-size: 0.79rem;
-  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.15;
 }
 
-/* Picker subtitles are intentionally small. */
+/* The name text truncates before the status pill. */
+.pi-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Selected-row marker mirrors the prototype product picker. */
+.pi-current {
+  flex: 0 0 auto;
+  padding: 3px 8px 2px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #ffffff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+/* Picker subtitles carry generic and class context below the name. */
 .pi-sub {
+  overflow: hidden;
   color: var(--color-text-secondary);
-  font-size: 0.7rem;
+  font-size: 0.84rem;
+  font-weight: 400;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Row metrics align to the prototype's right edge. */
+/* Row metrics copy the prototype score-plus-star block. */
 .pi-right {
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 12px;
   color: var(--color-text-tertiary);
-  font-size: 0.66rem;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* Product score uses a muted badge instead of loud text. */
 .pi-score {
-  padding: 2px 6px;
+  padding: 4px 8px;
   border-radius: 3px;
   background: #f5ede8;
   color: var(--color-text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.08em;
 }
 
-/* Star buttons are icon-sized inside dense rows. */
+/* Star buttons are icon-only and unframed like the prototype. */
 .pi-star {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border: 0;
   background: transparent;
   color: var(--color-primary);
@@ -2028,31 +2199,59 @@ body,
   color: var(--color-primary);
 }
 
+/* Prototype star glyphs are 15px. */
+.pi-star-icon {
+  width: 15px;
+  height: 15px;
+}
+
 /* Footer shortcut hints match the prototype panel footer. */
 .picker-foot {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 7px 12px;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 28px 10px;
+  border-top: 1px solid var(--color-border);
   background: #faf7f3;
   color: var(--color-text-tertiary);
-  font-size: 0.66rem;
+  font-size: 8pt;
+  line-height: 1;
 }
 
-/* Keyboard hint pills stay tiny and stable. */
+/* Shortcut groups read as keycap clusters plus a label. */
+.picker-foot > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9b7d6a;
+  font-size: 8pt;
+  line-height: 1;
+}
+
+/* Keyboard hint pills match the prototype footer buttons. */
 .picker-foot kbd {
   display: inline-flex;
   align-items: center;
-  min-height: 14px;
-  margin-right: 3px;
-  padding: 0 4px;
-  border: 1px solid var(--color-border);
-  border-radius: 2px;
-  background: #ffffff;
+  justify-content: center;
+  min-width: 26px;
+  min-height: 26px;
+  margin-right: 0;
+  padding: 0 7px;
+  border: 1px solid #e1d2c8;
+  border-radius: 4px;
+  background: #fffdfb;
   color: var(--color-text-secondary);
   font-family: var(--font-primary);
-  font-size: 0.62rem;
+  font-size: 0.78rem;
   font-weight: 600;
+  line-height: 1;
+}
+
+/* Arrow glyphs need a small optical lift inside their keycap boxes. */
+.picker-foot .keycap-glyph {
+  display: block;
+  transform: translateY(-2px);
 }
 
 /* Loading and error states inside the picker must not inherit panel margins. */
@@ -2170,13 +2369,14 @@ body,
 /* Panel title matches the prototype work-surface heading. */
 .panel-title {
   font-size: 0.94rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 /* Panel subtitle is smaller and warm-muted. */
 .panel-sub {
   color: var(--color-text-secondary);
   font-size: 0.72rem;
+  font-weight: 400;
 }
 
 /* Tabs use a warm segmented shell. */
@@ -2194,7 +2394,7 @@ body,
   padding: 0 10px;
   color: var(--color-text-secondary);
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Active tabs are dark brown like the prototype. */
@@ -2518,6 +2718,136 @@ body,
   padding: 16px;
 }
 
+/* Forest legend and rows follow the prototype's lighter analytical typography. */
+.forest-legend {
+  gap: 12px;
+  padding-bottom: 13px;
+}
+
+/* Forest legend labels should not overpower the row labels. */
+.forest-legend-item,
+.forest-legend-note {
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+/* The legend note reads as guidance, not a second heading. */
+.forest-legend-note {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+/* Legend dots are small clinical markers. */
+.forest-legend-dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* The scroll surface keeps the dense table feel with a small bottom gutter. */
+.forest-wrap {
+  padding-bottom: 2px;
+}
+
+/* Axis and rows share one stable label column and plotting lane. */
+.forest-axis,
+.forest-row {
+  grid-template-columns: 220px minmax(560px, 1fr);
+  gap: 14px;
+  min-width: 790px;
+}
+
+/* Axis labels align tightly above the thinner tracks. */
+.forest-axis {
+  padding: 0 8px 8px;
+}
+
+/* Axis ticks are quieter and closer to the prototype. */
+.forest-axis-ticks {
+  height: 22px;
+}
+
+/* Tick labels use medium weight so the scale stays secondary. */
+.forest-tick {
+  color: var(--color-text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/* The reference tick remains visible without becoming heavy. */
+.forest-tick.ref {
+  color: var(--color-brown);
+  font-weight: 700;
+}
+
+/* Forest rows are dense, flat, and rule-separated. */
+.forest-row {
+  min-height: 43px;
+  padding: 7px 8px;
+  border-top-color: #eaded4;
+}
+
+/* Fragile rows should be muted but still legible. */
+.forest-row.fragile {
+  opacity: 0.68;
+}
+
+/* Row names are strong enough for scanning but not black-heavy. */
+.forest-label {
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+/* SOC subtitles are small, warm, and medium-weight. */
+.forest-label .sub {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* Plot tracks become slim warm lanes rather than heavy filled pills. */
+.forest-track {
+  height: 24px;
+  overflow: visible;
+  background:
+    linear-gradient(90deg, rgba(22, 117, 99, 0.1), rgba(255, 253, 251, 0.82) 46%, rgba(255, 253, 251, 0.82) 54%, rgba(229, 119, 30, 0.08)),
+    #f4eee8;
+}
+
+/* RR=1 is a fine reference marker. */
+.forest-refline {
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: rgba(52, 46, 42, 0.34);
+}
+
+/* Confidence intervals use thin analytical line work. */
+.forest-ci {
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+/* CI caps are slim bound markers. */
+.forest-ci-cap {
+  top: 7px;
+  width: 1px;
+  height: 10px;
+}
+
+/* Point estimates sit on the line instead of floating above it. */
+.forest-pt {
+  width: 10px;
+  height: 10px;
+  border-width: 1px;
+  box-shadow: none;
+}
+
 /* Footer copy should sit close to the panel like the prototype note. */
 .foot-note {
   margin-top: 12px;
@@ -2568,6 +2898,23 @@ body,
     width: calc(100vw - 24px);
   }
 
+  .picker-search {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .picker-count {
+    display: none;
+  }
+
+  .picker-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pi-right {
+    grid-column: auto;
+    justify-content: end;
+  }
+
   .ae-row {
     grid-template-columns: 1fr;
   }
@@ -2579,5 +2926,42 @@ body,
   .ae-detail-cell {
     border-right: 0;
     border-bottom: 1px solid #f0e7df;
+  }
+
+  .forest-axis,
+  .forest-row {
+    grid-template-columns: 168px minmax(420px, 1fr);
+    gap: 12px;
+    min-width: 620px;
+  }
+
+  .forest-axis {
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+
+  .forest-row {
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+
+  .forest-label {
+    font-size: 0.74rem;
+  }
+
+  .forest-label .sub,
+  .forest-tick {
+    font-size: 0.62rem;
+  }
+}
+
+/* The prototype picker keeps its count visible even in narrower panes. */
+@media (max-width: 680px) {
+  .picker-search {
+    grid-template-columns: 20px minmax(0, 1fr) max-content;
+  }
+
+  .picker-count {
+    display: inline-flex;
   }
 }

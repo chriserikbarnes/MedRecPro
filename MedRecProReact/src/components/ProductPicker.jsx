@@ -82,16 +82,22 @@ function buildPickerSections({ favoriteProducts, recentProducts, products, searc
   if (showContextSections) {
     addSection('favorites', 'Favorites', favoriteProducts);
     addSection('recents', 'Recents', mapRecentsToPickerRows(recentProducts));
-  }
 
-  // Server results always render last so active searches feel predictable.
-  addSection('results', searchTerm.trim() ? 'Search results' : 'Products', products);
+    // The prototype only shows a browse section when no personalized rows exist.
+    if (sections.length === 0) {
+      addSection('browse', 'Browse', products.slice(0, 8));
+    }
+  } else {
+    const matchCount = products.length;
+    const matchLabel = `Results · ${formatInteger(matchCount)} match${matchCount === 1 ? '' : 'es'}`;
+    addSection('results', matchLabel, products);
+  }
 
   // Recents should name the visible count like the original prototype panel.
   for (const section of sections) {
     // Only the recents section gets dynamic label text.
     if (section.id === 'recents') {
-      section.label = `Recent - last ${section.rows.length}`;
+      section.label = `Recent · last ${section.rows.length}`;
     }
   }
 
@@ -106,18 +112,31 @@ function buildPickerSections({ favoriteProducts, recentProducts, products, searc
  * @returns {JSX.Element} Icon SVG.
  */
 function FavoriteIcon({ active = false }) {
+  if (active) {
+    return (
+      <svg
+        aria-hidden="true"
+        className="pi-star-icon"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        stroke="none"
+      >
+        <path d="M12 2l3.09 6.26 6.91 1-5 4.87 1.18 6.88L12 17.77 5.82 21l1.18-6.88-5-4.87 6.91-1L12 2z" />
+      </svg>
+    );
+  }
+
   return (
     <svg
       aria-hidden="true"
       className="pi-star-icon"
       viewBox="0 0 24 24"
-      fill={active ? 'currentColor' : 'none'}
+      fill="none"
       stroke="currentColor"
-      strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth="2"
+      strokeWidth="1.7"
     >
-      <polygon points="12 2 15 8.7 22 9.3 16.7 13.9 18.3 21 12 17.3 5.7 21 7.3 13.9 2 9.3 9 8.7 12 2" />
+      <path d="M12 2l3.09 6.26 6.91 1-5 4.87 1.18 6.88L12 17.77 5.82 21l1.18-6.88-5-4.87 6.91-1L12 2z" />
     </svg>
   );
 }
@@ -140,9 +159,6 @@ function ProductPickerRow({
   // Favorite action reflects the visible row state.
   const favoriteLabel = formatFavoriteAction(product.isFavorite);
 
-  // Significant count defaults to zero for recent-only snapshots.
-  const significantCount = formatInteger(product.significant ?? 0);
-
   return (
     <div
       id={`product-option-${product.documentGuid}`}
@@ -156,35 +172,37 @@ function ProductPickerRow({
       onClick={() => onSelect(product)}
     >
       <div className="pi-info">
-        <span className="pi-name">{product.name}</span>
+        <div className="pi-name">
+          <span className="pi-name-text">{product.name}</span>
+          {isSelected ? <span className="pi-current">current</span> : null}
+        </div>
         <span className="pi-sub">
-          {product.generic} / {product.pharmClass}
+          {product.generic} · {product.pharmClass}
         </span>
       </div>
       <div className="pi-right">
-        <span className="pi-score">Score {formatDecimal(product.score, 0)}</span>
-        <span className="pi-sig">{significantCount} significant</span>
+        <span className="pi-score">score {formatDecimal(product.score, 0)}</span>
+        <button
+          type="button"
+          className={`pi-star${product.isFavorite ? ' is-on' : ''}`}
+          aria-pressed={product.isFavorite}
+          aria-label={`${favoriteLabel} ${product.name}`}
+          disabled={isFavoriteBusy || product.isRecentOnly}
+          title={favoriteLabel}
+          onMouseDown={(event) => {
+            // Keep the picker input focused while the button handles the click.
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            // Stop propagation so a favorite click does not also select the row.
+            event.stopPropagation();
+            onToggleFavorite(product);
+          }}
+        >
+          <FavoriteIcon active={product.isFavorite} />
+        </button>
       </div>
-      <button
-        type="button"
-        className={`pi-star${product.isFavorite ? ' is-on' : ''}`}
-        aria-pressed={product.isFavorite}
-        aria-label={`${favoriteLabel} ${product.name}`}
-        disabled={isFavoriteBusy || product.isRecentOnly}
-        title={favoriteLabel}
-        onMouseDown={(event) => {
-          // Keep the picker input focused while the button handles the click.
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-        onClick={(event) => {
-          // Stop propagation so a favorite click does not also select the row.
-          event.stopPropagation();
-          onToggleFavorite(product);
-        }}
-      >
-        <FavoriteIcon active={product.isFavorite} />
-      </button>
     </div>
   );
 }
@@ -389,21 +407,22 @@ export function ProductPicker({
               strokeLinejoin="round"
               strokeWidth="2"
             >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <circle cx="11" cy="11" r="7" />
+              <path d="m21 21-4.3-4.3" />
             </svg>
             <input
               id="product-search"
               ref={inputRef}
               className="picker-input"
-              type="search"
+              type="text"
               value={searchTerm}
-              placeholder="Search by brand, generic, or class..."
+              placeholder="Search by brand, generic, or class…"
               role="combobox"
               aria-controls="product-picker-listbox"
               aria-expanded={isOpen}
               aria-activedescendant={activeDescendant}
               autoComplete="off"
+              spellCheck={false}
               onChange={(event) => {
                 // Search text is controlled by the dashboard root hook.
                 onSearchTermChange(event.target.value);
@@ -462,9 +481,13 @@ export function ProductPicker({
               <span>{favoriteNotice}</span>
             ) : (
               <>
-                <span><kbd>up</kbd><kbd>down</kbd> move</span>
-                <span><kbd>enter</kbd> select</span>
-                <span><kbd>star</kbd> favorite</span>
+                <span>
+                  <kbd className="keycap-arrow"><span className="keycap-glyph">↑</span></kbd>
+                  <kbd className="keycap-arrow"><span className="keycap-glyph">↓</span></kbd>
+                  move
+                </span>
+                <span><kbd>⏎</kbd> select</span>
+                <span><kbd>★</kbd> favorite</span>
                 <span><kbd>esc</kbd> close</span>
               </>
             )}

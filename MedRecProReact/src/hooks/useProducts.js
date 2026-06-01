@@ -3,8 +3,8 @@ import { AdverseEventClient } from '../api/adverseEventClient';
 import { normalizeProducts } from '../lib/normalizers';
 import { useDebouncedValue } from './useDebouncedValue';
 
-// The first implementation stop point only needs a picker-sized catalog page.
-const productPageSize = 25;
+// The prototype picker displays the full dashboard-ready catalog count.
+const productPageSize = 450;
 
 /**************************************************************/
 /**
