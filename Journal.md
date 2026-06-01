@@ -4398,3 +4398,36 @@ Added row-level AE metadata pills for `studyContext` and `population` in the Rea
 Adjusted the `studyContext` and `population` AE row pills so long trial and cohort labels are no longer clipped. The contextual chips now allow normal wrapping, visible overflow, and full-width flex shrink behavior with `min-width: 0`, preserving the complete label while keeping the row responsive. Rebuilt the static dashboard bundle and verified lint/build success plus the Vite `/ae-dashboard/` surface.
 
 ---
+
+### 2026-06-01 9:18 AM EST — Population Caption Regex Expansion
+Expanded the caption population detector so long `Patients With ...` descriptors are captured whole instead of being cut off after the first short word window.
+
+**Implementation.** Updated the `patients with` branch in `_captionPopulationPattern` ([PopulationDetector.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/PopulationDetector.cs)) to allow the full caption descriptor, including digits, percent signs, slashes, commas, hyphens, and parenthesized analysis-set text. The narrower pediatric, renal, hepatic, volunteer, age, and child/adolescent branches were left unchanged.
+
+**Regression coverage.** Added `ExtractFromCaption_LongPatientsWithDescriptor_ReturnsCompleteCaptionPopulation` to [PopulationDetectorTests.cs](MedRecProTest/PopulationDetectorTests.cs), using the reported Table 12 GIST adverse-reaction caption and asserting the complete goal text is returned.
+
+**Verification.** Ran `dotnet test "C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj" --filter PopulationDetectorTests`; the first sandboxed attempt could not read `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`, then the approved rerun passed 106/106 tests with 0 failed and 0 skipped. Build output still includes pre-existing warning noise from the broader solution.
+
+---
+
+### 2026-06-01 9:56 AM EST — Adult/Adolescent Caption Regex Expansion
+Expanded the caption population detector again so pooled adult/adolescent adverse-reaction captions keep the full disease and trial qualifier instead of truncating at `Adult and`.
+
+**Implementation.** Added a longer `adult and adolescent patients with ...` branch ahead of the short adult/pediatric caption branch in `_captionPopulationPattern` ([PopulationDetector.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/PopulationDetector.cs)). Also broadened the patient-descriptor character set to include comparator symbols such as `≥` and `≤`, matching adverse-reaction captions that include percentage thresholds.
+
+**Regression coverage.** Added `ExtractFromCaption_AdultAndAdolescentPatientsDescriptor_ReturnsCompleteCaptionPopulation` to [PopulationDetectorTests.cs](MedRecProTest/PopulationDetectorTests.cs), using TextTableID 41549's Perampanel caption and asserting the full target population text is returned.
+
+**Verification.** Ran `dotnet test "C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj" --filter PopulationDetectorTests`; the sandboxed attempt again could not read `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`, then the approved rerun passed 107/107 tests with 0 failed and 0 skipped. The broader solution still emits pre-existing warning noise, including Microsoft.CodeAnalysis version-conflict warnings.
+
+---
+
+### 2026-06-01 10:13 AM EST — General Adult Caption Qualifier Capture
+Generalized the adult-starting caption population extraction so captions beginning with `Adult...` no longer fall through to the legacy two-word demographic branch.
+
+**Implementation.** Replaced the narrow `adult and adolescent patients with ...` branch in `_captionPopulationPattern` ([PopulationDetector.cs](MedRecProImportClass/Service/TransformationServices/BaseTableFlattening/PopulationDetector.cs)) with broader adult clinical-qualifier handling. The new branch covers `Adult and Adolescent with ...`, `Adult Patients with ...`, and `Adults with ...` forms before the short `adult + word` fallback can truncate the population.
+
+**Regression coverage.** Added `ExtractFromCaption_AdultClinicalQualifier_ReturnsCompleteDescriptor` to [PopulationDetectorTests.cs](MedRecProTest/PopulationDetectorTests.cs) with cases for TextTableID 5297's ADVAIR asthma caption plus adult-patient and adult plural clinical-qualifier captions.
+
+**Verification.** A normal `dotnet test "C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj" --filter PopulationDetectorTests` run was blocked because Visual Studio and the running `MedRecProConsole` process locked `MedRecProConsole\bin\Debug\net8.0\MedRecProImportClass.dll` / `.pdb`. Reran with isolated outputs via `dotnet test "C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj" --filter PopulationDetectorTests --artifacts-path "C:\tmp\medrecpro-popdet-tests"`; this passed 110/110 tests with 0 failed and 0 skipped. The broader solution still emits pre-existing warning noise.
+
+---

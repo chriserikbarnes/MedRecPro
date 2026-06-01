@@ -30,10 +30,13 @@ namespace MedRecProImportClass.Service.TransformationServices
         // Regex patterns for common population descriptors in captions
         private static readonly Regex _captionPopulationPattern = new(
             @"(?:in|for|of|among)\s+(?:the\s+)?(?<pop>" +
+            @"(?:adults?(?:(?:\s+and\s+(?:adolescents?|pediatric|children)(?:\s+(?:patients?|subjects?))?)|\s+(?:patients?|subjects?))?\s+with\s+[\p{L}\p{N}\s%()/,\-≥≤><]+)" +
+            @"|(?:adults?\s+and\s+(?:adolescents?|pediatric|children)(?:\s+(?:patients?|subjects?))?)" +
+            @"|" +
             @"(?:adult|pediatric|geriatric|neonatal|postmenopausal|premenopausal|pregnant)\s+\w+" +
             @"|(?:premature|preterm)\s+(?:infants?|neonates?)" +
             @"|(?:healthy\s+)?(?:adult|male|female)\s+(?:healthy\s+)?volunteers?" +
-            @"|(?:patients?\s+with\s+\w[\w\s]{2,30})" +
+            @"|(?:patients?\s+with\s+[\p{L}\p{N}\s%()/,\-≥≤><]+)" +
             @"|(?:children|adolescents?|infants?|neonates?)" +
             @"|(?:renal|hepatic)\s+impairment" +
             @"|(?:[\d]+\s*(?:to|[-–])\s*[\d]+\s*years?)" +

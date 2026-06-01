@@ -94,6 +94,61 @@ namespace MedRecPro.Service.Test
             Assert.IsNull(result);
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Long adverse-reaction captions that use "of Patients With ..." retain
+        /// the complete patient descriptor instead of truncating after the first
+        /// few words.
+        /// </summary>
+        [TestMethod]
+        public void ExtractFromCaption_LongPatientsWithDescriptor_ReturnsCompleteCaptionPopulation()
+        {
+            const string expected = "Patients With Adverse Reactions Regardless of Relationship to Study Drug Where Frequency is Greater Than or Equal to 10% in any One Group (Full Analysis Set) in the Phase 3 Unresectable and/or Malignant Metastatic GIST Clinical Trials";
+            var result = PopulationDetector.extractFromCaption(
+                "Table 12: Number (%) of Patients With Adverse Reactions Regardless of Relationship to Study Drug Where Frequency is Greater Than or Equal to 10% in any One Group (Full Analysis Set) in the Phase 3 Unresectable and/or Malignant Metastatic GIST Clinical Trials");
+
+            Assert.AreEqual(expected, result);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Long adult/adolescent adverse-reaction captions retain the complete
+        /// descriptor instead of stopping after the short "Adult and" match.
+        /// </summary>
+        [TestMethod]
+        public void ExtractFromCaption_AdultAndAdolescentPatientsDescriptor_ReturnsCompleteCaptionPopulation()
+        {
+            const string expected = "Adult and Adolescent Patients with Partial-Onset Seizures (Studies 1, 2, and 3) (Reactions ≥ 2% of Patients in Highest Perampanel Dose (12 mg) Group and More Frequent than Placebo)";
+            var result = PopulationDetector.extractFromCaption(
+                "Adverse Reactions in Pooled Placebo-Controlled Trials in Adult and Adolescent Patients with Partial-Onset Seizures (Studies 1, 2, and 3) (Reactions ≥ 2% of Patients in Highest Perampanel Dose (12 mg) Group and More Frequent than Placebo)");
+
+            Assert.AreEqual(expected, result);
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Adult-starting captions with a clinical qualifier retain the complete
+        /// descriptor instead of falling through to the short "Adult and" match.
+        /// </summary>
+        [TestMethod]
+        [DataRow(
+            "Table 2. Adverse Reactions with ADVAIR HFA with ≥3% Incidence in Adult and Adolescent with Asthma",
+            "Adult and Adolescent with Asthma")]
+        [DataRow(
+            "Adverse Reactions in Adult Patients with Type 2 Diabetes Mellitus",
+            "Adult Patients with Type 2 Diabetes Mellitus")]
+        [DataRow(
+            "Adverse Reactions among Adults with Moderate to Severe Plaque Psoriasis",
+            "Adults with Moderate to Severe Plaque Psoriasis")]
+        public void ExtractFromCaption_AdultClinicalQualifier_ReturnsCompleteDescriptor(
+            string caption,
+            string expected)
+        {
+            var result = PopulationDetector.extractFromCaption(caption);
+
+            Assert.AreEqual(expected, result);
+        }
+
         #endregion Caption Extraction Tests
 
         #region Section Title Extraction Tests
