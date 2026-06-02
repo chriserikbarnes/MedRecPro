@@ -191,6 +191,135 @@ namespace MedRecProTest
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that marking favorites for an authenticated request never mutates
+        /// the shared cached catalog (clone-proof).
+        /// </summary>
+        /// <remarks>
+        /// The catalog cache hands back live DTO instances, so a later anonymous
+        /// request must still see IsFavorite=false even after an authenticated request
+        /// marked the same product. Catches a regression where favorite marking leaks
+        /// across users through the cache.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetAeDrugSummariesAsync(ApplicationDbContext, string, ILogger, string?, long?, int?, int?)"/>
+        [TestMethod]
+        public async Task GetAeDrugSummariesAsync_AuthenticatedFavoriteThenAnonymous_DoesNotPolluteCachedCatalog()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+            var userId = 7003L;
+            await seedUserAsync(context, userId);
+
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, DtoLabelAccessTestHelper.TestDocumentGuid, "ASPIRIN");
+            context.AspNetUserFavorites.Add(new AspNetUserFavorite
+            {
+                UserId = userId,
+                DocumentGUID = DtoLabelAccessTestHelper.TestDocumentGuid,
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+
+            // Authenticated request marks the product as a favorite (on a clone).
+            var authenticated = await DtoLabelAccess.GetAeDrugSummariesAsync(context, PkSecret, logger, userId: userId);
+
+            // A later anonymous request reads the same cached base and must be clean.
+            var anonymous = await DtoLabelAccess.GetAeDrugSummariesAsync(context, PkSecret, logger);
+
+            Assert.IsTrue(authenticated.Single().IsFavorite);
+            Assert.IsTrue(anonymous.All(product => !product.IsFavorite));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that a combination product collapses to one row listing every
+        /// active ingredient with its preferred ("[EPC]") class in ingredient order.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeDrugSummariesAsync(ApplicationDbContext, string, ILogger, string?, long?, int?, int?)"/>
+        /// <seealso cref="AeDashboardDerivation.BuildActiveIngredients(System.Collections.Generic.IEnumerable{AeDrugSummaryDto})"/>
+        [TestMethod]
+        public async Task GetAeDrugSummariesAsync_CombinationProduct_CollapsesToOneRowWithEpcIngredients()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            // ADVAIR-style combo: two ingredients, each with an [EPC] and a [MoA]
+            // stratum. salmeterol uses ingredient id 100, fluticasone uses 200.
+            var advair = DtoLabelAccessTestHelper.TestDocumentGuid;
+            const string comboUnii = "6EW8Q962A5+O2GMZ0LF5W";
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, advair, "ADVAIR HFA", substanceName: "salmeterol xinafoate", unii: comboUnii, pharmClassCode: "EPC-SAL", pharmClassName: "beta2-Adrenergic Agonist [EPC]", activeMoietyId: 100, ingredientSubstanceId: 100, pharmacologicClassId: 1, monoComboMix: "combo");
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, advair, "ADVAIR HFA", substanceName: "salmeterol xinafoate", unii: comboUnii, pharmClassCode: "MOA-SAL", pharmClassName: "Adrenergic beta2-Agonists [MoA]", activeMoietyId: 100, ingredientSubstanceId: 100, pharmacologicClassId: 2, monoComboMix: "combo");
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, advair, "ADVAIR HFA", substanceName: "fluticasone propionate", unii: comboUnii, pharmClassCode: "EPC-FLU", pharmClassName: "Corticosteroid [EPC]", activeMoietyId: 200, ingredientSubstanceId: 200, pharmacologicClassId: 3, monoComboMix: "combo");
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, advair, "ADVAIR HFA", substanceName: "fluticasone propionate", unii: comboUnii, pharmClassCode: "MOA-FLU", pharmClassName: "Corticosteroid Hormone Receptor Agonists [MoA]", activeMoietyId: 200, ingredientSubstanceId: 200, pharmacologicClassId: 4, monoComboMix: "combo");
+
+            var products = await DtoLabelAccess.GetAeDrugSummariesAsync(context, PkSecret, logger);
+
+            // The four strata collapse to a single product row.
+            Assert.AreEqual(1, products.Count);
+            var product = products.Single();
+            Assert.IsNotNull(product.ActiveIngredients);
+            Assert.AreEqual(2, product.ActiveIngredients!.Count);
+
+            // Ingredients are ordered by ingredient id and standardized on the EPC class.
+            Assert.AreEqual("salmeterol xinafoate", product.ActiveIngredients[0].SubstanceName);
+            Assert.AreEqual("beta2-Adrenergic Agonist [EPC]", product.ActiveIngredients[0].PharmClassName);
+            Assert.AreEqual("fluticasone propionate", product.ActiveIngredients[1].SubstanceName);
+            Assert.AreEqual("Corticosteroid [EPC]", product.ActiveIngredients[1].PharmClassName);
+
+            // The flat fields mirror the first ingredient's EPC values.
+            Assert.AreEqual("salmeterol xinafoate", product.SubstanceName);
+            Assert.AreEqual("beta2-Adrenergic Agonist [EPC]", product.PharmClassName);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that GetAeProductCatalogAsync returns slim items carrying the active
+        /// ingredient list and derived score for the picker.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeProductCatalogAsync(ApplicationDbContext, string, ILogger, string?, long?, int?, int?)"/>
+        [TestMethod]
+        public async Task GetAeProductCatalogAsync_ReturnsSlimItemsWithIngredients()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            var advair = DtoLabelAccessTestHelper.TestDocumentGuid;
+            const string comboUnii = "6EW8Q962A5+O2GMZ0LF5W";
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, advair, "ADVAIR HFA", substanceName: "salmeterol xinafoate", unii: comboUnii, pharmClassCode: "EPC-SAL", pharmClassName: "beta2-Adrenergic Agonist [EPC]", activeMoietyId: 100, ingredientSubstanceId: 100, pharmacologicClassId: 1, monoComboMix: "combo");
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, advair, "ADVAIR HFA", substanceName: "fluticasone propionate", unii: comboUnii, pharmClassCode: "EPC-FLU", pharmClassName: "Corticosteroid [EPC]", activeMoietyId: 200, ingredientSubstanceId: 200, pharmacologicClassId: 3, monoComboMix: "combo");
+
+            var catalog = await DtoLabelAccess.GetAeProductCatalogAsync(context, PkSecret, logger);
+
+            Assert.AreEqual(1, catalog.Count);
+            var item = catalog.Single();
+            Assert.AreEqual("ADVAIR HFA", item.ProductName);
+            Assert.IsTrue(item.Score.HasValue);
+            Assert.IsNotNull(item.ActiveIngredients);
+            Assert.AreEqual(2, item.ActiveIngredients!.Count);
+            Assert.AreEqual("beta2-Adrenergic Agonist [EPC]", item.PharmClassName);
+
+            #endregion
+        }
+
         #endregion product catalog tests
 
         #region signal and view tests

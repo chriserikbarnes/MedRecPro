@@ -188,6 +188,92 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Gets the slim AE dashboard product catalog for the product picker.
+        /// </summary>
+        /// <param name="productSearch">Optional product, substance, UNII, or pharmacologic-class search text.</param>
+        /// <param name="pageNumber">Optional 1-based page number.</param>
+        /// <param name="pageSize">Optional page size.</param>
+        /// <returns>Slim catalog items carrying only the fields the picker renders.</returns>
+        /// <remarks>
+        /// ## Dashboard Usage
+        /// Backs the product picker. Returns one row per product (combination products
+        /// list every active ingredient with its preferred *[EPC]* class) and is served
+        /// from a shared, cached, per-document catalog so repeat opens are fast.
+        ///
+        /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/products/catalog?productSearch=advair&amp;pageNumber=1&amp;pageSize=25
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns slim product catalog items.</response>
+        /// <response code="400">If pagination values are invalid.</response>
+        /// <response code="401">If an authenticated principal cannot be resolved.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeProductCatalogAsync"/>
+        /// <seealso cref="AeProductCatalogItemDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("products/catalog")]
+        [ProducesResponseType(typeof(List<AeProductCatalogItemDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<List<AeProductCatalogItemDto>>> GetProductCatalog(
+            [FromQuery] string? productSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            try
+            {
+                var optionalUser = await tryGetOptionalDashboardUserIdAsync();
+                if (optionalUser.ErrorResult != null)
+                {
+                    return optionalUser.ErrorResult;
+                }
+
+                var results = await DtoLabelAccess.GetAeProductCatalogAsync(
+                    _dbContext,
+                    _pkSecret,
+                    _logger,
+                    productSearch,
+                    optionalUser.UserId,
+                    pageNumber,
+                    pageSize);
+
+                addPaginationHeaders(pageNumber, pageSize, results.Count);
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard product catalog.");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard product catalog.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the authenticated user's favorited AE dashboard products.
         /// </summary>
         /// <param name="pageNumber">Optional 1-based page number.</param>

@@ -75,8 +75,9 @@ export function useProducts(searchTerm) {
       setError(null);
 
       try {
-        // The API performs product/substance/UNII/class search server-side.
-        const payload = await AdverseEventClient.getProducts({
+        // The slim catalog endpoint is served from a shared cache and performs
+        // product/substance/UNII/class/ingredient search server-side.
+        const payload = await AdverseEventClient.getProductCatalog({
           productSearch: debouncedSearchTerm.trim(),
           pageNumber: 1,
           pageSize: productPageSize,

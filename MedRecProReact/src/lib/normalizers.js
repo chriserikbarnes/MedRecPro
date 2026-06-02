@@ -248,6 +248,36 @@ function normalizeDirection(value) {
 
 /**************************************************************/
 /**
+ * Normalizes the active-ingredient list into paired substance + EPC class entries.
+ *
+ * @param {unknown} payload - API ActiveIngredients array.
+ * @returns {{ substance: string, pharmClass: string, unii: string }[]} Ingredient view models.
+ */
+function normalizeActiveIngredients(payload) {
+  // Missing or malformed lists default to empty so headers fall back cleanly.
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((item) => {
+      // Substance name is the required label; class may be blank for null-class rows.
+      const substance = toDisplayString(readFirst(item, ['SubstanceName', 'substanceName']));
+      const pharmClass = toDisplayString(readFirst(item, ['PharmClassName', 'pharmClassName']));
+      const unii = toDisplayString(readFirst(item, ['UNII', 'unii']));
+
+      // Entries without a usable substance label are dropped.
+      if (!substance) {
+        return null;
+      }
+
+      return { substance, pharmClass, unii };
+    })
+    .filter(Boolean);
+}
+
+/**************************************************************/
+/**
  * Normalizes an AeDrugSummaryDto into the React product view model.
  *
  * @param {Record<string, unknown> | null | undefined} dto - API product DTO.
@@ -282,6 +312,7 @@ export function normalizeProduct(dto) {
     generic: toDisplayString(readFirst(dto, ['SubstanceName', 'substanceName']), 'Substance not listed'),
     moiety: toDisplayString(readFirst(dto, ['UNII', 'unii']), 'UNII unavailable'),
     pharmClass: pharmClassName,
+    activeIngredients: normalizeActiveIngredients(readFirst(dto, ['ActiveIngredients', 'activeIngredients'])),
     armN: toNullableNumber(readFirst(dto, ['ArmN', 'armN'])),
     comparatorN: toNullableNumber(readFirst(dto, ['ComparatorN', 'comparatorN'])),
     rowCount: toNullableNumber(readFirst(dto, ['RowCount', 'rowCount'])) ?? 0,

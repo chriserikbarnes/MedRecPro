@@ -147,6 +147,24 @@ export const AdverseEventClient = {
 
   /**************************************************************/
   /**
+   * Gets the slim, cached product catalog for the picker.
+   *
+   * @param {{ productSearch?: string, pageNumber?: number, pageSize?: number, signal?: AbortSignal }} args - Request options.
+   * @returns {Promise<unknown>} API slim product catalog payload.
+   */
+  getProductCatalog({ productSearch = '', pageNumber = 1, pageSize = 25, signal = null } = {}) {
+    // The catalog endpoint is served from a shared cache, so repeat opens are fast.
+    const url = buildAdverseEventUrl('products/catalog', {
+      productSearch,
+      pageNumber,
+      pageSize,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
    * Gets favorite dashboard products for the authenticated user.
    *
    * @param {{ pageNumber?: number, pageSize?: number, signal?: AbortSignal }} args - Request options.

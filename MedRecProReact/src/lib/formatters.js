@@ -35,6 +35,28 @@ export function formatDecimal(value, digits = 1) {
 
 /**************************************************************/
 /**
+ * Formats a dose value with its unit for an AE row chip.
+ *
+ * @param {number | null | undefined} dose - Numeric dose value.
+ * @param {string | null | undefined} unit - Dose unit (e.g. "mcg").
+ * @returns {string} Formatted dose (e.g. "21 mcg"), or '' when no dose is present.
+ */
+export function formatDose(dose, unit) {
+  // Empty string lets the caller skip rendering the chip when no dose exists.
+  if (dose === null || dose === undefined || !Number.isFinite(Number(dose))) {
+    return '';
+  }
+
+  // Intl drops trailing zeros so 21.0 renders as "21" while 0.5 stays "0.5".
+  const formatted = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }).format(Number(dose));
+
+  // Append the unit only when the API supplies one.
+  const trimmedUnit = typeof unit === 'string' ? unit.trim() : '';
+  return trimmedUnit ? `${formatted} ${trimmedUnit}` : formatted;
+}
+
+/**************************************************************/
+/**
  * Formats a fraction as a percentage.
  *
  * @param {number | null | undefined} value - Fraction between zero and one.

@@ -90,7 +90,7 @@ export function KpiStrip({ product }) {
         <div className="kpi-sub">{comparatorMixDescription}</div>
       </article>
 
-      <article className="kpi-card">
+      <article className="kpi-card" title={product.scoreReason || undefined}>
         <div className="kpi-label">Chart-worthiness</div>
         <div className="kpi-value">
           {formatDecimal(product.score, 0)}

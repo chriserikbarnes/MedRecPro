@@ -268,6 +268,52 @@ namespace MedRecPro.Models
 
     /**************************************************************/
     /// <summary>
+    /// One active ingredient of a product, paired with its preferred
+    /// (Established Pharmacologic Class, "[EPC]") pharmacologic class.
+    /// </summary>
+    /// <remarks>
+    /// A combination product such as ADVAIR (salmeterol + fluticasone) yields one
+    /// entry per active ingredient. The pharmacologic class is standardized on the
+    /// "[EPC]" variant when one is available, falling back to whatever class the
+    /// label provides. Built by <see cref="MedRecPro.DataAccess.AeDashboardDerivation.BuildActiveIngredients"/>
+    /// from the per-(substance × class) strata that back <see cref="AeDrugSummaryDto"/>.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var ingredient = new AeActiveIngredientDto
+    /// {
+    ///     SubstanceName = "salmeterol xinafoate",
+    ///     PharmClassName = "beta2-Adrenergic Agonist [EPC]"
+    /// };
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeDrugSummaryDto"/>
+    /// <seealso cref="MedRecPro.DataAccess.AeDashboardDerivation"/>
+    public class AeActiveIngredientDto
+    {
+        #region Ingredient Properties
+
+        /**************************************************************/
+        /// <summary>Active ingredient substance name (e.g. "salmeterol xinafoate").</summary>
+        public string? SubstanceName { get; set; }
+
+        /**************************************************************/
+        /// <summary>UNII represented by this ingredient's source rows.</summary>
+        public string? UNII { get; set; }
+
+        /**************************************************************/
+        /// <summary>Preferred ("[EPC]") pharmacologic class display name for the ingredient.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code paired with <see cref="PharmClassName"/>.</summary>
+        public string? PharmClassCode { get; set; }
+
+        #endregion Ingredient Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
     /// Dashboard DTO for one aggregate adverse-event product summary row.
     /// </summary>
     /// <remarks>
@@ -361,6 +407,18 @@ namespace MedRecPro.Models
         /// <summary>Pharmacologic class display name represented by the summary row.</summary>
         public string? PharmClassName { get; set; }
 
+        /**************************************************************/
+        /// <summary>
+        /// All active ingredients for the product, each paired with its preferred
+        /// ("[EPC]") pharmacologic class.
+        /// </summary>
+        /// <remarks>
+        /// Populated per document by <see cref="MedRecPro.DataAccess.AeDashboardDerivation.BuildActiveIngredients"/>
+        /// so combination products list every ingredient rather than a single
+        /// arbitrary stratum. Null or empty for rows built before aggregation.
+        /// </remarks>
+        public List<AeActiveIngredientDto>? ActiveIngredients { get; set; }
+
         #endregion Product and Class Properties
 
         #region Aggregate Count Properties
@@ -443,6 +501,74 @@ namespace MedRecPro.Models
         public string? ScoreReason { get; set; }
 
         #endregion Deferred Score Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Slim product summary projection for the AE dashboard product picker.
+    /// </summary>
+    /// <remarks>
+    /// Carries only the fields the picker renders, so the catalog payload stays
+    /// small and a shared, cached, user-independent base can be served quickly.
+    /// Produced from <see cref="AeDrugSummaryDto"/> after per-document aggregation,
+    /// scoring, and favorite marking.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var item = new AeProductCatalogItemDto { ProductName = "ADVAIR HFA", Score = 58 };
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeDrugSummaryDto"/>
+    /// <seealso cref="MedRecPro.DataAccess.DtoLabelAccess.GetAeProductCatalogAsync"/>
+    public class AeProductCatalogItemDto
+    {
+        #region Catalog Properties
+
+        /**************************************************************/
+        /// <summary>Source SPL document identifier used as the picker key.</summary>
+        public Guid? DocumentGUID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Product display name shown in the picker.</summary>
+        public string? ProductName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Primary active ingredient substance name (first ingredient).</summary>
+        public string? SubstanceName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Plus-delimited active-ingredient UNIIs represented by the product.</summary>
+        public string? UNII { get; set; }
+
+        /**************************************************************/
+        /// <summary>Primary preferred ("[EPC]") pharmacologic class display name.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>All active ingredients paired with their preferred ("[EPC]") class.</summary>
+        public List<AeActiveIngredientDto>? ActiveIngredients { get; set; }
+
+        /**************************************************************/
+        /// <summary>Typed mono/combo/mixed product composition classification.</summary>
+        public AeMonoComboMix? MonoComboMix { get; set; }
+
+        /**************************************************************/
+        /// <summary>Derived chart-worthiness score used to rank picker rows.</summary>
+        public int? Score { get; set; }
+
+        /**************************************************************/
+        /// <summary>Flag indicating whether any represented row used a placebo-like comparator.</summary>
+        public bool PlaceboCoverage { get; set; }
+
+        /**************************************************************/
+        /// <summary>Flag indicating whether any represented row used an active comparator.</summary>
+        public bool ActiveCoverage { get; set; }
+
+        /**************************************************************/
+        /// <summary>Flag indicating whether the current authenticated user has favorited this product.</summary>
+        public bool IsFavorite { get; set; }
+
+        #endregion Catalog Properties
     }
 
     /**************************************************************/

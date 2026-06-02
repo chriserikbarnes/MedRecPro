@@ -257,6 +257,105 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Builds the standardized active-ingredient list for one product from its
+        /// per-(substance × pharmacologic-class) summary strata.
+        /// </summary>
+        /// <param name="documentStrata">All <see cref="AeDrugSummaryDto"/> strata that share one DocumentGUID.</param>
+        /// <returns>One ingredient per distinct substance, each paired with its preferred ("[EPC]") class, in deterministic order.</returns>
+        /// <remarks>
+        /// The product summary view emits one row per (substance × class), so a
+        /// combination product fans out to several strata. This helper collapses
+        /// those strata to one entry per ingredient, standardizing on the
+        /// Established Pharmacologic Class ("[EPC]") when available and falling back
+        /// to whatever class the label carries. Ordering is by ingredient substance
+        /// identifier (nulls last) then substance name so results are stable across
+        /// cache refreshes. Pure function — no EF, cache, or mutable state.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var ingredients = AeDashboardDerivation.BuildActiveIngredients(advairStrata);
+        /// // [ salmeterol xinafoate · beta2-Adrenergic Agonist [EPC],
+        /// //   fluticasone propionate · Corticosteroid [EPC] ]
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeActiveIngredientDto"/>
+        /// <seealso cref="AeDrugSummaryDto"/>
+        public static List<AeActiveIngredientDto> BuildActiveIngredients(
+            IEnumerable<AeDrugSummaryDto> documentStrata)
+        {
+            #region implementation
+
+            // Defensively handle a null sequence so callers can pass query results
+            // directly without pre-checking.
+            if (documentStrata == null)
+            {
+                return new List<AeActiveIngredientDto>();
+            }
+
+            // Group the document's strata by ingredient identity. IngredientSubstanceID
+            // is the stable key; fall back to a case-folded substance name so combo
+            // ingredients without a resolved id still separate into distinct rows.
+            var groups = documentStrata
+                .Where(stratum => stratum != null)
+                .GroupBy(stratum => stratum.IngredientSubstanceID.HasValue
+                    ? $"id:{stratum.IngredientSubstanceID.Value}"
+                    : $"nm:{(stratum.SubstanceName ?? string.Empty).Trim().ToLowerInvariant()}");
+
+            // Carry sort keys alongside each ingredient so ordering stays deterministic.
+            var ordered = new List<(AeActiveIngredientDto Ingredient, int? SortId, string SortName)>();
+
+            foreach (var group in groups)
+            {
+                var rows = group.ToList();
+
+                // Standardize on the EPC class: exact "[EPC]" suffix first, then any
+                // "[EPC]" mention, then the first available class as a last resort.
+                var classRow = rows.FirstOrDefault(row => endsWithEpc(row.PharmClassName))
+                    ?? rows.FirstOrDefault(row => containsEpc(row.PharmClassName))
+                    ?? rows[0];
+
+                // Prefer the first populated substance name / UNII across the strata.
+                var substanceName = rows
+                    .Select(row => row.SubstanceName)
+                    .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+                var unii = rows
+                    .Select(row => row.UNII)
+                    .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+                // The lowest non-null ingredient id orders this group; null means the
+                // name-fallback group, which sorts after all id-backed ingredients.
+                var sortId = rows
+                    .Where(row => row.IngredientSubstanceID.HasValue)
+                    .Select(row => row.IngredientSubstanceID)
+                    .DefaultIfEmpty(null)
+                    .Min();
+
+                ordered.Add((
+                    new AeActiveIngredientDto
+                    {
+                        SubstanceName = substanceName,
+                        UNII = unii,
+                        PharmClassName = classRow.PharmClassName,
+                        PharmClassCode = classRow.PharmClassCode
+                    },
+                    sortId,
+                    substanceName ?? string.Empty));
+            }
+
+            // Id-backed ingredients first (ascending id), then name-fallback groups by
+            // ordinal substance name.
+            return ordered
+                .OrderBy(entry => entry.SortId.HasValue ? 0 : 1)
+                .ThenBy(entry => entry.SortId ?? int.MaxValue)
+                .ThenBy(entry => entry.SortName, StringComparer.Ordinal)
+                .Select(entry => entry.Ingredient)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds the tiered AE triage DTO for a product.
         /// </summary>
         /// <param name="product">Product summary context.</param>
@@ -915,6 +1014,40 @@ namespace MedRecPro.DataAccess
         #endregion public methods
 
         #region private methods
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a pharmacologic class name is an Established
+        /// Pharmacologic Class, identified by a trailing "[EPC]" suffix.
+        /// </summary>
+        /// <param name="pharmClassName">Pharmacologic class display name to test.</param>
+        /// <returns>True when the name ends with "[EPC]" (case-insensitive).</returns>
+        private static bool endsWithEpc(string? pharmClassName)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(pharmClassName)
+                && pharmClassName.TrimEnd().EndsWith("[EPC]", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a pharmacologic class name mentions an "[EPC]" tag
+        /// anywhere, used as a tolerant fallback to <see cref="endsWithEpc"/>.
+        /// </summary>
+        /// <param name="pharmClassName">Pharmacologic class display name to test.</param>
+        /// <returns>True when the name contains "[EPC]" (case-insensitive).</returns>
+        private static bool containsEpc(string? pharmClassName)
+        {
+            #region implementation
+
+            return !string.IsNullOrWhiteSpace(pharmClassName)
+                && pharmClassName.Contains("[EPC]", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>

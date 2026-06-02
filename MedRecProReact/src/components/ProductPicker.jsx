@@ -209,6 +209,39 @@ function ProductPickerRow({
 
 /**************************************************************/
 /**
+ * Builds the vertical product metadata lines shown under the picker title.
+ *
+ * @param {object | null} selectedProduct - Selected product view model.
+ * @returns {string[]} One line per active ingredient (paired with its EPC class), then the UNII.
+ */
+function buildTriggerMetaItems(selectedProduct) {
+  // No product shows the search hint, matching the prototype's empty state.
+  if (!selectedProduct) {
+    return ['Search product, substance, UNII, or class'];
+  }
+
+  // Combination products carry one entry per active ingredient.
+  const ingredients = Array.isArray(selectedProduct.activeIngredients)
+    ? selectedProduct.activeIngredients
+    : [];
+
+  if (ingredients.length > 0) {
+    // Each ingredient is paired with its standardized EPC class on its own line.
+    const ingredientLines = ingredients.map((ingredient) =>
+      ingredient.pharmClass
+        ? `${ingredient.substance} · ${ingredient.pharmClass}`
+        : ingredient.substance,
+    );
+
+    return [...ingredientLines, selectedProduct.moiety].filter(Boolean);
+  }
+
+  // Fallback to the legacy single-line metadata when no ingredient list exists.
+  return [selectedProduct.generic, selectedProduct.pharmClass, selectedProduct.moiety].filter(Boolean);
+}
+
+/**************************************************************/
+/**
  * Product picker with prototype header trigger, server search, favorites, and recents.
  *
  * @param {object} props - Component props.
@@ -266,10 +299,8 @@ export function ProductPicker({
   // The title trigger mirrors the original prototype when no product is selected.
   const triggerTitle = selectedProduct?.name ?? 'Select product';
 
-  // The metadata row mirrors the prototype's generic, class, and UNII line.
-  const triggerMetaItems = selectedProduct
-    ? [selectedProduct.generic, selectedProduct.pharmClass, selectedProduct.moiety].filter(Boolean)
-    : ['Search product, substance, UNII, or class'];
+  // One line per active ingredient (paired with its EPC class), then the UNII.
+  const triggerMetaItems = buildTriggerMetaItems(selectedProduct);
 
   useEffect(() => {
     /**************************************************************/
@@ -389,8 +420,8 @@ export function ProductPicker({
         </svg>
       </button>
       <div className="drug-meta">
-        {triggerMetaItems.map((metaItem) => (
-          <span key={metaItem} className="drug-meta-item">{metaItem}</span>
+        {triggerMetaItems.map((metaItem, index) => (
+          <span key={`${index}-${metaItem}`} className="drug-meta-item">{metaItem}</span>
         ))}
       </div>
 

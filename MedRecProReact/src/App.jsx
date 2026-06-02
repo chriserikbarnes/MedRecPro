@@ -17,7 +17,7 @@ import {
   getForestTicks,
   getForestXPercent,
 } from './lib/forestScale';
-import { formatDecimal, formatInteger } from './lib/formatters';
+import { formatDecimal, formatDose, formatInteger } from './lib/formatters';
 import { normalizeForest, normalizeQuadrant, normalizeTriage } from './lib/normalizers';
 
 // Supported dashboard views mirror the prototype tab names.
@@ -494,6 +494,14 @@ function AeRow({ signal, tierToken, expanded, onToggle }) {
   // The upper bound chooses the matching NNH or NNT value.
   const numberNeededUpper = isNnt ? signal.nntH : signal.nnhH;
 
+  // A row reports an NNH/NNT only when it is statistically significant: the RR
+  // 95% CI must exclude 1. When the CI brackets 1 (or the server classifies the
+  // row as not significant) the point estimate is not meaningful, so the row
+  // renders "NS" instead — matching the forest plot's neutral classification.
+  const hasRrCi = signal.rrL !== null && signal.rrH !== null;
+  const rrCiExcludesOne = hasRrCi ? signal.rrL > 1 || signal.rrH < 1 : true;
+  const showNumberNeeded = numberNeeded !== null && signal.sig && rrCiExcludesOne;
+
   // Serious SOC is a display tag, while tier assignment remains server-owned.
   const isSerious = SERIOUS_SOC.has(signal.soc) && signal.sig;
 
@@ -518,10 +526,11 @@ function AeRow({ signal, tierToken, expanded, onToggle }) {
       }}
     >
       <div className="ae-nnh">
-        {numberNeeded !== null ? (
+        {showNumberNeeded ? (
           <>
             <div className="ae-nnh-label">{isNnt ? 'NNT - benefit 1 in' : 'NNH - harm 1 in'}</div>
-            <div className="ae-nnh-value">
+            {/* Color follows harm/benefit type (NNH orange, NNT green), not the tier. */}
+            <div className={`ae-nnh-value ${isNnt ? 'is-nnt' : 'is-nnh'}`}>
               <span className="ae-nnh-prefix">~</span>
               {formatNumberNeededValue(numberNeeded)}
             </div>
@@ -530,10 +539,10 @@ function AeRow({ signal, tierToken, expanded, onToggle }) {
             </div>
           </>
         ) : (
-          <div className="ae-nnh-na">
-            No NNH
-            <br />
-            <span>(not significant)</span>
+          /* Not statistically significant: the RR CI includes 1, so no NNH/NNT is reported. */
+          <div className="ae-nnh-ns" title="Not statistically significant — the 95% confidence interval for RR includes 1">
+            NS
+            <span className="ae-nnh-ns-sub">not significant</span>
           </div>
         )}
       </div>
@@ -545,6 +554,10 @@ function AeRow({ signal, tierToken, expanded, onToggle }) {
           <span className="ae-tag rr">
             RR {formatDecimal(signal.rr, 2)} [{formatDecimal(signal.rrL, 2)}-{formatDecimal(signal.rrH, 2)}]
           </span>
+          {/* Dose distinguishes otherwise-duplicate rows reported at different strengths. */}
+          {signal.dose !== null ? (
+            <span className="ae-tag dose">{formatDose(signal.dose, signal.doseUnit)}</span>
+          ) : null}
           {/* Study context only renders when the API identifies the trial or analysis setting. */}
           {hasStudyContext ? (
             <span className="ae-tag study-context" title={signal.studyContext}>
@@ -1711,8 +1724,18 @@ function App() {
         />
 
         <div className="foot-note">
-          Data shown: <code>tmp_FlattenedAdverseEventRiskTable</code> projection for the selected product.
-          Fragile rows render desaturated and can be hidden from the visualization controls.
+          <p>
+            <strong>Chart-worthiness</strong> (0&ndash;100) rates how complete and chartable a
+            product&apos;s adverse-event data is &mdash; not how safe the drug is. It blends placebo
+            coverage (25%), elevated-signal density (25%), SOC breadth out of 17 (20%), dose-data
+            coverage (15%), active-comparator coverage (5%), and AE-row volume against a 40-row
+            target (10%). Higher scores mean richer, more comparable safety data; the score card
+            tooltip lists the top contributors and limiters for the selected product.
+          </p>
+          <p>
+            Data shown: <code>tmp_FlattenedAdverseEventRiskTable</code> projection for the selected product.
+            Fragile rows render desaturated and can be hidden from the visualization controls.
+          </p>
         </div>
       </div>
     </main>

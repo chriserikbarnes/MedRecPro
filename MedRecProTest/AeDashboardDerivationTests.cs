@@ -298,6 +298,116 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that BuildActiveIngredients standardizes a single ingredient on its
+        /// EPC class even when MoA strata are present.
+        /// </summary>
+        /// <seealso cref="AeDashboardDerivation.BuildActiveIngredients(System.Collections.Generic.IEnumerable{AeDrugSummaryDto})"/>
+        [TestMethod]
+        public void BuildActiveIngredients_PrefersEpcOverMoa()
+        {
+            #region implementation
+
+            var strata = new[]
+            {
+                stratum("salmeterol xinafoate", "Adrenergic beta2-Agonists [MoA]"),
+                stratum("salmeterol xinafoate", "beta2-Adrenergic Agonist [EPC]")
+            };
+
+            var ingredients = AeDashboardDerivation.BuildActiveIngredients(strata);
+
+            Assert.AreEqual(1, ingredients.Count);
+            Assert.AreEqual("salmeterol xinafoate", ingredients[0].SubstanceName);
+            Assert.AreEqual("beta2-Adrenergic Agonist [EPC]", ingredients[0].PharmClassName);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that a combination product lists every active ingredient, each on its
+        /// EPC class, in deterministic (name-fallback) order.
+        /// </summary>
+        /// <seealso cref="AeDashboardDerivation.BuildActiveIngredients(System.Collections.Generic.IEnumerable{AeDrugSummaryDto})"/>
+        [TestMethod]
+        public void BuildActiveIngredients_CombinationProduct_ListsEachIngredientOnEpc()
+        {
+            #region implementation
+
+            var strata = new[]
+            {
+                stratum("salmeterol xinafoate", "Adrenergic beta2-Agonists [MoA]"),
+                stratum("salmeterol xinafoate", "beta2-Adrenergic Agonist [EPC]"),
+                stratum("fluticasone propionate", "Corticosteroid Hormone Receptor Agonists [MoA]"),
+                stratum("fluticasone propionate", "Corticosteroid [EPC]")
+            };
+
+            var ingredients = AeDashboardDerivation.BuildActiveIngredients(strata);
+
+            // Two ingredients, ordered by ordinal substance name when ids are absent.
+            Assert.AreEqual(2, ingredients.Count);
+            Assert.AreEqual("fluticasone propionate", ingredients[0].SubstanceName);
+            Assert.AreEqual("Corticosteroid [EPC]", ingredients[0].PharmClassName);
+            Assert.AreEqual("salmeterol xinafoate", ingredients[1].SubstanceName);
+            Assert.AreEqual("beta2-Adrenergic Agonist [EPC]", ingredients[1].PharmClassName);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that BuildActiveIngredients falls back to the available class when no
+        /// EPC variant exists, and tolerates a null class.
+        /// </summary>
+        /// <seealso cref="AeDashboardDerivation.BuildActiveIngredients(System.Collections.Generic.IEnumerable{AeDrugSummaryDto})"/>
+        [TestMethod]
+        public void BuildActiveIngredients_NoEpcVariantOrNullClass_FallsBack()
+        {
+            #region implementation
+
+            var noEpc = AeDashboardDerivation.BuildActiveIngredients(new[]
+            {
+                stratum("drugx", "Some Receptor Antagonists [MoA]")
+            });
+            Assert.AreEqual(1, noEpc.Count);
+            Assert.AreEqual("Some Receptor Antagonists [MoA]", noEpc[0].PharmClassName);
+
+            var nullClass = AeDashboardDerivation.BuildActiveIngredients(new[]
+            {
+                stratum("rufinamide", null)
+            });
+            Assert.AreEqual(1, nullClass.Count);
+            Assert.AreEqual("rufinamide", nullClass[0].SubstanceName);
+            Assert.IsNull(nullClass[0].PharmClassName);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates one product-summary stratum DTO for BuildActiveIngredients tests.
+        /// </summary>
+        /// <param name="substanceName">Active ingredient substance name.</param>
+        /// <param name="pharmClassName">Pharmacologic class display name (may be null).</param>
+        /// <returns>An <see cref="AeDrugSummaryDto"/> at the view's (substance × class) grain.</returns>
+        private static AeDrugSummaryDto stratum(string substanceName, string? pharmClassName)
+        {
+            #region implementation
+
+            return new AeDrugSummaryDto
+            {
+                DocumentGUID = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                ProductName = "TEST PRODUCT",
+                SubstanceName = substanceName,
+                UNII = "TESTUNII",
+                PharmClassName = pharmClassName,
+                PharmClassCode = pharmClassName == null ? null : "CODE"
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Creates a default risk signal for derivation tests.
         /// </summary>
         private static AeRiskSignalDto newSignal(

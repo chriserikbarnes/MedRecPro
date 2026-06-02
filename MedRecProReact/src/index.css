@@ -194,9 +194,10 @@ a { color: var(--color-primary); text-decoration: none; }
   min-width: 0;
 }
 .drug-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  display: inline-block;
+  max-width: 100%;
+  text-align: left;
+  overflow-wrap: break-word;
   font-size: clamp(22px, 4.2vw, 30px);
   font-weight: var(--weight-bold);
   color: var(--color-secondary);
@@ -210,10 +211,14 @@ a { color: var(--color-primary); text-decoration: none; }
 }
 .drug-title:hover { background: var(--color-brown-light); }
 .drug-title .chev { width: 18px; height: 18px; opacity: .55; flex-shrink: 0; }
+/* Product names are shown in all caps for consistent casing across labels. */
+.drug-title { text-transform: uppercase; }
+/* Active ingredients (and the UNII) stack one per line under the picker title. */
 .drug-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
   margin-top: 6px;
   font-size: 13px;
   color: var(--color-text-secondary);
@@ -519,8 +524,10 @@ a { color: var(--color-primary); text-decoration: none; }
   letter-spacing: -.02em;
   margin-top: 2px;
 }
-.tier-reassure .ae-nnh-value { color: var(--color-teal-deep); }
-.tier-counsel .ae-nnh-value { color: var(--color-primary-dark); }
+/* Number-needed color follows harm/benefit type, not the counseling tier:
+   NNH (harm) is always orange, NNT (benefit) is always green. */
+.ae-nnh-value.is-nnh { color: var(--color-primary-dark); }
+.ae-nnh-value.is-nnt { color: var(--color-teal-deep); }
 .ae-nnh-prefix {
   font-size: 12px;
   font-weight: var(--weight-medium);
@@ -538,6 +545,24 @@ a { color: var(--color-primary); text-decoration: none; }
   font-size: 13px;
   color: var(--color-text-tertiary);
   font-style: italic;
+}
+/* Not-significant rows report "NS" in the forest plot's neutral brown instead of
+   a misleading NNH/NNT point estimate (the RR confidence interval includes 1). */
+.ae-nnh-ns {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 26px;
+  font-weight: var(--weight-bold);
+  color: var(--color-text-tertiary);
+  line-height: 1;
+  letter-spacing: -.02em;
+}
+.ae-nnh-ns-sub {
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: .08em;
 }
 
 .ae-body { min-width: 0; }
@@ -569,6 +594,13 @@ a { color: var(--color-primary); text-decoration: none; }
   font-family: var(--font-mono);
   background: #fff;
   border-color: var(--color-border-light);
+  letter-spacing: -.02em;
+}
+/* Dose chip: a distinct mono tint so duplicate AE rows read apart by strength. */
+.ae-tag.dose {
+  font-family: var(--font-mono);
+  background: var(--color-brown-light);
+  border-color: transparent;
   letter-spacing: -.02em;
 }
 .ae-tag.serious { background: #fef0e4; color: var(--color-primary-dark); border-color: var(--tier-counsel-border); }
@@ -859,8 +891,11 @@ a { color: var(--color-primary); text-decoration: none; }
   font-size: 12px;
   color: var(--color-text-tertiary);
   line-height: 1.6;
-  max-width: 800px;
+  max-width: 820px;
 }
+.foot-note p { margin: 0 0 8px; }
+.foot-note p:last-child { margin-bottom: 0; }
+.foot-note strong { color: var(--color-text-secondary); }
 .foot-note code {
   font-family: var(--font-mono);
   background: var(--color-brown-light);
@@ -1638,6 +1673,9 @@ a { color: var(--color-primary); text-decoration: none; }
 
 /* ----- Drug-title chevron (React class is .drug-title-chev) ----- */
 .drug-title-chev {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 10px;
   width: 18px;
   height: 18px;
   opacity: .55;
@@ -1752,6 +1790,8 @@ a { color: var(--color-primary); text-decoration: none; }
 .pi-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Match the header: product names are shown in all caps for consistent casing. */
+  text-transform: uppercase;
 }
 .pi-star-icon {
   width: 16px;

@@ -63,90 +63,33 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Anonymous, unfiltered, unpaged catalog requests are the only safe
-            // candidates for global caching because they contain no user state.
-            var canUseAnonymousCache = string.IsNullOrWhiteSpace(productSearch)
-                && !userId.HasValue
-                && !page.HasValue
-                && !size.HasValue;
+            // Serve from the shared, user-independent, per-document catalog cache so
+            // the expensive view query, risk-table fallback, ingredient aggregation,
+            // and scoring run at most once per cache lifetime instead of on every
+            // picker open. Search, paging, and favorites are applied in memory below.
+            var catalog = await getCachedAeProductCatalogAsync(db, pkSecret, logger);
 
-            // The cache key intentionally names the anonymous full catalog shape;
-            // searches, paging, and favorites bypass this key. The version suffix
-            // avoids serving older process-cache entries that excluded null class
-            // products.
-            var cacheKey = generateCacheKey(nameof(GetAeDrugSummariesAsync), "anonymous-full-null-class-v2", null, null);
+            // Clone before any per-request mutation. The cache returns the live list
+            // and DTO instances; marking favorites on them would leak one user's
+            // IsFavorite flags into every other request.
+            var summaries = cloneSummaries(catalog);
 
-            // Check the cache before building the EF query so repeat catalog loads
-            // do not hit the database unnecessarily.
-            if (canUseAnonymousCache)
+            // In-memory product/substance/UNII/class search replaces the former EF
+            // LIKE query. Combination ingredients are searchable too (see helper).
+            if (!string.IsNullOrWhiteSpace(productSearch))
             {
-                // Cached values are already mapped and derived DTOs, not EF rows.
-                var cached = Cached.GetCache<List<AeDrugSummaryDto>>(cacheKey);
-
-                // A non-null cached value is returned as-is because anonymous DTOs
-                // have no user-specific IsFavorite flags.
-                if (cached != null)
-                {
-                    logger.LogDebug("AE dashboard product summary cache hit for {CacheKey} with {Count} rows.", cacheKey, cached.Count);
-#if DEBUG
-                    Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetAeDrugSummariesAsync)} Cache Hit for {cacheKey} ===");
-#endif
-                    return cached;
-                }
+                var term = productSearch.Trim();
+                summaries = summaries
+                    .Where(summary => matchesProductSearch(summary, term))
+                    .ToList();
             }
 
-            // Start from the keyless product summary view. AsNoTracking keeps the
-            // read-only dashboard query lightweight.
-            var query = db.Set<LabelView.AeDrugSummary>()
-                .AsNoTracking()
-                .AsQueryable();
-
-            // Product search remains an EF expression so SQL Server performs the
-            // filtering before rows are materialized.
-            query = applyProductSearch(query, productSearch);
-
-            // Materialize EF rows before encryption because encryption cannot be
-            // translated into SQL.
-            var entities = await query.ToListAsync();
-
-            // Convert SQL view rows to client DTOs and mask integer identifiers.
-            var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
-
-            // Older summary-view definitions filtered null pharmacologic class
-            // rows. Add risk-table fallback summaries so products such as
-            // rufinamide remain loadable even before the view has been refreshed.
-            var representedDocumentGuids = summaries
-                .Where(summary => summary.DocumentGUID.HasValue)
-                .Select(summary => summary.DocumentGUID!.Value)
-                .ToHashSet();
-            var fallbackSummaries = await getRiskTableDrugSummariesAsync(
-                db,
-                documentGuids: null,
-                excludedDocumentGuids: representedDocumentGuids,
-                productSearch: productSearch,
-                pkSecret: pkSecret,
-                logger: logger);
-            summaries.AddRange(fallbackSummaries);
-
-            // Add score and score reason after mapping so derivation works on the
-            // same DTO shape returned to controllers.
-            AeDashboardDerivation.DeriveProducts(summaries);
-
-            // Sort the product catalog by most elevated findings first, then use
-            // product name and DocumentGUID for deterministic tie-breaking.
-            summaries = summaries
-                .OrderByDescending(summary => summary.SignificantElevatedCount)
-                .ThenBy(summary => summary.ProductName)
-                .ThenBy(summary => summary.DocumentGUID)
-                .ToList();
-
-            // Apply paging after the summary-view rows and risk-table fallback
-            // rows are merged so null-class products participate in the same page
-            // ordering as ordinary summary rows.
+            // The cached catalog is already sorted, so filtering preserves order;
+            // page after filtering exactly as before.
             summaries = applyProductSummaryPagination(summaries, page, size);
 
-            // Favorite flags are user-specific and therefore applied only after the
-            // shared product DTOs have been created.
+            // Favorite flags are user-specific and therefore applied only to the
+            // private clones produced above.
             if (userId.HasValue)
             {
                 // Load the user's favorite document set once and mark DTOs in
@@ -155,17 +98,56 @@ namespace MedRecPro.DataAccess
                 markFavorites(summaries, favoriteDocumentGuids);
             }
 
-            // Store only non-empty anonymous catalog results to avoid caching an
-            // empty result during transient database or import states.
-            if (canUseAnonymousCache && summaries.Count > 0)
-            {
-                Cached.SetCacheManageKey(cacheKey, summaries, 1.0);
-                logger.LogDebug("AE dashboard product summary cache set for {CacheKey} with {Count} rows.", cacheKey, summaries.Count);
-            }
-
-            // Return mapped, encrypted, optionally favorite-enriched, and derived
-            // product summaries.
+            // Return cloned, optionally favorite-enriched product summaries.
             return summaries;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the slim AE dashboard product catalog for the product picker.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="productSearch">Optional product, substance, UNII, or pharmacologic-class search text.</param>
+        /// <param name="userId">Optional authenticated user identifier used to mark favorite products.</param>
+        /// <param name="page">Optional 1-based page number.</param>
+        /// <param name="size">Optional page size.</param>
+        /// <returns>Slim catalog items carrying only the fields the picker renders.</returns>
+        /// <remarks>
+        /// Reuses the same shared, cached, per-document pipeline as
+        /// <see cref="GetAeDrugSummariesAsync"/> (cache → clone → search → page →
+        /// favorites) and then projects each summary to a smaller
+        /// <see cref="AeProductCatalogItemDto"/>, keeping the picker payload light.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var catalog = await DtoLabelAccess.GetAeProductCatalogAsync(db, secret, logger, "advair", userId);
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetAeDrugSummariesAsync"/>
+        /// <seealso cref="AeProductCatalogItemDto"/>
+        public static async Task<List<AeProductCatalogItemDto>> GetAeProductCatalogAsync(
+            ApplicationDbContext db,
+            string pkSecret,
+            ILogger logger,
+            string? productSearch = null,
+            long? userId = null,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            // Reuse the full cached/cloned/searched/paged/favorited pipeline so the
+            // catalog and the legacy products endpoint share one cache and one
+            // derivation, then project to the slim picker shape.
+            var summaries = await GetAeDrugSummariesAsync(db, pkSecret, logger, productSearch, userId, page, size);
+
+            return summaries
+                .Select(toCatalogItem)
+                .ToList();
 
             #endregion
         }
@@ -560,6 +542,284 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Builds (or returns the cached) shared, user-independent AE product catalog.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>One derived, sorted summary per document, with standardized active ingredients.</returns>
+        /// <remarks>
+        /// The expensive work — querying <see cref="LabelView.AeDrugSummary"/>, merging
+        /// risk-table fallback rows, collapsing per-(substance × class) strata into one
+        /// row per document, building the active-ingredient list, scoring, and sorting —
+        /// runs once and is cached under a managed key. Callers MUST clone the result
+        /// before any per-user mutation (see <see cref="cloneSummaries"/>) because the
+        /// cache hands back the live list and DTO instances.
+        /// </remarks>
+        /// <seealso cref="collapseToOneRowPerDocument"/>
+        /// <seealso cref="cloneSummaries"/>
+        private static async Task<List<AeDrugSummaryDto>> getCachedAeProductCatalogAsync(
+            ApplicationDbContext db,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // A new version token keeps this per-document shape from colliding with
+            // any older per-stratum cache entry.
+            var cacheKey = generateCacheKey(nameof(getCachedAeProductCatalogAsync), "anonymous-catalog-by-document-v1", null, null);
+
+            // Return the shared catalog when present. Callers clone before mutating.
+            var cached = Cached.GetCache<List<AeDrugSummaryDto>>(cacheKey);
+            if (cached != null)
+            {
+                logger.LogDebug("AE dashboard product catalog cache hit for {CacheKey} with {Count} rows.", cacheKey, cached.Count);
+                return cached;
+            }
+
+            // Materialize every product-summary stratum (no search/page/user state).
+            var entities = await db.Set<LabelView.AeDrugSummary>()
+                .AsNoTracking()
+                .ToListAsync();
+            var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
+
+            // Add risk-table fallback summaries so null-class products (absent from
+            // the summary view) remain discoverable and loadable.
+            var representedDocumentGuids = summaries
+                .Where(summary => summary.DocumentGUID.HasValue)
+                .Select(summary => summary.DocumentGUID!.Value)
+                .ToHashSet();
+            var fallbackSummaries = await getRiskTableDrugSummariesAsync(
+                db,
+                documentGuids: null,
+                excludedDocumentGuids: representedDocumentGuids,
+                productSearch: null,
+                pkSecret: pkSecret,
+                logger: logger);
+            summaries.AddRange(fallbackSummaries);
+
+            // Collapse the per-(substance × class) strata into one row per document,
+            // attaching the standardized active-ingredient list.
+            var catalog = collapseToOneRowPerDocument(summaries);
+
+            // Score after collapse so derivation operates on the representative row.
+            AeDashboardDerivation.DeriveProducts(catalog);
+
+            // Sort by most elevated findings first, then product name and GUID for
+            // deterministic tie-breaking. Filtering/paging preserve this order.
+            catalog = catalog
+                .OrderByDescending(summary => summary.SignificantElevatedCount)
+                .ThenBy(summary => summary.ProductName)
+                .ThenBy(summary => summary.DocumentGUID)
+                .ToList();
+
+            // Cache only non-empty results to avoid pinning an empty catalog during
+            // transient database or import states.
+            if (catalog.Count > 0)
+            {
+                Cached.SetCacheManageKey(cacheKey, catalog, 1.0);
+                logger.LogDebug("AE dashboard product catalog cache set for {CacheKey} with {Count} rows.", cacheKey, catalog.Count);
+            }
+
+            return catalog;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collapses per-(substance × class) summary strata into one row per document.
+        /// </summary>
+        /// <param name="strata">Mapped summary DTOs at the view's (substance × class) grain.</param>
+        /// <returns>One representative summary per document, each with <see cref="AeDrugSummaryDto.ActiveIngredients"/>.</returns>
+        /// <remarks>
+        /// A combination product fans out to several strata in the summary view. This
+        /// helper keeps a single deterministic representative per document (most AE
+        /// rows, then most elevated signals, then class code, then ingredient id) for
+        /// the count/score fields, attaches the standardized ingredient list across all
+        /// strata, and mirrors the first ingredient's preferred ("[EPC]") class onto the
+        /// flat fields for back-compatible consumers. Counts are NOT summed across
+        /// strata — that would double-count the class fan-out.
+        /// </remarks>
+        /// <seealso cref="AeDashboardDerivation.BuildActiveIngredients"/>
+        private static List<AeDrugSummaryDto> collapseToOneRowPerDocument(
+            IEnumerable<AeDrugSummaryDto> strata)
+        {
+            #region implementation
+
+            // Materialize once so the orphan and grouped passes do not re-enumerate a
+            // lazy source.
+            var rows = strata.ToList();
+            var result = new List<AeDrugSummaryDto>();
+
+            // Rows without a DocumentGUID cannot be grouped by document; pass them
+            // through with a single-ingredient list so the shape stays consistent.
+            foreach (var orphan in rows.Where(row => !row.DocumentGUID.HasValue))
+            {
+                orphan.ActiveIngredients = AeDashboardDerivation.BuildActiveIngredients(new[] { orphan });
+                result.Add(orphan);
+            }
+
+            // One representative row per document carries the standardized ingredients.
+            foreach (var group in rows
+                .Where(row => row.DocumentGUID.HasValue)
+                .GroupBy(row => row.DocumentGUID!.Value))
+            {
+                var documentRows = group.ToList();
+
+                // Deterministic representative for the count/score fields.
+                var representative = documentRows
+                    .OrderByDescending(row => row.RowCount)
+                    .ThenByDescending(row => row.SignificantElevatedCount)
+                    .ThenBy(row => row.PharmClassCode, StringComparer.Ordinal)
+                    .ThenBy(row => row.IngredientSubstanceID ?? int.MaxValue)
+                    .First();
+
+                // Standardized ingredient list across every stratum for the document.
+                representative.ActiveIngredients = AeDashboardDerivation.BuildActiveIngredients(documentRows);
+
+                // Mirror the first ingredient's EPC values onto the flat fields so the
+                // header and any legacy consumer read the standardized class/substance.
+                var primary = representative.ActiveIngredients.FirstOrDefault();
+                if (primary != null)
+                {
+                    representative.SubstanceName = primary.SubstanceName ?? representative.SubstanceName;
+                    representative.PharmClassName = primary.PharmClassName ?? representative.PharmClassName;
+                    representative.PharmClassCode = primary.PharmClassCode ?? representative.PharmClassCode;
+                }
+
+                result.Add(representative);
+            }
+
+            return result;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a deep-enough copy of one product summary DTO for per-request use.
+        /// </summary>
+        /// <param name="source">Cached summary instance to copy.</param>
+        /// <returns>A new DTO whose scalar fields and ingredient list are independent of the source.</returns>
+        /// <remarks>
+        /// The product catalog cache returns the live list and DTO instances, so any
+        /// per-user mutation (favorite marking) must occur on a copy. A fresh
+        /// <see cref="AeDrugSummaryDto.ActiveIngredients"/> list is allocated so the
+        /// shared cached list is never aliased.
+        /// </remarks>
+        private static AeDrugSummaryDto cloneSummary(AeDrugSummaryDto source)
+        {
+            #region implementation
+
+            return new AeDrugSummaryDto
+            {
+                EncryptedActiveMoietyID = source.EncryptedActiveMoietyID,
+                EncryptedIngredientSubstanceID = source.EncryptedIngredientSubstanceID,
+                EncryptedPharmacologicClassID = source.EncryptedPharmacologicClassID,
+                DocumentGUID = source.DocumentGUID,
+                ProductName = source.ProductName,
+                SubstanceName = source.SubstanceName,
+                UNII = source.UNII,
+                PharmClassCode = source.PharmClassCode,
+                PharmClassName = source.PharmClassName,
+                ActiveIngredients = source.ActiveIngredients?
+                    .Select(ingredient => new AeActiveIngredientDto
+                    {
+                        SubstanceName = ingredient.SubstanceName,
+                        UNII = ingredient.UNII,
+                        PharmClassName = ingredient.PharmClassName,
+                        PharmClassCode = ingredient.PharmClassCode
+                    })
+                    .ToList(),
+                ArmN = source.ArmN,
+                ComparatorN = source.ComparatorN,
+                RowCount = source.RowCount,
+                SignificantCount = source.SignificantCount,
+                SignificantProtectiveCount = source.SignificantProtectiveCount,
+                SignificantElevatedCount = source.SignificantElevatedCount,
+                PlaceboCoverage = source.PlaceboCoverage,
+                ActiveCoverage = source.ActiveCoverage,
+                DoseCoverage = source.DoseCoverage,
+                SocBreadth = source.SocBreadth,
+                SocTotal = source.SocTotal,
+                MonoComboMix = source.MonoComboMix,
+                IsFavorite = source.IsFavorite,
+                Score = source.Score,
+                ScoreReason = source.ScoreReason
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Clones a sequence of product summary DTOs for per-request mutation.
+        /// </summary>
+        /// <param name="source">Cached summaries to copy.</param>
+        /// <returns>A new list of independent summary copies.</returns>
+        /// <seealso cref="cloneSummary"/>
+        private static List<AeDrugSummaryDto> cloneSummaries(IEnumerable<AeDrugSummaryDto> source)
+        {
+            #region implementation
+
+            return source.Select(cloneSummary).ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a product summary matches a free-text search term.
+        /// </summary>
+        /// <param name="summary">Catalog summary to test.</param>
+        /// <param name="term">Trimmed, case-insensitive search term.</param>
+        /// <returns>True when product, substance, UNII, class, or any ingredient matches.</returns>
+        /// <remarks>
+        /// Replicates the former <see cref="applyProductSearch"/> SQL LIKE fields in
+        /// memory over the cached catalog and additionally matches every aggregated
+        /// active ingredient so combination ingredients stay searchable after collapse.
+        /// </remarks>
+        private static bool matchesProductSearch(AeDrugSummaryDto summary, string term)
+        {
+            #region implementation
+
+            // Local helper keeps the per-field comparison terse and null-safe.
+            bool containsTerm(string? value) =>
+                !string.IsNullOrEmpty(value)
+                && value.Contains(term, StringComparison.OrdinalIgnoreCase);
+
+            if (containsTerm(summary.ProductName)
+                || containsTerm(summary.SubstanceName)
+                || containsTerm(summary.UNII)
+                || containsTerm(summary.PharmClassCode)
+                || containsTerm(summary.PharmClassName))
+            {
+                return true;
+            }
+
+            // Combination ingredients remain searchable after per-document collapse.
+            if (summary.ActiveIngredients != null)
+            {
+                foreach (var ingredient in summary.ActiveIngredients)
+                {
+                    if (containsTerm(ingredient.SubstanceName)
+                        || containsTerm(ingredient.UNII)
+                        || containsTerm(ingredient.PharmClassName)
+                        || containsTerm(ingredient.PharmClassCode))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Applies product, substance, UNII, and class search to the product summary query.
         /// </summary>
         private static IQueryable<LabelView.AeDrugSummary> applyProductSearch(
@@ -672,8 +932,15 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Gets one mapped AE product summary by document GUID.
+        /// Gets one aggregated AE product summary by document GUID.
         /// </summary>
+        /// <remarks>
+        /// Loads every (substance × pharmacologic-class) stratum for the document and
+        /// collapses them into one summary with the standardized active-ingredient
+        /// list, rather than picking an arbitrary single stratum. This is what gives
+        /// the triage/forest/quadrant header every ingredient and the preferred
+        /// ("[EPC]") class.
+        /// </remarks>
         private static async Task<AeDrugSummaryDto?> getAeDrugSummaryByDocumentGuidAsync(
             ApplicationDbContext db,
             Guid documentGuid,
@@ -682,34 +949,39 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Query a single product summary row using the document GUID that backs
-            // dashboard product selection.
-            var entity = await db.Set<LabelView.AeDrugSummary>()
+            // Load ALL summary strata for the document so combination products
+            // aggregate every ingredient instead of one arbitrary class row.
+            var entities = await db.Set<LabelView.AeDrugSummary>()
                 .AsNoTracking()
-                .FirstOrDefaultAsync(summary => summary.DocumentGUID == documentGuid);
+                .Where(summary => summary.DocumentGUID == documentGuid)
+                .ToListAsync();
+
+            if (entities.Count > 0)
+            {
+                // Map, collapse to a single per-document row with ActiveIngredients,
+                // then derive score fields for the product-level view builder.
+                var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
+                var collapsed = collapseToOneRowPerDocument(summaries).FirstOrDefault();
+                return collapsed != null ? AeDashboardDerivation.DeriveProduct(collapsed) : null;
+            }
 
             // Missing summary rows can happen for labels whose AE rows have no
             // pharmacologic-class context, so fall back to the risk table before
             // treating the product as absent.
-            if (entity == null)
-            {
-                var fallbackSummaries = await getRiskTableDrugSummariesAsync(
-                    db,
-                    documentGuids: new[] { documentGuid },
-                    excludedDocumentGuids: null,
-                    productSearch: null,
-                    pkSecret: pkSecret,
-                    logger: logger);
+            var fallbackSummaries = await getRiskTableDrugSummariesAsync(
+                db,
+                documentGuids: new[] { documentGuid },
+                excludedDocumentGuids: null,
+                productSearch: null,
+                pkSecret: pkSecret,
+                logger: logger);
 
-                return fallbackSummaries.Count > 0
-                    ? AeDashboardDerivation.DeriveProduct(fallbackSummaries.First())
-                    : null;
-            }
-
-            // Map the view row to an encrypted DTO and derive score fields before
-            // returning it to a product-level view builder.
-            var dto = buildAeDrugSummaryDto(entity, pkSecret, logger);
-            return AeDashboardDerivation.DeriveProduct(dto);
+            // Collapse the fallback strata too so null-class products still expose a
+            // standardized ingredient list to the header.
+            var collapsedFallback = collapseToOneRowPerDocument(fallbackSummaries).FirstOrDefault();
+            return collapsedFallback != null
+                ? AeDashboardDerivation.DeriveProduct(collapsedFallback)
+                : null;
 
             #endregion
         }
@@ -865,6 +1137,41 @@ namespace MedRecPro.DataAccess
         #endregion AE Dashboard Private Query Helpers
 
         #region AE Dashboard Private Mapping Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Projects an aggregated product summary into the slim picker catalog item.
+        /// </summary>
+        /// <param name="summary">A per-document, scored, favorite-marked summary DTO.</param>
+        /// <returns>A slim <see cref="AeProductCatalogItemDto"/> carrying only picker fields.</returns>
+        /// <remarks>
+        /// The flat <see cref="AeDrugSummaryDto.SubstanceName"/> and
+        /// <see cref="AeDrugSummaryDto.PharmClassName"/> are already standardized to the
+        /// first ingredient's preferred ("[EPC]") values by
+        /// <see cref="collapseToOneRowPerDocument"/>, so they are copied directly.
+        /// </remarks>
+        /// <seealso cref="AeProductCatalogItemDto"/>
+        private static AeProductCatalogItemDto toCatalogItem(AeDrugSummaryDto summary)
+        {
+            #region implementation
+
+            return new AeProductCatalogItemDto
+            {
+                DocumentGUID = summary.DocumentGUID,
+                ProductName = summary.ProductName,
+                SubstanceName = summary.SubstanceName,
+                UNII = summary.UNII,
+                PharmClassName = summary.PharmClassName,
+                ActiveIngredients = summary.ActiveIngredients,
+                MonoComboMix = summary.MonoComboMix,
+                Score = summary.Score,
+                PlaceboCoverage = summary.PlaceboCoverage,
+                ActiveCoverage = summary.ActiveCoverage,
+                IsFavorite = summary.IsFavorite
+            };
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
