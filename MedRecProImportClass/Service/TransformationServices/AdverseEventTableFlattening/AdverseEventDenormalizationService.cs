@@ -42,6 +42,10 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         private const string TargetTable = "dbo.tmp_FlattenedAdverseEventTable";
 
         /**************************************************************/
+        /// <summary>Coverage/audit table used to explain RR-ready and non-RR Stage 5 rows.</summary>
+        private const string CoverageTargetTable = "dbo.tmp_FlattenedAdverseEventCoverageTable";
+
+        /**************************************************************/
         /// <summary>Materialized risk table refreshed from <see cref="RiskSourceView"/>.</summary>
         private const string RiskTargetTable = "dbo.tmp_FlattenedAdverseEventRiskTable";
 
@@ -119,16 +123,13 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             await TruncateAsync(ct);
 
-            var nullDocCount = await _dbContext.Set<LabelView.FlattenedStandardizedTable>()
-                .AsNoTracking()
-                .Where(r => r.TableCategory == AeCategory && r.DocumentGUID == null)
-                .CountAsync(ct);
-
-            if (nullDocCount > 0)
+            var nullDocumentCoverageRows = await persistUngroupableSourceCoverageAsync(ct);
+            if (nullDocumentCoverageRows > 0)
             {
                 _logger.LogDebug(
-                    "Stage 5 — Skipping {Count} AE rows with NULL DocumentGUID (cannot be safely grouped)",
-                    nullDocCount);
+                    "Stage 5 - Audited {Count} AE rows with NULL DocumentGUID in {CoverageTable}",
+                    nullDocumentCoverageRows,
+                    CoverageTargetTable);
             }
 
             var docIds = await _dbContext.Set<LabelView.FlattenedStandardizedTable>()
@@ -199,10 +200,12 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             if (providerName.Equals(InMemoryProvider, StringComparison.OrdinalIgnoreCase))
             {
                 var existingRiskRows = _dbContext.Set<LabelView.FlattenedAdverseEventRiskTable>().ToList();
+                var existingCoverageRows = _dbContext.Set<LabelView.FlattenedAdverseEventCoverageTable>().ToList();
                 var existingAeRows = _dbContext.Set<LabelView.FlattenedAdverseEventTable>().ToList();
-                if (existingRiskRows.Count > 0 || existingAeRows.Count > 0)
+                if (existingRiskRows.Count > 0 || existingCoverageRows.Count > 0 || existingAeRows.Count > 0)
                 {
                     _dbContext.RemoveRange(existingRiskRows);
+                    _dbContext.RemoveRange(existingCoverageRows);
                     _dbContext.RemoveRange(existingAeRows);
                     await _dbContext.SaveChangesAsync(ct);
                     _dbContext.ChangeTracker.Clear();
@@ -212,6 +215,9 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             _logger.LogInformation("Stage 5 — Truncating {Table}", RiskTargetTable);
             await _dbContext.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE {RiskTargetTable}", ct);
+
+            _logger.LogInformation("Stage 5 - Truncating {Table}", CoverageTargetTable);
+            await _dbContext.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE {CoverageTargetTable}", ct);
 
             _logger.LogInformation("Stage 5 — Truncating {Table}", TargetTable);
             await _dbContext.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE {TargetTable}", ct);
@@ -369,33 +375,57 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                             && docIds.Contains(r.DocumentGUID.Value))
                 .ToListAsync(ct);
 
-            var rows = sourceRows
-                .Where(SourceRowEligibility.IsDenormalizableAeSourceRow)
-                .ToList();
-            var skippedInvalidRows = sourceRows.Count - rows.Count;
+            var coverageRows = new List<LabelView.FlattenedAdverseEventCoverageTable>();
+            var eligibleRows = new List<LabelView.FlattenedStandardizedTable>(sourceRows.Count);
+            foreach (var sourceRow in sourceRows)
+            {
+                var exclusionReason = SourceRowEligibility.GetExclusionReason(sourceRow);
+                if (exclusionReason is null)
+                {
+                    eligibleRows.Add(sourceRow);
+                    continue;
+                }
+
+                coverageRows.Add(buildCoverageEntity(
+                    sourceRow,
+                    comparator: null,
+                    status: exclusionReason,
+                    exclusionReason: exclusionReason,
+                    coverageFlags: exclusionReason));
+            }
+
+            var rows = eligibleRows;
+            var skippedInvalidRows = coverageRows.Count;
             if (skippedInvalidRows > 0)
             {
                 _logger.LogDebug(
-                    "Stage 5 - Skipping {Count} AE source rows with invalid arms or no analyzable value",
+                    "Stage 5 - Audited {Count} AE source rows with invalid arms or no analyzable value",
                     skippedInvalidRows);
             }
 
             if (rows.Count == 0)
+            {
+                await saveCoverageRowsAsync(coverageRows, ct);
                 return 0;
+            }
 
-            var (standardizedRows, standardizationFlagsByRowId, skippedStandardizationRows) =
+            var (standardizedRows, standardizationFlagsByRowId, skippedStandardizationRows, standardizationCoverageRows) =
                 applyStage5Standardization(rows);
+            coverageRows.AddRange(standardizationCoverageRows);
             if (skippedStandardizationRows > 0)
             {
                 _logger.LogDebug(
-                    "Stage 5 - Skipping {Count} AE source rows during MedDRA/name standardization ({Reason})",
+                    "Stage 5 - Audited {Count} AE source rows during MedDRA/name standardization ({Reason})",
                     skippedStandardizationRows,
                     "AE_STD:EXCLUDED_NON_AE");
             }
 
             rows = standardizedRows;
             if (rows.Count == 0)
+            {
+                await saveCoverageRowsAsync(coverageRows, ct);
                 return 0;
+            }
 
             var entities = new List<LabelView.FlattenedAdverseEventTable>();
             var nullTableDesign = new RelativeRiskCalculator.TrialDesignClassification(
@@ -419,9 +449,17 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                         foreach (var row in groupRows)
                         {
                             if (comparator is not null && ReferenceEquals(row, comparator))
+                            {
+                                coverageRows.Add(buildCoverageEntity(
+                                    row,
+                                    comparator,
+                                    AeDenormalizationConstants.SelectedComparatorStatus,
+                                    AeDenormalizationConstants.SelectedComparatorStatus,
+                                    comparatorFlag));
                                 continue;
+                            }
 
-                            entities.Add(AeStatEntityBuilder.Build(
+                            var entity = AeStatEntityBuilder.Build(
                                 row,
                                 comparator,
                                 comparatorFlag,
@@ -432,14 +470,27 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                                     row,
                                     comparator,
                                     stage5ArmNFlags,
-                                    standardizationFlagsByRowId)));
+                                    standardizationFlagsByRowId));
+
+                            entities.Add(entity);
+                            var coverageStatus = getCoverageStatus(entity);
+                            coverageRows.Add(buildCoverageEntity(
+                                row,
+                                comparator,
+                                coverageStatus,
+                                coverageStatus == AeDenormalizationConstants.RrReadyStatus ? null : coverageStatus,
+                                entity.CalculationFlags,
+                                entity));
                         }
                     }
                 }
             }
 
             if (entities.Count == 0)
+            {
+                await saveCoverageRowsAsync(coverageRows, ct);
                 return 0;
+            }
 
             var persistableEntities = entities
                 .Where(e => e.RR is not null)
@@ -447,11 +498,12 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             logNullRrExclusions(entities);
 
-            if (persistableEntities.Count == 0)
+            if (persistableEntities.Count == 0 && coverageRows.Count == 0)
                 return 0;
 
             try
             {
+                _dbContext.AddRange(coverageRows);
                 _dbContext.AddRange(persistableEntities);
                 await _dbContext.SaveChangesAsync(ct);
                 _dbContext.ChangeTracker.Clear();
@@ -475,6 +527,210 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
+        /// Persists coverage rows for AE source rows that cannot be grouped by document.
+        /// </summary>
+        /// <remarks>
+        /// Rows with NULL <c>DocumentGUID</c> are outside the normal document-batched
+        /// processing path, so they are audited immediately after Stage 5 truncation.
+        /// </remarks>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>Number of coverage rows written.</returns>
+        /// <seealso cref="SourceRowEligibility.GetExclusionReason"/>
+        private async Task<int> persistUngroupableSourceCoverageAsync(CancellationToken ct)
+        {
+            #region implementation
+
+            var rows = await _dbContext.Set<LabelView.FlattenedStandardizedTable>()
+                .AsNoTracking()
+                .Where(r => r.TableCategory == AeCategory && r.DocumentGUID == null)
+                .ToListAsync(ct);
+
+            if (rows.Count == 0)
+                return 0;
+
+            var coverageRows = rows
+                .Select(row => buildCoverageEntity(
+                    row,
+                    comparator: null,
+                    status: AeDenormalizationConstants.NoDocumentGuidFlag,
+                    exclusionReason: AeDenormalizationConstants.NoDocumentGuidFlag,
+                    coverageFlags: AeDenormalizationConstants.NoDocumentGuidFlag))
+                .ToList();
+
+            await saveCoverageRowsAsync(coverageRows, ct);
+            return coverageRows.Count;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Saves Stage 5 coverage rows and clears EF tracking state.
+        /// </summary>
+        /// <param name="coverageRows">Coverage rows to persist.</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <seealso cref="LabelView.FlattenedAdverseEventCoverageTable"/>
+        private async Task saveCoverageRowsAsync(
+            IReadOnlyCollection<LabelView.FlattenedAdverseEventCoverageTable> coverageRows,
+            CancellationToken ct)
+        {
+            #region implementation
+
+            if (coverageRows.Count == 0)
+                return;
+
+            try
+            {
+                _dbContext.AddRange(coverageRows);
+                await _dbContext.SaveChangesAsync(ct);
+                _dbContext.ChangeTracker.Clear();
+            }
+            catch (OperationCanceledException)
+            {
+                _dbContext.ChangeTracker.Clear();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _dbContext.ChangeTracker.Clear();
+                _logger.LogError(ex,
+                    "Stage 5 - Coverage save failed; aborting to avoid leaving an unexplained audit surface");
+                throw;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one durable Stage 5 coverage/audit row.
+        /// </summary>
+        /// <param name="row">Source standardized row.</param>
+        /// <param name="comparator">Selected comparator row, when available.</param>
+        /// <param name="status">Coverage status to persist.</param>
+        /// <param name="exclusionReason">Primary exclusion reason, when applicable.</param>
+        /// <param name="coverageFlags">Semicolon-delimited coverage flags.</param>
+        /// <param name="entity">Built AE stats entity, when the row reached calculation.</param>
+        /// <returns>Coverage entity ready for persistence.</returns>
+        /// <seealso cref="LabelView.FlattenedAdverseEventCoverageTable"/>
+        private static LabelView.FlattenedAdverseEventCoverageTable buildCoverageEntity(
+            LabelView.FlattenedStandardizedTable row,
+            LabelView.FlattenedStandardizedTable? comparator,
+            string status,
+            string? exclusionReason,
+            string? coverageFlags,
+            LabelView.FlattenedAdverseEventTable? entity = null)
+        {
+            #region implementation
+
+            return new LabelView.FlattenedAdverseEventCoverageTable
+            {
+                FlattenedStandardizedTableId = row.Id,
+                TextTableID = row.TextTableID,
+                DocumentGUID = row.DocumentGUID,
+                UNII = row.UNII,
+                ParameterName = entity?.ParameterName ?? row.ParameterName,
+                ParameterCategory = entity?.ParameterCategory ?? row.ParameterCategory,
+                TreatmentArm = row.TreatmentArm,
+                ArmN = entity?.ArmN ?? row.ArmN,
+                Dose = row.Dose,
+                DoseUnit = row.DoseUnit,
+                PrimaryValue = row.PrimaryValue,
+                PrimaryValueType = row.PrimaryValueType,
+                ComparatorArm = entity?.ComparatorArm ?? comparator?.TreatmentArm,
+                ComparatorN = entity?.ComparatorN ?? comparator?.ArmN,
+                ComparatorDose = comparator?.Dose,
+                ComparatorDoseUnit = comparator?.DoseUnit,
+                ComparatorPrimaryValue = comparator?.PrimaryValue,
+                ComparatorPrimaryValueType = comparator?.PrimaryValueType,
+                IsPlaceboControlled = entity?.IsPlaceboControlled ??
+                                      (comparator is null
+                                          ? null
+                                          : RelativeRiskCalculator.IsPlaceboArm(comparator.TreatmentArm, comparator.Dose)),
+                RR = entity?.RR,
+                CoverageStatus = status,
+                ExclusionReason = exclusionReason,
+                CoverageFlags = coverageFlags,
+                CalculationFlags = entity?.CalculationFlags,
+                StudyContext = entity?.StudyContext ?? row.StudyContext,
+                Population = entity?.Population ?? row.Population,
+                Subpopulation = entity?.Subpopulation ?? row.Subpopulation
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the durable coverage status for a built AE statistics entity.
+        /// </summary>
+        /// <param name="entity">Built Stage 5 entity before RR filtering.</param>
+        /// <returns><c>RR_READY</c> for persisted rows, otherwise the primary null-RR reason.</returns>
+        /// <seealso cref="AeStatEntityBuilder"/>
+        private static string getCoverageStatus(LabelView.FlattenedAdverseEventTable entity)
+        {
+            #region implementation
+
+            if (entity.RR is not null)
+                return AeDenormalizationConstants.RrReadyStatus;
+
+            return getPrimaryNullRrReason(entity.CalculationFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Selects the primary reason from semicolon-delimited calculation flags.
+        /// </summary>
+        /// <param name="calculationFlags">Raw CalculationFlags value.</param>
+        /// <returns>Primary null-RR reason flag.</returns>
+        private static string getPrimaryNullRrReason(string? calculationFlags)
+        {
+            #region implementation
+
+            var flags = splitFlags(calculationFlags);
+            var reasonPriority = new[]
+            {
+                AeDenormalizationConstants.SingleArmFlag,
+                AeDenormalizationConstants.AmbiguousComparatorFlag,
+                AeDenormalizationConstants.NoComparatorFlag,
+                AeDenormalizationConstants.NoArmNFlag,
+                AeDenormalizationConstants.NoComparatorNFlag,
+                "MIXED_VALUE_TYPES",
+                "UNCOMPARABLE_VALUE_TYPE",
+                "INVALID_EVENT_COUNT",
+                "EVENTS_EXCEED_ARMN",
+                "PERCENT_OUT_OF_RANGE",
+                AeDenormalizationConstants.ArmNRejectedConflictingNFlag
+            };
+
+            return reasonPriority.FirstOrDefault(reason => flags.Contains(reason, StringComparer.Ordinal)) ??
+                   AeDenormalizationConstants.UnknownNullRrFlag;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Splits semicolon-delimited Stage 5 flags into a stable token list.
+        /// </summary>
+        /// <param name="flags">Raw flag text.</param>
+        /// <returns>Distinct non-empty flag tokens.</returns>
+        private static IReadOnlyList<string> splitFlags(string? flags)
+        {
+            #region implementation
+
+            return (flags ?? string.Empty)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Applies Stage 5-only AE term/SOC standardization before comparator grouping.
         /// </summary>
         /// <remarks>
@@ -489,13 +745,15 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /// <seealso cref="ComparatorGrouper"/>
         private (List<LabelView.FlattenedStandardizedTable> Rows,
                  Dictionary<int, HashSet<string>> FlagsByRowId,
-                 int SkippedRows) applyStage5Standardization(
+                 int SkippedRows,
+                 List<LabelView.FlattenedAdverseEventCoverageTable> CoverageRows) applyStage5Standardization(
             IReadOnlyList<LabelView.FlattenedStandardizedTable> rows)
         {
             #region implementation
 
             var standardizedRows = new List<LabelView.FlattenedStandardizedTable>(rows.Count);
             var flagsByRowId = new Dictionary<int, HashSet<string>>();
+            var coverageRows = new List<LabelView.FlattenedAdverseEventCoverageTable>();
             var skippedRows = 0;
 
             foreach (var row in rows)
@@ -504,6 +762,15 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 if (result.IsExcluded)
                 {
                     skippedRows++;
+                    var coverageFlags = result.Flags.Count == 0
+                        ? AeDenormalizationConstants.StandardizerExcludedFlag
+                        : string.Join(";", result.Flags);
+                    coverageRows.Add(buildCoverageEntity(
+                        row,
+                        comparator: null,
+                        status: AeDenormalizationConstants.StandardizerExcludedFlag,
+                        exclusionReason: AeDenormalizationConstants.StandardizerExcludedFlag,
+                        coverageFlags: coverageFlags));
                     continue;
                 }
 
@@ -513,7 +780,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
                 standardizedRows.Add(row);
             }
 
-            return (standardizedRows, flagsByRowId, skippedRows);
+            return (standardizedRows, flagsByRowId, skippedRows, coverageRows);
 
             #endregion
         }
@@ -747,12 +1014,15 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             {
                 AeDenormalizationConstants.NoArmNFlag,
                 AeDenormalizationConstants.NoComparatorNFlag,
+                AeDenormalizationConstants.SingleArmFlag,
+                AeDenormalizationConstants.AmbiguousComparatorFlag,
                 AeDenormalizationConstants.NoComparatorFlag,
                 "MIXED_VALUE_TYPES",
                 "UNCOMPARABLE_VALUE_TYPE",
                 "INVALID_EVENT_COUNT",
                 "EVENTS_EXCEED_ARMN",
-                "PERCENT_OUT_OF_RANGE"
+                "PERCENT_OUT_OF_RANGE",
+                AeDenormalizationConstants.ArmNRejectedConflictingNFlag
             };
 
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);

@@ -388,9 +388,9 @@ function getSignalDirection(signal) {
 function IconLogo() {
   return (
     <svg viewBox="0 0 95.11 71.96" width="22" height="17" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M0,8l.03,63.93h14.15l-.09-71.93h-6.09C3.58,0,0,3.58,0,8Z" fill="#e8c8a8" />
-      <polygon points="7.87 0 25.91 71.93 41.06 71.93 22.96 0 7.87 0" fill="#e8c8a8" />
-      <polygon points="29.39 0 47.43 71.93 62.58 71.93 44.49 0 29.39 0" fill="#e8c8a8" />
+      <path d="M0,8l.03,63.93h14.15l-.09-71.93h-6.09C3.58,0,0,3.58,0,8Z" fill="#4a2618" />
+      <polygon points="7.87 0 25.91 71.93 41.06 71.93 22.96 0 7.87 0" fill="#4a2618" />
+      <polygon points="29.39 0 47.43 71.93 62.58 71.93 44.49 0 29.39 0" fill="#4a2618" />
       <path d="M51.22.03l18.04,71.93h4.89c5.21,0,9.03-4.9,7.76-9.95L66.31.03h-15.09Z" fill="#f4a126" />
       <path d="M95.11,27.68h-15.07L73.1.03h8.85c3.67,0,6.87,2.5,7.76,6.06l5.4,21.6Z" fill="#f4a126" />
     </svg>
@@ -445,7 +445,7 @@ function TopBar({ selectedProduct, onSaveProduct, onExportDashboard }) {
     <div className="topbar" data-screen-label="Topbar">
       <div className="topbar-inner">
         <a className="brand" href="/adverse-events" aria-label="MedRecPro adverse events dashboard">
-          <IconLogo />
+          <span className="brand-logo"><IconLogo /></span>
           <span>MedRecPro</span>
         </a>
         <span className="brand-sep" />
@@ -1652,13 +1652,12 @@ function App() {
 
   return (
     <main className="ae-dashboard-page">
+      <TopBar
+        selectedProduct={selectedProductWithFavoriteState}
+        onSaveProduct={handleSaveProduct}
+        onExportDashboard={handleExportDashboard}
+      />
       <div className="app" data-screen-label="AE Dashboard">
-        <TopBar
-          selectedProduct={selectedProductWithFavoriteState}
-          onSaveProduct={handleSaveProduct}
-          onExportDashboard={handleExportDashboard}
-        />
-
         <PageHeader
           product={selectedProductWithFavoriteState}
           hydrationError={hydrationError}

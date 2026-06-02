@@ -3229,14 +3229,150 @@ namespace MedRecProImportClass.Models
 
         /**************************************************************/
         /// <summary>
+        /// Entity for tmp_FlattenedAdverseEventCoverageTable, the Stage 5
+        /// coverage/audit companion to the RR-ready AE statistics table.
+        /// </summary>
+        /// <remarks>
+        /// This table records source rows that are RR-ready, selected as comparators,
+        /// rejected by source eligibility, excluded by Stage 5 standardization, or
+        /// built with null RR. It lets QA explain coverage without changing the
+        /// visualization contract of <see cref="FlattenedAdverseEventTable"/>.
+        /// </remarks>
+        /// <seealso cref="FlattenedAdverseEventTable"/>
+        /// <seealso cref="FlattenedStandardizedTable"/>
+        [System.ComponentModel.DataAnnotations.Schema.Table("tmp_FlattenedAdverseEventCoverageTable")]
+        public class FlattenedAdverseEventCoverageTable
+        {
+            #region properties
+
+            /**************************************************************/
+            /// <summary>Surrogate primary key for the coverage row.</summary>
+            [System.ComponentModel.DataAnnotations.Key]
+            [System.ComponentModel.DataAnnotations.Schema.Column("tmp_FlattenedAdverseEventCoverageTableID")]
+            public int Id { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source Stage 3 standardized row identifier.</summary>
+            [System.ComponentModel.DataAnnotations.Schema.Column("tmp_FlattenedStandardizedTableID")]
+            public int FlattenedStandardizedTableId { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source reconstructed table identifier.</summary>
+            public int? TextTableID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source SPL document identifier.</summary>
+            public Guid? DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Plus-delimited active-ingredient UNIIs from the source row.</summary>
+            public string? UNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source or Stage 5 canonical adverse-event term.</summary>
+            public string? ParameterName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source or Stage 5 canonical adverse-event category.</summary>
+            public string? ParameterCategory { get; set; }
+
+            /**************************************************************/
+            /// <summary>Treatment arm name from the source row.</summary>
+            public string? TreatmentArm { get; set; }
+
+            /**************************************************************/
+            /// <summary>Treatment-arm denominator.</summary>
+            public int? ArmN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Treatment-arm dose.</summary>
+            public decimal? Dose { get; set; }
+
+            /**************************************************************/
+            /// <summary>Treatment-arm dose unit.</summary>
+            public string? DoseUnit { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source treatment value.</summary>
+            public double? PrimaryValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source treatment value type.</summary>
+            public string? PrimaryValueType { get; set; }
+
+            /**************************************************************/
+            /// <summary>Selected comparator arm, when available.</summary>
+            public string? ComparatorArm { get; set; }
+
+            /**************************************************************/
+            /// <summary>Selected comparator denominator, when available.</summary>
+            public int? ComparatorN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Selected comparator dose, when available.</summary>
+            public decimal? ComparatorDose { get; set; }
+
+            /**************************************************************/
+            /// <summary>Selected comparator dose unit, when available.</summary>
+            public string? ComparatorDoseUnit { get; set; }
+
+            /**************************************************************/
+            /// <summary>Selected comparator value, when available.</summary>
+            public double? ComparatorPrimaryValue { get; set; }
+
+            /**************************************************************/
+            /// <summary>Selected comparator value type, when available.</summary>
+            public string? ComparatorPrimaryValueType { get; set; }
+
+            /**************************************************************/
+            /// <summary>Whether the selected comparator is placebo-like.</summary>
+            public bool? IsPlaceboControlled { get; set; }
+
+            /**************************************************************/
+            /// <summary>RR point estimate when the row is RR-ready.</summary>
+            public double? RR { get; set; }
+
+            /**************************************************************/
+            /// <summary>Durable coverage status such as RR_READY or NO_COMPARATOR.</summary>
+            public string? CoverageStatus { get; set; }
+
+            /**************************************************************/
+            /// <summary>Primary exclusion or audit reason for this source row.</summary>
+            public string? ExclusionReason { get; set; }
+
+            /**************************************************************/
+            /// <summary>Semicolon-delimited coverage-specific flags.</summary>
+            public string? CoverageFlags { get; set; }
+
+            /**************************************************************/
+            /// <summary>Calculation flags from Stage 5 entity building, when available.</summary>
+            public string? CalculationFlags { get; set; }
+
+            /**************************************************************/
+            /// <summary>Colspan-derived study context.</summary>
+            public string? StudyContext { get; set; }
+
+            /**************************************************************/
+            /// <summary>Caption-derived population context.</summary>
+            public string? Population { get; set; }
+
+            /**************************************************************/
+            /// <summary>In-table subpopulation context.</summary>
+            public string? Subpopulation { get; set; }
+
+            #endregion properties
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Entity for tmp_FlattenedAdverseEventRiskTable -- the materialized
         /// Stage 5 risk projection sourced from <c>dbo.vw_AeRisk</c>.
         /// </summary>
         /// <remarks>
         /// This table is refreshed after <see cref="FlattenedAdverseEventTable"/>
-        /// is rebuilt. It keeps the SQL view as the single source for product/class
-        /// joins and number-needed math while giving visualization queries a
-        /// persisted, indexable surface.
+        /// is rebuilt. It keeps the SQL view as the single source for optional
+        /// product/class enrichment and number-needed math while giving visualization
+        /// queries a persisted, indexable surface.
         /// </remarks>
         /// <example>
         /// <code>

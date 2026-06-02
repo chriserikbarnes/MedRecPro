@@ -2,14 +2,16 @@
 
 **Stage 5** of the pipeline: AdverseEvent statistical denormalization. This folder reads the
 already-parsed, already-standardized AE rows from `tmp_FlattenedStandardizedTable`
-(`TableCategory = 'ADVERSE_EVENT'`) and produces **`tmp_FlattenedAdverseEventTable`**, where
-every row carries a pre-computed risk-statistics packet. After that table is populated,
-the service materializes **`tmp_FlattenedAdverseEventRiskTable`** from `dbo.vw_AeRisk`
-so visualizations bind to numbers directly — no runtime statistics.
+(`TableCategory = 'ADVERSE_EVENT'`) and produces three Stage 5 surfaces:
 
-Stage 5 now persists only rows with a non-null `RR`. It still calculates intermediate
-diagnostics for skipped rows in memory, logs the null-RR reason families per batch, and
-keeps only visualization-ready treatment/comparator pairs in the target table.
+- **`tmp_FlattenedAdverseEventCoverageTable`** records each source row's Stage 5 outcome.
+- **`tmp_FlattenedAdverseEventTable`** stores RR-ready treatment/comparator rows.
+- **`tmp_FlattenedAdverseEventRiskTable`** materializes `dbo.vw_AeRisk` for dashboard reads.
+
+Stage 5 persists only rows with a non-null `RR` into the AE stats table, but it no
+longer lets non-RR rows vanish. Source eligibility failures, selected comparators,
+standardizer exclusions, null-RR guards, and RR-ready rows all receive durable
+coverage rows.
 
 Each output row pairs a treatment arm against a chosen comparator arm and stores:
 - **RR** — Relative Risk, with 95% CI (`RRLowerBound` / `RRUpperBound`)
@@ -23,6 +25,8 @@ The `Log*` companion columns (`LogRR`, `LogDNRR`, and their bounds) are **SQL Se
 PERSISTED computed columns** — they are materialized by the database, never written by C#.
 The risk table is a persistent snapshot of `dbo.vw_AeRisk`; SQL Server builds it with an
 explicit-column `INSERT INTO ... SELECT ... FROM dbo.vw_AeRisk` after all AE batches save.
+`vw_AeRisk` left-preserves RR-ready rows when product/pharmacologic-class context is
+missing and stamps `NO_PRODUCT_CLASS_CONTEXT` into `CalculationFlags`.
 
 > See the [parent README](../README.md) for where Stage 5 sits in the overall flow. It runs
 > once at the end of `ProcessAllAsync` / `ProcessAllWithValidationAsync`, after Stage 3 (and
@@ -35,12 +39,12 @@ explicit-column `INSERT INTO ... SELECT ... FROM dbo.vw_AeRisk` after all AE bat
 
 ```
 AdverseEventDenormalizationService.PopulateAsync
-  ├─ TruncateAsync                              wipe both Stage 5 output tables (idempotent rerun)
+  ├─ TruncateAsync                              wipe coverage, AE stats, and risk tables
   ├─ SELECT DISTINCT DocumentGUID  WHERE TableCategory='ADVERSE_EVENT'
   └─ for each batch of documents → processBatchAsync:
         load standardized rows (AsNoTracking)
         │
-        ├─ SourceRowEligibility.IsDenormalizableAeSourceRow   keep only valid AE rows w/ a value
+        ├─ SourceRowEligibility.GetExclusionReason            audit source exclusions
         ├─ AeMeddraTermStandardizer.Standardize              canonicalize AE name + official SOC
         │
         └─ group by DocumentGUID → group by TextTableID:
@@ -55,8 +59,8 @@ AdverseEventDenormalizationService.PopulateAsync
                          ├─ RelativeRiskCalculator.DeriveEventCount   PrimaryValue → event count
                          ├─ RelativeRiskCalculator.Compute            RR + 95% CI (Katz log)
                          └─ RelativeRiskCalculator.ComputeDnrr        DNRR + 95% CI (log-linear)
-                       → FlattenedAdverseEventTable entity
-        AddRange → SaveChangesAsync → ChangeTracker.Clear()
+                       → coverage row + RR-ready FlattenedAdverseEventTable entity
+        AddRange coverage + RR-ready stats → SaveChangesAsync → ChangeTracker.Clear()
   └─ materializeRiskTableAsync                 insert explicit-column SELECT from dbo.vw_AeRisk
 ```
 
@@ -73,7 +77,7 @@ treatment rows as `ComparatorArm` / `ComparatorN`.
 | `SourceRowEligibility.cs` | The eligibility gate. A source row is denormalizable iff it has a DocumentGUID, a `PrimaryValue`, and a `ParameterName`/`TreatmentArm` that is not a caption, body-system label, threshold fragment, or value-axis token (delegates to `AeColumnContextResolver`). |
 | `AeMeddraTermStandardizer.cs` | Stage 5-only MedDRA standardizer. Canonicalizes AE names before grouping, maps category aliases to the official 27 SOC labels, fills null categories from known AE terms, and emits auditable `AE_STD:*` flags. |
 | `ComparatorGrouper.cs` | Groups one table's rows into comparison cohorts keyed by `{ParameterName, ParameterSubtype, StudyContext, Population, Subpopulation}` — each dimension normalized (trim, collapse whitespace, upper-invariant). Scope is per-`TextTableID`. |
-| `ComparatorSelector.cs` | Picks the comparator for a cohort via a 3-tier cascade and computes the per-study reference dose. |
+| `ComparatorSelector.cs` | Picks the comparator for a cohort via placebo, low-dose, explicit active-control, and deterministic two-arm active-comparator tiers; audits ambiguous groups. |
 | `IPlaceboArmClassifier.cs` / `PlaceboArmClassifier.cs` | Thin injectable wrapper over `RelativeRiskCalculator.IsPlaceboArm`, so upstream services (e.g., Claude guardrails) can share placebo classification. |
 | `RelativeRiskCalculator.cs` | The math core (static, side-effect free): event-count derivation, RR + CI (Katz log with Haldane-Anscombe zero-cell correction), DNRR + CI (log-linear), trial-design classification, placebo detection. |
 | `AeStatEntityBuilder.cs` | Assembles one output entity from a source row + comparator context + computed stats, accumulating `CalculationFlags` and applying early-exit guards. |
@@ -113,12 +117,15 @@ committing to count semantics. Only `Count` and `Percentage` are comparable.
 
 ## Comparator selection & IsPlaceboControlled
 
-`ComparatorSelector.Select` is a 3-tier cascade over a cohort:
-1. **Placebo** (`IsPlaceboArm` true) → `PLACEBO_COMPARATOR`
-2. else **lowest non-zero dose** (only if the cohort has >1 row) → `LOW_DOSE_COMPARATOR`
-3. else → `NO_COMPARATOR`
+`ComparatorSelector.Select` is a deterministic cascade over a cohort:
+1. **Placebo/sham/vehicle/zero-dose** (`IsPlaceboArm` true) -> `PLACEBO_COMPARATOR`
+2. else **lowest non-zero dose** -> `LOW_DOSE_COMPARATOR`
+3. else **one explicit control/comparator/reference arm** -> `EXPLICIT_CONTROL_COMPARATOR`
+4. else **exactly two distinct active arms** -> `ACTIVE_COMPARATOR_INFERRED`
+5. else **more than two active arms** -> `AMBIGUOUS_COMPARATOR`
+6. else single-arm/no evidence -> `SINGLE_ARM` or `NO_COMPARATOR`
 
-Ties break deterministically by Dose → SourceRowSeq → SourceCellSeq → Id.
+Ties break deterministically by Dose -> SourceRowSeq -> SourceCellSeq -> Id.
 
 `IsPlaceboArm(arm, dose)`: true if `dose == 0`, else regex `placebo|sham|vehicle` on the arm name.
 
@@ -150,9 +157,11 @@ The **`Log*` columns are never set in C#** — they are PERSISTED computed colum
 DDL, guarded with `CASE WHEN > 0 THEN LOG(...)` to avoid `LOG(0)`/`LOG(NULL)` errors.
 
 Rows that finish with `RR = NULL` are not inserted into `tmp_FlattenedAdverseEventTable`.
-This suppresses non-visualizable rows such as `NO_COMPARATOR`, `NO_ARMN`,
-`NO_COMPARATOR_N`, `MIXED_VALUE_TYPES`, `UNCOMPARABLE_VALUE_TYPE`,
-`INVALID_EVENT_COUNT`, `EVENTS_EXCEED_ARMN`, and `PERCENT_OUT_OF_RANGE` outputs.
+They are inserted into `tmp_FlattenedAdverseEventCoverageTable` with a durable
+`CoverageStatus`/`ExclusionReason`, so non-visualizable rows such as `SINGLE_ARM`,
+`AMBIGUOUS_COMPARATOR`, `NO_COMPARATOR`, `NO_ARMN`, `NO_COMPARATOR_N`,
+`MIXED_VALUE_TYPES`, `UNCOMPARABLE_VALUE_TYPE`, `INVALID_EVENT_COUNT`,
+`EVENTS_EXCEED_ARMN`, and `PERCENT_OUT_OF_RANGE` remain explainable.
 
 ---
 
@@ -183,8 +192,10 @@ in-memory rows that feed `ComparatorGrouper`.
   same `PrimaryValueType`; otherwise `MIXED_VALUE_TYPES` and null stats — even if the numbers
   would divide cleanly. `PrimaryValueType` is copied verbatim from source, never re-derived.
 - **The reference-dose row keeps its RR but gets null DNRR** (`IS_REFERENCE_DOSE`).
-- **Null-RR rows are filtered after build.** Reference-dose rows with valid RR and null
-  DNRR still persist; rows with no RR do not.
+- **Null-RR rows are filtered from the stats table after build.** Reference-dose rows
+  with valid RR and null DNRR still persist; rows with no RR go to the coverage table.
+- **Class context is optional in `vw_AeRisk`.** Raw risk rows can have null product/class
+  fields and `NO_PRODUCT_CLASS_CONTEXT`; class-specific summaries filter those rows out.
 - **AE names and SOCs are standardized before grouping.** Name-derived SOCs override
   conflicting raw categories for known AE terms, and all persisted categories should be
   in the official 27 MedDRA SOC set.

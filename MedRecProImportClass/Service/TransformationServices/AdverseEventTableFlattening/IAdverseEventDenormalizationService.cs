@@ -4,6 +4,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     /// <summary>
     /// Stage 5 (Phase 2) service that projects adverse-event rows from
     /// <c>tmp_FlattenedStandardizedTable</c> into the denormalized
+    /// <c>tmp_FlattenedAdverseEventCoverageTable</c> and RR-ready rows into
     /// <c>tmp_FlattenedAdverseEventTable</c>, then materializes
     /// <c>dbo.vw_AeRisk</c> into <c>tmp_FlattenedAdverseEventRiskTable</c>.
     /// The AE table stores pre-computed Relative Risk (RR), Dose-Normalized RR
@@ -17,7 +18,7 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     /// when invoked from a CLI / host.
     ///
     /// ## Idempotency
-    /// <see cref="PopulateAsync"/> truncates both Stage 5 destination tables at
+    /// <see cref="PopulateAsync"/> truncates all Stage 5 destination tables at
     /// the start of every call so reruns produce identical state. Unlike Stage 3 the service is
     /// fail-fast on errors — a partial denormalized table is more dangerous than a
     /// failed run.
@@ -32,7 +33,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /// <c>tmp_FlattenedStandardizedTable</c>, classifies trial design per
         /// (DocumentGUID, TextTableID) for diagnostic flagging, selects comparators per
         /// study group, sets <c>IsPlaceboControlled</c> per-row from the comparator
-        /// selection, computes RR/DNRR/CI, bulk-writes the result, and finally
+        /// selection, audits coverage/null-RR outcomes, computes RR/DNRR/CI,
+        /// bulk-writes RR-ready rows, and finally
         /// materializes <c>tmp_FlattenedAdverseEventRiskTable</c> from
         /// <c>dbo.vw_AeRisk</c>.
         /// </summary>
@@ -48,7 +50,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
-        /// Truncates <c>tmp_FlattenedAdverseEventRiskTable</c> and
+        /// Truncates <c>tmp_FlattenedAdverseEventRiskTable</c>,
+        /// <c>tmp_FlattenedAdverseEventCoverageTable</c>, and
         /// <c>tmp_FlattenedAdverseEventTable</c> for a clean rerun.
         /// Falls back to <c>RemoveRange</c> + <c>SaveChanges</c> on the
         /// EF Core InMemoryDatabase test provider, which does not support raw SQL.

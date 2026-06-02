@@ -29,21 +29,44 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         {
             #region implementation
 
+            return GetExclusionReason(row) is null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns the durable Stage 5 exclusion reason for a source row, if any.
+        /// </summary>
+        /// <remarks>
+        /// The service persists this reason into the coverage table so rows rejected
+        /// before comparator grouping remain explainable after transient logs expire.
+        /// </remarks>
+        /// <param name="row">Flattened standardized AE source row.</param>
+        /// <returns>Stable reason flag, or null when the row is denormalizable.</returns>
+        /// <seealso cref="IsDenormalizableAeSourceRow"/>
+        internal static string? GetExclusionReason(LabelView.FlattenedStandardizedTable row)
+        {
+            #region implementation
+
             if (row.DocumentGUID == null)
-                return false;
+                return AeDenormalizationConstants.NoDocumentGuidFlag;
 
             if (AeColumnContextResolver.IsInvalidTreatmentArm(row.TreatmentArm))
-                return false;
+                return AeDenormalizationConstants.InvalidTreatmentArmFlag;
 
             if (AeColumnContextResolver.IsCaptionLikeText(row.ParameterName) ||
                 AeColumnContextResolver.IsBodySystemLabel(row.ParameterName) ||
                 AeColumnContextResolver.IsValueAxisToken(row.ParameterName) ||
                 AeColumnContextResolver.IsThresholdOnlyOrExcludedAeName(row.ParameterName))
             {
-                return false;
+                return AeDenormalizationConstants.StructuralAeRowFlag;
             }
 
-            return row.PrimaryValue.HasValue;
+            if (!row.PrimaryValue.HasValue)
+                return AeDenormalizationConstants.NoPrimaryValueFlag;
+
+            return null;
 
             #endregion
         }

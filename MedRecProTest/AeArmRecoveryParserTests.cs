@@ -97,6 +97,26 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Asserts that emitted AE observations carry real treatment-arm labels.
+        /// </summary>
+        /// <param name="observations">Parser output observations.</param>
+        /// <seealso cref="ParsedObservation"/>
+        private static void assertNoPlaceholderTreatmentArms(IEnumerable<ParsedObservation> observations)
+        {
+            #region implementation
+
+            Assert.IsFalse(observations.Any(o =>
+                string.IsNullOrWhiteSpace(o.TreatmentArm) ||
+                string.Equals(o.TreatmentArm, "-", StringComparison.Ordinal) ||
+                o.TreatmentArm.Contains("All Grades", StringComparison.OrdinalIgnoreCase) ||
+                o.TreatmentArm.Contains("Grade 3", StringComparison.OrdinalIgnoreCase)),
+                "Severity and placeholder labels must not overwrite real treatment arms.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Creates a minimal reconstructed AE table with one resolved header row.
         /// </summary>
         /// <param name="headerTexts">Resolved leaf header texts.</param>
@@ -317,6 +337,122 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Comparator arm" && r.StudyContext == "TAX324"));
             Assert.AreEqual(4, results.Count(r => r.ParameterSubtype == "Any"));
             Assert.AreEqual(4, results.Count(r => r.ParameterSubtype == "Grade 3/4"));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Representative SimpleArm missing-ID fixtures keep body-row grade labels as
+        /// subtypes while preserving real treatment and comparator arm names.
+        /// </summary>
+        /// <param name="textTableId">Representative TextTableID from the remediation plan.</param>
+        [DataTestMethod]
+        [DataRow(44409)]
+        [DataRow(37474)]
+        [DataRow(34706)]
+        [DataRow(39790)]
+        public void SimpleArmRepresentativeMissingIds_DoNotEmitPlaceholderArms(int textTableId)
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[]
+                {
+                    "Adverse Reaction",
+                    "Study Drug", "Study Drug",
+                    "Active Comparator", "Active Comparator"
+                },
+                new List<string?[]>
+                {
+                    new[] { "Adverse Reaction", "All Grades (%)", "Grades 3 or 4 (%)", "All Grades (%)", "Grades 3 or 4 (%)" },
+                    new[] { "Nausea", "12", "2", "8", "1" }
+                });
+            table.TextTableID = textTableId;
+
+            var parser = new SimpleArmTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Study Drug"));
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Active Comparator"));
+            Assert.IsTrue(results.All(r => r.ParameterSubtype is "All Grades" or "Grades 3 or 4"));
+            assertNoPlaceholderTreatmentArms(results);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Representative AeWithSoc missing-ID fixtures preserve SOC context and real
+        /// treatment arms when severity/body rows provide the column meaning.
+        /// </summary>
+        /// <param name="textTableId">Representative TextTableID from the remediation plan.</param>
+        [DataTestMethod]
+        [DataRow(20763)]
+        [DataRow(30122)]
+        public void AeWithSocRepresentativeMissingIds_DoNotEmitPlaceholderArms(int textTableId)
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Col 0", "All Grades", "Grade 3/4", "All Grades", "Grade 3/4" },
+                new List<string?[]>
+                {
+                    new[] { "-", "Test Drug", "\u2194", "Comparator", "\u2194" },
+                    new[] { "Adverse Reactions", "N = 80", "\u2194", "N = 78", "\u2194" },
+                    new[] { "Gastrointestinal disorders", string.Empty, string.Empty, string.Empty, string.Empty },
+                    new[] { "Nausea", "12 (15%)", "2 (3%)", "6 (8%)", "1 (1%)" }
+                });
+            table.TextTableID = textTableId;
+
+            var parser = new AeWithSocTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Test Drug"));
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Comparator"));
+            Assert.IsTrue(results.All(r => r.ParameterCategory == "Gastrointestinal disorders"));
+            assertNoPlaceholderTreatmentArms(results);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Representative Multilevel missing-ID fixtures recover parent treatment
+        /// arms from multilevel headers and keep severity leaves as subtypes.
+        /// </summary>
+        /// <param name="textTableId">Representative TextTableID from the remediation plan.</param>
+        [DataTestMethod]
+        [DataRow(2225)]
+        [DataRow(2591)]
+        public void MultilevelRepresentativeMissingIds_RecoverSeverityParentArms(int textTableId)
+        {
+            #region implementation
+
+            var table = createAeTable(
+                new[] { "Adverse Reactions", "All Grades (%)", "Grade 3 or Higher (%)", "All Grades (%)", "Grades >=3 (%)" },
+                new List<string?[]>
+                {
+                    new[] { "Neutropenia", "10 (7%)", "2 (1%)", "8 (6%)", "1 (1%)" }
+                });
+            table.TextTableID = textTableId;
+            var columns = table.Header!.Columns!;
+            table.Header.HeaderRowCount = 2;
+            columns[1].HeaderPath = new List<string> { "Study Drug (N=135)", "All Grades (%)" };
+            columns[2].HeaderPath = new List<string> { "Study Drug (N=135)", "Grade 3 or Higher (%)" };
+            columns[3].HeaderPath = new List<string> { "Reference Comparator (N=132)", "All Grades (%)" };
+            columns[4].HeaderPath = new List<string> { "Reference Comparator (N=132)", "Grades >=3 (%)" };
+
+            var parser = new MultilevelAeTableParser();
+            var results = parser.Parse(table);
+
+            Assert.AreEqual(4, results.Count);
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Study Drug"));
+            Assert.AreEqual(2, results.Count(r => r.TreatmentArm == "Reference Comparator"));
+            Assert.IsTrue(results.All(r => r.ParameterSubtype is "All Grades" or "Grade 3 or Higher" or "Grades >=3"));
+            assertNoPlaceholderTreatmentArms(results);
+
+            #endregion
         }
 
         /**************************************************************/

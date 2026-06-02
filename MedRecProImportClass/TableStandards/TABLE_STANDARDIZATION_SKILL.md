@@ -2,8 +2,9 @@
 name: table-parser-data-dictionary
 description: >
   Standardized data dictionary for the tmp_FlattenedStandardizedTable schema (39
-  data columns, fixed width), the downstream tmp_FlattenedAdverseEventTable
-  (Stage 5 AE denormalization), and the materialized tmp_FlattenedAdverseEventRiskTable.
+  data columns, fixed width), the downstream tmp_FlattenedAdverseEventCoverageTable
+  (Stage 5 AE coverage/audit), tmp_FlattenedAdverseEventTable
+  (RR-ready AE denormalization), and the materialized tmp_FlattenedAdverseEventRiskTable.
   Defines strict per-TableCategory contracts for
   every parser column — same column name, different documented meaning depending
   on the table type being parsed (AdverseEvent, PK, DrugInteraction, Efficacy) —
@@ -42,8 +43,8 @@ WHERE clause — not a reinterpretation exercise.
 
 | File                               | Read When                                        |
 |------------------------------------|--------------------------------------------------|
-| `references/column-contracts.md`   | Building parser logic for any column; writing SQL queries; validating output. Also contains the contracts for `tmp_FlattenedAdverseEventTable` and `tmp_FlattenedAdverseEventRiskTable` (Stage 5). |
-| `references/normalization-rules.md`| Cleaning dirty columns: DoseRegimen triage, PrimaryValueType enum, Unit scrub, ParameterCategory SOC mapping, ParameterName cleanup, TreatmentArm cleanup. Also contains §7 (Stage 5 AE denormalization formulas: comparator pairing, Katz RR + Haldane correction, log-linear DNRR, IsPlaceboControlled trial-design classification). |
+| `references/column-contracts.md`   | Building parser logic for any column; writing SQL queries; validating output. Also contains the contracts for `tmp_FlattenedAdverseEventCoverageTable`, `tmp_FlattenedAdverseEventTable`, and `tmp_FlattenedAdverseEventRiskTable` (Stage 5). |
+| `references/normalization-rules.md`| Cleaning dirty columns: DoseRegimen triage, PrimaryValueType enum, Unit scrub, ParameterCategory SOC mapping, ParameterName cleanup, TreatmentArm cleanup. Also contains §7 (Stage 5 AE coverage, comparator pairing, active-comparator RR, Katz RR + Haldane correction, log-linear DNRR, and optional product/class risk materialization). |
 | `references/table-types.md`        | Classifying tables; understanding per-type column expectations; writing comparison keys |
 
 ---
@@ -175,12 +176,11 @@ CoAdministeredDrug column.
 
 ## Stage 5: AE Denormalization and Risk Materialization
 
-Downstream of the parser pipeline, Stage 5 produces a denormalized AE-only
-projection where each row already carries pre-computed Relative Risk (RR),
-Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions —
-so visualizations bind without runtime statistics.
-After the AE table is populated, Stage 5 materializes `dbo.vw_AeRisk` into
-`tmp_FlattenedAdverseEventRiskTable` as the final refresh step.
+Downstream of the parser pipeline, Stage 5 produces a coverage/audit table for
+source-row outcomes, a denormalized RR-ready AE-only projection where each row
+already carries pre-computed Relative Risk (RR), Dose-Normalized RR (DNRR), 95%
+CI bounds, and PERSISTED log-scale companions, then materializes `dbo.vw_AeRisk`
+into `tmp_FlattenedAdverseEventRiskTable` as the final refresh step.
 
 ```
 SCHEMA AT A GLANCE (31 columns)
@@ -217,8 +217,9 @@ and `references/normalization-rules.md` §7):
   `(DocumentGUID, ParameterName, ParameterSubtype)`. The reference-dose row
   itself gets DNRR = NULL with flag `IS_REFERENCE_DOSE`.
 
-**Status:** Phase 1 (DDL at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`)
-and the risk-table DDL at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`
+**Status:** DDL at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql`,
+`MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`, and
+`MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`
 are shipped. Phase 2 (the population service `AdverseEventDenormalizationService`,
 `RelativeRiskCalculator` utility, EF entities, DTO, orchestrator hook, DI registration,
 and final `vw_AeRisk` materialization) is shipped.

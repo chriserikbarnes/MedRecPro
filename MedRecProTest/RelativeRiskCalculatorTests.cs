@@ -89,6 +89,26 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Ordinary RR calculation is comparator-type agnostic; active controls use
+        /// the same denominator/event-count gates as placebo controls.
+        /// </summary>
+        [TestMethod]
+        public void Compute_ActiveComparatorInputs_ProducesOrdinaryRr()
+        {
+            #region implementation
+
+            var r = RelativeRiskCalculator.Compute(3.0, 65, 6.0, 65);
+
+            Assert.IsNotNull(r.Rr);
+            Assert.AreEqual(0.5, r.Rr!.Value, Eps);
+            Assert.IsNotNull(r.RrLower);
+            Assert.IsNotNull(r.RrUpper);
+
+            #endregion
+        }
+
         #endregion Compute — Standard Path
 
         #region Compute — Zero-cell Continuity Correction

@@ -166,6 +166,27 @@ namespace MedRecPro.Data
                         continue;
                     }
 
+                    // FlattenedAdverseEventCoverageTable is the durable Stage 5 audit
+                    // companion for RR-ready and non-RR AE source-row coverage.
+                    if (entityType == typeof(LabelView.FlattenedAdverseEventCoverageTable))
+                    {
+                        builder.Entity<LabelView.FlattenedAdverseEventCoverageTable>(e =>
+                        {
+                            e.ToTable("tmp_FlattenedAdverseEventCoverageTable");
+                            e.HasKey(x => x.Id);
+                            e.Property(x => x.Id)
+                                .HasColumnName("tmp_FlattenedAdverseEventCoverageTableID")
+                                .ValueGeneratedOnAdd();
+
+                            // Match DDL DECIMAL(18,6).
+                            e.Property(x => x.Dose)
+                                .HasColumnType("decimal(18, 6)");
+                            e.Property(x => x.ComparatorDose)
+                                .HasColumnType("decimal(18, 6)");
+                        });
+                        continue;
+                    }
+
                     // FlattenedAdverseEventRiskTable is the materialized dbo.vw_AeRisk
                     // projection refreshed at the end of Stage 5.
                     if (entityType == typeof(LabelView.FlattenedAdverseEventRiskTable))

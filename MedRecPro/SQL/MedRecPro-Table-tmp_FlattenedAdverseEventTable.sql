@@ -17,7 +17,13 @@
  *
  * Re-runnable: IF NOT EXISTS guard. Truncate-on-rerun via Phase 2 service.
  ******************************************************************************/
-USE MedRecProDB
+/**************************************************************/
+-- Target database: select the intended MedRecPro database before running.
+-- This script intentionally does not issue USE so it cannot silently create
+-- the Stage 5 AE statistics table in a different database than the view
+-- refresh target.
+/**************************************************************/
+Use MedRecLocal
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'tmp_FlattenedAdverseEventTable')
 BEGIN
     CREATE TABLE tmp_FlattenedAdverseEventTable (

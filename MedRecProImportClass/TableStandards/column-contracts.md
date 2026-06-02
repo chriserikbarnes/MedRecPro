@@ -257,6 +257,9 @@ Downstream denormalized AE-only projection of `tmp_FlattenedStandardizedTable`.
 Each row carries pre-computed risk statistics (RR, DNRR, 95% CI) plus PERSISTED
 log-scale companions so visualizations bind without runtime stats. The contract
 below applies only to this table — it does **not** override any contract above.
+This table is RR-ready only; source rows that are selected as comparators, fail
+source eligibility, or finish with null RR are represented in
+`tmp_FlattenedAdverseEventCoverageTable`.
 
 For the calculation rules (comparator pairing, Katz log-method, Haldane-Anscombe
 correction, log-linear DNRR, IsPlaceboControlled trial-design classification),
@@ -348,7 +351,11 @@ the guard is strictly for zero/null safety.
 | `PLACEBO_COMPARATOR` | Comparator was a placebo/sham/vehicle arm or had `Dose = 0` |
 | `ACTIVE_COMPARATOR` | Comparator was an active-control drug (different UNII than index drug) |
 | `LOW_DOSE_COMPARATOR` | Comparator was the lowest non-zero `Dose` in the group (stepped-dose fallback) |
-| `NO_COMPARATOR` | Single-arm trial; no comparator could be paired. RR/CI/DNRR are NULL |
+| `EXPLICIT_CONTROL_COMPARATOR` | Comparator was selected from explicit control/comparator/reference arm text |
+| `ACTIVE_COMPARATOR_INFERRED` | Exactly two active arms existed and the first source-order arm was selected as comparator |
+| `AMBIGUOUS_COMPARATOR` | Multi-arm active cohort had no deterministic comparator. RR/CI/DNRR are NULL |
+| `SINGLE_ARM` | Single-arm cohort cannot support RR. RR/CI/DNRR are NULL |
+| `NO_COMPARATOR` | No comparator could be paired. RR/CI/DNRR are NULL |
 | `UNCOMPARABLE_VALUE_TYPE` | Both rows share a `PrimaryValueType` that doesn't yield event counts (e.g. both `Mean`); RR not computable |
 | `MIXED_VALUE_TYPES` | Treatment and comparator have different `PrimaryValueType`; calculation requires like-typed pairs |
 | `IS_REFERENCE_DOSE` | This row's `Dose` equals the group's `D_ref`, so DNRR denominator `ln(1) = 0`; DNRR is NULL |
@@ -365,12 +372,66 @@ IX_FAE_ParameterCategory                         nonclustered on ParameterCatego
 IX_FAE_SourceID                                  nonclustered on tmp_FlattenedStandardizedTableID
 ```
 
+## tmp_FlattenedAdverseEventCoverageTable (Stage 5 AE Coverage Audit)
+
+Durable Stage 5 coverage/audit companion to the RR-ready statistics table. It
+records every standardized AE row's Stage 5 outcome: source exclusions, selected
+comparators, standardizer exclusions, null-RR guard failures, and RR-ready rows.
+This table is the place to answer "why did this standardized AE row not appear in
+the risk output?"
+
+### Coverage Columns
+
+| Column | Type | Content |
+|--------|------|---------|
+| tmp_FlattenedAdverseEventCoverageTableID | INT IDENTITY | Surrogate PK |
+| tmp_FlattenedStandardizedTableID | INT | Source standardized row ID |
+| TextTableID | INT NULL | Source table ID for diagnostics |
+| DocumentGUID | UNIQUEIDENTIFIER NULL | SPL document identity |
+| UNII | NVARCHAR(1000) NULL | Source active ingredient code(s) |
+| ParameterName | NVARCHAR(1000) NULL | Source or Stage 5 canonical AE term |
+| ParameterCategory | NVARCHAR(500) NULL | Source or Stage 5 canonical SOC |
+| TreatmentArm / ArmN / Dose / DoseUnit | mixed | Treatment-arm projection |
+| PrimaryValue / PrimaryValueType | mixed | Source treatment value projection |
+| ComparatorArm / ComparatorN / ComparatorDose / ComparatorDoseUnit | mixed | Selected comparator projection when available |
+| ComparatorPrimaryValue / ComparatorPrimaryValueType | mixed | Comparator value projection when available |
+| IsPlaceboControlled | BIT NULL | Null until a comparator is selected; true only for placebo/sham/vehicle/zero-dose comparators |
+| RR | FLOAT NULL | RR point estimate for RR-ready rows |
+| CoverageStatus | NVARCHAR(100) NULL | Durable row status |
+| ExclusionReason | NVARCHAR(100) NULL | Primary non-RR reason when applicable |
+| CoverageFlags | NVARCHAR(1000) NULL | Semicolon-delimited coverage-specific flags |
+| CalculationFlags | NVARCHAR(1000) NULL | Stage 5 calculation flags when an entity was built |
+| StudyContext / Population / Subpopulation | mixed | Comparator grouping context |
+
+### CoverageStatus Dictionary
+
+| Status | Meaning |
+|--------|---------|
+| `RR_READY` | Row produced non-null RR and was inserted into `tmp_FlattenedAdverseEventTable` |
+| `SELECTED_COMPARATOR` | Row was selected as the comparator and is intentionally absent from the AE stats table |
+| `NO_DOCUMENT_GUID` | Source row could not enter document-batched Stage 5 processing |
+| `INVALID_TREATMENT_ARM` | Treatment arm was missing, placeholder, caption-like, or structural |
+| `STRUCTURAL_AE_ROW` | AE name was a caption/body-system/value-axis/threshold-only structural row |
+| `NO_PRIMARY_VALUE` | Source row had no value to compare |
+| `STANDARDIZER_EXCLUDED` | Stage 5 MedDRA/name standardizer excluded the row |
+| `SINGLE_ARM` | Cohort had only one valid arm |
+| `AMBIGUOUS_COMPARATOR` | Active multi-arm cohort had no deterministic comparator |
+| `NO_COMPARATOR` | No comparator could be selected |
+| `NO_ARMN` / `NO_COMPARATOR_N` | Treatment or comparator denominator was missing or invalid |
+| `MIXED_VALUE_TYPES` / `UNCOMPARABLE_VALUE_TYPE` | Treatment and comparator values cannot be compared as event counts |
+| `INVALID_EVENT_COUNT` / `EVENTS_EXCEED_ARMN` / `PERCENT_OUT_OF_RANGE` | Event-count guard prevented RR |
+| `UNKNOWN_NULL_RR` | Null-RR fallback when no known guard flag was present |
+
 ## tmp_FlattenedAdverseEventRiskTable (Stage 5 AE Risk Materialization)
 
 Persistent SQL table that materializes `dbo.vw_AeRisk` after
 `tmp_FlattenedAdverseEventTable` has been truncated, rebuilt, and saved. The
 table is a refreshable snapshot of the view projection; it does not duplicate
-the risk math in C#.
+the risk math in C#. `vw_AeRisk` left-preserves RR-ready rows without
+pharmacologic-class context and stamps `NO_PRODUCT_CLASS_CONTEXT` into
+`CalculationFlags`; product/substance fields are resolved independently from
+`vw_ProductsByIngredient` when the row `UNII` can be matched. Class-specific
+summaries filter to rows where `PharmacologicClassID IS NOT NULL`.
 
 ### Refresh Contract
 
@@ -388,7 +449,7 @@ the risk math in C#.
 |-------|---------|
 | Surrogate key | `tmp_FlattenedAdverseEventRiskTableID INT IDENTITY` |
 | Source lineage | Source AE ID, source standardized ID, `DocumentGUID`, table/document context |
-| Product/class projection | product IDs, product/class names, `UNII`, `IsCombo` |
+| Product/class projection | product/substance IDs, product/class names, `UNII`, `IsCombo` |
 | AE projection | `ParameterName`, `ParameterCategory`, `TreatmentArm`, dose fields, value fields |
 | Comparator/statistics | comparator arm/N, event counts, RR/log-RR fields, NNH/NNT fields |
 | Risk classification | significance fields, placebo-controlled flag, provenance/context fields |
@@ -422,5 +483,5 @@ n    → ArmN                   n    → ArmN
                               (clustering on LogRR — no runtime Math.log)
 ```
 
-\* `ProductTitle` and `cls` (drug class) are not yet sourced into this table; downstream
-joins or enrichment may add them in a future iteration.
+\* `ProductTitle` is not yet sourced into this table; downstream joins or enrichment may add it
+in a future iteration. `cls` maps to `PharmClassName` where class context is available.

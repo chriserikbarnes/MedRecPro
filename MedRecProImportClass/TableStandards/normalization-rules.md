@@ -501,14 +501,16 @@ COL_STD:PK_NON_PK_MARKER_DETECTED    IPA / VASP-PRI etc. flagged for review
 
 ## 7. Stage 5 — AE Denormalization (RR / DNRR / 95% CI)
 
-Rules for populating `tmp_FlattenedAdverseEventTable` and then materializing
+Rules for populating `tmp_FlattenedAdverseEventCoverageTable`,
+`tmp_FlattenedAdverseEventTable`, and then materializing
 `tmp_FlattenedAdverseEventRiskTable` from `dbo.vw_AeRisk`. These run **after**
 Stage 4 validation has completed and `tmp_FlattenedStandardizedTable` is fully
 written. The SQL DDL and population service
 `AdverseEventDenormalizationService` are shipped.
 
-For column-level contracts, see `column-contracts.md` §tmp_FlattenedAdverseEventTable
-and §tmp_FlattenedAdverseEventRiskTable.
+For column-level contracts, see `column-contracts.md` sections for
+`tmp_FlattenedAdverseEventCoverageTable`, `tmp_FlattenedAdverseEventTable`, and
+`tmp_FlattenedAdverseEventRiskTable`.
 
 ### 7.0 NULL Preservation Rule (governs every rule in §7)
 
@@ -517,16 +519,20 @@ Stage 5 is purely additive — it never overwrites or NULLs values in the source
 the new columns (`RR`, `DNRR`, `CI bounds`, `Log*`, `IsPlaceboControlled`,
 `Comparator*`, `Events*`, `Calculation*`) are populated by Stage 5.
 
-When Stage 5 cannot compute a statistic, the relevant column is set NULL and a
-flag is appended to `CalculationFlags`. The row itself is always preserved with
-full provenance — Stage 5 never drops AE source rows except the one chosen as
-comparator within its study group (no self-comparison).
+When Stage 5 cannot compute a statistic, the attempted calculation receives a
+durable row in `tmp_FlattenedAdverseEventCoverageTable` with
+`CoverageStatus`, `ExclusionReason`, and `CoverageFlags`. Only rows with
+non-null RR are inserted into `tmp_FlattenedAdverseEventTable`; selected
+comparators and null-RR rows are represented in coverage rather than the stats
+table.
 
 ### 7.1 Row Inclusion
 
 Every row in `tmp_FlattenedStandardizedTable` with `TableCategory = 'ADVERSE_EVENT'`
-produces exactly one row in `tmp_FlattenedAdverseEventTable`, **except** the row
-chosen as the comparator within its study group.
+produces a Stage 5 coverage row unless it is outside the diagnostic scope of the
+current run. Rows selected as comparators are audited with
+`SELECTED_COMPARATOR`; rows that produce non-null RR are also inserted into
+`tmp_FlattenedAdverseEventTable` with `CoverageStatus = 'RR_READY'`.
 
 Source-projection columns (`tmp_FlattenedStandardizedTableID`, `DocumentGUID`,
 `UNII`, `ParameterName`, `ParameterCategory`, `ArmN`, `Dose`, `DoseUnit`,
@@ -551,24 +557,26 @@ share a single bucket) so casing or whitespace variants do not fragment a valid
 comparator group. Within each group, pick **one** comparator using priority order:
 
 ```
-PRI  TEST                                                 ACTION
-───  ──────────────────────────────────────────────────   ──────────────────────────
-1    TreatmentArm matches /placebo|sham|vehicle/i         → Use as comparator
-       (case-insensitive)                                   Set CalculationFlags |= 'PLACEBO_COMPARATOR'
-     OR Dose = 0 (existing parser convention)              ComparatorArm = TreatmentArm
-                                                            ComparatorN = ArmN
+PRI  TEST                                                  ACTION
+---  ----------------------------------------------------  -----------------------------------------
+1    TreatmentArm matches /placebo|sham|vehicle/i          Use as comparator; flag PLACEBO_COMPARATOR
+     OR Dose = 0
 
-2    Lowest non-zero Dose in the group                    → Use as comparator
-                                                            Determine ACTIVE_COMPARATOR vs LOW_DOSE_COMPARATOR
-                                                            (see §7.3 IsPlaceboControlled rules)
+2    Lowest non-zero Dose in the group                     Use as comparator; flag LOW_DOSE_COMPARATOR
 
-3    No other rows in group (single-arm)                  → No comparator
-                                                            CalculationFlags |= 'NO_COMPARATOR'
-                                                            RR/CI/DNRR remain NULL
-                                                            Row still emitted with provenance
+3    Exactly one explicit control/comparator/reference arm Use as comparator; flag EXPLICIT_CONTROL_COMPARATOR
+
+4    Exactly two distinct active arms, no prior evidence   Use first source-order arm as comparator;
+                                                           flag ACTIVE_COMPARATOR_INFERRED
+
+5    More than two active arms, no prior evidence          No comparator; flag AMBIGUOUS_COMPARATOR
+
+6    Single-arm cohort                                     No comparator; flag SINGLE_ARM
 ```
 
-The chosen comparator row is **excluded from output** (no self-comparison row).
+The chosen comparator row is **excluded from the RR-ready stats table** (no
+self-comparison row) and audited in `tmp_FlattenedAdverseEventCoverageTable`
+with `CoverageStatus = 'SELECTED_COMPARATOR'`.
 
 ### 7.3 IsPlaceboControlled — Row-Level Placebo-Comparator Flag
 
@@ -724,7 +732,11 @@ FLAG                       TRIGGER
 PLACEBO_COMPARATOR         Comparator was a placebo/sham/vehicle arm or Dose=0
 ACTIVE_COMPARATOR          Comparator was an active-control drug (different UNII)
 LOW_DOSE_COMPARATOR        Comparator was lowest non-zero Dose (stepped-dose fallback)
-NO_COMPARATOR              Single-arm trial; no comparator could be paired
+EXPLICIT_CONTROL_COMPARATOR Comparator was selected from explicit control/comparator/reference arm text
+ACTIVE_COMPARATOR_INFERRED Exactly two active arms existed; first source-order arm selected as comparator
+AMBIGUOUS_COMPARATOR       Active multi-arm cohort had no deterministic comparator
+SINGLE_ARM                 Single-arm cohort; no RR can be calculated
+NO_COMPARATOR              No comparator could be paired
 NO_ARMN                    Treatment ArmN is NULL or <= 0
 NO_COMPARATOR_N            Comparator ArmN is NULL or <= 0
 ZERO_CELL_CORRECTED        Haldane-Anscombe continuity correction applied
@@ -736,3 +748,21 @@ NO_DOSE_RANGE              Only one non-zero Dose exists in the group; DNRR unde
 
 `CalculationMethod` (separate column, not a flag) holds either `KATZ_LOG` or
 `HALDANE_ANSCOMBE`.
+
+### 7.10 Risk View Product/Substance/Class Context
+
+`dbo.vw_AeRisk` starts from RR-ready rows in `tmp_FlattenedAdverseEventTable`
+and resolves product/substance context from the row `UNII` plus `DocumentGUID`
+before applying optional pharmacologic-class context. Rows without class
+enrichment remain valid risk rows with nullable class fields and
+`CalculationFlags |= 'NO_PRODUCT_CLASS_CONTEXT'`, but product and substance
+columns should still populate when the active ingredient exists in
+`vw_ProductsByIngredient`. Class-specific dashboard surfaces, including
+`vw_AeDrugSummary`, must explicitly filter `PharmacologicClassID IS NOT NULL`
+rather than relying on inner-join loss.
+
+Number-needed point estimates are calculated for every RR-ready row when the
+treatment and comparator risks differ. Significance (`elevated`, `protective`,
+or `not significant`) describes the RR confidence interval classification; it
+does not gate whether `NumberNeeded`, `NumberNeededLowerBound`, or
+`NumberNeededUpperBound` are projected.

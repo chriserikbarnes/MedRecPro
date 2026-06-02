@@ -1,4 +1,8 @@
-USE [MedRecLocal]
+/**************************************************************/
+-- Target database: select the intended MedRecPro database before running.
+-- This patch intentionally does not issue USE because view refreshes may be
+-- applied against local, staging, or production databases with different names.
+/**************************************************************/
 GO
 
 /**************************************************************/

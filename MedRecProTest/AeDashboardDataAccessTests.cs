@@ -189,11 +189,12 @@ namespace MedRecProTest
         /// cartesian duplicates while preserving genuinely distinct signals.
         /// </summary>
         /// <remarks>
-        /// vw_AeRisk joins the pharmacologic-class subquery on DocumentGUID only, so a
-        /// product with multiple ingredient substances/classes emits each source AE
-        /// statistic once per class. Those copies share one tmp_FlattenedAdverseEventTableID
-        /// and must collapse to a single signal; rows with different source identifiers
-        /// (e.g. the same term at a different study arm) must be retained.
+        /// Class-enriched vw_AeRisk rows join pharmacologic-class context on
+        /// DocumentGUID only, so a product with multiple ingredient substances/classes
+        /// emits each source AE statistic once per class. Those copies share one
+        /// tmp_FlattenedAdverseEventTableID and must collapse to a single signal;
+        /// rows with different source identifiers (e.g. the same term at a different
+        /// study arm) must be retained.
         /// </remarks>
         /// <seealso cref="DtoLabelAccess.GetAeRiskSignalsByDocumentAsync(ApplicationDbContext, Guid, string, ILogger, AeComparatorMix?, bool)"/>
         [TestMethod]

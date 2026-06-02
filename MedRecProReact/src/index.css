@@ -1,2967 +1,1876 @@
-/* Dashboard-scoped design tokens aligned with the AE prototype. */
-:root {
-  --color-primary: #e5771e;
-  --color-primary-dark: #b95617;
-  --color-primary-soft: #fff1e5;
-  --color-teal: #75c8ae;
-  --color-teal-deep: #207867;
-  --color-teal-soft: #e8f5f0;
-  --color-cream: #fff8e6;
-  --color-brown: #342e2a;
-  --color-bg: #f6f8f7;
-  --color-surface: #ffffff;
-  --color-surface-soft: #faf7f3;
-  --color-border: #d8dfdc;
-  --color-border-strong: #c8d0cd;
-  --color-text: #1f2524;
-  --color-text-secondary: #56635f;
-  --color-text-tertiary: #7a8582;
-  --color-danger: #b42318;
-  --shadow-panel: 0 14px 42px rgba(35, 47, 45, 0.08);
-  --shadow-picker: 0 18px 48px rgba(35, 47, 45, 0.18);
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --font-primary: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
-  color: var(--color-text);
-  background: var(--color-bg);
-  font-family: var(--font-primary);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* The MVC island and Vite dev root share the same stable page sizing. */
-body {
-  margin: 0;
-  color: var(--color-text);
-  background: var(--color-bg);
-}
-
-/* Standard box sizing prevents panel math from drifting across browsers. */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-/* Both mount IDs are supported so standalone and MVC-hosted modes behave alike. */
-#aeDashboardApp,
-#root {
-  min-height: 100vh;
-}
-
-/* The page background echoes the prototype without relying on decorative blobs. */
-.ae-dashboard-page {
-  min-height: 100vh;
-  background:
-    linear-gradient(180deg, #edf4f2 0, #f6f8f7 240px),
-    var(--color-bg);
-}
-
-/* The prototype app uses a wide, dense canvas with comfortable edge gutters. */
-.app {
-  width: min(1840px, calc(100% - 64px));
-  margin: 0 auto;
-  padding: 0 0 36px;
-}
-
-/* Shared focus styling keeps keyboard navigation visible and consistent. */
-button:focus-visible,
-input:focus-visible {
-  outline: 3px solid rgba(117, 200, 174, 0.42);
-  outline-offset: 2px;
-}
-
-/* All buttons inherit the dashboard font and avoid browser-default mismatch. */
-button {
-  font-family: var(--font-primary);
-}
-
-/* Disabled controls keep their footprint while communicating availability. */
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-}
-
 /* ============================================================
-   Top Bar
+   MedRecPro AE Dashboard - stylesheet
+   Aligned 1:1 with the AE Dashboard prototype (claude.ai/design).
+   Source of truth: 'MedRecPro AE Dashboard (standalone).html'.
+   Section 1 below is the prototype stylesheet, adopted verbatim.
+   Section 2 ('React island integration') adapts it to the live app.
    ============================================================ */
 
-/* The top bar mirrors the prototype's compact product chrome. */
-.topbar {
-  height: 58px;
-  display: flex;
-  align-items: center;
+
+/* ============================================================
+   MedRecPro design tokens (inherited from site.css)
+   ============================================================ */
+:root {
+  --font-primary: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --color-primary: #e5771e;
+  --color-primary-dark: #c4621a;
+  --color-primary-light: #f4a127;
+  --color-secondary: #342e2a;
+  --color-secondary-light: #7a5a45;
+
+  --color-teal: #75c8ae;
+  --color-teal-deep: #3f9b7f;
+  --color-teal-light: #e8f5f0;
+  --color-brown-light: #f5ede8;
+  --color-cream: #ffecb4;
+  --color-cream-light: #fef8e8;
+  --color-orange: #e5771e;
+  --color-orange-light: #fdf0e4;
+  --color-amber: #f4a127;
+  --color-amber-light: #fef5e0;
+  --color-olive: #8a7d3b;
+  --color-olive-light: #f4f2e6;
+
+  --color-background: #ffffff;
+  --color-surface: #faf8f5;
+  --color-surface-elevated: #ffffff;
+  --color-border: #d4c9bc;
+  --color-border-light: #e8e0d8;
+  --color-border-x-light: #f1ebe4;
+  --color-text: #342e2a;
+  --color-text-secondary: #7a5a45;
+  --color-text-tertiary: #9b7d6a;
+
+  /* Tier color tokens */
+  --tier-counsel-bg: #fdf0e4;
+  --tier-counsel-border: #f4c994;
+  --tier-counsel-fg: #c4621a;
+  --tier-watch-bg: #fef5e0;
+  --tier-watch-border: #f3d680;
+  --tier-watch-fg: #a87815;
+  --tier-reassure-bg: #e8f5f0;
+  --tier-reassure-border: #b6dcc8;
+  --tier-reassure-fg: #2f7a5f;
+  --tier-fragile-bg: #f1ebe4;
+  --tier-fragile-border: #d4c9bc;
+  --tier-fragile-fg: #7a5a45;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 1px 2px rgba(60,64,67,.06), 0 1px 3px rgba(60,64,67,.08);
+  --shadow-md: 0 1px 3px rgba(60,64,67,.08), 0 4px 12px rgba(60,64,67,.06);
+  --shadow-lg: 0 1px 3px rgba(60,64,67,.08), 0 12px 32px rgba(60,64,67,.10);
 }
 
-/* The inner bar reserves one row for brand and utility actions. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  font-family: var(--font-primary);
+  color: var(--color-text);
+  background: var(--color-surface);
+  line-height: 1.5;
+  font-size: 15px;
+}
+button { font: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; }
+a { color: var(--color-primary); text-decoration: none; }
+
+/* ============================================================
+   App shell
+   ============================================================ */
+.app {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+/* ----- Top bar ----- */
+.topbar {
+  background: var(--color-secondary);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
 .topbar-inner {
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 100%;
-  min-height: 42px;
+  padding: 12px 20px;
+  max-width: 1240px;
+  margin: 0 auto;
 }
-
-/* Brand styling keeps the logo as the first-viewport identity signal. */
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  color: var(--color-brown);
-  font-size: 0.98rem;
-  font-weight: 800;
-  text-decoration: none;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: var(--weight-semibold);
+  color: #fff;
+  letter-spacing: -.01em;
 }
-
-/* The separator matches the prototype's quiet product-title split. */
+.brand svg { display: block; }
+.brand-logo {
+  width: 50px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  background: #f5f0eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-logo img {
+  width: 34px;
+  height: auto;
+  display: block;
+}
 .brand-sep {
-  width: 1px;
   height: 18px;
-  background: var(--color-border-strong);
+  width: 1px;
+  background: rgba(255,255,255,.18);
+  margin: 0 2px;
 }
-
-/* The product area name is intentionally lighter than the brand. */
 .brand-sub {
-  color: var(--color-text-secondary);
-  font-size: 0.92rem;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  color: rgba(255,255,255,.7);
+  letter-spacing: .02em;
 }
-
-/* Spacer pushes actions to the right edge without fixed widths. */
-.topbar-spacer {
-  flex: 1;
-  min-width: 12px;
-}
-
-/* Utility buttons stay compact like the prototype save/export controls. */
+.topbar-spacer { flex: 1; }
 .topbar-action {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--color-text-secondary);
-  font-size: 0.82rem;
-  font-weight: 800;
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-full);
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  font-weight: var(--weight-medium);
+  transition: background .15s ease;
 }
+.topbar-action:hover { background: rgba(255,255,255,.16); }
+.topbar-action svg { width: 14px; height: 14px; }
 
-/* Available actions get a subtle lift on hover. */
-.topbar-action:not(:disabled):hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary-dark);
-  background: var(--color-primary-soft);
-}
-
-/* ============================================================
-   Page Header and Product Picker
-   ============================================================ */
-
-/* The page header is unframed, matching the prototype's open dashboard layout. */
+/* ----- Page header ----- */
 .page-header {
-  display: grid;
-  gap: 18px;
-  padding: 24px 0 18px;
+  padding: 24px 20px 8px;
+  background: linear-gradient(180deg, #fff 0%, var(--color-surface) 100%);
+  border-bottom: 1px solid var(--color-border-light);
 }
-
-/* Breadcrumbs provide quiet orientation above the product title. */
 .crumbs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
   color: var(--color-text-tertiary);
-  font-size: 0.76rem;
-  font-weight: 800;
+  margin-bottom: 14px;
   text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: var(--weight-medium);
 }
+.crumbs span { opacity: .55; }
 
-/* Product selector groups the title trigger with coverage badges. */
+/* Drug selector */
 .drug-selector {
-  display: grid;
-  gap: 12px;
-  max-width: 1080px;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-bottom: 18px;
 }
-
-/* The picker wraps the title button and floating search panel. */
 .drug-title-wrap {
-  position: relative;
-  width: min(760px, 100%);
+  flex: 1 1 280px;
+  min-width: 0;
 }
-
-/* The title trigger replaces the earlier top search card. */
 .drug-title {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  max-width: 100%;
-  min-height: 48px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-text);
-  font-size: 2.6rem;
-  font-weight: 900;
-  line-height: 1.05;
-  letter-spacing: 0;
-  text-align: left;
+  font-size: clamp(22px, 4.2vw, 30px);
+  font-weight: var(--weight-bold);
+  color: var(--color-secondary);
+  letter-spacing: -.02em;
+  line-height: 1.15;
   cursor: pointer;
+  padding: 4px 14px 4px 10px;
+  margin: 0 -4px 0 -10px;
+  border-radius: var(--radius-md);
+  transition: background .15s;
 }
-
-/* Long product names wrap cleanly instead of overflowing. */
-.drug-title span {
-  overflow-wrap: anywhere;
-}
-
-/* The chevron rotates when the floating picker is open. */
-.drug-title-chev {
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  color: var(--color-primary);
-  transition: transform 160ms ease;
-}
-
-/* Open state mirrors the prototype drop-down affordance. */
-.drug-title.is-open .drug-title-chev {
-  transform: rotate(180deg);
-}
-
-/* Product metadata sits directly under the large title. */
+.drug-title:hover { background: var(--color-brown-light); }
+.drug-title .chev { width: 18px; height: 18px; opacity: .55; flex-shrink: 0; }
 .drug-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   margin-top: 6px;
+  font-size: 13px;
   color: var(--color-text-secondary);
-  font-size: 1.05rem;
-  line-height: 1.35;
 }
+.drug-meta-item { display: inline-flex; align-items: center; gap: 5px; }
+.drug-meta-item .dot { width: 4px; height: 4px; background: var(--color-text-tertiary); border-radius: 50%; }
 
-/* Hydration warnings stay close to the product identity. */
-.header-warning {
-  margin: 0;
-  color: var(--color-primary-dark);
-  font-size: 0.94rem;
-  font-weight: 800;
-}
-
-/* Coverage badges line up with the prototype's compact pill row. */
+/* Coverage badges */
 .coverage-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
-
-/* Coverage badges reserve a stable pill footprint. */
 .cov-badge {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 30px;
-  padding: 0 11px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-/* Active badges use teal as a positive coverage signal. */
-.cov-badge.is-on {
-  border-color: rgba(32, 120, 103, 0.22);
-  background: var(--color-teal-soft);
-  color: var(--color-teal-deep);
-}
-
-/* Inactive badges stay neutral but visible. */
-.cov-badge.is-off {
-  background: #f4f2f0;
-  color: var(--color-text-tertiary);
-}
-
-/* Badge dots match the active or inactive state. */
-.cov-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-/* Numeric badge details keep their own weight. */
-.cov-num {
-  font-weight: 900;
-}
-
-/* The floating picker follows the original prototype panel shape. */
-.picker {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 12px);
-  left: 0;
-  width: min(720px, calc(100vw - 48px));
-  overflow: hidden;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-picker);
-}
-
-/* Search row reserves space for the icon, input, and count. */
-.picker-search {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-height: 58px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-border);
-  background: #fbfcfc;
-}
-
-/* Search icon is quiet and non-interactive. */
-.picker-search-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--color-text-tertiary);
-}
-
-/* Search input uses the prototype's flat control treatment. */
-.picker-input {
-  width: 100%;
-  min-width: 0;
-  min-height: 38px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
-  font-size: 0.96rem;
-  font-weight: 650;
-}
-
-/* Count text gives quick feedback without dominating search. */
-.picker-count {
-  color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 800;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-full);
+  color: var(--color-secondary);
   white-space: nowrap;
 }
+.cov-badge .cov-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.cov-badge.is-on .cov-dot { background: var(--color-teal-deep); }
+.cov-badge.is-off { color: var(--color-text-tertiary); border-style: dashed; }
+.cov-badge.is-off .cov-dot { background: var(--color-border); }
+.cov-badge .cov-num { font-weight: var(--weight-bold); color: var(--color-text); }
 
-/* Picker body scrolls independently to keep the title anchored. */
-.picker-body {
-  max-height: 430px;
-  overflow: auto;
-}
-
-/* Section labels support fast scanning. */
-.picker-section-label {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--color-border);
-  background: #f7faf9;
-  color: var(--color-text-tertiary);
-  font-size: 0.74rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-/* Product rows use the prototype's three-part list layout. */
-.picker-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 34px;
-  align-items: center;
-  gap: 14px;
-  min-height: 70px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  cursor: pointer;
-}
-
-/* Hover, keyboard active, and selected states stay restrained. */
-.picker-item:hover,
-.picker-item.is-active {
-  background: var(--color-teal-soft);
-}
-
-/* Selected rows get the prototype left accent. */
-.picker-item.is-selected {
-  box-shadow: inset 4px 0 0 var(--color-primary);
-}
-
-/* Product identity text truncates within the row. */
-.pi-info {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-/* Product name is the dominant row label. */
-.pi-name {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 0.95rem;
-  font-weight: 850;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Product subtitle carries generic and class context. */
-.pi-sub {
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: 0.82rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Right-side metrics stay compact and right aligned. */
-.pi-right {
-  display: grid;
-  gap: 3px;
-  justify-items: end;
-  color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-/* Score text uses the brand color for quick scanning. */
-.pi-score {
-  color: var(--color-primary-dark);
-}
-
-/* Star button is icon-only to keep rows dense. */
-.pi-star {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-}
-
-/* Favorited rows use the brand color. */
-.pi-star.is-on {
-  border-color: rgba(229, 119, 30, 0.34);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-}
-
-/* The star SVG is fixed-size so labels never affect row height. */
-.pi-star-icon {
-  width: 16px;
-  height: 16px;
-}
-
-/* Picker footer carries account-state messages. */
-.picker-foot {
-    display: flex;
-    gap: 14px;
-    padding: 8px 14px;
-    border-top: 1px solid var(--color-border-x-light);
-    background: var(--color-surface);
-    font-size: 8px;
-    color: var(--color-text-tertiary);
-}
-
-/* ============================================================
-   KPI Strip
-   ============================================================ */
-
-/* KPI grid uses four prototype cards on desktop. */
+/* ----- KPI strip ----- */
 .kpi-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+  padding: 18px 20px 6px;
 }
-
-/* KPI cards are repeated items with stable dimensions. */
 .kpi-card {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-height: 126px;
-  padding: 18px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
-}
-
-/* KPI labels match the prototype's compact uppercase labels. */
-.kpi-label {
-  color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-/* KPI values are large but constrained to their card. */
-.kpi-value {
-  overflow-wrap: anywhere;
-  color: var(--color-text);
-  font-size: 1.62rem;
-  font-weight: 900;
-  line-height: 1.1;
-  letter-spacing: 0;
-}
-
-/* Unit text is smaller inside the value line. */
-.kpi-unit {
-  margin-left: 4px;
-  color: var(--color-text-secondary);
-  font-size: 0.86rem;
-  font-weight: 800;
-}
-
-/* KPI subtext supports multiple chips or a sentence. */
-.kpi-sub {
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  color: var(--color-text-secondary);
-  font-size: 0.86rem;
-  line-height: 1.35;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
-
-/* Pips mimic the prototype's small directional labels. */
+.kpi-label {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: var(--weight-medium);
+}
+.kpi-value {
+  font-size: 28px;
+  font-weight: var(--weight-bold);
+  color: var(--color-secondary);
+  line-height: 1;
+  letter-spacing: -.02em;
+  margin-top: 4px;
+}
+.kpi-value .kpi-unit {
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  color: var(--color-text-tertiary);
+  margin-left: 4px;
+}
+.kpi-sub {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 .kpi-pip {
   display: inline-flex;
   align-items: center;
-  min-height: 18px;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 700;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
 }
+.kpi-pip.amber { background: var(--color-amber-light); color: var(--tier-watch-fg); }
+.kpi-pip.teal { background: var(--color-teal-light); color: var(--color-teal-deep); }
+.kpi-pip.orange { background: var(--color-orange-light); color: var(--color-primary-dark); }
 
-/* The prototype uses label chips here rather than dot-led inline text. */
-.kpi-pip::before {
-  content: none;
-}
-
-/* Elevated pips use brand orange. */
-.kpi-pip.orange {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-dark);
-}
-
-/* Protective pips use teal. */
-.kpi-pip.teal {
-  background: var(--color-teal-soft);
-  color: var(--color-teal-deep);
-}
-
-/* Score bar uses ten stable segments. */
+/* Chart-worthiness score visual */
 .score-bar {
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 4px;
-  width: 100%;
-  max-width: 190px;
+  display: flex;
+  gap: 2px;
+  height: 5px;
+  margin-top: 8px;
 }
-
-/* Empty score segments are visible but quiet. */
 .score-seg {
-  height: 9px;
-  border-radius: 999px;
-  background: #e7ecea;
+  flex: 1;
+  background: var(--color-border-light);
+  border-radius: 2px;
 }
+.score-seg.on { background: var(--color-teal-deep); }
 
-/* Filled score segments use the prototype brand gradient reduced to a solid color. */
-.score-seg.on {
-  background: var(--color-primary);
-}
-
-/* ============================================================
-   Primary Panel and Controls
-   ============================================================ */
-
-/* The primary panel is the framed analytical tool surface from the prototype. */
+/* ----- Card / panel ----- */
 .panel {
-  margin-top: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-panel);
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  margin: 12px 20px;
+  overflow: hidden;
 }
-
-/* Panel header aligns title copy with tabs. */
 .panel-header {
   display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 18px;
-  border-bottom: 1px solid var(--color-border);
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  flex-wrap: wrap;
 }
-
-/* Heading block flexes while tabs preserve their size. */
-.panel-heading {
+.panel-title {
+  font-size: 16px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-secondary);
+  letter-spacing: -.005em;
   flex: 1;
   min-width: 0;
 }
-
-/* Panel title follows the prototype's dense work-surface scale. */
-.panel-title {
-  color: var(--color-text);
-  font-size: 1.08rem;
-  font-weight: 900;
-}
-
-/* Panel subtitle stays quiet and single-purpose. */
 .panel-sub {
-  margin-top: 3px;
-  color: var(--color-text-secondary);
-  font-size: 0.88rem;
-  line-height: 1.35;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-regular);
+  margin-top: 2px;
 }
 
-/* Tabs are segmented controls rather than large text buttons. */
+/* Tab segmented control */
 .tabs {
-  display: inline-grid;
-  grid-template-columns: repeat(3, minmax(92px, 1fr));
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: #f6f8f7;
-}
-
-/* Tab buttons have fixed height to prevent layout shift. */
-.tab {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 0.82rem;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-/* Active tab is a filled surface like the prototype. */
-.tab.active {
+  display: inline-flex;
   background: var(--color-surface);
-  color: var(--color-primary-dark);
-  box-shadow: 0 1px 4px rgba(35, 47, 45, 0.1);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  gap: 2px;
+}
+.tab {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.tab:hover { color: var(--color-secondary); }
+.tab.active {
+  background: var(--color-secondary);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
 }
 
-/* Filter row wraps naturally under the panel header. */
+/* Filter chips */
 .filter-row {
   display: flex;
   flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 18px 14px;
   align-items: center;
-  gap: 8px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--color-border);
 }
-
-/* Filter label is intentionally compact. */
 .filter-label {
-  margin-right: 4px;
+  font-size: 12px;
   color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 900;
   text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: var(--weight-medium);
+  margin-right: 4px;
 }
-
-/* Comparator chips use pill controls from the prototype. */
-.chip,
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  transition: all .15s;
+}
+.chip:hover { color: var(--color-secondary); border-color: var(--color-border); }
+.chip.active {
+  background: var(--color-secondary);
+  color: #fff;
+  border-color: var(--color-secondary);
+}
 .chip-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  font-size: 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-light);
   color: var(--color-text-secondary);
-  font-size: 0.82rem;
-  font-weight: 850;
-  cursor: pointer;
-}
-
-/* Active comparator chips use brand orange. */
-.chip.active {
-  border-color: rgba(229, 119, 30, 0.32);
-  background: var(--color-primary-soft);
-  color: var(--color-primary-dark);
-}
-
-/* Toggle chips align to the right when space allows. */
-.chip-toggle {
-  margin-left: auto;
-}
-
-/* Toggle on state uses teal to distinguish it from comparator filtering. */
-.chip-toggle.on {
-  border-color: rgba(32, 120, 103, 0.26);
-  background: var(--color-teal-soft);
-  color: var(--color-teal-deep);
-}
-
-/* Switch track is fixed-size inside the toggle chip. */
-.sw {
-  position: relative;
-  width: 26px;
-  height: 14px;
-  border-radius: 999px;
-  background: #cbd4d1;
-}
-
-/* Switch knob moves inside the fixed track. */
-.sw::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
   background: var(--color-surface);
-  transition: transform 160ms ease;
 }
-
-/* On-state switch uses the same teal as the chip. */
-.chip-toggle.on .sw {
-  background: var(--color-teal-deep);
+.chip-toggle .sw {
+  width: 22px; height: 12px;
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+  position: relative;
+  transition: background .15s;
 }
-
-/* On-state knob moves right. */
-.chip-toggle.on .sw::after {
-  transform: translateX(12px);
+.chip-toggle .sw::after {
+  content: '';
+  position: absolute;
+  top: 1px; left: 1px;
+  width: 10px; height: 10px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform .15s;
 }
+.chip-toggle.on .sw { background: var(--color-primary); }
+.chip-toggle.on .sw::after { transform: translateX(10px); }
 
 /* ============================================================
-   Triage View
+   TRIAGE VIEW
    ============================================================ */
-
-/* Triage content keeps tier sections vertically stacked. */
-.triage-view {
-  display: grid;
-  gap: 14px;
-  padding: 16px 18px 18px;
-}
-
-/* Each tier has a colored marker but no nested card styling. */
 .tier {
-  display: grid;
-  gap: 8px;
+  border-top: 1px solid var(--color-border-light);
 }
-
-/* Tier header matches prototype marker/count structure. */
+.tier:first-of-type { border-top: 0; }
 .tier-header {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 42px;
+  padding: 14px 18px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-light);
 }
-
-/* Tier marker picks up tier-specific colors. */
 .tier-marker {
-  width: 10px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--color-primary);
+  width: 6px;
+  align-self: stretch;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
-
-/* Watch tier is deeper orange for seriousness. */
-.tier-watch .tier-marker {
-  background: #b95617;
-}
-
-/* Reassure tier uses teal. */
-.tier-reassure .tier-marker {
-  background: var(--color-teal-deep);
-}
-
-/* Fragile tier is neutral and subdued. */
-.tier-fragile .tier-marker {
-  background: #9da7a3;
-}
-
-/* Tier metadata truncates safely. */
-.tier-meta {
-  min-width: 0;
-}
-
-/* Tier names are compact clinical labels. */
+.tier-counsel .tier-marker { background: var(--color-primary); }
+.tier-watch .tier-marker { background: var(--color-amber); }
+.tier-reassure .tier-marker { background: var(--color-teal); }
+.tier-fragile .tier-marker { background: var(--color-border); }
+.tier-meta { flex: 1; min-width: 0; }
 .tier-name {
-  color: var(--color-text);
-  font-size: 0.95rem;
-  font-weight: 900;
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-secondary);
+  letter-spacing: -.005em;
 }
-
-/* Tier descriptions stay readable without overtaking rows. */
 .tier-desc {
+  font-size: 12px;
   color: var(--color-text-secondary);
-  font-size: 0.82rem;
+  margin-top: 1px;
 }
-
-/* Tier count is a small rounded counter. */
 .tier-count {
-  min-width: 32px;
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
   color: var(--color-text-secondary);
-  font-size: 0.8rem;
-  font-weight: 900;
-  text-align: center;
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
 }
 
-/* AE rows use a stable three-column grid with optional detail expansion. */
 .ae-row {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr) 132px;
-  gap: 14px;
+  grid-template-columns: 110px 1fr auto;
+  gap: 16px;
   align-items: center;
-  min-height: 86px;
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  padding: 14px 18px;
+  border-top: 1px solid var(--color-border-x-light);
   cursor: pointer;
+  transition: background .12s;
 }
+.ae-row:first-child { border-top: 0; }
+.ae-row:hover { background: var(--color-surface); }
+.ae-row.fragile { opacity: .72; }
+.ae-row.expanded { background: var(--color-surface); }
 
-/* Hover state gently separates rows. */
-.ae-row:hover,
-.ae-row.expanded {
-  border-color: var(--color-border-strong);
-  background: #fcfdfd;
-}
-
-/* Fragile rows are visible but desaturated. */
-.ae-row.fragile {
-  opacity: 0.64;
-  background: #fbfbfa;
-}
-
-/* Number-needed block is intentionally fixed-width. */
 .ae-nnh {
-  display: grid;
-  align-content: center;
-  gap: 3px;
-  min-height: 64px;
-  padding: 10px;
-  border-radius: var(--radius-md);
-  background: var(--color-primary-soft);
+  text-align: left;
 }
-
-/* Protective rows use a teal number-needed block. */
-.ae-row.protective .ae-nnh,
-.ae-row.reassure .ae-nnh {
-  background: var(--color-teal-soft);
+.ae-nnh-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-medium);
 }
-
-/* Low-confidence rows use a neutral number-needed block. */
-.ae-row.fragile .ae-nnh {
-  background: #eef1f0;
-}
-
-/* Number-needed labels are small and explicit. */
-.ae-nnh-label,
-.ae-nnh-bounds,
-.ae-nnh-na span {
-  color: var(--color-text-secondary);
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-/* Number-needed value is the row's strongest visual anchor. */
 .ae-nnh-value {
-  color: var(--color-text);
-  font-size: 1.42rem;
-  font-weight: 950;
+  font-size: 26px;
+  font-weight: var(--weight-bold);
+  color: var(--color-secondary);
   line-height: 1;
+  letter-spacing: -.02em;
+  margin-top: 2px;
 }
-
-/* Prefix keeps approximation clear without using oversized glyphs. */
+.tier-reassure .ae-nnh-value { color: var(--color-teal-deep); }
+.tier-counsel .ae-nnh-value { color: var(--color-primary-dark); }
 .ae-nnh-prefix {
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+  color: var(--color-text-tertiary);
   margin-right: 2px;
-  color: var(--color-text-secondary);
-  font-size: 0.9rem;
 }
-
-/* Missing NNH state remains centered inside the fixed block. */
+.ae-nnh-bounds {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 3px;
+  letter-spacing: -.02em;
+}
 .ae-nnh-na {
-  color: var(--color-text-secondary);
-  font-size: 0.88rem;
-  font-weight: 900;
-  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
 }
 
-/* Main AE body truncates safely in the center column. */
-.ae-body {
-  min-width: 0;
-}
-
-/* AE term is the row title. */
+.ae-body { min-width: 0; }
 .ae-name {
-  overflow-wrap: anywhere;
-  color: var(--color-text);
-  font-size: 1rem;
-  font-weight: 900;
+  font-size: 15px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-secondary);
+  line-height: 1.25;
+  letter-spacing: -.005em;
 }
-
-/* Metadata tags wrap under long terms. */
 .ae-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 7px;
-}
-
-/* AE tags share a compact pill style. */
-.ae-tag {
-  display: inline-flex;
+  margin-top: 5px;
   align-items: center;
-  min-height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: #f7faf9;
+}
+.ae-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
   color: var(--color-text-secondary);
-  font-size: 0.74rem;
-  font-weight: 850;
+  border: 1px solid var(--color-border-light);
+  font-weight: var(--weight-medium);
 }
-
-/* SOC tag gets slightly stronger contrast. */
-.ae-tag.soc {
-  background: var(--color-surface-soft);
-  color: var(--color-brown);
-}
-
-/* RR tag is numeric and brand-colored. */
+.ae-tag.soc { background: var(--color-brown-light); border-color: transparent; }
 .ae-tag.rr {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-dark);
+  font-family: var(--font-mono);
+  background: #fff;
+  border-color: var(--color-border-light);
+  letter-spacing: -.02em;
 }
-
-/* Serious SOC tags use the danger color. */
-.ae-tag.serious {
-  border-color: rgba(180, 35, 24, 0.24);
-  background: #fff1f0;
-  color: var(--color-danger);
-}
-
-/* Combination and flag tags are neutral but distinct. */
-.ae-tag.combo,
+.ae-tag.serious { background: #fef0e4; color: var(--color-primary-dark); border-color: var(--tier-counsel-border); }
 .ae-tag.flag {
-  background: #f1f3f2;
+  background: var(--color-brown-light);
+  color: var(--color-secondary-light);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0;
 }
+.ae-tag.combo { background: var(--color-cream-light); border-color: var(--color-amber-light); color: var(--tier-watch-fg); }
 
-/* Right column aligns precision and details affordance. */
 .ae-right {
-  display: grid;
-  justify-items: end;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
-
-/* Precision pill has a fixed visual structure. */
 .precision-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  color: var(--color-text-secondary);
-  font-size: 0.76rem;
-  font-weight: 900;
-  text-transform: lowercase;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
 }
-
-/* Precision dot is fixed-size. */
-.precision-pill .pip {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-/* Tight precision uses teal. */
-.precision-pill.tight {
-  color: var(--color-teal-deep);
-}
-
-/* Wide precision uses orange. */
-.precision-pill.wide {
-  color: var(--color-primary-dark);
-}
-
-/* Fragile precision uses muted gray. */
-.precision-pill.fragile,
-.precision-pill.unknown {
-  color: var(--color-text-tertiary);
-}
-
-/* Details affordance is small and text-based. */
+.precision-pill.tight { background: var(--color-teal-light); color: var(--color-teal-deep); }
+.precision-pill.wide { background: var(--color-amber-light); color: var(--tier-watch-fg); }
+.precision-pill.fragile { background: var(--color-brown-light); color: var(--color-secondary-light); }
+.precision-pill .pip { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .ae-expand {
+  font-size: 11px;
   color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 850;
+  font-family: var(--font-mono);
 }
 
-/* Detail grid spans below the main row columns. */
+/* Expanded detail */
 .ae-detail {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border);
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  padding: 14px 6px 4px;
+  margin-top: 12px;
+  border-top: 1px dashed var(--color-border-light);
 }
-
-/* Detail cells have stable dimensions and no nested card shadow. */
 .ae-detail-cell {
-  display: grid;
-  gap: 3px;
-  min-height: 50px;
-  padding: 10px;
-  border-radius: var(--radius-sm);
-  background: #f7faf9;
+  font-size: 12px;
 }
-
-/* Wide detail cells span the row for explanatory flag text. */
-.ae-detail-cell.wide-cell {
-  grid-column: 1 / -1;
-}
-
-/* Detail labels are compact and uppercase. */
 .ae-detail-cell .lbl {
-  color: var(--color-text-tertiary);
-  font-size: 0.72rem;
-  font-weight: 900;
+  display: block;
   text-transform: uppercase;
-}
-
-/* Detail values preserve readable line height. */
-.ae-detail-cell .val {
-  color: var(--color-text);
-  font-size: 0.84rem;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-/* Secondary rate text stays muted. */
-.ae-detail-cell .val span {
+  font-size: 10px;
+  letter-spacing: .07em;
   color: var(--color-text-tertiary);
+  font-weight: var(--weight-medium);
+  margin-bottom: 4px;
 }
-
-/* Wide detail text wraps normally. */
-.ae-detail-cell .val.wide {
-  font-weight: 700;
+.ae-detail-cell .val {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  font-size: 13px;
+  letter-spacing: -.02em;
 }
+.ae-detail-cell .val.wide { font-family: var(--font-primary); font-size: 12px; line-height: 1.45; }
 
 /* ============================================================
-   Forest Plot
+   FOREST PLOT
    ============================================================ */
-
-/* Forest view has prototype padding inside the panel. */
-.forest-view {
-  padding: 16px 18px 18px;
-}
-
-/* Legend wraps into multiple rows on smaller screens. */
-.forest-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 14px;
-}
-
-/* Legend items align dots and text. */
-.forest-legend-item,
-.forest-legend-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-text-secondary);
-  font-size: 0.8rem;
-  font-weight: 850;
-}
-
-/* Legend note is muted. */
-.forest-legend-note {
-  color: var(--color-text-tertiary);
-}
-
-/* Legend dots match chart direction colors. */
-.forest-legend-dot {
-  width: 10px;
-  height: 10px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-}
-
-/* Elevated direction uses orange. */
-.forest-legend-dot.elevated {
-  background: var(--color-primary);
-}
-
-/* Protective direction uses teal. */
-.forest-legend-dot.protective {
-  background: var(--color-teal-deep);
-}
-
-/* Neutral direction uses a hollow dot. */
-.forest-legend-dot.neutral {
-  border-color: var(--color-text-tertiary);
-  background: var(--color-surface);
-}
-
-/* Forest chart is one scrollable work surface. */
 .forest-wrap {
-  overflow-x: auto;
+  padding: 8px 18px 20px;
 }
-
-/* Axis row reserves label width matching data rows. */
 .forest-axis {
   display: grid;
-  grid-template-columns: 220px minmax(520px, 1fr);
-  gap: 16px;
-  min-width: 760px;
-  padding: 0 10px 10px;
+  grid-template-columns: 180px 1fr;
+  gap: 0;
+  padding: 6px 0 4px;
+  border-bottom: 1px solid var(--color-border-light);
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 2;
 }
-
-/* Spacer keeps axis ticks aligned with tracks. */
-.forest-axis-spacer {
-  min-height: 1px;
-}
-
-/* Axis tick container is relative for absolute tick placement. */
+.forest-axis-spacer {}
 .forest-axis-ticks {
   position: relative;
-  height: 24px;
+  height: 22px;
 }
-
-/* Axis ticks are tiny but readable. */
 .forest-tick {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
+  font-size: 11px;
   color: var(--color-text-tertiary);
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-family: var(--font-mono);
 }
+.forest-tick.ref { color: var(--color-secondary); font-weight: var(--weight-semibold); }
 
-/* Reference tick is stronger. */
-.forest-tick.ref {
-  color: var(--color-text);
-}
-
-/* Forest rows align labels with tracks. */
 .forest-row {
   display: grid;
-  grid-template-columns: 220px minmax(520px, 1fr);
-  gap: 16px;
+  grid-template-columns: 180px 1fr;
+  gap: 0;
   align-items: center;
-  min-width: 760px;
-  min-height: 48px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--color-border);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border-x-light);
 }
-
-/* Fragile rows are muted. */
-.forest-row.fragile {
-  opacity: 0.56;
-}
-
-/* Forest labels truncate while exposing SOC underneath. */
+.forest-row:last-child { border-bottom: 0; }
+.forest-row.fragile { opacity: .55; }
 .forest-label {
+  font-size: 13px;
+  color: var(--color-secondary);
+  font-weight: var(--weight-medium);
+  padding-right: 14px;
+  line-height: 1.25;
   overflow: hidden;
-  color: var(--color-text);
-  font-size: 0.86rem;
-  font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* SOC subtitle is muted and block-level. */
 .forest-label .sub {
   display: block;
-  overflow: hidden;
+  font-size: 11px;
   color: var(--color-text-tertiary);
-  font-size: 0.74rem;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: var(--weight-regular);
+  margin-top: 1px;
 }
-
-/* Forest track hosts CI, caps, refline, and point. */
 .forest-track {
   position: relative;
-  height: 28px;
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, rgba(32, 120, 103, 0.08), transparent 45%, transparent 55%, rgba(229, 119, 30, 0.08)),
-    #f4f6f5;
+  height: 22px;
 }
-
-/* RR=1 reference line spans the track. */
 .forest-refline {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
-  width: 2px;
-  border-radius: 999px;
-  background: rgba(31, 37, 36, 0.35);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-border);
 }
-
-/* Confidence interval bar is centered vertically. */
 .forest-ci {
   position: absolute;
-  top: 13px;
-  height: 3px;
-  border-radius: 999px;
-  background: currentColor;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 2px;
+  border-radius: 1px;
 }
-
-/* CI caps mark lower and upper bounds. */
 .forest-ci-cap {
   position: absolute;
-  top: 9px;
-  width: 2px;
-  height: 11px;
-  border-radius: 999px;
-  background: currentColor;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 1px;
+  height: 8px;
 }
-
-/* Point estimate is a centered dot. */
 .forest-pt {
   position: absolute;
   top: 50%;
-  width: 13px;
-  height: 13px;
-  border: 2px solid var(--color-surface);
-  border-radius: 999px;
-  background: currentColor;
   transform: translate(-50%, -50%);
-  box-shadow: 0 1px 4px rgba(31, 37, 36, 0.22);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
 }
-
-/* Elevated forest rows use orange. */
-.forest-row.elevated {
-  color: var(--color-primary);
+.forest-row.elevated .forest-ci { background: var(--color-primary); }
+.forest-row.elevated .forest-ci-cap { background: var(--color-primary); }
+.forest-row.elevated .forest-pt { background: var(--color-primary); }
+.forest-row.protective .forest-ci { background: var(--color-teal-deep); }
+.forest-row.protective .forest-ci-cap { background: var(--color-teal-deep); }
+.forest-row.protective .forest-pt { background: var(--color-teal-deep); }
+.forest-row.ns .forest-ci { background: var(--color-text-tertiary); opacity: .55; }
+.forest-row.ns .forest-ci-cap { background: var(--color-text-tertiary); opacity: .55; }
+.forest-row.ns .forest-pt { background: #fff; border-color: var(--color-text-tertiary); }
+.forest-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 14px 18px 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }
-
-/* Protective forest rows use teal. */
-.forest-row.protective {
-  color: var(--color-teal-deep);
-}
-
-/* Not-significant forest rows are neutral. */
-.forest-row.ns {
-  color: var(--color-text-tertiary);
-}
+.forest-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.forest-legend-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #fff; }
 
 /* ============================================================
-   Quadrant
+   QUADRANT
    ============================================================ */
-
-/* Quadrant wrapper uses prototype padding. */
 .quadrant-wrap {
-  padding: 16px 18px 18px;
+  padding: 0 18px 20px;
 }
-
-/* Stage gives the y-axis label its own white gutter beside the plot frame. */
-.quadrant-stage {
-  position: relative;
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
-  align-items: stretch;
-  padding-left: 0;
-  overflow: visible;
-}
-
-/* Y-axis label is compact, padded, and centered in the white axis gutter. */
-.axis-y {
-  position: relative;
-  z-index: 4;
-  display: grid;
-  min-width: 54px;
-  padding: 14px 10px;
-  place-items: center;
-  color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  transform-origin: center;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-/* Quadrant canvas keeps a fixed analysis aspect ratio. */
 .quadrant {
   position: relative;
-  grid-column: 2;
-  min-height: 420px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: #fffdfb;
-  overflow: visible;
+  margin: 8px auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  height: 420px;
+  overflow: hidden;
 }
-
-/* Crosshair rules sit above cell tints but below dots. */
-.quadrant::before,
-.quadrant::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  background: #e1d7ce;
-  pointer-events: none;
-}
-
-/* Vertical precision split. */
-.quadrant::before {
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-}
-
-/* Horizontal magnitude split. */
-.quadrant::after {
-  top: 50%;
-  right: 0;
-  left: 0;
-  height: 1px;
-}
-
-/* Quadrant labels occupy each cell without blocking dots. */
 .q-cell {
   position: absolute;
-  z-index: 0;
-  display: grid;
-  align-content: start;
-  align-items: start;
-  gap: 3px;
   width: 50%;
   height: 50%;
-  padding: 14px;
-  pointer-events: none;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
-
-/* Top-left cell. */
-.q-cell.tl {
-  left: 0;
-  top: 0;
-  border-top-left-radius: calc(var(--radius-md) - 1px);
-  background: #fff8f1;
-}
-
-/* Top-right cell. */
-.q-cell.tr {
-  right: 0;
-  top: 0;
-  border-top-right-radius: calc(var(--radius-md) - 1px);
-  background: #fffaf5;
-  text-align: left;
-}
-
-/* Bottom-left cell. */
-.q-cell.bl {
-  left: 0;
-  bottom: 0;
-  border-bottom-left-radius: calc(var(--radius-md) - 1px);
-  background: #f6faf7;
-}
-
-/* Bottom-right cell. */
-.q-cell.br {
-  right: 0;
-  bottom: 0;
-  border-bottom-right-radius: calc(var(--radius-md) - 1px);
-  background: #fbf8f3;
-  text-align: left;
-}
-
-/* Small quadrant label. */
+.q-cell.tl { top: 0; left: 0; border-right: 1px dashed var(--color-border); border-bottom: 1px dashed var(--color-border); }
+.q-cell.tr { top: 0; right: 0; border-bottom: 1px dashed var(--color-border); }
+.q-cell.bl { bottom: 0; left: 0; border-right: 1px dashed var(--color-border); }
+.q-cell.br { bottom: 0; right: 0; }
+.q-cell.tl { background: rgba(229,119,30,.04); }
+.q-cell.tr { background: rgba(244,161,39,.04); }
+.q-cell.bl { background: rgba(117,200,174,.04); }
+.q-cell.br { background: rgba(212,201,188,.05); }
 .q-cell-label {
-  display: block;
-  color: #a9826b;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 10px;
   text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-tertiary);
 }
-
-/* Human-readable quadrant name. */
 .q-cell-name {
-  display: block;
-  color: var(--color-primary-dark);
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-secondary);
+  margin-top: 2px;
 }
-
-/* Protective/noisy quadrant uses the prototype's teal guidance color. */
-.q-cell.bl .q-cell-name {
-  color: var(--color-teal-deep);
-}
-
-/* Reassuring quadrant keeps the warm neutral text color. */
-.q-cell.br .q-cell-name {
-  color: var(--color-text-secondary);
-}
-
-/* Dots are real buttons for keyboard tooltip access. */
+.q-cell.tl .q-cell-label, .q-cell.tl .q-cell-name { color: var(--color-primary-dark); }
+.q-cell.bl .q-cell-label, .q-cell.bl .q-cell-name { color: var(--color-teal-deep); }
+.q-cell.tr .q-cell-label, .q-cell.tr .q-cell-name { color: var(--tier-watch-fg); }
 .q-dot {
   position: absolute;
-  z-index: 3;
-  min-width: 8px;
-  min-height: 8px;
-  border: 1px solid var(--color-surface);
-  border-radius: 999px;
-  background: var(--color-text-tertiary);
-  cursor: pointer;
+  border-radius: 50%;
   transform: translate(-50%, -50%);
-  box-shadow: none;
+  border: 1.5px solid #fff;
+  cursor: pointer;
+  transition: transform .12s;
 }
-
-/* Elevated dots use orange. */
-.q-dot.elevated {
-  background: var(--color-primary);
-}
-
-/* Protective dots use teal. */
-.q-dot.protective {
-  background: var(--color-teal-deep);
-}
-
-/* Neutral dots are gray. */
-.q-dot.ns {
-  background: #9b7d6a;
-}
-
-/* Fragile dots are subdued. */
-.q-dot.fragile {
-  opacity: 0.5;
-}
-
-/* Tooltip follows hovered or focused dots. */
+.q-dot:hover { transform: translate(-50%, -50%) scale(1.25); z-index: 5; }
+.q-dot.elevated { background: var(--color-primary); }
+.q-dot.protective { background: var(--color-teal-deep); }
+.q-dot.ns { background: var(--color-text-tertiary); opacity: .55; }
 .q-tooltip {
   position: absolute;
-  z-index: 8;
-  min-width: 190px;
-  max-width: 260px;
+  background: var(--color-secondary);
+  color: #fff;
   padding: 8px 10px;
-  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  background: #fffdfb;
-  color: var(--color-text);
-  font-size: 0.74rem;
-  font-weight: 500;
-  box-shadow: none;
+  font-size: 12px;
+  line-height: 1.4;
   pointer-events: none;
+  transform: translate(-50%, calc(-100% - 12px));
+  z-index: 10;
+  box-shadow: var(--shadow-md);
+  white-space: nowrap;
 }
-
-/* Right-side placement keeps tooltips inside the quadrant panel. */
-.q-tooltip.is-right {
-  transform: translate(10px, -50%);
-}
-
-/* Left-side placement prevents high-precision bubbles from clipping on hover. */
-.q-tooltip.is-left {
-  transform: translate(calc(-100% - 10px), -50%);
-}
-
-/* Upper-edge bubbles place the tooltip below the point. */
-.q-tooltip.is-lower.is-right {
-  transform: translate(10px, 10px);
-}
-
-/* Upper-right bubbles place the tooltip down and inward. */
-.q-tooltip.is-lower.is-left {
-  transform: translate(calc(-100% - 10px), 10px);
-}
-
-/* Lower-edge bubbles place the tooltip above the point. */
-.q-tooltip.is-upper.is-right {
-  transform: translate(10px, calc(-100% - 10px));
-}
-
-/* Lower-right bubbles place the tooltip up and inward. */
-.q-tooltip.is-upper.is-left {
-  transform: translate(calc(-100% - 10px), calc(-100% - 10px));
-}
-
-/* Tooltip heading is strong but not shadow-heavy. */
-.q-tooltip strong {
-  font-weight: 700;
-}
-
-/* Tooltip details are muted. */
-.q-tooltip .small {
-  margin-top: 3px;
-  color: var(--color-text-secondary);
-  font-size: 0.68rem;
-  font-weight: 500;
-}
-
-/* Quadrant axes sit under the plot. */
+.q-tooltip strong { display: block; font-weight: var(--weight-semibold); margin-bottom: 2px; }
+.q-tooltip .small { color: rgba(255,255,255,.7); font-family: var(--font-mono); font-size: 11px; }
 .quadrant-axes {
   display: grid;
-  grid-column: 2;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 8px;
+  font-size: 11px;
   color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  padding: 6px 2px 0;
   text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: var(--weight-medium);
 }
-
-/* Right axis label aligns right. */
-.quadrant-axes span:last-child {
-  text-align: right;
-}
-
-/* Legend spacing matches forest view. */
-.quadrant-legend {
-  padding-top: 16px;
-  padding-bottom: 0;
-}
-
-/* ============================================================
-   Shared States and Footer
-   ============================================================ */
-
-/* Loading and error states share compact dimensions to avoid row jumps. */
-.loading-state,
-.inline-error,
-.empty-state {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 54px;
-  margin: 16px 18px;
-  padding: 12px 14px;
-  color: var(--color-text-secondary);
-  font-size: 0.92rem;
-}
-
-/* Loading spinner is decorative and sized independently of label text. */
-.loading-spinner {
-  width: 18px;
-  height: 18px;
-  border: 3px solid #dce5e3;
-  border-top-color: var(--color-teal-deep);
-  border-radius: 50%;
-  animation: ae-spin 0.8s linear infinite;
-}
-
-/* Inline errors use warning color while preserving normal text size. */
-.inline-error {
-  justify-content: space-between;
-  border: 1px solid rgba(180, 35, 24, 0.28);
-  border-radius: var(--radius-md);
-  background: #fff8f6;
-  color: var(--color-danger);
-}
-
-/* Retry buttons reuse a stable utility style. */
-.button,
-.button-secondary {
-  min-height: 34px;
-  padding: 0 13px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 0.82rem;
-  font-weight: 850;
-  cursor: pointer;
-}
-
-/* Empty state keeps successful emptiness visually distinct from failures. */
-.empty-state {
-  display: grid;
-  align-content: center;
-}
-
-/* Empty-state title gets normal text contrast. */
-.empty-state strong {
-  color: var(--color-text);
-}
-
-/* Disabled state centers its message without using nested cards. */
-.disabled-feature {
-  display: grid;
-  align-content: center;
-  min-height: 100vh;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 24px;
-}
-
-/* Disabled heading mirrors dashboard title scale. */
-.disabled-feature h1 {
-  margin: 8px 0;
-  font-size: 2rem;
-  letter-spacing: 0;
-}
-
-/* Disabled body text is muted. */
-.disabled-feature p {
-  margin: 0;
-  color: var(--color-text-secondary);
-}
-
-/* Footer note is small and quiet like the prototype. */
-.foot-note {
-  margin: 14px 0 0;
+.axis-y {
+  position: absolute;
+  left: var(--axis-y-x, 0px);
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  transform-origin: center center;
+  font-size: 11px;
   color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
-/* Inline code in the footer uses site-style treatment. */
-.foot-note code {
-  padding: 2px 5px;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-soft);
-  color: var(--color-primary-dark);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-}
-
-/* Spinner keyframes are the only repeated animation in the dashboard. */
-@keyframes ae-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ============================================================
-   Responsive Behavior
-   ============================================================ */
-
-/* Mid-size layouts keep the prototype density while dropping to two KPI columns. */
-@media (max-width: 1080px) {
-  .app {
-    width: min(100% - 36px, 1840px);
-  }
-
-  .kpi-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .panel-header {
-    display: grid;
-  }
-
-  .tabs {
-    width: 100%;
-  }
-
-  .chip-toggle {
-    margin-left: 0;
-  }
-
-  .ae-row {
-    grid-template-columns: 138px minmax(0, 1fr);
-  }
-
-  .ae-right {
-    grid-column: 1 / -1;
-    grid-template-columns: auto auto;
-    justify-content: start;
-  }
-
-  .ae-detail {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* Mobile layouts stack controls and maintain fixed-format chart scrolling. */
-@media (max-width: 680px) {
-  .app {
-    width: min(100% - 22px, 1840px);
-  }
-
-  .topbar {
-    height: auto;
-    padding: 12px 0 4px;
-  }
-
-  .topbar-inner {
-    flex-wrap: wrap;
-  }
-
-  .brand-sub,
-  .brand-sep {
-    display: none;
-  }
-
-  .topbar-spacer {
-    flex-basis: 100%;
-    height: 0;
-  }
-
-  .page-header {
-    padding-top: 16px;
-  }
-
-  .drug-title {
-    font-size: 1.86rem;
-  }
-
-  .drug-meta {
-    font-size: 0.96rem;
-  }
-
-  .picker {
-    width: calc(100vw - 22px);
-  }
-
-  .picker-search {
-    grid-template-columns: 20px minmax(0, 1fr);
-  }
-
-  .picker-count {
-    display: none;
-  }
-
-  .picker-item {
-    grid-template-columns: minmax(0, 1fr) 34px;
-  }
-
-  .pi-right {
-    grid-column: 1 / -1;
-    justify-items: start;
-  }
-
-  .kpi-strip {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-row {
-    align-items: stretch;
-  }
-
-  .filter-label {
-    flex-basis: 100%;
-  }
-
-  .chip,
-  .chip-toggle {
-    justify-content: center;
-    flex: 1 1 150px;
-  }
-
-  .ae-row {
-    grid-template-columns: 1fr;
-  }
-
-  .ae-right {
-    grid-column: auto;
-  }
-
-  .ae-detail {
-    grid-template-columns: 1fr;
-  }
-
-  .forest-axis,
-  .forest-row {
-    grid-template-columns: 180px minmax(420px, 1fr);
-    min-width: 640px;
-  }
-
-  .quadrant-stage {
-    display: block;
-    padding-left: 0;
-  }
-
-  .axis-y {
-    display: none;
-  }
-
-  .quadrant {
-    min-height: 340px;
-  }
-
-  .q-cell-name {
-    font-size: 0.78rem;
-  }
-
-  .q-tooltip {
-    transform: translate(-50%, -110%);
-  }
-}
-
-/* ============================================================
-   Prototype alignment pass
-   ============================================================ */
-
-/* The AE prototype uses the warmer MedRecPro site palette. */
-:root {
-  --color-primary: #e5771e;
-  --color-primary-dark: #c4621a;
-  --color-primary-soft: #fff3e8;
-  --color-teal: #75c8ae;
-  --color-teal-deep: #167563;
-  --color-teal-soft: #e8f5f0;
-  --color-cream: #fff8e8;
-  --color-brown: #342e2a;
-  --color-bg: #fffdfb;
-  --color-surface: #ffffff;
-  --color-surface-soft: #faf7f3;
-  --color-border: #e4d9cf;
-  --color-border-strong: #d4c9bc;
-  --color-text: #342e2a;
-  --color-text-secondary: #7a5a45;
-  --color-text-tertiary: #9b7d6a;
-  --shadow-panel: none;
-  --shadow-picker: 0 16px 32px rgba(52, 46, 42, 0.16);
-  --font-primary: "Helvetica Neue", Helvetica, Arial, sans-serif;
-}
-
-/* The hosted island should look like the prototype's flat document canvas. */
-body,
-.ae-dashboard-page {
-  color: var(--color-text);
-  background: var(--color-bg);
-}
-
-/* The dashboard content spans the browser width with prototype gutters. */
-.app {
-  width: 100%;
-  margin: 0;
-  padding: 0 26px 36px;
-}
-
-/* The dark app bar is full-bleed even though the React island sits inside .app. */
-.topbar {
-  height: 50px;
-  margin-right: calc(50% - 50vw);
-  margin-left: calc(50% - 50vw);
-  padding: 0 26px;
-  background: var(--color-brown);
-}
-
-/* Top-bar contents align with the page gutter and keep a compact height. */
-.topbar-inner {
-  min-height: 50px;
-  gap: 12px;
-}
-
-/* The brand in the prototype is white text against the dark bar. */
-.brand {
-  gap: 9px;
-  color: #ffffff;
-  font-size: 0.96rem;
-  font-weight: 800;
-}
-
-/* The logo sits inside a white rounded tile. */
-.brand > svg {
-  box-sizing: content-box;
-  width: 24px;
-  height: 18px;
-  padding: 6px 7px;
-  border-radius: 6px;
-  background: #ffffff;
-}
-
-/* The bar separator is visible but subdued. */
-.brand-sep {
-  background: rgba(255, 255, 255, 0.24);
-}
-
-/* The section label is lighter than the brand but still on the bar. */
-.brand-sub {
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 0.88rem;
-  font-weight: 500;
-}
-
-/* Utility actions mirror the prototype's dark rounded buttons. */
-.topbar-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 28px;
-  padding: 0 12px;
-  border: 0;
-  background: rgba(255, 255, 255, 0.09);
-  color: #ffffff;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-/* Available utility actions brighten slightly on hover. */
-.topbar-action:not(:disabled):hover {
-  background: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
-}
-
-/* Icons inside utility buttons keep the action labels compact. */
-.topbar-action-icon {
-  width: 14px;
-  height: 14px;
-}
-
-/* The product header is open and white, not a green-tinted hero area. */
-.page-header {
-  gap: 14px;
-  padding: 20px 0 14px;
-}
-
-/* Breadcrumbs use the prototype's pale uppercase treatment. */
-.crumbs {
-  gap: 9px;
-  color: #b49684;
-  font-size: 0.74rem;
-  font-weight: 500;
-  letter-spacing: 0;
-}
-
-/* The product selector and coverage pills share one horizontal row. */
-.drug-selector {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px 18px;
-  max-width: none;
-  align-items: start;
-}
-
-/* Linked-product warnings should not disturb the coverage row. */
-.header-warning {
-  grid-column: 1 / -1;
-}
-
-/* The title trigger is a compact badge-like text button. */
-.drug-title-wrap {
-  width: min(760px, 100%);
-}
-
-/* The product title uses the prototype's large badge-like selector. */
-.drug-title {
-  min-height: 48px;
-  padding: 4px 12px;
-  border-radius: 8px;
-  background: #f5ede8;
-  color: var(--color-text);
-  font-size: 2.6rem;
-  font-weight: 800;
-  line-height: 1.05;
-}
-
-/* The chevron is small and orange like the prototype trigger. */
-.drug-title-chev {
-  width: 22px;
-  height: 22px;
-  color: var(--color-primary);
-}
-
-/* Product metadata is a quiet single-line row under the title. */
-.drug-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  margin-top: 7px;
-  color: var(--color-text-secondary);
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-/* Metadata separators are drawn in CSS so JSX stays data-only. */
-.drug-meta-item + .drug-meta-item::before {
-  content: "\2022";
-  margin: 0 8px;
-  color: #a9826b;
-}
-
-/* Coverage badges sit to the right of the title row on wide screens. */
-.coverage-row {
-  justify-self: end;
-  align-self: center;
-  gap: 8px;
-}
-
-/* Prototype coverage pills are slimmer and mostly white. */
-.cov-badge {
-  min-height: 25px;
-  padding: 0 10px;
-  background: #ffffff;
-  color: var(--color-text-secondary);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-/* Active coverage uses a small teal dot without a filled pill block. */
-.cov-badge.is-on {
-  border-color: var(--color-border);
-  background: #ffffff;
-  color: var(--color-text);
-}
-
-/* Inactive coverage stays pale and neutral. */
-.cov-badge.is-off {
-  background: #ffffff;
-  color: var(--color-text-tertiary);
-}
-
-/* Coverage dots keep the positive/neutral distinction. */
-.cov-badge.is-on .cov-dot {
-  color: var(--color-teal-deep);
-}
-
-/* The picker panel copies the prototype's wide typeahead footprint. */
-.picker {
-  top: calc(100% + 12px);
-  width: min(720px, calc(100vw - 48px));
-  border-color: var(--color-border-strong);
-  border-radius: var(--radius-md);
-}
-
-/* Search row reserves the same icon/input/count columns as the prototype. */
-.picker-search {
-  grid-template-columns: 20px minmax(0, 1fr) max-content;
-  gap: 10px;
-  min-height: 58px;
-  padding: 10px 28px;
-  background: #fffdfb;
-}
-
-/* Search input text is normal-weight like the prototype dropdown. */
-.picker-input {
-  min-height: 38px;
-  border-color: transparent;
-  font-size: 0.96rem;
-  font-weight: 400;
-}
-
-/* The picker search does not use the app-wide teal focus ring. */
-.picker-input:focus,
-.picker-input:focus-visible {
-  border-color: transparent;
-  box-shadow: none;
-  outline: none;
-}
-
-/* Count text matches the small right-side product count. */
-.picker-count {
-  display: inline-flex;
-  align-items: center;
-  min-height: 38px;
-  padding-left: 14px;
-  border-left: 1px solid #eaded4;
-  color: var(--color-text-secondary);
-  font-size: 0.78rem;
-  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
-/* The dropdown body uses the prototype's taller scroll surface. */
-.picker-body {
-  max-height: 430px;
+/* ============================================================
+   Footer note
+   ============================================================ */
+.foot-note {
+  padding: 16px 24px 32px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.6;
+  max-width: 800px;
+}
+.foot-note code {
+  font-family: var(--font-mono);
+  background: var(--color-brown-light);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
 }
 
-/* Section labels are small, pale, and uppercase. */
-.picker-section-label {
-  padding: 18px 28px 10px;
-  background: #fffdfb;
-  color: #b49684;
-  font-size: 0.66rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+/* ============================================================
+   Drug picker — typeahead combobox with recents + favorites
+   ============================================================ */
+.drug-title.is-open {
+  background: var(--color-brown-light);
 }
-
-/* Picker rows are denser and closer to the prototype examples. */
-.picker-item {
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  min-height: 86px;
-  padding: 18px 28px;
-  border-bottom: 0;
-  background: #ffffff;
-  box-shadow: none;
+.picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(560px, 92vw);
+  max-height: 480px;
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
-
-/* Highlighted and active rows use the prototype's orange left rule. */
-.picker-item:hover,
-.picker-item.is-active {
-  background: #fffdfb;
-  box-shadow: inset 4px 0 0 var(--color-primary);
-}
-
-/* The selected product uses warm fill; hover/focus adds the rule. */
-.picker-item.is-selected {
-  background: #fff1e5;
-  box-shadow: none;
-}
-
-/* Selected rows still show the orange rule when active or hovered. */
-.picker-item.is-selected:hover,
-.picker-item.is-selected.is-active {
-  box-shadow: inset 4px 0 0 var(--color-primary);
-}
-
-/* Product identity spacing mirrors the airier prototype rows. */
-.pi-info {
-  gap: 8px;
-}
-
-/* Product names copy the prototype's larger, lighter selector rows. */
-.pi-name {
+.picker-search {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 1rem;
-  font-weight: 700;
-  line-height: 1.15;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-x-light);
+  background: var(--color-surface);
 }
-
-/* The name text truncates before the status pill. */
-.pi-name-text {
+.picker-search-icon {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+.picker-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  padding: 4px 0;
+  min-width: 0;
+}
+.picker-search input::placeholder {
+  color: var(--color-text-tertiary);
+}
+.picker-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  padding-left: 6px;
+  border-left: 1px solid var(--color-border-light);
+}
+.picker-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+  min-height: 0;
+}
+.picker-empty {
+  padding: 24px 16px;
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+.picker-section + .picker-section {
+  border-top: 1px solid var(--color-border-x-light);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.picker-section-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  padding: 8px 14px 4px;
+}
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 14px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background .08s;
+}
+.picker-item.is-active {
+  background: var(--color-surface);
+  border-left-color: var(--color-orange);
+}
+.picker-item.is-selected {
+  background: var(--color-orange-light);
+}
+.picker-item.is-selected.is-active {
+  background: var(--color-orange-light);
+  border-left-color: var(--color-primary);
+}
+.picker-item .pi-info {
+  flex: 1;
+  min-width: 0;
+}
+.picker-item .pi-name {
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-
-/* Selected-row marker mirrors the prototype product picker. */
-.pi-current {
-  flex: 0 0 auto;
-  padding: 3px 8px 2px;
+.picker-item .pi-current {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 1px 6px;
   border-radius: 999px;
   background: var(--color-primary);
-  color: #ffffff;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-  text-transform: uppercase;
+  color: #fff;
 }
-
-/* Picker subtitles carry generic and class context below the name. */
-.pi-sub {
+.picker-item .pi-sub {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+  white-space: nowrap;
   overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: 0.84rem;
-  font-weight: 400;
-  line-height: 1.2;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-
-/* Row metrics copy the prototype score-plus-star block. */
-.pi-right {
+.picker-item .pi-right {
   display: flex;
-  align-items: center;
-  justify-content: end;
-  gap: 12px;
-  color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-/* Product score uses a muted badge instead of loud text. */
-.pi-score {
-  padding: 4px 8px;
-  border-radius: 3px;
-  background: #f5ede8;
-  color: var(--color-text-secondary);
-  font-weight: 500;
-  letter-spacing: 0.08em;
-}
-
-/* Star buttons are icon-only and unframed like the prototype. */
-.pi-star {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  color: var(--color-primary);
-}
-
-/* Favorited stars stay filled with the same orange. */
-.pi-star.is-on {
-  background: transparent;
-  color: var(--color-primary);
-}
-
-/* Prototype star glyphs are 15px. */
-.pi-star-icon {
-  width: 15px;
-  height: 15px;
-}
-
-/* Footer shortcut hints match the prototype panel footer. */
-.picker-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-  padding: 8px 28px 10px;
-  border-top: 1px solid var(--color-border);
-  background: #faf7f3;
-  color: var(--color-text-tertiary);
-  font-size: 8pt;
-  line-height: 1;
-}
-
-/* Shortcut groups read as keycap clusters plus a label. */
-.picker-foot > span {
-  display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #9b7d6a;
-  font-size: 8pt;
-  line-height: 1;
+  flex-shrink: 0;
 }
-
-/* Keyboard hint pills match the prototype footer buttons. */
-.picker-foot kbd {
+.picker-item .pi-score {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  background: var(--color-brown-light);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+}
+.picker-item .pi-star {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 26px;
-  min-height: 26px;
-  margin-right: 0;
-  padding: 0 7px;
-  border: 1px solid #e1d2c8;
-  border-radius: 4px;
-  background: #fffdfb;
-  color: var(--color-text-secondary);
-  font-family: var(--font-primary);
-  font-size: 0.78rem;
-  font-weight: 600;
-  line-height: 1;
-}
-
-/* Arrow glyphs need a small optical lift inside their keycap boxes. */
-.picker-foot .keycap-glyph {
-  display: block;
-  transform: translateY(-2px);
-}
-
-/* Loading and error states inside the picker must not inherit panel margins. */
-.picker .loading-state,
-.picker .inline-error,
-.picker .empty-state {
-  margin: 8px;
-}
-
-/* KPI cards begin after the product identity rule like the prototype. */
-.kpi-strip {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid var(--color-border);
-}
-
-/* KPI cards are shorter and lighter. */
-.kpi-card {
-  min-height: 88px;
-  gap: 7px;
-  padding: 13px 14px;
-  border-color: var(--color-border);
-  border-radius: 7px;
-  box-shadow: none;
-}
-
-/* KPI labels follow the small copper uppercase style. */
-.kpi-label {
-  color: #a9826b;
-  font-size: 0.66rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-}
-
-/* KPI values are strong but compact. */
-.kpi-value {
-  font-size: 1.42rem;
-  font-weight: 800;
-  line-height: 1.05;
-}
-
-/* KPI units are tucked close to the number. */
-.kpi-unit {
-  color: var(--color-text-secondary);
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-/* KPI subcopy mirrors the prototype's muted sentence scale. */
-.kpi-sub {
-  gap: 6px;
-  color: var(--color-text-secondary);
-  font-size: 0.72rem;
-}
-
-/* Keep the chip treatment from the prototype alignment after the base override. */
-.kpi-pip {
-  min-height: 18px;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 700;
-}
-
-/* Prevent the earlier dot treatment from returning through cascade order. */
-.kpi-pip::before {
-  content: none;
-}
-
-/* Elevated labels use the prototype's orange paper chip. */
-.kpi-pip.orange {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-dark);
-}
-
-/* Protective labels use the prototype's teal paper chip. */
-.kpi-pip.teal {
-  background: var(--color-teal-soft);
-  color: var(--color-teal-deep);
-}
-
-/* Score segments are teal in the prototype summary cards. */
-.score-bar {
-  max-width: 170px;
-  gap: 5px;
-}
-
-/* Score segments are narrow strips. */
-.score-seg {
-  height: 4px;
-  background: #e5ddd5;
-}
-
-/* Filled score segments use teal, matching the prototype chart-worthiness card. */
-.score-seg.on {
-  background: #4ba78f;
-}
-
-/* The analytical panel is a light framed tool surface. */
-.panel {
-  margin-top: 14px;
-  border-color: var(--color-border);
-  border-radius: 8px;
-  box-shadow: none;
-}
-
-/* Panel headers are compact and white. */
-.panel-header {
-  align-items: center;
-  padding: 16px;
-  border-bottom-color: var(--color-border);
-}
-
-/* Panel title matches the prototype work-surface heading. */
-.panel-title {
-  font-size: 0.94rem;
-  font-weight: 700;
-}
-
-/* Panel subtitle is smaller and warm-muted. */
-.panel-sub {
-  color: var(--color-text-secondary);
-  font-size: 0.72rem;
-  font-weight: 400;
-}
-
-/* Tabs use a warm segmented shell. */
-.tabs {
-  grid-template-columns: repeat(3, minmax(72px, 1fr));
-  gap: 3px;
-  padding: 3px;
-  border-color: var(--color-border);
-  background: #fbf7f2;
-}
-
-/* Tab buttons stay small. */
-.tab {
-  min-height: 28px;
-  padding: 0 10px;
-  color: var(--color-text-secondary);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-/* Active tabs are dark brown like the prototype. */
-.tab.active {
-  background: var(--color-brown);
-  color: #ffffff;
-  box-shadow: none;
-}
-
-/* Comparator controls live on a slim white rule. */
-.filter-row {
-  gap: 7px;
-  padding: 13px 16px;
-  border-bottom-color: var(--color-border);
-}
-
-/* Filter labels use the prototype's small uppercase label style. */
-.filter-label {
-  color: var(--color-text-secondary);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-/* Chips are smaller and less pillowy. */
-.chip,
-.chip-toggle {
-  min-height: 24px;
-  padding: 0 10px;
-  border-color: var(--color-border);
-  color: var(--color-text-secondary);
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-/* Active chips are dark brown like the prototype comparator selection. */
-.chip.active {
-  border-color: var(--color-brown);
-  background: var(--color-brown);
-  color: #ffffff;
-}
-
-/* Fragile toggle uses the prototype's warm switch color. */
-.chip-toggle.on {
-  border-color: #f0d3bc;
-  background: #fff7f1;
-  color: var(--color-text);
-}
-
-/* The switch itself is compact. */
-.sw {
-  width: 24px;
-  height: 14px;
-}
-
-/* Orange switch track mirrors the prototype toggle. */
-.chip-toggle.on .sw {
-  background: var(--color-primary);
-}
-
-/* The row list is flat, with tier headers and separators instead of cards. */
-.triage-view {
-  gap: 0;
-  padding: 0;
-}
-
-/* Tiers stack as rule-separated sections. */
-.tier {
-  gap: 0;
-}
-
-/* Tier headers are warm bands with a slim orange rail. */
-.tier-header {
-  grid-template-columns: 5px minmax(0, 1fr) auto;
-  min-height: 54px;
-  gap: 10px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--color-border);
-  background: #fbf7f2;
-}
-
-/* The first tier does not double the filter row border. */
-.tier:first-child .tier-header {
-  border-top: 0;
-}
-
-/* Tier markers are slim vertical rails. */
-.tier-marker {
-  width: 4px;
-  height: 32px;
-  border-radius: 3px;
-  background: var(--color-primary);
-}
-
-/* Watch tier marker keeps the warning tone. */
-.tier-watch .tier-marker {
-  background: #f4a127;
-}
-
-/* Reassure tier marker uses teal. */
-.tier-reassure .tier-marker {
-  background: var(--color-teal-deep);
-}
-
-/* Fragile tier marker stays muted. */
-.tier-fragile .tier-marker {
-  background: var(--color-text-tertiary);
-}
-
-/* Tier names are compact and bold. */
-.tier-name {
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-/* Tier descriptions are small and warm-muted. */
-.tier-desc {
-  color: var(--color-text-secondary);
-  font-size: 0.7rem;
-}
-
-/* Tier counts are small white bubbles. */
-.tier-count {
-  min-width: 26px;
-  padding: 3px 7px;
-  background: #ffffff;
-  color: var(--color-text-secondary);
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-/* AE rows become flat rows with separators. */
-.ae-row {
-  grid-template-columns: 92px minmax(0, 1fr) 86px;
-  gap: 14px;
-  min-height: 72px;
-  padding: 12px 16px;
-  border: 0;
-  border-top: 1px solid #eee5dc;
-  border-radius: 0;
-  background: #ffffff;
-}
-
-/* Hover and expanded rows stay flat. */
-.ae-row:hover,
-.ae-row.expanded {
-  border-color: #eee5dc;
-  background: #fffdfb;
-}
-
-/* Fragile rows are muted but still readable. */
-.ae-row.fragile {
-  opacity: 0.72;
-  background: #fffdfb;
-}
-
-/* Number-needed blocks lose the card fill from the implementation. */
-.ae-nnh,
-.ae-row.protective .ae-nnh,
-.ae-row.reassure .ae-nnh,
-.ae-row.fragile .ae-nnh {
-  min-height: 0;
-  padding: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
   background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color .12s, background .12s;
 }
-
-/* NNH labels remain tiny. */
-.ae-nnh-label,
-.ae-nnh-bounds,
-.ae-nnh-na span {
+.picker-item .pi-star:hover { background: var(--color-brown-light); color: var(--color-secondary); }
+.picker-item .pi-star.on { color: var(--color-amber); }
+.picker-mark {
+  background: var(--color-cream);
+  color: var(--color-secondary);
+  padding: 0;
+  border-radius: 2px;
+  font-weight: var(--weight-bold);
+}
+.picker-foot {
+  display: flex;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--color-border-x-light);
+  background: var(--color-surface);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+.picker-foot kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 3px;
+  background: #fff;
   color: var(--color-text-secondary);
-  font-size: 0.64rem;
-  font-weight: 500;
-  text-transform: uppercase;
 }
 
-/* Number-needed values carry the orange visual weight. */
-.ae-nnh-value {
-  color: var(--color-primary-dark);
-  font-size: 1.22rem;
-  font-weight: 800;
+@media (max-width: 720px) {
+  .picker { width: min(420px, 96vw); max-height: 60vh; }
+  .picker-item .pi-score { display: none; }
 }
 
-/* Missing-number state should not become a large block. */
-.ae-nnh-na {
-  color: var(--color-text-secondary);
-  font-size: 0.72rem;
-  font-weight: 600;
+/* CompactDrugPicker — inline button trigger (Interchange) */
+.dp-compact-wrap {
+  position: relative;
+  width: 100%;
+}
+.dp-compact {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
   text-align: left;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, box-shadow .12s;
+  min-width: 0;
+}
+.dp-compact:hover { background: var(--color-surface); }
+.dp-compact.is-open {
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px var(--color-orange-light);
+}
+.dp-compact-text {
+  flex: 1;
+  min-width: 0;
+}
+.dp-compact-name {
+  font-size: 15px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-secondary);
+  letter-spacing: -.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dp-compact-sub {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dp-compact-chev {
+  width: 16px;
+  height: 16px;
+  opacity: .55;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
 }
 
-/* AE names are compact but strong. */
-.ae-name {
-  font-size: 0.86rem;
-  font-weight: 800;
+/* Right-aligned panel — used by the "to — drug B" picker so it doesn't
+   overflow past the right edge of the panel on narrow viewports. */
+.picker.picker-align-right { left: auto; right: 0; }
+.picker.picker-narrow { width: min(420px, 92vw); }
+
+/* Disabled (in-use by the other picker) row */
+.picker-item.is-disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+.picker-item.is-disabled:hover { background: transparent; }
+.picker-item.is-disabled .pi-star { pointer-events: none; }
+.pi-disabled-tag {
+  background: var(--color-text-tertiary) !important;
 }
 
-/* Metadata chips sit close to the row label. */
-.ae-meta {
-  gap: 5px;
+/* ============================================================
+   Drug picker dropdown (legacy)
+   ============================================================ */
+.dropdown {
+  position: absolute;
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-width: 320px;
+  padding: 6px;
+  z-index: 60;
   margin-top: 6px;
 }
-
-/* AE tags are very compact prototype pills. */
-.ae-tag {
-  min-height: 18px;
-  padding: 0 7px;
-  border-color: #eaded4;
-  background: #fbf7f2;
-  color: var(--color-text-secondary);
-  font-size: 0.62rem;
-  font-weight: 600;
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background .12s;
 }
-
-/* SOC tags are warm paper chips. */
-.ae-tag.soc {
-  background: #f7eee8;
-  color: var(--color-text-secondary);
-}
-
-/* RR tags use a warm outlined pill. */
-.ae-tag.rr {
-  background: #fffdfb;
-  color: var(--color-primary-dark);
-}
-
-/* Study and population pills preserve full trial/cohort text instead of clipping. */
-.ae-tag.study-context,
-.ae-tag.population {
-  flex: 0 1 auto;
-  max-width: 100%;
-  min-width: 0;
-  min-height: 20px;
-  padding-top: 2px;
-  padding-bottom: 2px;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.25;
-}
-
-/* Study context uses a warm neutral chip to pair with trial metadata. */
-.ae-tag.study-context {
-  background: #fbf4ed;
-  color: var(--color-brown);
-}
-
-/* Population uses the teal accent to call out cohort differences. */
-.ae-tag.population {
-  border-color: rgba(22, 117, 99, 0.2);
-  background: #eef7f4;
+.dropdown-item:hover { background: var(--color-surface); }
+.dropdown-item.active { background: var(--color-orange-light); }
+.dropdown-item .di-info { flex: 1; min-width: 0; }
+.dropdown-item .di-name { font-size: 14px; font-weight: var(--weight-semibold); color: var(--color-secondary); }
+.dropdown-item .di-sub { font-size: 12px; color: var(--color-text-tertiary); margin-top: 1px; }
+.dropdown-item .di-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
   color: var(--color-teal-deep);
 }
 
-/* Serious SOC keeps the warning accent. */
-.ae-tag.serious {
-  background: #fff0e6;
-  color: var(--color-primary-dark);
+/* ============================================================
+   Section heading between major regions
+   ============================================================ */
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 20px 4px;
+}
+.section-heading-text {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+.section-heading .line {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border-light);
 }
 
-/* Right-side row affordances are small. */
-.ae-right {
+/* ============================================================
+   REVERSE LOOKUP
+   ============================================================ */
+.search-wrap {
+  padding: 0 18px 10px;
+  position: relative;
+}
+.search-input {
+  width: 100%;
+  padding: 11px 14px 11px 38px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  transition: border-color .15s, background .15s;
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: #fff;
+}
+.search-input::placeholder { color: var(--color-text-tertiary); }
+.search-icon {
+  position: absolute;
+  left: 30px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-tertiary);
+}
+.rl-results { padding: 2px 0 6px; }
+.rl-row {
+  display: grid;
+  grid-template-columns: 1.2fr 130px 1.6fr;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border-x-light);
+  transition: background .12s;
+}
+.rl-row:hover { background: var(--color-surface); }
+.rl-row:first-child { border-top: 1px solid var(--color-border-light); }
+.rl-row.fragile { opacity: .65; }
+.rl-drug-name {
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-secondary);
+  letter-spacing: -.005em;
+}
+.rl-drug-sub {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+.rl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.rl-empty {
+  padding: 36px 18px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  text-align: center;
+  font-style: italic;
+}
+.rl-no-sig-banner {
+  margin: 6px 18px 10px;
+  padding: 10px 12px;
+  background: var(--color-teal-light);
+  border: 1px solid #b6dcc8;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--color-teal-deep);
+  line-height: 1.45;
+}
+
+/* ============================================================
+   INTERCHANGE
+   ============================================================ */
+.ic-pickers {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 18px 14px;
+  flex-wrap: wrap;
+}
+.ic-picker {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.ic-picker-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-semibold);
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
   gap: 6px;
 }
-
-/* Precision pills shrink to match the prototype. */
-.precision-pill {
-  min-height: 20px;
-  padding: 0 8px;
-  font-size: 0.62rem;
-  font-weight: 700;
+.ic-picker-label .lbl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.ic-picker-label.a .lbl-dot { background: var(--color-primary); }
+.ic-picker-label.b .lbl-dot { background: var(--color-teal-deep); }
+.ic-select {
+  width: 100%;
+  padding: 10px 32px 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: var(--weight-semibold);
+  background-color: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  color: var(--color-secondary);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a5a45' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  letter-spacing: -.005em;
+}
+.ic-select.a { border-left: 3px solid var(--color-primary); }
+.ic-select.b { border-left: 3px solid var(--color-teal-deep); }
+.ic-arrow {
+  font-size: 22px;
+  color: var(--color-text-tertiary);
+  padding-bottom: 6px;
+  font-weight: var(--weight-medium);
 }
 
-/* Details affordance is warm and understated. */
-.ae-expand {
-  color: var(--color-text-secondary);
-  font-size: 0.66rem;
-  font-weight: 600;
-}
-
-/* Expanded detail uses rule-separated columns instead of nested cards. */
-.ae-detail {
+.ic-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 0;
-  padding-top: 12px;
-  border-top-color: #eaded4;
+  padding: 0 18px 12px;
+}
+.ic-summary-cell {
+  padding: 10px 14px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-surface);
+}
+.ic-summary-cell:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); border-right: 0; }
+.ic-summary-cell:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.ic-summary-cell:nth-child(2) { border-right: 0; }
+.ic-summary-num {
+  font-size: 22px;
+  font-weight: var(--weight-bold);
+  color: var(--color-secondary);
+  letter-spacing: -.02em;
+  line-height: 1.05;
+}
+.ic-summary-num.a { color: var(--color-primary-dark); }
+.ic-summary-num.b { color: var(--color-teal-deep); }
+.ic-summary-lbl {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  margin-top: 3px;
+  line-height: 1.3;
 }
 
-/* Detail cells are flat and compact. */
-.ae-detail-cell {
-  min-height: 42px;
-  padding: 8px 10px;
-  border-right: 1px solid #f0e7df;
-  border-radius: 0;
+.ic-axis {
+  display: grid;
+  grid-template-columns: 180px 1fr 120px;
+  gap: 14px;
+  padding: 4px 18px 2px;
+  border-bottom: 1px solid var(--color-border-light);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  position: sticky;
+  top: 56px;
+  background: #fff;
+  z-index: 1;
+}
+.ic-axis-ticks {
+  position: relative;
+  height: 18px;
+}
+.ic-axis-ticks .tk {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.ic-axis-ticks .tk.ref {
+  color: var(--color-secondary);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-primary);
+}
+
+.ic-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 6px;
+  margin-top: 4px;
+}
+.ic-divider-text {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+.ic-divider .line { flex: 1; height: 1px; background: var(--color-border-x-light); }
+
+.ic-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 120px;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 18px;
+  border-top: 1px solid var(--color-border-x-light);
+}
+.ic-row:first-of-type { border-top: 0; }
+.ic-name {
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  color: var(--color-secondary);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ic-name .sub {
+  display: block;
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+  font-weight: var(--weight-regular);
+  letter-spacing: .02em;
+}
+.ic-track {
+  position: relative;
+  height: 28px;
+}
+.ic-refline {
+  position: absolute; top: 0; bottom: 0;
+  width: 1px;
+  background: var(--color-border);
+}
+.ic-track-half {
+  position: absolute;
+  left: 0; right: 0;
+  height: 12px;
+}
+.ic-track-half.a { top: 1px; }
+.ic-track-half.b { bottom: 1px; }
+.ic-ci {
+  position: absolute;
+  top: 50%; transform: translateY(-50%);
+  height: 2px;
+  border-radius: 1px;
+}
+.ic-ci-cap {
+  position: absolute;
+  top: 50%; transform: translate(-50%, -50%);
+  width: 1px; height: 7px;
+}
+.ic-pt {
+  position: absolute;
+  top: 50%; transform: translate(-50%, -50%);
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+}
+.ic-track-half.a .ic-ci, .ic-track-half.a .ic-ci-cap { background: var(--color-primary); }
+.ic-track-half.a .ic-pt { background: var(--color-primary); }
+.ic-track-half.b .ic-ci, .ic-track-half.b .ic-ci-cap { background: var(--color-teal-deep); }
+.ic-track-half.b .ic-pt { background: var(--color-teal-deep); }
+.ic-track-half.ns .ic-ci, .ic-track-half.ns .ic-ci-cap { background: var(--color-text-tertiary); opacity: .5; }
+.ic-track-half.ns .ic-pt { background: #fff; border-color: var(--color-text-tertiary); }
+
+.ic-delta {
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  text-align: right;
+  letter-spacing: -.005em;
+}
+.ic-delta.a-worse { color: var(--color-primary-dark); }
+.ic-delta.b-worse { color: var(--color-teal-deep); }
+.ic-delta.similar { color: var(--color-text-tertiary); font-weight: var(--weight-medium); }
+.ic-delta.only { color: var(--color-text-tertiary); font-style: italic; font-weight: var(--weight-regular); }
+.ic-delta .arrow {
+  display: inline-block;
+  margin-right: 3px;
+  font-size: 13px;
+}
+
+.ic-warn {
+  margin: 6px 18px 0;
+  padding: 9px 12px;
+  background: var(--color-amber-light);
+  border: 1px solid #f3d680;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--tier-watch-fg);
+  line-height: 1.45;
+}
+
+/* ============================================================
+   RESPONSIVE — mobile
+   ============================================================ */
+@media (max-width: 880px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+  .ae-detail { grid-template-columns: repeat(2, 1fr); }
+  .forest-axis, .forest-row { grid-template-columns: 130px 1fr; }
+  .forest-label { font-size: 12px; padding-right: 10px; }
+  .ic-axis, .ic-row { grid-template-columns: 140px 1fr 100px; }
+  .ic-name { font-size: 12px; }
+  .rl-row { grid-template-columns: 1.1fr 110px 1.4fr; }
+}
+@media (max-width: 620px) {
+  body { font-size: 14px; }
+  .topbar-inner { padding: 10px 14px; }
+  .brand { font-size: 15px; }
+  .brand-sub { display: none; }
+  .topbar-action span { display: none; }
+  .topbar-action { padding: 7px 9px; }
+  .page-header { padding: 18px 14px 6px; }
+  .panel { margin: 10px 14px; border-radius: var(--radius-md); }
+  .panel-header { padding: 14px 14px 10px; }
+  .filter-row { padding: 0 14px 12px; }
+  .kpi-strip { padding: 14px 14px 4px; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .kpi-card { padding: 12px 12px; }
+  .kpi-value { font-size: 24px; }
+  .ae-row {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .ae-nnh { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .ae-nnh-label { display: none; }
+  .ae-nnh-value { font-size: 22px; }
+  .ae-nnh-bounds { margin-top: 0; }
+  .ae-body { grid-column: 1 / -1; }
+  .ae-right { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: flex-start; }
+  .ae-detail { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .forest-axis, .forest-row { grid-template-columns: 110px 1fr; }
+  .forest-label { font-size: 11px; }
+  .forest-label .sub { display: none; }
+  .quadrant { height: 320px; }
+  .q-cell { padding: 8px 10px; }
+  .q-cell-name { font-size: 11px; }
+  .tier-header { padding: 12px 14px; }
+  .drug-meta { gap: 4px 10px; font-size: 12px; }
+  /* Reverse lookup */
+  .search-wrap { padding: 0 14px 10px; }
+  .search-icon { left: 26px; }
+  .rl-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px 14px;
+  }
+  .rl-meta { justify-content: flex-start; }
+  /* Interchange */
+  .ic-pickers { padding: 0 14px 12px; gap: 8px; }
+  .ic-arrow { display: none; }
+  .ic-summary { padding: 0 14px 12px; }
+  .ic-summary-num { font-size: 18px; }
+  .ic-axis, .ic-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 12px 14px;
+  }
+  .ic-axis {
+    position: static;
+    padding: 8px 14px 4px;
+  }
+  .ic-axis-ticks { height: 16px; }
+  .ic-delta { text-align: left; padding-top: 2px; }
+  .ic-divider { padding: 12px 14px 4px; }
+  .section-heading { padding: 22px 14px 4px; }
+}
+@media (max-width: 420px) {
+  .kpi-strip { grid-template-columns: 1fr 1fr; }
+  .forest-axis, .forest-row { grid-template-columns: 96px 1fr; }
+}
+
+
+/* ============================================================
+   React island integration
+   ------------------------------------------------------------
+   The rules above are the AE Dashboard prototype stylesheet
+   (claude.ai/design export) adopted verbatim. The rules below
+   adapt that stylesheet to the live React app: MVC/island
+   mounting, the API-driven states the static mock never had
+   (loading / error / empty / disabled), and the handful of
+   class names the React DOM uses that differ from the mock.
+   Every value below uses the prototype design tokens.
+   ============================================================ */
+
+:root {
+  --color-danger: #b42318;
+}
+
+/* ----- Island mount + page canvas ----- */
+#root,
+#aeDashboardApp {
+  min-height: 100vh;
+}
+.ae-dashboard-page {
+  min-height: 100vh;
+  background: var(--color-surface);
+}
+
+/* ----- Top bar: React renders inline SVG icons + a label span,
+   and disables the Save/Export actions until a product is chosen ----- */
+.topbar-action-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+}
+.topbar-action:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.topbar-action:disabled:hover {
+  background: rgba(255,255,255,.08);
+}
+
+/* Brand mark: React renders an inline SVG inside the cream .brand-logo
+   tile, so size it like the prototype's 34px <img>. */
+.brand-logo svg {
+  width: 34px;
+  height: auto;
+  display: block;
+}
+
+/* ----- Drug-title chevron (React class is .drug-title-chev) ----- */
+.drug-title-chev {
+  width: 18px;
+  height: 18px;
+  opacity: .55;
+  flex-shrink: 0;
+  transition: transform .15s ease;
+}
+.drug-title.is-open .drug-title-chev {
+  transform: rotate(180deg);
+}
+
+/* Anchor the absolutely-positioned picker to its trigger wrapper. The
+   prototype's .drug-title-wrap has no position, so in the live scrollable
+   app the picker fell back to the viewport and opened mid-page; this drops
+   it cleanly under the drug-title button (top: calc(100% + 6px); left: 0). */
+.drug-title-wrap {
+  position: relative;
+}
+
+/* ----- Header hydration warning (React-only) ----- */
+.header-warning {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-primary-dark);
+  background: var(--color-orange-light);
+  border: 1px solid var(--tier-counsel-border);
+  border-radius: var(--radius-md);
+}
+
+/* ----- Layout wrappers React adds around prototype content ----- */
+.panel-heading {
+  flex: 1;
+  min-width: 0;
+}
+.triage-view,
+.forest-view {
+  display: block;
+}
+.forest-legend-note {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* The KPI strip is nested inside the already-padded page header, so its
+   own horizontal padding double-indents the cards relative to the panels
+   and header content. Drop it so the first row lines up with everything. */
+.kpi-strip {
+  padding: 0;
+}
+
+/* Forest/quadrant legend swatches need their direction colors — the
+   class-based React legend left the dots transparent (white-on-white). */
+.forest-legend-dot.elevated { background: var(--color-primary); }
+.forest-legend-dot.protective { background: var(--color-teal-deep); }
+.forest-legend-dot.neutral { background: #fff; border-color: var(--color-text-tertiary); }
+
+/* ----- Extra AE metadata tags the React layer adds ----- */
+.ae-tag.study-context {
+  background: var(--color-cream-light);
+  border-color: var(--color-amber-light);
+  color: var(--color-secondary-light);
+}
+.ae-tag.population {
+  background: var(--color-teal-light);
+  border-color: var(--color-teal);
+  color: var(--color-teal-deep);
+}
+
+/* ----- Quadrant: React wraps axis-y + canvas + axes in a "stage".
+   The axis label is pinned to a left gutter so the canvas and the
+   x-axis row keep the prototype's full width at any viewport. ----- */
+.quadrant-stage {
+  position: relative;
+  padding-left: 26px;
+}
+.axis-y {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%) rotate(180deg);
+  transform-origin: center;
+  writing-mode: vertical-rl;
+}
+
+/* React positions the dark tooltip relative to the dot and flags an
+   edge-safe side so it never clips inside the clipped canvas. */
+.q-tooltip.is-right { transform: translate(12px, -50%); }
+.q-tooltip.is-left { transform: translate(calc(-100% - 12px), -50%); }
+.q-tooltip.is-right.is-upper { transform: translate(12px, 8px); }
+.q-tooltip.is-left.is-upper { transform: translate(calc(-100% - 12px), 8px); }
+.q-tooltip.is-right.is-lower { transform: translate(12px, calc(-100% - 8px)); }
+.q-tooltip.is-left.is-lower { transform: translate(calc(-100% - 12px), calc(-100% - 8px)); }
+
+/* ----- Product picker: React class names that differ from the mock ----- */
+.picker-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  padding: 4px 0;
+  min-width: 0;
+}
+.picker-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+.pi-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pi-star-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+/* The React search icon SVG carries no width/height attrs, and the flex
+   .picker-search row no longer constrains it the way the old grid did,
+   so size it explicitly or it balloons to fill the dropdown. */
+.picker-search-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.keycap-glyph {
+  font-family: var(--font-mono);
+}
+
+/* ============================================================
+   API-driven states (no prototype equivalent) — warm tokens
+   ============================================================ */
+.loading-state,
+.empty-state,
+.inline-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 20px;
+  padding: 14px 16px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+.empty-state {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.empty-state strong {
+  color: var(--color-secondary);
+  font-weight: var(--weight-semibold);
+  font-size: 15px;
+}
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 2px solid var(--color-border-light);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: ae-spin .7s linear infinite;
+}
+@keyframes ae-spin {
+  to { transform: rotate(360deg); }
+}
+.inline-error {
+  color: var(--color-danger);
+  background: #fdeeec;
+  border-color: #f3c9c2;
+  justify-content: space-between;
+}
+
+/* Buttons used by the inline error retry action */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-light);
+  background: #fff;
+  color: var(--color-secondary);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.button:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.button-secondary {
   background: transparent;
 }
 
-/* The last detail cell avoids a trailing rule. */
-.ae-detail-cell:nth-child(4n),
-.ae-detail-cell.wide-cell {
-  border-right: 0;
+/* Full-page disabled state (503) */
+.disabled-feature {
+  max-width: 560px;
+  margin: 80px auto;
+  padding: 32px;
+  text-align: center;
 }
-
-/* Detail labels use the prototype's copper uppercase style. */
-.ae-detail-cell .lbl {
-  color: #a9826b;
-  font-size: 0.62rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+.disabled-feature .eyebrow,
+.eyebrow {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--color-primary);
 }
-
-/* Detail values are compact and readable. */
-.ae-detail-cell .val {
-  font-size: 0.72rem;
-  font-weight: 700;
+.disabled-feature h1 {
+  margin-bottom: 8px;
+  font-size: 24px;
+  font-weight: var(--weight-bold);
+  color: var(--color-secondary);
 }
-
-/* Forest and quadrant surfaces inherit the same warmer line work. */
-.forest-view,
-.quadrant-wrap {
-  padding: 16px;
-}
-
-/* Forest legend and rows follow the prototype's lighter analytical typography. */
-.forest-legend {
-  gap: 12px;
-  padding-bottom: 13px;
-}
-
-/* Forest legend labels should not overpower the row labels. */
-.forest-legend-item,
-.forest-legend-note {
+.disabled-feature p {
+  font-size: 14px;
   color: var(--color-text-secondary);
-  font-size: 0.72rem;
-  font-weight: 500;
 }
 
-/* The legend note reads as guidance, not a second heading. */
-.forest-legend-note {
-  color: var(--color-text-secondary);
-  font-weight: 600;
-}
-
-/* Legend dots are small clinical markers. */
-.forest-legend-dot {
-  width: 8px;
-  height: 8px;
-}
-
-/* The scroll surface keeps the dense table feel with a small bottom gutter. */
-.forest-wrap {
-  padding-bottom: 2px;
-}
-
-/* Axis and rows share one stable label column and plotting lane. */
-.forest-axis,
-.forest-row {
-  grid-template-columns: 220px minmax(560px, 1fr);
-  gap: 14px;
-  min-width: 790px;
-}
-
-/* Axis labels align tightly above the thinner tracks. */
-.forest-axis {
-  padding: 0 8px 8px;
-}
-
-/* Axis ticks are quieter and closer to the prototype. */
-.forest-axis-ticks {
-  height: 22px;
-}
-
-/* Tick labels use medium weight so the scale stays secondary. */
-.forest-tick {
-  color: var(--color-text-secondary);
-  font-size: 0.68rem;
-  font-weight: 600;
-}
-
-/* The reference tick remains visible without becoming heavy. */
-.forest-tick.ref {
-  color: var(--color-brown);
-  font-weight: 700;
-}
-
-/* Forest rows are dense, flat, and rule-separated. */
-.forest-row {
-  min-height: 43px;
-  padding: 7px 8px;
-  border-top-color: #eaded4;
-}
-
-/* Fragile rows should be muted but still legible. */
-.forest-row.fragile {
-  opacity: 0.68;
-}
-
-/* Row names are strong enough for scanning but not black-heavy. */
-.forest-label {
-  color: var(--color-text);
-  font-size: 0.8rem;
-  font-weight: 700;
-  line-height: 1.15;
-}
-
-/* SOC subtitles are small, warm, and medium-weight. */
-.forest-label .sub {
-  margin-top: 2px;
-  color: var(--color-text-secondary);
-  font-size: 0.66rem;
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-/* Plot tracks become slim warm lanes rather than heavy filled pills. */
-.forest-track {
-  height: 24px;
-  overflow: visible;
-  background:
-    linear-gradient(90deg, rgba(22, 117, 99, 0.1), rgba(255, 253, 251, 0.82) 46%, rgba(255, 253, 251, 0.82) 54%, rgba(229, 119, 30, 0.08)),
-    #f4eee8;
-}
-
-/* RR=1 is a fine reference marker. */
-.forest-refline {
-  top: 4px;
-  bottom: 4px;
-  width: 1px;
-  background: rgba(52, 46, 42, 0.34);
-}
-
-/* Confidence intervals use thin analytical line work. */
-.forest-ci {
-  top: 50%;
-  height: 2px;
-  transform: translateY(-50%);
-}
-
-/* CI caps are slim bound markers. */
-.forest-ci-cap {
-  top: 7px;
-  width: 1px;
-  height: 10px;
-}
-
-/* Point estimates sit on the line instead of floating above it. */
-.forest-pt {
-  width: 10px;
-  height: 10px;
-  border-width: 1px;
-  box-shadow: none;
-}
-
-/* Footer copy should sit close to the panel like the prototype note. */
-.foot-note {
-  margin-top: 12px;
-  color: var(--color-text-tertiary);
-  font-size: 0.7rem;
-}
-
-/* Medium screens keep the header readable without pushing badges off-canvas. */
-@media (max-width: 1120px) {
-  .drug-selector {
-    grid-template-columns: 1fr;
-  }
-
-  .coverage-row {
-    justify-self: start;
-  }
-}
-
-/* Tablet layouts match the prototype density without cramped cards. */
-@media (max-width: 900px) {
-  .kpi-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .panel-header {
-    display: grid;
-  }
-}
-
-/* Mobile keeps the compact visual grammar while stacking safely. */
-@media (max-width: 680px) {
-  .app {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
-
-  .topbar {
-    margin-right: -12px;
-    margin-left: -12px;
-    padding: 0 12px;
-  }
-
-  .drug-title {
-    font-size: 1.26rem;
-  }
-
-  .picker {
-    width: calc(100vw - 24px);
-  }
-
-  .picker-search {
-    grid-template-columns: 20px minmax(0, 1fr);
-  }
-
-  .picker-count {
-    display: none;
-  }
-
-  .picker-item {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .pi-right {
-    grid-column: auto;
-    justify-content: end;
-  }
-
-  .ae-row {
-    grid-template-columns: 1fr;
-  }
-
-  .ae-detail {
-    grid-template-columns: 1fr;
-  }
-
-  .ae-detail-cell {
-    border-right: 0;
-    border-bottom: 1px solid #f0e7df;
-  }
-
-  .forest-axis,
-  .forest-row {
-    grid-template-columns: 168px minmax(420px, 1fr);
-    gap: 12px;
-    min-width: 620px;
-  }
-
-  .forest-axis {
-    padding-right: 6px;
-    padding-left: 6px;
-  }
-
-  .forest-row {
-    padding-right: 6px;
-    padding-left: 6px;
-  }
-
-  .forest-label {
-    font-size: 0.74rem;
-  }
-
-  .forest-label .sub,
-  .forest-tick {
-    font-size: 0.62rem;
-  }
-}
-
-/* The prototype picker keeps its count visible even in narrower panes. */
-@media (max-width: 680px) {
-  .picker-search {
-    grid-template-columns: 20px minmax(0, 1fr) max-content;
-  }
-
-  .picker-count {
-    display: inline-flex;
-  }
+/* ----- Responsive: collapse the quadrant y-axis column on small screens ----- */
+@media (max-width: 620px) {
+  .quadrant-stage { padding-left: 0; }
+  .axis-y { display: none; }
+  .loading-state,
+  .empty-state,
+  .inline-error { margin: 10px 14px; }
 }

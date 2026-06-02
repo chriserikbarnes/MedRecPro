@@ -4542,3 +4542,104 @@ Moved the AE dashboard quadrant y-axis label out of the plotted quadrants and in
 **Verification.** Ran `npm.cmd run lint` with 0 errors and 0 warnings, then `npm.cmd run build` successfully. Browser-smoked the Quadrant view at `http://localhost:50346/ae-dashboard/?view=quadrant&product=d6dd3a62-c183-489b-a846-999a05ba8bf3&comparator=all&fragile=true`; the in-app browser viewport was in the mobile breakpoint where `.axis-y` is intentionally hidden, so desktop placement was verified through source and built CSS rules showing the 54px grid gutter, plot-column alignment, and regenerated static stylesheet. `git diff --check` passed with only CRLF normalization warnings.
 
 ---
+
+### 2026-06-02 9:43 AM EST — Align AE Dashboard React Styling with the Prototype
+Realigned the React AE dashboard's visual style with the "AE Dashboard 01" prototype, using the standalone `claude.ai/design` export the user supplied as the recovered source of truth.
+
+**Problem.** [index.css](MedRecProReact/src/index.css) had drifted into two stacked themes — a dead v1 (cool gray-green, Inter, shadowed) and a v2 "alignment pass" that only approximated the prototype, leaving 76 v1-only selectors still leaking the old theme (the entire Quadrant view, forest direction colors, and the loading/error/empty states). The prototype folder was missing its dashboard component CSS, so the standalone HTML export (its app CSS lives in an escaped inner-`<style>` block on one bundled line) was used to recover the authoritative stylesheet.
+
+**Implementation.** Extracted the prototype's complete CSS from the standalone bundle and made it the single basis of [index.css](MedRecProReact/src/index.css) (2,968 → ~1,840 lines), replacing the v1/v2 duplication with one coherent theme: prototype tokens (font weights 400–700, `--color-teal-deep #3f9b7f`, `--color-surface #faf8f5`, the 3-tier border system, `--tier-*` colors, full radius/shadow scales, `--font-mono`) plus the component rules verbatim. Appended a "React island integration" section for what the static mock lacks: MVC/island mounting, the API states (loading / spinner / inline-error / empty / disabled-feature) restyled with warm tokens, and the React-only class names (`.picker-input`, `.keycap-*`, `.ae-tag.study-context`/`.population`, `.drug-title-chev`, `.header-warning`, `.panel-heading`, `.forest-legend-note`). Re-anchored the quadrant `.axis-y` into a robust left gutter via `padding-left` on `.quadrant-stage` (replacing the earlier fixed 54px grid column) so the canvas keeps full width at every breakpoint, and restored the prototype's dark `.q-tooltip`. Moved `<TopBar/>` out of `.app` in [App.jsx](MedRecProReact/src/App.jsx) so the dark bar is full-bleed with a 1240px-centered inner. Added a `MedRecProReact` Vite dev-server entry to [.claude/launch.json](.claude/launch.json).
+
+**Decisions.** Kept `--color-text-secondary: #7a5a45` (brown) — the standalone confirmed the dashboard intentionally uses brown, not the site CSS's `#be5f15` (an earlier hypothesis the export corrected). Retained the prototype's extra-view CSS (reverse-lookup `.rl-*`, interchange `.ic-*`, compact picker) even though the React app does not render those panels yet, for fidelity and future use; the committed bundle is consequently marginally larger (35.5 KB / 6.85 KB gzip) than the previous duplicated build (~32.9 KB) despite removing the duplication.
+
+**Verification.** `npm run lint` clean; `npm run build` regenerated the committed bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard). Browser-verified at `http://localhost:50346/ae-dashboard/` at both the mobile breakpoint and 1320px desktop, using injected mock rows because the local API (port 5093) was offline: Triage tiers/markers/NNH/tags (including the React-only `study-context` and `population` tags) / 4-column dashed detail grid / precision pills; Forest empty tracks with colored CIs, caps, points and mono ticks with a bold `RR=1` reference; Quadrant dashed-cross cells, colored dots, dark tooltip, and the y-axis gutter; the API error/empty states; active tab/chip/toggle states; the lighter 400–700 font weights; and the full-bleed top bar over a centered 1240px column — all matching the prototype.
+
+---
+
+### 2026-06-02 9:55 AM EST — AE Risk Table Coverage Remediation Plan
+Created a pending remediation plan for standardized adverse-event tables that were absent from `tmp_FlattenedAdverseEventRiskTable`.
+
+**Analysis.** Reviewed the pasted 672-TextTableID sample, the generated standardization markdown/JSONL reports, and the Stage 5 adverse-event pipeline in [AdverseEventDenormalizationService.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/AdverseEventDenormalizationService.cs), [ComparatorSelector.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/ComparatorSelector.cs), [SourceRowEligibility.cs](MedRecProImportClass/Service/TransformationServices/AdverseEventTableFlattening/SourceRowEligibility.cs), and [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql). The cause was split into two confirmed drop points: null-RR / no-comparator suppression before `tmp_FlattenedAdverseEventTable`, and the mandatory `vw_ProductsByPharmacologicClass` inner join inside `dbo.vw_AeRisk`.
+
+**Evidence.** Ran read-only local SQL checks against `MedRecLocal`: all 672 pasted IDs are present in `tmp_FlattenedStandardizedTable`; 130 reach `tmp_FlattenedAdverseEventTable`; 0 reach `dbo.vw_AeRisk` or the materialized risk table; 542 are missing before the AE stats table; and the 130 AE stats tables have 2,768 AE stats rows across 72 documents but 0 document matches in `vw_ProductsByPharmacologicClass`. Bucketed the 542 pre-stats misses into 293 active-comparator/no-dose-evidence tables, 151 single-arm tables, 70 invalid/missing-arm tables, and 28 apparent-comparator tables needing durable null-RR diagnostics.
+
+**Plan artifact.** Saved [Plans/(pending) AE Risk Table Coverage Remediation Plan.md](Plans/(pending)%20AE%20Risk%20Table%20Coverage%20Remediation%20Plan.md) with phased remediation: add Stage 5 coverage/audit diagnostics, make `vw_AeRisk` left-preserve AE stats rows with `NO_PRODUCT_CLASS_CONTEXT`, support conservative active-comparator RR, harden parser arm propagation, and update docs/dashboard contracts.
+
+**Verification.** Verified the ignored plan artifact with `Get-Item` and `Select-String`, confirmed `Plans/` is ignored with `git status --short --ignored`, and did not run builds because this session changed only the saved plan and journal.
+
+---
+
+### 2026-06-02 10:05 AM EST — AE Dashboard Prototype Alignment Follow-ups
+Three visual fixes from a user review of the prototype-aligned dashboard, in [index.css](MedRecProReact/src/index.css) and [App.jsx](MedRecProReact/src/App.jsx).
+
+- **Legend dot colors.** The forest/quadrant legend swatches rendered transparent because only the base `.forest-legend-dot` rule was carried over; added the direction colors `.forest-legend-dot.elevated` (`--color-primary`), `.protective` (`--color-teal-deep`), and `.neutral` (white fill with a `--color-text-tertiary` border).
+- **KPI strip alignment.** Set `.kpi-strip { padding: 0 }`. The strip is nested inside the already-padded `.page-header`, so its own horizontal padding double-indented the cards relative to the header content and the panels below; removing it lines the first row up with everything else.
+- **Masthead logo.** Wrapped `IconLogo` in the prototype's `.brand-logo` cream tile (50×38, `#f5f0eb`, 8px radius) and recolored the three main bars from the on-dark light tan `#e8c8a8` to the prototype's on-cream brown `#4a2618` (the two amber bars unchanged); `.brand-logo svg` sizes the inline SVG to the prototype's 34px width.
+
+**Verification.** `npm run lint` clean; `npm run build` regenerated the committed bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) (ae-dashboard.css 36.6 KB). Confirmed in-browser at `http://localhost:50346/ae-dashboard/` with live Afinitor data and via computed styles: legend dots show orange/teal/hollow swatches, the KPI cards align flush-left with the breadcrumbs and panels, and the masthead logo renders as the cream tile with the brown/amber mark.
+
+---
+
+### 2026-06-02 10:15 AM EST — AE Risk RR Recovery Plan Revision
+Updated the pending AE Risk Table Coverage remediation plan after clarifying that RR recovery should include non-placebo comparators whenever the event name, treatment `PrimaryValue`, treatment `ArmN`, selected comparator/control `PrimaryValue`, selected comparator/control `ArmN`, compatible value type, and calculated RR are available.
+
+**Plan update.** Revised [Plans/(pending) AE Risk Table Coverage Remediation Plan.md](Plans/(pending)%20AE%20Risk%20Table%20Coverage%20Remediation%20Plan.md) so placebo is treated as row classification rather than eligibility. The plan now requires `IsPlaceboControlled = true` only for placebo/sham/vehicle/zero-dose comparators and `false` for active-comparator RR rows, expands active-comparator recovery beyond the 130 already-present AE stats IDs, and adds diagnostic acceptance criteria for RR input gates.
+
+**Verification.** Verified the ignored plan artifact by direct `Select-String`/`Get-Item` reads and did not run builds because this revision changed only the saved plan and journal.
+
+---
+
+### 2026-06-02 10:46 AM EST — AE Dashboard Drug Picker Fixes
+Two follow-up fixes to the drug picker after the prototype-alignment rewrite, both in [index.css](MedRecProReact/src/index.css).
+
+- **Runaway search icon.** The new prototype-based `.picker-search` is flexbox (the prior layout used a CSS grid with a fixed 20px icon column), and both the React search-icon SVG and the prototype's `.picker-search-icon` rule omit `width`/`height`, so the icon ballooned to fill the whole dropdown. Added `.picker-search-icon { width: 18px; height: 18px; flex-shrink: 0 }`.
+- **Picker positioning.** The picker is `position: absolute`, but the prototype's `.drug-title-wrap` (its parent) carries no `position` — a latent bug that only surfaces in the live, scrollable page, where the dropdown fell back to the viewport and opened mid-page at the far left. Added `.drug-title-wrap { position: relative }` so it opens directly under the drug-title trigger (`top: calc(100% + 6px); left: 0`).
+
+**Verification.** `npm run build` regenerated the committed bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) (ae-dashboard.css 36.7 KB); lint unaffected (CSS-only). Confirmed in-browser at `http://localhost:50346/ae-dashboard/` with live Afinitor data and computed styles: the search icon renders at 18×18, and the picker opens directly beneath the "Afinitor" trigger (`.drug-title-wrap` computed `position: relative`, 6px gap below the trigger, left edges aligned) — matching the prototype.
+
+---
+
+### 2026-06-02 10:58 AM EST — AE Risk Coverage Remediation
+Implemented all phases of the AE risk table coverage remediation plan and renamed the handoff to [Plans/(done) AE Risk Table Coverage Remediation Plan.md](Plans/(done)%20AE%20Risk%20Table%20Coverage%20Remediation%20Plan.md).
+
+Added the Stage 5 coverage/audit table model, EF mappings, DDL, truncation/persistence wiring, and diagnostic SQL so source exclusions, selected comparators, RR-ready rows, and null-RR rows have durable audit coverage. Expanded comparator selection for placebo, low-dose, explicit active control, inferred two-arm active comparator, single-arm, and ambiguous multi-arm cases; `vw_AeRisk` now preserves rows without product/class context while `vw_AeDrugSummary` remains class-enriched. Updated Stage 5 docs and console prompts/contracts, and added focused regression coverage for active comparators, null-RR audit reasons, truncation, EF mapping, and missing-arm parser cases.
+
+**Verification.** Focused AE risk/parser tests passed (`dotnet test MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventDenormalizationServiceTests|FullyQualifiedName~RelativeRiskCalculatorTests|FullyQualifiedName~AeArmRecoveryParserTests" --no-restore -p:BaseOutputPath=C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\bin\codex-ae-risk\`): 113 passed, 0 failed. Builds passed for `MedRecProImportClass`, `MedRecProConsole`, and `MedRecPro` (web build verified through isolated output because the normal `MedRecPro.exe` was locked by a running process). `git diff --check` passed with line-ending warnings only.
+
+---
+
+### 2026-06-02 11:12 AM EST — View Refresh Prerequisite Diagnostics
+Diagnosed the view-refresh trace as missing base-table dependencies rather than successful view creation. Added [MedRecPro-Views-PrerequisiteCheck.sql](MedRecPro/SQL/MedRecPro-Views-PrerequisiteCheck.sql) so operators can check the selected target database before rerunning [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql), with remediation script names for the pharmacologic-class exclusion table, Stage 5 AE tables, and optional Orange Book patent tables.
+
+**SQL safety.** Removed hard-coded database switches from the relevant prerequisite scripts so they run in the currently selected database instead of silently targeting `MedRecLocal` or `MedRecProDB`: [MedRecPro-Patch-PharmClassDosageFormDependency.sql](MedRecPro/SQL/Patch/MedRecPro-Patch-PharmClassDosageFormDependency.sql), [MedRecPro-Table-tmp_FlattenedStandardizedTable.sql](MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedStandardizedTable.sql), [MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql](MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql), [MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql](MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql), and [MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql](MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql). Added a header note in `MedRecPro_Views.sql` pointing to the prerequisite check when `CREATE VIEW` reports invalid object names.
+
+**Verification.** `git diff --check` passed with line-ending warnings only. `rg -n "^USE \[?MedRec|^USE MedRec"` against the five edited prerequisite scripts returned no matches. No database scripts were executed against a live SQL Server in this session.
+
+---
+
+### 2026-06-02 11:22 AM EST — View Refresh Self-Healing Follow-up
+Updated [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql) after a second view-refresh trace showed the same pharm-class dependency failure. The views script now bootstraps an empty `dbo.PharmClassDosageFormExclusion` table and indexes when the dependency is absent, emits a warning when the exclusion seed data is empty, and creates either the full `vw_OrangeBookPatent` view or an empty compatibility view when optional Orange Book tables are not installed.
+
+**Diagnostics.** Tightened [MedRecPro-Views-PrerequisiteCheck.sql](MedRecPro/SQL/MedRecPro-Views-PrerequisiteCheck.sql) so it treats missing/empty pharm-class exclusions and missing Orange Book tables as optional/bootstrap findings, while still raising an error for required AE table prerequisites. The empty exclusion-table check uses dynamic SQL so the checker itself can run against databases where the table is absent.
+
+**Verification.** `git diff --check` passed with line-ending warnings only. Static `Select-String` checks confirmed the new pharm-class bootstrap messages, Orange Book placeholder path, neutral `Ready view: vw_OrangeBookPatent` message, and prerequisite-checker fatal/optional branches. No database scripts were executed against a live SQL Server in this session.
+
+---
+
+### 2026-06-02 11:31 AM EST — AE View Extended Property Noise Reduction
+Removed the failing AE view extended-property calls from [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql) after the view-refresh trace showed `sp_addextendedproperty` errors for `vw_AeRisk` and `vw_AeDrugSummary` when their Stage 5 source tables were absent.
+
+**Implementation.** Dropped the `MS_Description` add blocks for `vw_AeRisk` and `vw_AeDrugSummary`, and changed their unconditional `Created view` messages into existence checks. If either view fails to compile because `tmp_FlattenedAdverseEventTable` or `tmp_FlattenedAdverseEventRiskTable` is missing, the script now prints a targeted skip message naming the table DDL script to run instead of trying to document a non-existent view.
+
+**Verification.** `git diff --check` passed with line-ending warnings only. Static `Select-String` checks confirmed the AE blocks no longer contain `sp_addextendedproperty` calls and now emit `Skipped view documentation` messages when the views are absent. No database scripts were executed against a live SQL Server in this session.
+
+---
+
+### 2026-06-02 11:37 AM EST — AE Coverage Diagnostic CTE Fix
+Updated [AERiskCoverageDiagnostics.sql](MedRecPro/SQL/Transient/AERiskCoverageDiagnostics.sql) after SQL Server rejected the repeated `WITH Missing(...)` CTE blocks with Msg 319/Msg 102 syntax errors.
+
+**Implementation.** Replaced the repeated `Missing` CTE declarations with one local `#MissingTextTables` temp input list at the top of the script, then reused that list across the coverage summary, coverage status, null-RR gate, and missing product/class diagnostic queries. The remaining CTE chain is prefixed with `;WITH`, and the temp input table does not enforce uniqueness so duplicate pasted IDs do not fail the diagnostic helper.
+
+**Verification.** `git diff --check -- MedRecPro/SQL/Transient/AERiskCoverageDiagnostics.sql` passed cleanly. Static `Select-String` checks confirmed `WITH Missing` was removed, `#MissingTextTables` is used throughout, and only the first CTE chain remains with `;WITH`. No database scripts were executed against a live SQL Server in this session.
+
+---

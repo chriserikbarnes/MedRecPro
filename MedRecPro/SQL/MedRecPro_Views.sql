@@ -19,14 +19,75 @@
 /*    - Views return lightweight objects with IDs/GUIDs for navigation        */
 /*    - Designed to leverage indexes created in MedRecPro_Indexes.sql         */
 /*    - Extended properties added for documentation                            */
+/*    - If CREATE VIEW reports invalid object names, run                       */
+/*      MedRecPro-Views-PrerequisiteCheck.sql in the target database first     */
 /*                                                                             */
 /*******************************************************************************/
+Use MedRecLocal
 
 SET NOCOUNT ON;
 GO
 SET ANSI_NULLS ON;
 GO
 SET QUOTED_IDENTIFIER ON;
+GO
+
+/*******************************************************************************/
+/*                                                                             */
+/*  PREREQUISITE BOOTSTRAP                                                     */
+/*  Creates lightweight dependencies required for view compilation.            */
+/*                                                                             */
+/*******************************************************************************/
+
+IF OBJECT_ID('dbo.PharmClassDosageFormExclusion', 'U') IS NULL
+BEGIN
+    PRINT 'Creating empty prerequisite table: dbo.PharmClassDosageFormExclusion';
+
+    CREATE TABLE dbo.PharmClassDosageFormExclusion (
+        ExclusionID INT IDENTITY(1,1) PRIMARY KEY,
+        ClassCode NVARCHAR(50) NOT NULL,
+        ClassDisplayName NVARCHAR(255) NOT NULL,
+        ExcludedFormCode NVARCHAR(100) NOT NULL,
+        ExcludedFormDisplayName NVARCHAR(100) NOT NULL,
+        ExclusionCategory NVARCHAR(50) NOT NULL,
+        Reason NVARCHAR(500) NOT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_PharmClassDosageFormExclusion_IsActive DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL CONSTRAINT DF_PharmClassDosageFormExclusion_CreatedDate DEFAULT SYSUTCDATETIME(),
+        ModifiedDate DATETIME2 NOT NULL CONSTRAINT DF_PharmClassDosageFormExclusion_ModifiedDate DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID('dbo.PharmClassDosageFormExclusion')
+      AND name = 'IX_PharmClassDosageFormExclusion_ClassCode_FormCode'
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_PharmClassDosageFormExclusion_ClassCode_FormCode
+    ON dbo.PharmClassDosageFormExclusion (ClassCode, ExcludedFormCode)
+    WHERE IsActive = 1;
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID('dbo.PharmClassDosageFormExclusion')
+      AND name = 'IX_PharmClassDosageFormExclusion_Category'
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_PharmClassDosageFormExclusion_Category
+    ON dbo.PharmClassDosageFormExclusion (ExclusionCategory)
+    WHERE IsActive = 1;
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.PharmClassDosageFormExclusion)
+BEGIN
+    PRINT 'WARNING: dbo.PharmClassDosageFormExclusion is empty. Run Patch/MedRecPro-Patch-PharmClassDosageFormDependency.sql to seed dosage-form exclusion rules.';
+END
 GO
 
 /*******************************************************************************/
@@ -1708,7 +1769,7 @@ SELECT
         WHEN v.name = 'vw_DEAScheduleLookup' THEN 
             'Query with: WHERE DEAScheduleCode IS NOT NULL'
         WHEN v.name = 'vw_AeRisk' THEN
-            'Query with: WHERE Significance IN (''elevated'', ''protective'') OR NumberNeededType = ''NNH'''
+            'Query with: WHERE Significance IN (''elevated'', ''protective'') OR CalculationFlags LIKE ''%NO_PRODUCT_CLASS_CONTEXT%'''
         WHEN v.name = 'vw_AeDrugSummary' THEN
             'Query with: WHERE SignificantElevatedCount > 0 OR PlaceboCoverage = 1'
         WHEN v.name = 'vw_ProductSummary' THEN 
@@ -3299,12 +3360,12 @@ GO
 
 /**************************************************************/
 -- View: vw_AeRisk
--- Purpose: Combines Stage 5 adverse-event risk statistics with product and
---          pharmacologic-class context for number-needed analysis.
+-- Purpose: Combines Stage 5 adverse-event risk statistics with product,
+--          substance, and optional pharmacologic-class context for number-needed analysis.
 -- Usage: Identify elevated or protective AE signals by product, substance,
 --        pharmacologic class, placebo control, population, and dose context.
--- Returns: One row per flattened AE risk row and pharmacologic-class product
---          linkage, including RR confidence bounds, significance, and NNH/NNT.
+-- Returns: One row per flattened AE risk row and optional pharmacologic-class
+--          product linkage, including RR confidence bounds, significance, and NNH/NNT.
 -- Indexes Used: IX_FAE_DocumentGUID, IX_FAE_SourceID,
 --               IX_FAE_UNII, IX_FAE_ParameterName, IX_FAE_ParameterCategory
 -- See also: tmp_FlattenedAdverseEventTable, vw_ProductsByPharmacologicClass
@@ -3320,20 +3381,20 @@ GO
 CREATE VIEW dbo.vw_AeRisk
 AS
 /**************************************************************/
--- Projects adverse-event rows into product/class risk facts. Significant RR
--- intervals above 1 emit NNH, significant intervals below 1 emit NNT, and
--- non-significant rows retain the RR/log-RR context without number-needed math.
+-- Projects adverse-event rows into risk facts. Product/class enrichment is
+-- nullable so Stage 5 RR-ready rows are not dropped when ingredient class
+-- context is unavailable.
 /**************************************************************/
 SELECT
     -- Source and product/class identification
     fae.DocumentGUID,
     fae.tmp_FlattenedAdverseEventTableID,
     fae.tmp_FlattenedStandardizedTableID,
-    pc.ActiveMoietyID,
-    pc.IngredientSubstanceID,
+    COALESCE(pc.ActiveMoietyID, productContext.ActiveMoietyID) AS ActiveMoietyID,
+    COALESCE(pc.IngredientSubstanceID, productContext.IngredientSubstanceID) AS IngredientSubstanceID,
     pc.PharmacologicClassID,
-    pc.ProductName,
-    pc.SubstanceName,
+    COALESCE(pc.ProductName, productContext.ProductName) AS ProductName,
+    COALESCE(pc.SubstanceName, productContext.SubstanceName) AS SubstanceName,
     pc.PharmClassCode,
     pc.PharmClassName,
 
@@ -3342,9 +3403,9 @@ SELECT
     fae.ParameterName,
     fae.ParameterCategory,
     sig.Significance,
-    CASE sig.Significance
-        WHEN 'elevated' THEN 'NNH'
-        WHEN 'protective' THEN 'NNT'
+    CASE
+        WHEN r.RiskT > r.RiskC THEN 'NNH'
+        WHEN r.RiskT < r.RiskC THEN 'NNT'
     END AS NumberNeededType,
 
     -- Denominators and observed event counts
@@ -3353,17 +3414,15 @@ SELECT
     fae.EventsTreatment,
     fae.EventsComparator,
 
-    -- Number-needed estimates only apply when the CI excludes 1
+    -- Number-needed estimates are computed for every RR-ready row. Significance
+    -- describes the CI classification, not whether the point estimate exists.
+    ABS(1.0 / NULLIF(r.RiskT - r.RiskC, 0)) AS NumberNeeded,
     CASE
-        WHEN sig.IsSignificant = 1
-        THEN ABS(1.0 / NULLIF(r.RiskT - r.RiskC, 0))
-    END AS NumberNeeded,
-    CASE
-        WHEN sig.IsSignificant = 1
+        WHEN nnt.AtLower IS NOT NULL AND nnt.AtUpper IS NOT NULL
         THEN CASE WHEN nnt.AtLower < nnt.AtUpper THEN nnt.AtLower ELSE nnt.AtUpper END
     END AS NumberNeededLowerBound,
     CASE
-        WHEN sig.IsSignificant = 1
+        WHEN nnt.AtLower IS NOT NULL AND nnt.AtUpper IS NOT NULL
         THEN CASE WHEN nnt.AtLower > nnt.AtUpper THEN nnt.AtLower ELSE nnt.AtUpper END
     END AS NumberNeededUpperBound,
 
@@ -3378,16 +3437,49 @@ SELECT
     -- Ingredient/combo and provenance context
     fae.UNII,
     combo.IsCombo,
-    fae.CalculationFlags,
+    CAST(LEFT(CASE
+        WHEN pc.DocumentGUID IS NULL THEN
+            CASE
+                WHEN NULLIF(fae.CalculationFlags, '') IS NULL THEN 'NO_PRODUCT_CLASS_CONTEXT'
+                WHEN CHARINDEX('NO_PRODUCT_CLASS_CONTEXT', fae.CalculationFlags) > 0 THEN fae.CalculationFlags
+                ELSE CONCAT(fae.CalculationFlags, ';NO_PRODUCT_CLASS_CONTEXT')
+            END
+        ELSE fae.CalculationFlags
+    END, 500) AS NVARCHAR(500)) AS CalculationFlags,
     fae.StudyContext,
     fae.Population,
     fae.Subpopulation,
     fae.Dose,
     fae.DoseUnit
 FROM dbo.tmp_FlattenedAdverseEventTable AS fae
-INNER JOIN (
+OUTER APPLY (
+    SELECT TOP (1)
+        pbi.ActiveMoietyID,
+        pbi.IngredientSubstanceID,
+        pbi.ProductName,
+        pbi.SubstanceName
+    FROM dbo.vw_ProductsByIngredient AS pbi
+    WHERE pbi.DocumentGUID = fae.DocumentGUID
+      AND pbi.IngredientClassCode <> 'IACT'
+      AND pbi.UNII IS NOT NULL
+      AND (
+          pbi.UNII = fae.UNII
+          OR (
+              fae.UNII LIKE '%+%'
+              AND CHARINDEX(CONCAT('+', pbi.UNII, '+'), CONCAT('+', REPLACE(fae.UNII, ' ', ''), '+')) > 0
+          )
+      )
+    ORDER BY
+        CASE WHEN pbi.UNII = fae.UNII THEN 0 ELSE 1 END,
+        CASE WHEN pbi.ActiveMoietyID IS NOT NULL THEN 0 ELSE 1 END,
+        pbi.IngredientSubstanceID,
+        pbi.ProductName
+) AS productContext
+LEFT JOIN (
     SELECT DISTINCT
         DocumentGUID,
+        MoietyUNII,
+        SubstanceUNII,
         ActiveMoietyID,
         IngredientSubstanceID,
         PharmacologicClassID,
@@ -3398,6 +3490,20 @@ INNER JOIN (
     FROM dbo.vw_ProductsByPharmacologicClass
 ) AS pc
     ON pc.DocumentGUID = fae.DocumentGUID
+    AND (
+        (pc.SubstanceUNII IS NOT NULL AND pc.SubstanceUNII = fae.UNII)
+        OR (pc.MoietyUNII IS NOT NULL AND pc.MoietyUNII = fae.UNII)
+        OR (
+            fae.UNII LIKE '%+%'
+            AND pc.SubstanceUNII IS NOT NULL
+            AND CHARINDEX(CONCAT('+', pc.SubstanceUNII, '+'), CONCAT('+', REPLACE(fae.UNII, ' ', ''), '+')) > 0
+        )
+        OR (
+            fae.UNII LIKE '%+%'
+            AND pc.MoietyUNII IS NOT NULL
+            AND CHARINDEX(CONCAT('+', pc.MoietyUNII, '+'), CONCAT('+', REPLACE(fae.UNII, ' ', ''), '+')) > 0
+        )
+    )
 CROSS APPLY (VALUES (
      1.0 * fae.EventsTreatment  / NULLIF(fae.ArmN, 0),
      1.0 * fae.EventsComparator / NULLIF(fae.ComparatorN, 0)
@@ -3424,21 +3530,10 @@ CROSS APPLY (VALUES (
 )) AS combo (IsCombo);
 GO
 
-IF NOT EXISTS (
-    SELECT 1 FROM sys.extended_properties
-    WHERE major_id = OBJECT_ID('dbo.vw_AeRisk')
-    AND name = 'MS_Description'
-)
-BEGIN
-    EXEC sp_addextendedproperty
-        @name = N'MS_Description',
-        @value = N'Combines Stage 5 flattened adverse-event RR statistics with product and pharmacologic-class context. Classifies elevated/protective/not-significant confidence intervals and exposes NNH/NNT estimates with population, dose, combo, placebo-control, and calculation provenance metadata.',
-        @level0type = N'SCHEMA', @level0name = N'dbo',
-        @level1type = N'VIEW', @level1name = N'vw_AeRisk';
-END
-GO
-
-PRINT 'Created view: vw_AeRisk';
+IF OBJECT_ID('dbo.vw_AeRisk', 'V') IS NOT NULL
+    PRINT 'Created view: vw_AeRisk';
+ELSE
+    PRINT 'Skipped view documentation: vw_AeRisk was not created. Run MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql, then rerun MedRecPro_Views.sql.';
 GO
 
 --#endregion
@@ -3447,7 +3542,7 @@ GO
 
 /**************************************************************/
 -- View: vw_AeDrugSummary
--- Purpose: Aggregates the materialized AE risk table into one product-level
+-- Purpose: Aggregates class-enriched materialized AE risk rows into one product-level
 --          dashboard summary row per document, substance, and pharmacologic class.
 -- Usage: Populate AE dashboard product pickers, KPI strips, and cross-product
 --        comparisons before later derivation logic adds chart-worthiness scores.
@@ -3492,6 +3587,7 @@ SELECT
         ELSE 'mixed'
     END AS MonoComboMix
 FROM dbo.tmp_FlattenedAdverseEventRiskTable AS r
+WHERE r.PharmacologicClassID IS NOT NULL
 GROUP BY
     r.DocumentGUID,
     r.ProductName,
@@ -3504,21 +3600,10 @@ GROUP BY
     r.PharmacologicClassID;
 GO
 
-IF NOT EXISTS (
-    SELECT 1 FROM sys.extended_properties
-    WHERE major_id = OBJECT_ID('dbo.vw_AeDrugSummary')
-    AND name = 'MS_Description'
-)
-BEGIN
-    EXEC sp_addextendedproperty
-        @name = N'MS_Description',
-        @value = N'Aggregates materialized AE risk rows into one product/document/substance/pharmacologic-class summary row for dashboard pickers, KPI strips, and cross-product comparison entry points. Non-deterministic score and tier fields are intentionally derived outside SQL.',
-        @level0type = N'SCHEMA', @level0name = N'dbo',
-        @level1type = N'VIEW', @level1name = N'vw_AeDrugSummary';
-END
-GO
-
-PRINT 'Created view: vw_AeDrugSummary';
+IF OBJECT_ID('dbo.vw_AeDrugSummary', 'V') IS NOT NULL
+    PRINT 'Created view: vw_AeDrugSummary';
+ELSE
+    PRINT 'Skipped view documentation: vw_AeDrugSummary was not created. Run MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql, then rerun MedRecPro_Views.sql.';
 GO
 
 --#endregion
@@ -3544,6 +3629,11 @@ IF OBJECT_ID('dbo.vw_OrangeBookPatent', 'V') IS NOT NULL
     DROP VIEW dbo.vw_OrangeBookPatent;
 GO
 
+IF OBJECT_ID('dbo.OrangeBookProduct', 'U') IS NOT NULL
+   AND OBJECT_ID('dbo.OrangeBookPatent', 'U') IS NOT NULL
+   AND OBJECT_ID('dbo.OrangeBookPatentUseCode', 'U') IS NOT NULL
+BEGIN
+    EXEC(N'
 CREATE VIEW dbo.vw_OrangeBookPatent
 AS
 /**************************************************************/
@@ -3552,7 +3642,7 @@ AS
 --   HasWithdrawnCommercialReasonFlag: Strength contains Federal Register note
 --   HasPediatricFlag: Matching *PED patent row exists
 --   HasLevothyroxineFlag: Strength contains Levothyroxine special note
--- Filters: ApplType = 'N' (NDA) and PatentExpireDate IS NOT NULL
+-- Filters: ApplType = ''N'' (NDA) and PatentExpireDate IS NOT NULL
 /**************************************************************/
 SELECT DISTINCT
     dbo.vw_ActiveIngredients.DocumentGUID,
@@ -3563,10 +3653,10 @@ SELECT DISTINCT
     dbo.OrangeBookProduct.TradeName,
     REPLACE(
         REPLACE(dbo.OrangeBookProduct.Strength,
-            ' **Federal Register determination that product was not discontinued or withdrawn for safety or effectiveness reasons**',
-            ''),
-        ' **See current Annual Edition, 1.8 Description of Special Situations, Levothyroxine Sodium',
-        '') AS Strength,
+            '' **Federal Register determination that product was not discontinued or withdrawn for safety or effectiveness reasons**'',
+            ''''),
+        '' **See current Annual Edition, 1.8 Description of Special Situations, Levothyroxine Sodium'',
+        '''') AS Strength,
     dbo.OrangeBookProduct.DosageForm,
     dbo.OrangeBookProduct.Route,
     dbo.OrangeBookPatent.PatentNo,
@@ -3577,7 +3667,7 @@ SELECT DISTINCT
     dbo.OrangeBookPatent.DrugProductFlag,
     dbo.OrangeBookPatent.DelistFlag,
     CASE
-        WHEN dbo.OrangeBookProduct.Strength LIKE '%**Federal Register determination%'
+        WHEN dbo.OrangeBookProduct.Strength LIKE ''%**Federal Register determination%''
         THEN CAST(1 AS BIT)
         ELSE CAST(0 AS BIT)
     END AS HasWithdrawnCommercialReasonFlag,
@@ -3586,7 +3676,7 @@ SELECT DISTINCT
         ELSE CAST(0 AS BIT)
     END AS HasPediatricFlag,
     CASE
-        WHEN dbo.OrangeBookProduct.Strength LIKE '%Special Situations, Levothyroxine Sodium'
+        WHEN dbo.OrangeBookProduct.Strength LIKE ''%Special Situations, Levothyroxine Sodium''
         THEN CAST(1 AS BIT)
         ELSE CAST(0 AS BIT)
     END AS HasLevothyroxineFlag
@@ -3597,9 +3687,9 @@ LEFT OUTER JOIN dbo.OrangeBookPatent
 LEFT OUTER JOIN dbo.vw_ActiveIngredients
     ON dbo.OrangeBookProduct.ApplNo = dbo.vw_ActiveIngredients.ApplicationNumber
     AND dbo.OrangeBookProduct.ApplType = CASE dbo.vw_ActiveIngredients.ApplicationType
-        WHEN 'NDA' THEN 'N'
-        WHEN 'ANDA' THEN 'A'
-        WHEN 'BLA' THEN 'B'
+        WHEN ''NDA'' THEN ''N''
+        WHEN ''ANDA'' THEN ''A''
+        WHEN ''BLA'' THEN ''B''
         ELSE LEFT(dbo.vw_ActiveIngredients.ApplicationType, 1)
     END
 LEFT OUTER JOIN dbo.OrangeBookPatentUseCode
@@ -3610,13 +3700,52 @@ OUTER APPLY (
     WHERE ped.OrangeBookProductID = dbo.OrangeBookPatent.OrangeBookProductID
         AND ped.ProductNo = dbo.OrangeBookPatent.ProductNo
         AND (
-            ped.PatentNo = dbo.OrangeBookPatent.PatentNo + '*PED'
-            OR ped.PatentNo = REPLACE(dbo.OrangeBookPatent.PatentNo, '*PED', '')
+            ped.PatentNo = dbo.OrangeBookPatent.PatentNo + ''*PED''
+            OR ped.PatentNo = REPLACE(dbo.OrangeBookPatent.PatentNo, ''*PED'', '''')
         )
         AND ped.PatentNo <> dbo.OrangeBookPatent.PatentNo
 ) PedCheck
-WHERE dbo.OrangeBookProduct.ApplType = 'N'
+WHERE dbo.OrangeBookProduct.ApplType = ''N''
     AND dbo.OrangeBookPatent.PatentExpireDate IS NOT NULL;
+');
+
+    PRINT 'Created view: vw_OrangeBookPatent';
+END
+ELSE
+BEGIN
+    EXEC(N'
+CREATE VIEW dbo.vw_OrangeBookPatent
+AS
+/**************************************************************/
+-- Empty compatibility view created because Orange Book tables are not present.
+-- Run MedRecPro-TableCreate-OrangeBook.sql, then rerun MedRecPro_Views.sql to
+-- replace this placeholder with the full patent cross-reference view.
+/**************************************************************/
+SELECT
+    CAST(NULL AS UNIQUEIDENTIFIER) AS DocumentGUID,
+    CAST(NULL AS VARCHAR(1)) AS ApplicationType,
+    CAST(NULL AS VARCHAR(6)) AS ApplicationNumber,
+    CAST(NULL AS VARCHAR(3)) AS ProductNo,
+    CAST(NULL AS VARCHAR(1000)) AS Ingredient,
+    CAST(NULL AS VARCHAR(500)) AS TradeName,
+    CAST(NULL AS VARCHAR(1000)) AS Strength,
+    CAST(NULL AS VARCHAR(500)) AS DosageForm,
+    CAST(NULL AS VARCHAR(500)) AS Route,
+    CAST(NULL AS VARCHAR(50)) AS PatentNo,
+    CAST(NULL AS DATE) AS PatentExpireDate,
+    CAST(NULL AS VARCHAR(20)) AS PatentUseCode,
+    CAST(NULL AS VARCHAR(MAX)) AS Definition,
+    CAST(NULL AS BIT) AS DrugSubstanceFlag,
+    CAST(NULL AS BIT) AS DrugProductFlag,
+    CAST(NULL AS BIT) AS DelistFlag,
+    CAST(NULL AS BIT) AS HasWithdrawnCommercialReasonFlag,
+    CAST(NULL AS BIT) AS HasPediatricFlag,
+    CAST(NULL AS BIT) AS HasLevothyroxineFlag
+WHERE 1 = 0;
+');
+
+    PRINT 'Created placeholder view: vw_OrangeBookPatent (Orange Book tables not found)';
+END
 GO
 
 IF NOT EXISTS (
@@ -3633,7 +3762,7 @@ BEGIN
 END
 GO
 
-PRINT 'Created view: vw_OrangeBookPatent';
+PRINT 'Ready view: vw_OrangeBookPatent';
 GO
 
 --#endregion
@@ -3652,9 +3781,9 @@ PRINT '  - vw_InactiveIngredients: Inactive ingredients (IACT) with normalized a
 PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized app numbers';
 PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination';
 PRINT '  - vw_InventorySummary: Comprehensive inventory summary for AI discovery';
-PRINT '  - vw_AeRisk: Adverse event RR signals with pharmacologic class and NNH/NNT context';
-PRINT '  - vw_AeDrugSummary: Product-level AE dashboard summary rows';
-PRINT '  - vw_OrangeBookPatent: NDA patent data with SPL label cross-reference and flags';
+PRINT '  - vw_AeRisk: Adverse event RR signals with optional pharmacologic class and NNH/NNT context';
+PRINT '  - vw_AeDrugSummary: Class-enriched product-level AE dashboard summary rows';
+PRINT '  - vw_OrangeBookPatent: NDA patent data with SPL label cross-reference and flags, or an empty compatibility view when Orange Book tables are absent';
 PRINT '';
 
 GO

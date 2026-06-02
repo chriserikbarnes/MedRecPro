@@ -104,9 +104,10 @@ namespace MedRecProConsole.Services
                 await orchestrator.TruncateAsync();
 
                 // Truncate the Stage 5 output tables too — when the Stage 3 source
-                // is wiped, AE denormalization and risk materialization are stale by
-                // definition. Resolved from DI so the InMemory-provider fallback
-                // inside AdverseEventDenormalizationService.TruncateAsync remains usable.
+                // is wiped, AE denormalization coverage, RR-ready stats, and risk
+                // materialization are stale by definition. Resolved from DI so the
+                // InMemory-provider fallback inside
+                // AdverseEventDenormalizationService.TruncateAsync remains usable.
                 var aeDenormalizer = scope.ServiceProvider
                     .GetService<IAdverseEventDenormalizationService>();
                 if (aeDenormalizer != null)
@@ -126,7 +127,7 @@ namespace MedRecProConsole.Services
                 {
                     AnsiConsole.MarkupLine(
                         aeDenormalizer != null
-                            ? "[green]tmp_FlattenedStandardizedTable, tmp_FlattenedAdverseEventTable, and tmp_FlattenedAdverseEventRiskTable truncated successfully.[/]"
+                            ? "[green]tmp_FlattenedStandardizedTable, tmp_FlattenedAdverseEventCoverageTable, tmp_FlattenedAdverseEventTable, and tmp_FlattenedAdverseEventRiskTable truncated successfully.[/]"
                             : "[green]tmp_FlattenedStandardizedTable truncated successfully.[/]");
                 }
 

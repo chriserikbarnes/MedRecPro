@@ -12,7 +12,7 @@ This library was created to enable single-file publishing for the `MedRecProCons
 - **FDA Orange Book Import**: Parses `products.txt`, `patent.txt`, and `exclusivity.txt` (tilde-delimited) from Orange Book ZIP files with idempotent upserts and multi-tier entity matching to existing SPL data, plus embedded patent use code definitions
 - **Entity Framework Core Integration**: Database context and repository pattern for data persistence
 - **SPL Table Normalization**: Multi-stage pipeline transforms heterogeneous FDA drug label tables into a uniform 41-column analytical schema (`tmp_FlattenedStandardizedTable`) for cross-product analysis -- includes Stage 0 bioequivalent ANDA dedup, table reconstruction, five concrete section-aware parsers, structural-row suppression audit, category downgrade gates, 4-phase column standardization with explicit Phase 1 / Phase 2 ordering pipelines, deterministic parse-quality gate, shadow-mode QCNet diagnostics, guarded Claude AI correction, post-processing extraction, automated validation, and shared DI registration through `AddTableStandardization(...)`
-- **AE Denormalization (Stage 5)**: Pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions per AE row into `tmp_FlattenedAdverseEventTable`, then materializes `dbo.vw_AeRisk` into `tmp_FlattenedAdverseEventRiskTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service + helper decomposition + `RelativeRiskCalculator` utility) are both shipped
+- **AE Denormalization (Stage 5)**: Audits standardized AE source-row coverage in `tmp_FlattenedAdverseEventCoverageTable`, pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), 95% CI bounds, and PERSISTED log-scale companions for RR-ready rows in `tmp_FlattenedAdverseEventTable`, then materializes `dbo.vw_AeRisk` into `tmp_FlattenedAdverseEventRiskTable` so real-time visualizations bind without runtime statistics. Phase 1 (the SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service + helper decomposition + `RelativeRiskCalculator` utility) are both shipped
 - **39+ Specialized Parsers**: Covers all SPL document sections and Orange Book data including:
   - Document structure and sections
   - Products, ingredients, and packaging
@@ -107,7 +107,7 @@ MedRecProImportClass/
         |   +-- AdverseEventDenormalizationService.cs  # Population service (truncate + stream + classify + write + risk materialize)
         |   +-- SourceRowEligibility.cs                # Source row inclusion / exclusion rules
         |   +-- ComparatorGrouper.cs                   # Study-group keying for comparator selection
-        |   +-- ComparatorSelector.cs                  # Placebo / low-dose / no-comparator cascade
+        |   +-- ComparatorSelector.cs                  # Placebo / dose / active-comparator cascade
         |   +-- AeStatEntityBuilder.cs                 # Entity projection plus RR/DNRR calculation wiring
         |   +-- AeDenormalizationConstants.cs          # Shared calculation method / flag constants
         |   +-- IPlaceboArmClassifier.cs               # Shared placebo-arm classifier contract and default wrapper
@@ -335,11 +335,12 @@ Stage 4: Validation
   RowValidationService + TableValidationService + BatchValidationService -> BatchValidationReport
         |
 Stage 5: AE Denormalization (Phase 1 SQL DDL + Phase 2 service both shipped)
-  AdverseEventDenormalizationService + helper services -> tmp_FlattenedAdverseEventTable
+  AdverseEventDenormalizationService + helper services -> tmp_FlattenedAdverseEventCoverageTable
+  RR-ready rows -> tmp_FlattenedAdverseEventTable
   dbo.vw_AeRisk -> tmp_FlattenedAdverseEventRiskTable
-        (one row per eligible AE source row except the comparator chosen per study group;
+        (coverage row per Stage 5 source outcome; RR-ready stats table;
          RR/DNRR/CI pre-computed; PERSISTED log columns auto-maintained by SQL Server;
-         risk view materialized as the final Stage 5 step)
+         risk view left-preserved and materialized as the final Stage 5 step)
 ```
 
 ### Stage 0: Bioequivalent Label Dedup
@@ -576,7 +577,7 @@ Validation results are returned as in-memory DTOs (`BatchValidationReport`) and 
 
 ### Stage 5: Adverse Event Denormalization
 
-Stage 5 produces two outputs. `tmp_FlattenedAdverseEventTable` is a denormalized, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics. `tmp_FlattenedAdverseEventRiskTable` is a persistent materialization of `dbo.vw_AeRisk` refreshed after the AE stats table is populated, so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering, product/class risk views) bind directly without runtime joins or stats. The DDL scripts are at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql` and `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`.
+Stage 5 produces three outputs. `tmp_FlattenedAdverseEventCoverageTable` records source-row coverage and non-RR audit reasons. `tmp_FlattenedAdverseEventTable` is the RR-ready, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics. `tmp_FlattenedAdverseEventRiskTable` is a persistent materialization of left-preserving `dbo.vw_AeRisk` refreshed after the AE stats table is populated, so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering, product/class risk views) bind directly without runtime joins or stats. The DDL scripts are at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql`, `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`, and `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`.
 
 **Status:** Phase 1 (SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service, EF entities, DTO, `RelativeRiskCalculator` utility, helper decomposition, orchestrator hook, DI registration, and final risk-table materialization) are both shipped.
 
@@ -591,20 +592,24 @@ Stage 5 produces two outputs. `tmp_FlattenedAdverseEventTable` is a denormalized
 |--------|----------------|
 | `SourceRowEligibility` | Filters invalid AE source rows before comparator grouping while preserving eligible missing-ArmN rows for percentage-only fallback. |
 | `ComparatorGrouper` | Builds deterministic study groups scoped by document/table/parameter context. |
-| `ComparatorSelector` | Applies the placebo, lowest non-zero dose, and single-arm comparator cascade. |
+| `ComparatorSelector` | Applies placebo, lowest non-zero dose, explicit active-control, inferred two-arm active, ambiguous multi-arm, and single-arm comparator decisions. |
 | `AeStatEntityBuilder` | Projects source/comparator rows into `FlattenedAdverseEventTable` entities and wires RR/DNRR calculations. |
 | `AeDenormalizationConstants` | Centralizes calculation method and flag token constants. |
 | `IPlaceboArmClassifier` / `PlaceboArmClassifier` | Provides shared placebo-arm classification by delegating to `RelativeRiskCalculator.IsPlaceboArm(...)`. |
 
 **Study group key:** source rows are first scoped by `(DocumentGUID, TextTableID)`, then `ComparatorGrouper` splits comparator cohorts by normalized `(ParameterName, ParameterSubtype, StudyContext, Population, Subpopulation)`. `TextTableID` is included so the same AE term appearing in multiple study tables of one document does not get a single comparator cross-paired across unrelated studies. Rows with NULL `DocumentGUID` are skipped with a warning log.
 
-**Comparator cascade** (deterministic tie-breakers: `Dose` nulls-first, then `SourceRowSeq`, `SourceCellSeq`, source `Id`):
+**Comparator cascade** (deterministic tie-breakers: source row, source cell, source `Id`; dose tier sorts by dose first):
 
-1. Placebo arm — `placebo`/`sham`/`vehicle` (case-insensitive) OR `Dose == 0` → `PLACEBO_COMPARATOR`
-2. Lowest non-zero `Dose` → `LOW_DOSE_COMPARATOR`
-3. Single-arm fallback → `NO_COMPARATOR` (stats NULL)
+1. Placebo arm - `placebo`/`sham`/`vehicle` (case-insensitive) OR `Dose == 0` -> `PLACEBO_COMPARATOR`
+2. Lowest non-zero `Dose` -> `LOW_DOSE_COMPARATOR`
+3. Explicit control/comparator/reference arm text -> `EXPLICIT_CONTROL_COMPARATOR`
+4. Exactly two distinct active arms with no prior evidence -> `ACTIVE_COMPARATOR_INFERRED`
+5. Ambiguous multi-arm active cohort -> `AMBIGUOUS_COMPARATOR` (coverage only)
+6. Single-arm fallback -> `SINGLE_ARM` (coverage only)
 
-`ACTIVE_COMPARATOR` is reserved for a future phase that has arm-level UNII; the current source row carries only document-level UNII so active-comparator detection is not implementable.
+Active-comparator RR is ordinary RR. `IsPlaceboControlled` remains false unless
+the selected comparator is placebo/sham/vehicle/zero-dose.
 
 **`IsPlaceboControlled`** is a row-level placebo-comparator flag. It is `1` iff the row's chosen comparator was a placebo arm (matches `placebo`/`sham`/`vehicle` regex or has Dose=0) — equivalent to `CalculationFlags LIKE 'PLACEBO_COMPARATOR%'` but indexable as a bit. May vary across rows of the same DocumentGUID and even within one TextTableID when a parameter group lacks a placebo row. Independent of the bit, the per-`(DocumentGUID, TextTableID)` trial-design classifier emits `AMBIGUOUS_TRIAL_DESIGN` into `CalculationFlags` when arm names cannot be reduced to a usable root.
 
@@ -657,7 +662,7 @@ The bit is `1` iff the row's chosen comparator (per the cascade above) was a pla
 
 **"Drug-name root"** is extracted by stripping numeric dose tokens (e.g. `50 mg`, `5 mg/kg`, `25 IU`) and common regimen tokens (`qd`, `bid`, `daily`, etc.) from the `TreatmentArm` string and lowercasing. The classifier uses arm-name roots, NOT the document's UNII column.
 
-`CalculationFlags` records the row's actual comparator type (`PLACEBO_COMPARATOR`, `LOW_DOSE_COMPARATOR`, `NO_COMPARATOR`); `ACTIVE_COMPARATOR` is reserved for a future phase with arm-level UNII.
+`CalculationFlags` records the row's actual comparator type (`PLACEBO_COMPARATOR`, `LOW_DOSE_COMPARATOR`, `EXPLICIT_CONTROL_COMPARATOR`, `ACTIVE_COMPARATOR_INFERRED`, `AMBIGUOUS_COMPARATOR`, `SINGLE_ARM`, or `NO_COMPARATOR`).
 
 **Like-typed comparison constraint.** RR/CI/DNRR are computed only when treatment and comparator share the same `PrimaryValueType`:
 
@@ -707,9 +712,11 @@ The six `Log*` columns are SQL Server `PERSISTED` computed columns (materialized
 |------|---------|
 | `PLACEBO_COMPARATOR` | The chosen comparator row was a placebo/sham/vehicle arm or had `Dose = 0` |
 | `LOW_DOSE_COMPARATOR` | The chosen comparator row was the lowest non-zero `Dose` in the group |
-| `NO_COMPARATOR` | Single-arm trial; no comparator could be paired. RR/CI/DNRR are NULL |
-
-`ACTIVE_COMPARATOR` is reserved for a future phase that has arm-level UNII (the current source row's `UNII` is document-level, plus-delimited).
+| `EXPLICIT_CONTROL_COMPARATOR` | The chosen comparator row had explicit control/comparator/reference arm text |
+| `ACTIVE_COMPARATOR_INFERRED` | Exactly two active arms existed and the first source-order arm was selected as comparator |
+| `AMBIGUOUS_COMPARATOR` | Multi-arm active cohort had no deterministic comparator. RR/CI/DNRR are NULL |
+| `SINGLE_ARM` | Single-arm cohort cannot support RR. RR/CI/DNRR are NULL |
+| `NO_COMPARATOR` | No comparator could be paired. RR/CI/DNRR are NULL |
 
 **Math diagnostics:**
 

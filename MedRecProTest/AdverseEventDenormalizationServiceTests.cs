@@ -177,6 +177,11 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(0, written);
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
 
+            var coverage = db.Set<LabelView.FlattenedAdverseEventCoverageTable>().Single();
+            Assert.AreEqual(row.Id, coverage.FlattenedStandardizedTableId);
+            Assert.AreEqual("SINGLE_ARM", coverage.CoverageStatus);
+            Assert.AreEqual("SINGLE_ARM", coverage.ExclusionReason);
+
             #endregion
         }
 
@@ -444,6 +449,110 @@ namespace MedRecPro.Service.Test
 
         #endregion Placebo-Controlled Trial
 
+        #region Active Comparator Trial
+
+        /**************************************************************/
+        /// <summary>
+        /// Two active arms without dose metadata can still produce ordinary RR by
+        /// selecting the first source-order arm as a deterministic comparator.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_TwoActiveArmsWithoutDose_SelectsInferredComparator()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var comparator = aeRow(1, doc, 100, "Tremor", "Albuterol", 65, null, null, 6.0, "Percentage");
+            var treatment = aeRow(2, doc, 100, "Tremor", "Isoproterenol", 65, null, null, 3.0, "Percentage", sourceRowSeq: 2);
+
+            var (service, db) = createService(comparator, treatment);
+
+            var written = await service.PopulateAsync();
+
+            Assert.AreEqual(1, written);
+
+            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
+            Assert.AreEqual(treatment.Id, row.FlattenedStandardizedTableId);
+            Assert.AreEqual("Albuterol", row.ComparatorArm);
+            Assert.IsFalse(row.IsPlaceboControlled);
+            Assert.AreEqual(0.5, row.RR!.Value, 1e-6);
+            StringAssert.Contains(row.CalculationFlags, "ACTIVE_COMPARATOR_INFERRED");
+
+            var coverage = db.Set<LabelView.FlattenedAdverseEventCoverageTable>().ToList();
+            Assert.AreEqual(2, coverage.Count);
+            Assert.AreEqual("SELECTED_COMPARATOR", coverage.Single(c => c.FlattenedStandardizedTableId == comparator.Id).CoverageStatus);
+            Assert.AreEqual("RR_READY", coverage.Single(c => c.FlattenedStandardizedTableId == treatment.Id).CoverageStatus);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Explicit active-control arm labels are allowed to serve as ordinary RR
+        /// comparators when placebo and dose evidence are both absent.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_ExplicitActiveControlWithoutDose_SelectsControlComparator()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var treatment = aeRow(1, doc, 100, "Nausea", "Study Drug", 90, null, null, 18.0, "Percentage");
+            var control = aeRow(2, doc, 100, "Nausea", "Active Comparator", 90, null, null, 9.0, "Percentage", sourceRowSeq: 2);
+
+            var (service, db) = createService(treatment, control);
+
+            var written = await service.PopulateAsync();
+
+            Assert.AreEqual(1, written);
+
+            var row = db.Set<LabelView.FlattenedAdverseEventTable>().Single();
+            Assert.AreEqual("Study Drug", row.TreatmentArm);
+            Assert.AreEqual("Active Comparator", row.ComparatorArm);
+            Assert.IsFalse(row.IsPlaceboControlled);
+            Assert.AreEqual(2.0, row.RR!.Value, 1e-6);
+            StringAssert.Contains(row.CalculationFlags, "EXPLICIT_CONTROL_COMPARATOR");
+
+            var selectedComparator = db.Set<LabelView.FlattenedAdverseEventCoverageTable>()
+                .Single(c => c.FlattenedStandardizedTableId == control.Id);
+            Assert.AreEqual("SELECTED_COMPARATOR", selectedComparator.CoverageStatus);
+            Assert.AreEqual("EXPLICIT_CONTROL_COMPARATOR", selectedComparator.CoverageFlags);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Multi-arm active groups without placebo, dose, or explicit comparator
+        /// evidence remain non-RR and receive a durable ambiguous-comparator audit.
+        /// </summary>
+        [TestMethod]
+        public async Task PopulateAsync_AmbiguousMultiArmActive_AuditsWithoutPersisting()
+        {
+            #region implementation
+
+            var doc = Guid.NewGuid();
+            var armA = aeRow(1, doc, 100, "Headache", "Drug A", 100, null, null, 12.0, "Percentage");
+            var armB = aeRow(2, doc, 100, "Headache", "Drug B", 100, null, null, 8.0, "Percentage", sourceRowSeq: 2);
+            var armC = aeRow(3, doc, 100, "Headache", "Drug C", 100, null, null, 6.0, "Percentage", sourceRowSeq: 3);
+
+            var (service, db) = createService(armA, armB, armC);
+
+            var written = await service.PopulateAsync();
+
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
+
+            var coverage = db.Set<LabelView.FlattenedAdverseEventCoverageTable>().ToList();
+            Assert.AreEqual(3, coverage.Count);
+            Assert.IsTrue(coverage.All(c => c.CoverageStatus == "AMBIGUOUS_COMPARATOR"));
+            Assert.IsTrue(coverage.All(c => c.ExclusionReason == "AMBIGUOUS_COMPARATOR"));
+
+            #endregion
+        }
+
+        #endregion Active Comparator Trial
+
         #region Value-Type Mismatch
 
         /**************************************************************/
@@ -463,6 +572,11 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual(0, written);
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
+
+            var coverage = db.Set<LabelView.FlattenedAdverseEventCoverageTable>().ToList();
+            Assert.AreEqual(2, coverage.Count);
+            Assert.AreEqual("SELECTED_COMPARATOR", coverage.Single(c => c.FlattenedStandardizedTableId == mean.Id).CoverageStatus);
+            Assert.AreEqual("MIXED_VALUE_TYPES", coverage.Single(c => c.FlattenedStandardizedTableId == pct.Id).CoverageStatus);
 
             #endregion
         }
@@ -698,6 +812,11 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(1, rows.Count, "Only the valid Doc's drug row should be emitted");
             Assert.AreEqual(validDoc, rows[0].DocumentGUID);
 
+            var nullDocCoverage = db.Set<LabelView.FlattenedAdverseEventCoverageTable>()
+                .Single(c => c.FlattenedStandardizedTableId == nullDocRow.Id);
+            Assert.AreEqual("NO_DOCUMENT_GUID", nullDocCoverage.CoverageStatus);
+            Assert.AreEqual("NO_DOCUMENT_GUID", nullDocCoverage.ExclusionReason);
+
             #endregion
         }
 
@@ -729,6 +848,11 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("Drug A 50mg", rows[0].TreatmentArm);
             Assert.AreEqual("Placebo", rows[0].ComparatorArm);
             Assert.IsTrue(rows[0].IsPlaceboControlled);
+
+            var invalidCoverage = db.Set<LabelView.FlattenedAdverseEventCoverageTable>()
+                .Where(c => c.CoverageStatus == "INVALID_TREATMENT_ARM")
+                .ToList();
+            Assert.AreEqual(4, invalidCoverage.Count);
 
             #endregion
         }
@@ -938,9 +1062,9 @@ namespace MedRecPro.Service.Test
         }
 
         /**************************************************************/
-        /// <summary>TruncateAsync clears both Stage 5 tables even when called directly.</summary>
+        /// <summary>TruncateAsync clears all Stage 5 tables even when called directly.</summary>
         [TestMethod]
-        public async Task TruncateAsync_ClearsAeAndRiskTables()
+        public async Task TruncateAsync_ClearsAeCoverageAndRiskTables()
         {
             #region implementation
 
@@ -951,6 +1075,13 @@ namespace MedRecPro.Service.Test
                 FlattenedStandardizedTableId = 1,
                 DocumentGUID = Guid.NewGuid(),
                 ParameterName = "Test"
+            });
+            db.Set<LabelView.FlattenedAdverseEventCoverageTable>().Add(new LabelView.FlattenedAdverseEventCoverageTable
+            {
+                FlattenedStandardizedTableId = 1,
+                DocumentGUID = Guid.NewGuid(),
+                ParameterName = "Test",
+                CoverageStatus = "RR_READY"
             });
             db.Set<LabelView.FlattenedAdverseEventRiskTable>().Add(new LabelView.FlattenedAdverseEventRiskTable
             {
@@ -963,12 +1094,42 @@ namespace MedRecPro.Service.Test
             await db.SaveChangesAsync();
 
             Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
+            Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventCoverageTable>().Count());
             Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventRiskTable>().Count());
 
             await service.TruncateAsync();
 
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
+            Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventCoverageTable>().Count());
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventRiskTable>().Count());
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the Stage 5 coverage entity maps as a keyed table with the
+        /// same decimal precision as the SQL DDL.
+        /// </summary>
+        [TestMethod]
+        public void ApplicationDbContext_MapsFlattenedAdverseEventCoverageTableAsKeyedTable()
+        {
+            #region implementation
+
+            var (_, db) = createService();
+
+            var entityType = db.Model.FindEntityType(typeof(LabelView.FlattenedAdverseEventCoverageTable));
+            Assert.IsNotNull(entityType);
+            Assert.AreEqual("tmp_FlattenedAdverseEventCoverageTable", entityType!.GetTableName());
+            Assert.IsNotNull(entityType.FindPrimaryKey());
+
+            var doseProperty = entityType.FindProperty(nameof(LabelView.FlattenedAdverseEventCoverageTable.Dose));
+            Assert.IsNotNull(doseProperty);
+            Assert.AreEqual("decimal(18, 6)", doseProperty!.FindAnnotation("Relational:ColumnType")?.Value);
+
+            var comparatorDoseProperty = entityType.FindProperty(nameof(LabelView.FlattenedAdverseEventCoverageTable.ComparatorDose));
+            Assert.IsNotNull(comparatorDoseProperty);
+            Assert.AreEqual("decimal(18, 6)", comparatorDoseProperty!.FindAnnotation("Relational:ColumnType")?.Value);
 
             #endregion
         }

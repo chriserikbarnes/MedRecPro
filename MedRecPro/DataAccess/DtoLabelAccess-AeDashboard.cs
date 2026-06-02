@@ -182,7 +182,9 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             // Start from the materialized risk table and constrain by SPL document
-            // in SQL before any DTO projection happens.
+            // in SQL before any DTO projection happens. vw_AeRisk is
+            // left-preserving, so raw signal rows may intentionally have null
+            // product/pharmacologic-class metadata.
             var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
                 .AsNoTracking()
                 .Where(signal => signal.DocumentGUID == documentGuid);
@@ -803,9 +805,9 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             // Collapse duplicate risk rows to one signal per viewer-visible clinical stratum
-            // before mapping. This removes both the pharmacologic-class cartesian fan-out from
-            // vw_AeRisk (the class subquery is joined on DocumentGUID only, so a product mapped
-            // to N pharmacologic classes emits each AE statistic N times) and the multi-arm
+            // before mapping. This removes both the pharmacologic-class fan-out from
+            // class-enriched vw_AeRisk rows (the product/substance context is stable, but a
+            // substance can still map to N pharmacologic classes) and the multi-arm
             // duplication where the same term/dose/comparator is reported for both a pooled arm
             // and a smaller, unlabeled subgroup arm. Collapsing at the entity grain also avoids
             // encrypting throwaway rows.
@@ -823,9 +825,11 @@ namespace MedRecPro.DataAccess
         /// <param name="entities">Materialized risk-table rows for one or more documents.</param>
         /// <returns>One row per (document, term, SOC, dose, comparator, study/population context), keeping the most statistically powered arm.</returns>
         /// <remarks>
-        /// Two sources of duplication are removed here. First, <c>vw_AeRisk</c> joins the
-        /// pharmacologic-class subquery on <c>DocumentGUID</c> only, so a product mapped to
-        /// several pharmacologic classes emits identical copies of every AE statistic. Second,
+        /// Two sources of duplication are removed here. First, class-enriched
+        /// <c>vw_AeRisk</c> rows can fan out because one product/substance can map to several
+        /// pharmacologic classes, emitting identical copies of every AE statistic except the
+        /// class columns. Left-preserved rows without class context pass through as a single
+        /// raw risk signal. Second,
         /// the same adverse event at the same dose and comparator can be reported for both a
         /// pooled arm and a smaller subgroup arm that carries no
         /// <see cref="LabelView.FlattenedAdverseEventRiskTable.Population"/> or

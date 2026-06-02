@@ -9,7 +9,12 @@
  *
  * Re-runnable: IF NOT EXISTS guard. Truncate-on-rerun via orchestrator.
  ******************************************************************************/
-USE MedRecProDB
+/**************************************************************/
+-- Target database: select the intended MedRecPro database before running.
+-- This script intentionally does not issue USE so it cannot silently create
+-- the Stage 3 table in a different database than the view refresh target.
+/**************************************************************/
+Use MedRecLocal
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'tmp_FlattenedStandardizedTable')
 BEGIN
     CREATE TABLE tmp_FlattenedStandardizedTable (

@@ -950,7 +950,7 @@ namespace MedRecProConsole.Services
             services.AddScoped<ITableParserRouter, TableParserRouter>();
             services.AddScoped<ITableParsingOrchestrator, TableParsingOrchestrator>();
 
-            // Stage 5 (Phase 2): AdverseEvent Denormalization — pre-computes RR/DNRR/CI per AE row
+            // Stage 5 (Phase 2): AdverseEvent denormalization coverage, RR-ready stats, and risk materialization.
             services.AddScoped<IAdverseEventDenormalizationService, AdverseEventDenormalizationService>();
 
             return services.BuildServiceProvider();

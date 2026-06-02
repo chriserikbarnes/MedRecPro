@@ -4,7 +4,7 @@
  * Idempotent DDL for the materialized adverse-event risk projection sourced from
  * dbo.vw_AeRisk. Stage 5 refreshes this table after
  * tmp_FlattenedAdverseEventTable has been rebuilt so dashboard queries can read
- * pre-joined product/class context and number-needed estimates without
+ * optional product/class context and number-needed estimates without
  * re-running the view.
  *
  * Pipeline: tmp_FlattenedStandardizedTable (Stage 3 output)
@@ -15,7 +15,13 @@
  *
  * Re-runnable: IF NOT EXISTS guard. Truncate-on-rerun via Stage 5 service.
  ******************************************************************************/
-USE MedRecProDB
+/**************************************************************/
+-- Target database: select the intended MedRecPro database before running.
+-- This script intentionally does not issue USE so it cannot silently create
+-- the Stage 5 AE risk snapshot table in a different database than the view
+-- refresh target.
+/**************************************************************/
+Use MedRecLocal
 IF NOT EXISTS (SELECT * FROM sys.tables AS t INNER JOIN sys.schemas AS s ON t.schema_id = s.schema_id WHERE s.name = 'dbo' AND t.name = 'tmp_FlattenedAdverseEventRiskTable')
 BEGIN
     CREATE TABLE dbo.tmp_FlattenedAdverseEventRiskTable (
