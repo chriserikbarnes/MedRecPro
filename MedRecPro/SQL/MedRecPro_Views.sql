@@ -3537,8 +3537,9 @@ GO
 
 /**************************************************************/
 -- View: vw_AeDrugSummary
--- Purpose: Aggregates class-enriched materialized AE risk rows into one product-level
---          dashboard summary row per document, substance, and pharmacologic class.
+-- Purpose: Aggregates materialized AE risk rows into one product-level dashboard
+--          summary row per document, substance, and pharmacologic class. Class
+--          columns may be null when the label lacks pharmacologic-class context.
 -- Usage: Populate AE dashboard product pickers, KPI strips, and cross-product
 --        comparisons before later derivation logic adds chart-worthiness scores.
 -- Returns: Deterministic row counts, significant-signal counts, comparator
@@ -3552,7 +3553,8 @@ AS
 /**************************************************************/
 -- Keeps non-deterministic dashboard fields out of SQL. Score, score reason,
 -- precision, counseling tier, and interchange labels are intentionally derived
--- by a later dashboard mapping service.
+-- by a later dashboard mapping service. Null pharmacologic classes are retained
+-- so products without class enrichment remain discoverable and loadable.
 /**************************************************************/
 SELECT
     r.DocumentGUID,
@@ -3582,7 +3584,6 @@ SELECT
         ELSE 'mixed'
     END AS MonoComboMix
 FROM dbo.tmp_FlattenedAdverseEventRiskTable AS r
-WHERE r.PharmacologicClassID IS NOT NULL
 GROUP BY
     r.DocumentGUID,
     r.ProductName,
@@ -3777,7 +3778,7 @@ PRINT '  - vw_ActiveIngredients: Active ingredients (non-IACT) with normalized a
 PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination';
 PRINT '  - vw_InventorySummary: Comprehensive inventory summary for AI discovery';
 PRINT '  - vw_AeRisk: Adverse event RR signals with optional pharmacologic class and NNH/NNT context';
-PRINT '  - vw_AeDrugSummary: Class-enriched product-level AE dashboard summary rows';
+PRINT '  - vw_AeDrugSummary: Product-level AE dashboard summary rows, including null pharmacologic-class context';
 PRINT '  - vw_OrangeBookPatent: NDA patent data with SPL label cross-reference and flags, or an empty compatibility view when Orange Book tables are absent';
 PRINT '';
 

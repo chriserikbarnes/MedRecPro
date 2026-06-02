@@ -1,4 +1,4 @@
-# Journal
+﻿# Journal
 ### 2026-02-24 12:25 PM EST — Orange Book Patent Import Service
 Created `OrangeBookPatentParsingService.cs` for importing FDA Orange Book patent.txt data. The service follows the same patterns as `OrangeBookProductParsingService`: tilde-delimited file parsing, batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based natural key lookup, and progress reporting via callbacks.
 
@@ -4389,6 +4389,7 @@ Changed the triage tier sort so repeated adverse-event terms cluster together in
 
 ---
 
+
 ### 2026-05-29 3:47 PM EST — AE Dashboard Trial Context Pills
 Added row-level AE metadata pills for `studyContext` and `population` in the React dashboard so repeated adverse-event terms from different trials or cohorts can be distinguished directly in the triage list. The new pills render only when the API provides values, include hover titles for long labels, and use compact prototype-aligned chip styling with truncation to avoid widening the row. Rebuilt the production dashboard bundle into `MedRecProStatic/wwwroot/ae-dashboard`, verified lint/build success, and confirmed the Vite dev surface responds at `/ae-dashboard/`.
 
@@ -4650,5 +4651,14 @@ Addressed the sampled `tmp_FlattenedAdverseEventRiskTable` product-context and n
 **Implementation.** Confirmed the active `vw_AeRisk` projection resolves product and substance context from `vw_ProductsByIngredient` independently from optional pharmacologic-class enrichment, so rows without class context can still carry `ProductName`, `SubstanceName`, `ActiveMoietyID`, and `IngredientSubstanceID`. Also removed the now-unused `sig.IsSignificant` helper column from the view definition after number-needed estimates moved to every RR-ready row rather than being significance-gated.
 
 **Verification.** `git diff --check -- MedRecPro/SQL/MedRecPro_Views.sql MedRecProTest/AeRiskViewSqlTests.cs` passed with the expected LF-to-CRLF warning on the SQL file. The first focused test run hit the existing running `MedRecPro.exe` output lock, and the `C:\tmp` rerun hit sandbox/output directory access denials; rerunning with an isolated repo-local `BaseOutputPath` passed: `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter AeRiskViewSqlTests -p:BaseOutputPath=...\MedRecProTest\bin\codex-ae-risk-view-...\` completed with 2 passed, 0 failed, 0 skipped. No live SQL Server refresh was executed in this session.
+
+---
+
+### 2026-06-02 2:37 PM EST — Null Pharm-Class AE Dashboard Loading
+Removed the pharmacologic-class gate that could keep products such as rufinamide out of AE dashboard product loading when their rows lack class enrichment.
+
+**Implementation.** Updated [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql) so `vw_AeDrugSummary` retains rows with null `PharmacologicClassID`. Added a risk-table fallback path in [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs) so catalog/search, triage, forest, quadrant, reverse lookup, and interchange product summary loading can build product context from `tmp_FlattenedAdverseEventRiskTable` when summary rows are missing. Extended the AE dashboard SQLite seed helper to model null class context and updated AE risk table standards/docs to keep product-level summaries null-class tolerant.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter AeDashboardDataAccessTests -p:BaseOutputPath=...\MedRecProTest\bin\codex-null-pharm-class\` passed with 14 passed, 0 failed, 0 skipped. `git diff --check` passed with LF-to-CRLF notices only.
 
 ---

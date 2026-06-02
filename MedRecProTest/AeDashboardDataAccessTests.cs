@@ -98,6 +98,63 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that null pharmacologic-class risk rows still produce product catalog summaries.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeDrugSummariesAsync(ApplicationDbContext, string, ILogger, string?, long?, int?, int?)"/>
+        [TestMethod]
+        public async Task GetAeDrugSummariesAsync_NullPharmClassRiskRows_ReturnsFallbackProduct()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid3,
+                riskId: 9101,
+                adverseEventId: 9101,
+                standardizedId: 9101,
+                productName: "RUFINAMIDE",
+                substanceName: "Rufinamide",
+                unii: "PB6D638093",
+                activeMoietyId: 910,
+                ingredientSubstanceId: 920,
+                pharmacologicClassId: null,
+                pharmClassCode: null,
+                pharmClassName: null,
+                parameterName: "Somnolence",
+                numberNeeded: 12);
+
+            var products = await DtoLabelAccess.GetAeDrugSummariesAsync(
+                context,
+                PkSecret,
+                logger,
+                productSearch: "rufinamide",
+                page: 1,
+                size: 10);
+
+            Assert.AreEqual(1, products.Count);
+            var product = products.Single();
+            Assert.AreEqual("RUFINAMIDE", product.ProductName);
+            Assert.AreEqual("Rufinamide", product.SubstanceName);
+            Assert.AreEqual("PB6D638093", product.UNII);
+            Assert.AreEqual(910, product.ActiveMoietyID);
+            Assert.AreEqual(920, product.IngredientSubstanceID);
+            Assert.IsNull(product.EncryptedPharmacologicClassID);
+            Assert.IsNull(product.PharmacologicClassID);
+            Assert.AreEqual(1, product.RowCount);
+            Assert.AreEqual(1, product.SignificantElevatedCount);
+            Assert.IsTrue(product.Score.HasValue);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies that user-specific favorite enrichment is not served from anonymous cached catalog data.
         /// </summary>
         /// <seealso cref="DtoLabelAccess.GetAeDrugSummariesAsync(ApplicationDbContext, string, ILogger, string?, long?, int?, int?)"/>
@@ -415,6 +472,77 @@ namespace MedRecProTest
             Assert.IsNotNull(quadrant);
             Assert.AreEqual(2, quadrant.Points.Count);
             Assert.IsTrue(quadrant.Points.All(point => point.PrecisionX >= 0 && point.PrecisionX <= 1));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that product-level dashboard views load when pharmacologic class context is null.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeTriageViewAsync(ApplicationDbContext, Guid, string, ILogger, AeComparatorMix?, bool)"/>
+        /// <seealso cref="DtoLabelAccess.GetAeForestPlotAsync(ApplicationDbContext, Guid, string, ILogger, AeComparatorMix?, bool)"/>
+        /// <seealso cref="DtoLabelAccess.GetAeQuadrantViewAsync(ApplicationDbContext, Guid, string, ILogger, AeComparatorMix?, bool)"/>
+        [TestMethod]
+        public async Task GetAeTriageForestAndQuadrantViews_WithNullPharmClassRiskRows_LoadsProduct()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid3,
+                riskId: 9201,
+                adverseEventId: 9201,
+                standardizedId: 9201,
+                productName: "RUFINAMIDE",
+                substanceName: "Rufinamide",
+                unii: "PB6D638093",
+                activeMoietyId: 910,
+                ingredientSubstanceId: 920,
+                pharmacologicClassId: null,
+                pharmClassCode: null,
+                pharmClassName: null,
+                parameterName: "Somnolence",
+                rr: 3.5,
+                numberNeeded: 12);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid3,
+                riskId: 9202,
+                adverseEventId: 9202,
+                standardizedId: 9202,
+                productName: "RUFINAMIDE",
+                substanceName: "Rufinamide",
+                unii: "PB6D638093",
+                activeMoietyId: 910,
+                ingredientSubstanceId: 920,
+                pharmacologicClassId: null,
+                pharmClassCode: null,
+                pharmClassName: null,
+                parameterName: "Dizziness",
+                rr: 2.0,
+                numberNeeded: 20);
+
+            var triage = await DtoLabelAccess.GetAeTriageViewAsync(context, DtoLabelAccessTestHelper.TestDocumentGuid3, PkSecret, logger);
+            var forest = await DtoLabelAccess.GetAeForestPlotAsync(context, DtoLabelAccessTestHelper.TestDocumentGuid3, PkSecret, logger);
+            var quadrant = await DtoLabelAccess.GetAeQuadrantViewAsync(context, DtoLabelAccessTestHelper.TestDocumentGuid3, PkSecret, logger);
+
+            Assert.IsNotNull(triage);
+            Assert.AreEqual("RUFINAMIDE", triage.Product!.ProductName);
+            Assert.AreEqual("Rufinamide", triage.Product.SubstanceName);
+            Assert.IsNull(triage.Product.EncryptedPharmacologicClassID);
+            Assert.AreEqual(2, triage.Product.RowCount);
+            Assert.IsTrue(triage.Tiers.SelectMany(tier => tier.Signals).Any(signal => signal.NumberNeeded == 12));
+            Assert.IsNotNull(forest);
+            Assert.AreEqual(2, forest.Signals.Count);
+            Assert.IsNotNull(quadrant);
+            Assert.AreEqual(2, quadrant.Points.Count);
 
             #endregion
         }

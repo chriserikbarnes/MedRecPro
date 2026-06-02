@@ -431,7 +431,8 @@ the risk math in C#. `vw_AeRisk` left-preserves RR-ready rows without
 pharmacologic-class context and stamps `NO_PRODUCT_CLASS_CONTEXT` into
 `CalculationFlags`; product/substance fields are resolved independently from
 `vw_ProductsByIngredient` when the row `UNII` can be matched. Class-specific
-summaries filter to rows where `PharmacologicClassID IS NOT NULL`.
+navigation views may filter to rows where `PharmacologicClassID IS NOT NULL`,
+but product-level dashboard summaries retain null-class rows.
 
 ### Refresh Contract
 

@@ -1779,6 +1779,11 @@ namespace MedRecProTest
             string productName = "ASPIRIN",
             string substanceName = "Aspirin",
             string unii = "R16CO5Y76E",
+            int? activeMoietyId = 10,
+            int? ingredientSubstanceId = 20,
+            int? pharmacologicClassId = 30,
+            string? pharmClassCode = "N0000175722",
+            string? pharmClassName = "Nonsteroidal Anti-inflammatory Drug",
             bool isPlaceboControlled = true,
             bool isCombo = false,
             string parameterName = "Headache",
@@ -1815,8 +1820,8 @@ namespace MedRecProTest
                  StudyContext, Population, Subpopulation, Dose, DoseUnit)
                 VALUES ($riskId, $docGuid,
                         $adverseEventId, $standardizedId,
-                        10, 20, 30,
-                        $productName, $substanceName, 'N0000175722', 'Nonsteroidal Anti-inflammatory Drug',
+                        $activeMoietyId, $ingredientSubstanceId, $pharmacologicClassId,
+                        $productName, $substanceName, $pharmClassCode, $pharmClassName,
                         $isPlaceboControlled, $parameterName, $parameterCategory, $significance, $numberNeededType,
                         $armN, $comparatorN, $eventsTreatment, $eventsComparator, $numberNeeded,
                         NULL, NULL, $rr, $rrLowerBound, $rrUpperBound,
@@ -1826,8 +1831,13 @@ namespace MedRecProTest
             cmd.Parameters.AddWithValue("$docGuid", (documentGuid ?? TestDocumentGuid).ToString("D").ToUpper());
             cmd.Parameters.AddWithValue("$adverseEventId", adverseEventId);
             cmd.Parameters.AddWithValue("$standardizedId", standardizedId);
+            cmd.Parameters.AddWithValue("$activeMoietyId", (object?)activeMoietyId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ingredientSubstanceId", (object?)ingredientSubstanceId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pharmacologicClassId", (object?)pharmacologicClassId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$productName", productName);
             cmd.Parameters.AddWithValue("$substanceName", substanceName);
+            cmd.Parameters.AddWithValue("$pharmClassCode", (object?)pharmClassCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pharmClassName", (object?)pharmClassName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$isPlaceboControlled", isPlaceboControlled ? 1 : 0);
             cmd.Parameters.AddWithValue("$parameterName", parameterName);
             cmd.Parameters.AddWithValue("$parameterCategory", parameterCategory);

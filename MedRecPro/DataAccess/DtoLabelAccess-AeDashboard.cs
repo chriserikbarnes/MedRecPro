@@ -71,8 +71,10 @@ namespace MedRecPro.DataAccess
                 && !size.HasValue;
 
             // The cache key intentionally names the anonymous full catalog shape;
-            // searches, paging, and favorites bypass this key.
-            var cacheKey = generateCacheKey(nameof(GetAeDrugSummariesAsync), "anonymous-full", null, null);
+            // searches, paging, and favorites bypass this key. The version suffix
+            // avoids serving older process-cache entries that excluded null class
+            // products.
+            var cacheKey = generateCacheKey(nameof(GetAeDrugSummariesAsync), "anonymous-full-null-class-v2", null, null);
 
             // Check the cache before building the EF query so repeat catalog loads
             // do not hit the database unnecessarily.
@@ -103,16 +105,6 @@ namespace MedRecPro.DataAccess
             // filtering before rows are materialized.
             query = applyProductSearch(query, productSearch);
 
-            // Sort the product catalog by most elevated findings first, then use
-            // product name and DocumentGUID for deterministic tie-breaking.
-            query = query
-                .OrderByDescending(summary => summary.SignificantElevatedCount)
-                .ThenBy(summary => summary.ProductName)
-                .ThenBy(summary => summary.DocumentGUID);
-
-            // Apply paging last so the ordered query returns a stable page.
-            query = applyPagination(query, page, size);
-
             // Materialize EF rows before encryption because encryption cannot be
             // translated into SQL.
             var entities = await query.ToListAsync();
@@ -120,9 +112,38 @@ namespace MedRecPro.DataAccess
             // Convert SQL view rows to client DTOs and mask integer identifiers.
             var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
 
+            // Older summary-view definitions filtered null pharmacologic class
+            // rows. Add risk-table fallback summaries so products such as
+            // rufinamide remain loadable even before the view has been refreshed.
+            var representedDocumentGuids = summaries
+                .Where(summary => summary.DocumentGUID.HasValue)
+                .Select(summary => summary.DocumentGUID!.Value)
+                .ToHashSet();
+            var fallbackSummaries = await getRiskTableDrugSummariesAsync(
+                db,
+                documentGuids: null,
+                excludedDocumentGuids: representedDocumentGuids,
+                productSearch: productSearch,
+                pkSecret: pkSecret,
+                logger: logger);
+            summaries.AddRange(fallbackSummaries);
+
             // Add score and score reason after mapping so derivation works on the
             // same DTO shape returned to controllers.
             AeDashboardDerivation.DeriveProducts(summaries);
+
+            // Sort the product catalog by most elevated findings first, then use
+            // product name and DocumentGUID for deterministic tie-breaking.
+            summaries = summaries
+                .OrderByDescending(summary => summary.SignificantElevatedCount)
+                .ThenBy(summary => summary.ProductName)
+                .ThenBy(summary => summary.DocumentGUID)
+                .ToList();
+
+            // Apply paging after the summary-view rows and risk-table fallback
+            // rows are merged so null-class products participate in the same page
+            // ordering as ordinary summary rows.
+            summaries = applyProductSummaryPagination(summaries, page, size);
 
             // Favorite flags are user-specific and therefore applied only after the
             // shared product DTOs have been created.
@@ -233,7 +254,7 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="comparator">Optional comparator coverage filter.</param>
         /// <param name="includeFragile">Whether fragile-precision rows should be returned.</param>
-        /// <returns>A triage view DTO, or null when the product is absent from the summary view.</returns>
+        /// <returns>A triage view DTO, or null when the product is absent from dashboard risk data.</returns>
         /// <remarks>
         /// The method keeps controller work thin by loading product context, loading
         /// signals, and delegating all tier assembly to <see cref="AeDashboardDerivation"/>.
@@ -287,7 +308,7 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="comparator">Optional comparator coverage filter.</param>
         /// <param name="includeFragile">Whether fragile-precision rows should be returned.</param>
-        /// <returns>A forest plot DTO, or null when the product is absent from the summary view.</returns>
+        /// <returns>A forest plot DTO, or null when the product is absent from dashboard risk data.</returns>
         /// <remarks>
         /// Signals are sorted by descending RR after comparator and fragile filters are
         /// applied.
@@ -308,14 +329,12 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Check product existence before returning a chart shell; absent product
-            // summaries should behave as missing dashboard products.
-            var productExists = await db.Set<LabelView.AeDrugSummary>()
-                .AsNoTracking()
-                .AnyAsync(product => product.DocumentGUID == documentGuid);
+            // Check product existence through the same summary/fallback path used
+            // by triage so null class products can still render a chart shell.
+            var product = await getAeDrugSummaryByDocumentGuidAsync(db, documentGuid, pkSecret, logger);
 
             // Null tells the caller there is no forest plot for this document.
-            if (!productExists)
+            if (product == null)
             {
                 return null;
             }
@@ -339,7 +358,7 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="comparator">Optional comparator coverage filter.</param>
         /// <param name="includeFragile">Whether fragile-precision rows should be returned.</param>
-        /// <returns>A quadrant view DTO, or null when the product is absent from the summary view.</returns>
+        /// <returns>A quadrant view DTO, or null when the product is absent from dashboard risk data.</returns>
         /// <remarks>
         /// Coordinates are derived after query filtering and are clamped from zero to
         /// one for direct chart use.
@@ -360,14 +379,12 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Check product existence first so empty risk rows do not masquerade as
-            // a valid dashboard product.
-            var productExists = await db.Set<LabelView.AeDrugSummary>()
-                .AsNoTracking()
-                .AnyAsync(product => product.DocumentGUID == documentGuid);
+            // Check product existence through the same summary/fallback path used
+            // by triage so null class products can still render a chart shell.
+            var product = await getAeDrugSummaryByDocumentGuidAsync(db, documentGuid, pkSecret, logger);
 
             // Missing product summary maps to null rather than an empty quadrant.
-            if (!productExists)
+            if (product == null)
             {
                 return null;
             }
@@ -576,6 +593,63 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Applies product, substance, UNII, and class search to the risk-table fallback query.
+        /// </summary>
+        private static IQueryable<LabelView.FlattenedAdverseEventRiskTable> applyRiskProductSearch(
+            IQueryable<LabelView.FlattenedAdverseEventRiskTable> query,
+            string? productSearch)
+        {
+            #region implementation
+
+            // The fallback search mirrors vw_AeDrugSummary search fields so a
+            // null-class product can be found by product name, ingredient, UNII,
+            // or whatever class metadata it does have.
+            if (string.IsNullOrWhiteSpace(productSearch))
+            {
+                return query;
+            }
+
+            // Wrap the trimmed term in SQL LIKE wildcards for provider-side
+            // filtering before fallback rows are aggregated in memory.
+            var pattern = $"%{productSearch.Trim()}%";
+            return query.Where(signal =>
+                EF.Functions.Like(signal.ProductName ?? string.Empty, pattern)
+                || EF.Functions.Like(signal.SubstanceName ?? string.Empty, pattern)
+                || EF.Functions.Like(signal.UNII ?? string.Empty, pattern)
+                || EF.Functions.Like(signal.PharmClassCode ?? string.Empty, pattern)
+                || EF.Functions.Like(signal.PharmClassName ?? string.Empty, pattern));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies in-memory paging to merged product summary DTOs.
+        /// </summary>
+        private static List<AeDrugSummaryDto> applyProductSummaryPagination(
+            IEnumerable<AeDrugSummaryDto> summaries,
+            int? page,
+            int? size)
+        {
+            #region implementation
+
+            // Paging occurs after summary-view rows and fallback rows are merged;
+            // invalid or missing page arguments keep the full ordered list.
+            if (page.HasValue && size.HasValue && page.Value > 0 && size.Value > 0)
+            {
+                return summaries
+                    .Skip((page.Value - 1) * size.Value)
+                    .Take(size.Value)
+                    .ToList();
+            }
+
+            return summaries.ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Applies comparator mix filtering to materialized AE risk rows.
         /// </summary>
         private static IQueryable<LabelView.FlattenedAdverseEventRiskTable> applyComparatorFilter(
@@ -614,11 +688,22 @@ namespace MedRecPro.DataAccess
                 .AsNoTracking()
                 .FirstOrDefaultAsync(summary => summary.DocumentGUID == documentGuid);
 
-            // Missing summary rows mean the document is not represented in
-            // vw_AeDrugSummary.
+            // Missing summary rows can happen for labels whose AE rows have no
+            // pharmacologic-class context, so fall back to the risk table before
+            // treating the product as absent.
             if (entity == null)
             {
-                return null;
+                var fallbackSummaries = await getRiskTableDrugSummariesAsync(
+                    db,
+                    documentGuids: new[] { documentGuid },
+                    excludedDocumentGuids: null,
+                    productSearch: null,
+                    pkSecret: pkSecret,
+                    logger: logger);
+
+                return fallbackSummaries.Count > 0
+                    ? AeDashboardDerivation.DeriveProduct(fallbackSummaries.First())
+                    : null;
             }
 
             // Map the view row to an encrypted DTO and derive score fields before
@@ -660,7 +745,72 @@ namespace MedRecPro.DataAccess
 
             // Convert rows to encrypted DTOs and calculate product score fields.
             var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
+            var representedDocumentGuids = summaries
+                .Where(summary => summary.DocumentGUID.HasValue)
+                .Select(summary => summary.DocumentGUID!.Value)
+                .ToHashSet();
+            var missingDocumentGuids = guidList
+                .Where(documentGuid => !representedDocumentGuids.Contains(documentGuid))
+                .ToList();
+            var fallbackSummaries = await getRiskTableDrugSummariesAsync(
+                db,
+                documentGuids: missingDocumentGuids,
+                excludedDocumentGuids: null,
+                productSearch: null,
+                pkSecret: pkSecret,
+                logger: logger);
+            summaries.AddRange(fallbackSummaries);
             return AeDashboardDerivation.DeriveProducts(summaries);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds product summary DTOs directly from materialized risk rows.
+        /// </summary>
+        private static async Task<List<AeDrugSummaryDto>> getRiskTableDrugSummariesAsync(
+            ApplicationDbContext db,
+            IEnumerable<Guid>? documentGuids,
+            IReadOnlySet<Guid>? excludedDocumentGuids,
+            string? productSearch,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Start with concrete dashboard rows; rows without DocumentGUID cannot
+            // back product-level dashboard navigation or favorites.
+            var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
+                .AsNoTracking()
+                .Where(signal => signal.DocumentGUID.HasValue);
+
+            // Optional document scoping keeps product-level fallback queries small.
+            var guidList = documentGuids?
+                .Distinct()
+                .ToList();
+            if (guidList is { Count: > 0 })
+            {
+                query = query.Where(signal => signal.DocumentGUID.HasValue && guidList.Contains(signal.DocumentGUID.Value));
+            }
+
+            // Skip documents already represented by the summary view so fallback
+            // rows supplement missing null-class products without duplicating the
+            // ordinary summary catalog.
+            var excludedGuidList = excludedDocumentGuids?
+                .ToList();
+            if (excludedGuidList is { Count: > 0 })
+            {
+                query = query.Where(signal => signal.DocumentGUID.HasValue && !excludedGuidList.Contains(signal.DocumentGUID.Value));
+            }
+
+            // Mirror product-summary search semantics for fallback-only products.
+            query = applyRiskProductSearch(query, productSearch);
+
+            // The aggregate projection includes encrypted IDs and enum parsing, so
+            // materialize the filtered rows and aggregate in memory.
+            var entities = await query.ToListAsync();
+            return buildFallbackAeDrugSummaryDtos(entities, pkSecret, logger);
 
             #endregion
         }
@@ -738,6 +888,89 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Builds fallback AE product summary DTOs from risk-table rows.
+        /// </summary>
+        private static List<AeDrugSummaryDto> buildFallbackAeDrugSummaryDtos(
+            IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Match vw_AeDrugSummary grouping so fallback rows have the same
+            // product/substance/class grain as refreshed summary-view rows.
+            return entities
+                .GroupBy(entity => (
+                    DocumentGUID: entity.DocumentGUID,
+                    ProductName: entity.ProductName,
+                    SubstanceName: entity.SubstanceName,
+                    UNII: entity.UNII,
+                    PharmClassCode: entity.PharmClassCode,
+                    PharmClassName: entity.PharmClassName,
+                    ActiveMoietyID: entity.ActiveMoietyID,
+                    IngredientSubstanceID: entity.IngredientSubstanceID,
+                    PharmacologicClassID: entity.PharmacologicClassID))
+                .Select(group => buildFallbackAeDrugSummaryDto(group, pkSecret, logger))
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one fallback AE product summary DTO from grouped risk-table rows.
+        /// </summary>
+        private static AeDrugSummaryDto buildFallbackAeDrugSummaryDto(
+            IGrouping<(Guid? DocumentGUID, string? ProductName, string? SubstanceName, string? UNII, string? PharmClassCode, string? PharmClassName, int? ActiveMoietyID, int? IngredientSubstanceID, int? PharmacologicClassID), LabelView.FlattenedAdverseEventRiskTable> group,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            // Materialize the grouping once so aggregate helpers do not repeatedly
+            // enumerate the same in-memory rows.
+            var rows = group.ToList();
+            var key = group.Key;
+            var rowCount = rows.Count;
+
+            // Fallback summaries intentionally mirror vw_AeDrugSummary aggregate
+            // columns, while preserving null pharmacologic-class identifiers.
+            return new AeDrugSummaryDto
+            {
+                EncryptedActiveMoietyID = encryptNullableInt(key.ActiveMoietyID, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.ActiveMoietyID)),
+                EncryptedIngredientSubstanceID = encryptNullableInt(key.IngredientSubstanceID, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.IngredientSubstanceID)),
+                EncryptedPharmacologicClassID = encryptNullableInt(key.PharmacologicClassID, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.PharmacologicClassID)),
+                DocumentGUID = key.DocumentGUID,
+                ProductName = key.ProductName,
+                SubstanceName = key.SubstanceName,
+                UNII = key.UNII,
+                PharmClassCode = key.PharmClassCode,
+                PharmClassName = key.PharmClassName,
+                ArmN = rows.Max(row => row.ArmN),
+                ComparatorN = rows.Max(row => row.ComparatorN),
+                RowCount = rowCount,
+                SignificantCount = rows.Count(row => isSignificantAeSignal(row.Significance)),
+                SignificantProtectiveCount = rows.Count(row => string.Equals(row.Significance, "protective", StringComparison.OrdinalIgnoreCase)),
+                SignificantElevatedCount = rows.Count(row => string.Equals(row.Significance, "elevated", StringComparison.OrdinalIgnoreCase)),
+                PlaceboCoverage = rows.Any(row => row.IsPlaceboControlled),
+                ActiveCoverage = rows.Any(row => !row.IsPlaceboControlled),
+                DoseCoverage = rowCount > 0
+                    ? rows.Count(row => row.Dose.HasValue) / (double)rowCount
+                    : 0.0,
+                SocBreadth = rows
+                    .Select(row => row.ParameterCategory)
+                    .Where(category => !string.IsNullOrWhiteSpace(category))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count(),
+                SocTotal = AeDashboardMetadata.SocTotal,
+                MonoComboMix = getMonoComboMix(rows)
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds one mapped AE product summary DTO from an EF row.
         /// </summary>
         private static AeDrugSummaryDto buildAeDrugSummaryDto(
@@ -789,6 +1022,45 @@ namespace MedRecPro.DataAccess
                 // Convert the view's text classification into the dashboard enum.
                 MonoComboMix = parseMonoComboMix(entity.MonoComboMix)
             };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a raw significance value contributes to summary counts.
+        /// </summary>
+        private static bool isSignificantAeSignal(string? significance)
+        {
+            #region implementation
+
+            // The summary view counts elevated and protective intervals as
+            // significant; fallback aggregation keeps the same interpretation.
+            return string.Equals(significance, "elevated", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(significance, "protective", StringComparison.OrdinalIgnoreCase);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Derives the mono/combo mix from materialized risk-table rows.
+        /// </summary>
+        private static AeMonoComboMix getMonoComboMix(
+            IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities)
+        {
+            #region implementation
+
+            // Match vw_AeDrugSummary: all combo rows produce Combo, all mono rows
+            // produce Mono, and mixed source rows produce Mixed.
+            var hasCombo = entities.Any(entity => entity.IsCombo);
+            var hasMono = entities.Any(entity => !entity.IsCombo);
+
+            return hasCombo && hasMono
+                ? AeMonoComboMix.Mixed
+                : hasCombo
+                    ? AeMonoComboMix.Combo
+                    : AeMonoComboMix.Mono;
 
             #endregion
         }

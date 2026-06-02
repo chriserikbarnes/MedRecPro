@@ -195,7 +195,8 @@ in-memory rows that feed `ComparatorGrouper`.
 - **Null-RR rows are filtered from the stats table after build.** Reference-dose rows
   with valid RR and null DNRR still persist; rows with no RR go to the coverage table.
 - **Class context is optional in `vw_AeRisk`.** Raw risk rows can have null product/class
-  fields and `NO_PRODUCT_CLASS_CONTEXT`; class-specific summaries filter those rows out.
+  fields and `NO_PRODUCT_CLASS_CONTEXT`; product-level dashboard summaries retain
+  those rows so labels without class enrichment remain loadable.
 - **AE names and SOCs are standardized before grouping.** Name-derived SOCs override
   conflicting raw categories for known AE terms, and all persisted categories should be
   in the official 27 MedDRA SOC set.

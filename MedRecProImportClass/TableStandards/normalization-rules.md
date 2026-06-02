@@ -758,8 +758,10 @@ enrichment remain valid risk rows with nullable class fields and
 `CalculationFlags |= 'NO_PRODUCT_CLASS_CONTEXT'`, but product and substance
 columns should still populate when the active ingredient exists in
 `vw_ProductsByIngredient`. Class-specific dashboard surfaces, including
-`vw_AeDrugSummary`, must explicitly filter `PharmacologicClassID IS NOT NULL`
-rather than relying on inner-join loss.
+pharmacologic-class navigation views, may filter `PharmacologicClassID IS NOT NULL`.
+Product-level dashboard summaries, including `vw_AeDrugSummary`, must retain
+null-class rows so products without class enrichment remain discoverable and
+loadable.
 
 Number-needed point estimates are calculated for every RR-ready row when the
 treatment and comparator risks differ. Significance (`elevated`, `protective`,
