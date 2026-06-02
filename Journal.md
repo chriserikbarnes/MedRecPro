@@ -4643,3 +4643,12 @@ Updated [AERiskCoverageDiagnostics.sql](MedRecPro/SQL/Transient/AERiskCoverageDi
 **Verification.** `git diff --check -- MedRecPro/SQL/Transient/AERiskCoverageDiagnostics.sql` passed cleanly. Static `Select-String` checks confirmed `WITH Missing` was removed, `#MissingTextTables` is used throughout, and only the first CTE chain remains with `;WITH`. No database scripts were executed against a live SQL Server in this session.
 
 ---
+
+### 2026-06-02 2:07 PM EST — AE Risk Product Context Guardrails
+Addressed the sampled `tmp_FlattenedAdverseEventRiskTable` product-context and number-needed coverage concern by locking down the [MedRecPro_Views.sql](MedRecPro/SQL/MedRecPro_Views.sql) `vw_AeRisk` contract and adding focused regression coverage in [AeRiskViewSqlTests.cs](MedRecProTest/AeRiskViewSqlTests.cs).
+
+**Implementation.** Confirmed the active `vw_AeRisk` projection resolves product and substance context from `vw_ProductsByIngredient` independently from optional pharmacologic-class enrichment, so rows without class context can still carry `ProductName`, `SubstanceName`, `ActiveMoietyID`, and `IngredientSubstanceID`. Also removed the now-unused `sig.IsSignificant` helper column from the view definition after number-needed estimates moved to every RR-ready row rather than being significance-gated.
+
+**Verification.** `git diff --check -- MedRecPro/SQL/MedRecPro_Views.sql MedRecProTest/AeRiskViewSqlTests.cs` passed with the expected LF-to-CRLF warning on the SQL file. The first focused test run hit the existing running `MedRecPro.exe` output lock, and the `C:\tmp` rerun hit sandbox/output directory access denials; rerunning with an isolated repo-local `BaseOutputPath` passed: `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter AeRiskViewSqlTests -p:BaseOutputPath=...\MedRecProTest\bin\codex-ae-risk-view-...\` completed with 2 passed, 0 failed, 0 skipped. No live SQL Server refresh was executed in this session.
+
+---

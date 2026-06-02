@@ -3518,13 +3518,8 @@ CROSS APPLY (VALUES (
         WHEN fae.RRLowerBound > 1 AND fae.RRUpperBound > 1 THEN 'elevated'
         WHEN fae.RRLowerBound < 1 AND fae.RRUpperBound < 1 THEN 'protective'
         ELSE 'not significant'
-    END,
-    CASE
-        WHEN (fae.RRLowerBound > 1 AND fae.RRUpperBound > 1)
-            OR (fae.RRLowerBound < 1 AND fae.RRUpperBound < 1) THEN 1
-        ELSE 0
     END
-)) AS sig (Significance, IsSignificant)
+)) AS sig (Significance)
 CROSS APPLY (VALUES (
     CAST(CASE WHEN fae.UNII LIKE '%+%' THEN 1 ELSE 0 END AS bit)
 )) AS combo (IsCombo);
