@@ -94,12 +94,12 @@ a { color: var(--color-primary); text-decoration: none; }
   padding: 0;
 }
 
-/* ----- Top bar -----
-   The masthead is the single source of truth in
-   MedRecProStatic/wwwroot/css/masthead.css (imported in main.jsx); the React
-   TopBar reuses the server's .navbar* markup so all styling comes from that file.
-   The only dashboard-specific adaptation is widening the shared 1200px container
-   to this app shell's 1240px. */
+/* ----- Masthead container width -----
+   The masthead is server-rendered by the shared _Masthead.cshtml partial and
+   styled by masthead.css (linked directly by the dashboard host view,
+   Views/AdverseEventDashboard/Index.cshtml). The only dashboard-specific
+   adaptation is widening the shared 1200px container to this app shell's 1240px
+   so the masthead lines up with the dashboard body. */
 .navbar .container { max-width: 1240px; }
 
 /* ----- Page header ----- */
@@ -1024,15 +1024,24 @@ a { color: var(--color-primary); text-decoration: none; }
   color: var(--color-text-tertiary);
 }
 .picker-foot kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  margin-right: 4px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  border: 1px solid var(--color-border-light);
-  border-radius: 3px;
-  background: #fff;
-  color: var(--color-text-secondary);
+    display: inline-block;
+    padding-top: 1px;
+    padding-right: 5px;
+    padding-bottom: 1px;
+    padding-left: 5px;
+    margin-right: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    border: 1px solid var(--color-border-light);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--color-text-secondary);
+    }
+/* The asterisk glyph renders optically high in its keycap; nudge just the glyph
+   (not the box, so it stays aligned with the other keys) down to center it. */
+.picker-foot .keycap-star {
+    position: relative;
+    top: 2px;
 }
 
 @media (max-width: 720px) {
@@ -1495,11 +1504,6 @@ a { color: var(--color-primary); text-decoration: none; }
 }
 @media (max-width: 620px) {
   body { font-size: 14px; }
-  .topbar-inner { padding: 10px 14px; }
-  .brand { font-size: 15px; }
-  .brand-sub { display: none; }
-  .topbar-action span { display: none; }
-  .topbar-action { padding: 7px 9px; }
   /* Let the breadcrumb trail wrap instead of overflowing on narrow screens. */
   .crumbs { flex-wrap: wrap; row-gap: 2px; }
   .page-header { padding: 18px 14px 6px; }
@@ -1587,30 +1591,6 @@ a { color: var(--color-primary); text-decoration: none; }
 .ae-dashboard-page {
   min-height: 100vh;
   background: var(--color-surface);
-}
-
-/* ----- Top bar: React renders inline SVG icons + a label span,
-   and disables the Save/Export actions until a product is chosen ----- */
-.topbar-action-icon {
-  width: 14px;
-  height: 14px;
-  display: block;
-  flex-shrink: 0;
-}
-.topbar-action:disabled {
-  opacity: .45;
-  cursor: default;
-}
-.topbar-action:disabled:hover {
-  background: rgba(255,255,255,.08);
-}
-
-/* Brand mark: React renders an inline SVG inside the cream .brand-logo
-   tile, so size it like the prototype's 34px <img>. */
-.brand-logo svg {
-  width: 34px;
-  height: auto;
-  display: block;
 }
 
 /* ----- Drug-title chevron (React class is .drug-title-chev) ----- */

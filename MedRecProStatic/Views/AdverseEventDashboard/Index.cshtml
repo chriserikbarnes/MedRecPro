@@ -4,15 +4,42 @@
     /// Adverse-event dashboard island host.
     /// </summary>
     /// <remarks>
-    /// This view intentionally opts out of the shared MVC layout and mounts the
-    /// committed Vite bundle from wwwroot/ae-dashboard. The React application
-    /// uses /api/AdverseEvent for all product, favorite, and dashboard data.
+    /// This view mounts the committed Vite bundle from wwwroot/ae-dashboard and
+    /// renders the shared <c>_Masthead</c> partial above it, so the dashboard
+    /// shares the single site masthead (one source of truth in
+    /// <c>_Masthead.cshtml</c> + <c>masthead.css</c>) rather than a separate
+    /// React-rendered top bar. The React application uses /api/AdverseEvent for
+    /// all product, favorite, and dashboard data, and owns only the behavior of
+    /// the masthead Save/Export actions, wiring <c>#aeSaveBtn</c> /
+    /// <c>#aeExportBtn</c> by id (see the masthead-actions effect in App.jsx).
     /// </remarks>
     /// <seealso cref="MedRecPro.Static.Controllers.AdverseEventDashboardController.Index"/>
 *@
 
 @{
     Layout = null;
+
+    // Drive the shared masthead: the dashboard context subtitle plus the
+    // Save/Export actions. The buttons start disabled; React keeps their disabled
+    // state in sync with the current selection and dispatches their handlers.
+    ViewData["MastheadSubtitle"] = "Adverse Events";
+    ViewData["MastheadActions"] =
+        @"<div class=""navbar-actions"">
+            <button id=""aeSaveBtn"" class=""navbar-action"" type=""button"" disabled title=""Save product to favorites"">
+                <svg viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round"" aria-hidden=""true"">
+                    <path d=""M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"" />
+                </svg>
+                <span>Save</span>
+            </button>
+            <button id=""aeExportBtn"" class=""navbar-action"" type=""button"" disabled title=""Export dashboard"">
+                <svg viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round"" aria-hidden=""true"">
+                    <path d=""M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"" />
+                    <polyline points=""7 10 12 15 17 10"" />
+                    <line x1=""12"" y1=""15"" x2=""12"" y2=""3"" />
+                </svg>
+                <span>Export</span>
+            </button>
+        </div>";
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -23,9 +50,13 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
     <link rel="shortcut icon" href="/favicon.ico" />
+    @* Shared masthead styling, linked directly like every other server page that
+       renders the partial. The dashboard body styles ship in the bundle CSS. *@
+    <link rel="stylesheet" href="~/css/masthead.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/ae-dashboard/ae-dashboard.css" asp-append-version="true" />
 </head>
 <body>
+    <partial name="_Masthead" />
     <div id="aeDashboardApp"></div>
     <noscript>JavaScript is required to run the adverse-event dashboard.</noscript>
     <script type="module" src="~/ae-dashboard/ae-dashboard.js" asp-append-version="true"></script>

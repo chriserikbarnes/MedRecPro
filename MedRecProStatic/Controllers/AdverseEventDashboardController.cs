@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using MedRecPro.Static.Services;
 
 namespace MedRecPro.Static.Controllers
 {
@@ -20,6 +21,23 @@ namespace MedRecPro.Static.Controllers
     /// <seealso cref="HomeController"/>
     public class AdverseEventDashboardController : Controller
     {
+        #region fields
+
+        private readonly ContentService _contentService;
+
+        #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AdverseEventDashboardController"/>.
+        /// </summary>
+        /// <param name="contentService">Supplies site configuration (branding and the Swagger URL) for the shared masthead partial.</param>
+        /// <seealso cref="ContentService"/>
+        public AdverseEventDashboardController(ContentService contentService)
+        {
+            _contentService = contentService;
+        }
+
         #region public dashboard route
 
         /**************************************************************/
@@ -43,7 +61,10 @@ namespace MedRecPro.Static.Controllers
         {
             #region implementation
 
-            // The React bundle reads query-string state directly from the browser.
+            // Supply site configuration so the shared _Masthead partial can render
+            // the brand and the API Docs (Swagger) link. The React bundle reads
+            // query-string state directly from the browser.
+            ViewBag.Config = _contentService.GetConfig();
             return View();
 
             #endregion

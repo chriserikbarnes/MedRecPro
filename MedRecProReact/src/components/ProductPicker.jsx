@@ -536,7 +536,7 @@ export function ProductPicker({
                   move
                 </span>
                 <span><kbd>⏎</kbd> select</span>
-                <span><kbd>*</kbd> favorite</span>
+                <span><kbd><span className="keycap-star">*</span></kbd> favorite</span>
                 <span><kbd>esc</kbd> close</span>
               </>
             )}

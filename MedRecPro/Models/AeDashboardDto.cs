@@ -965,7 +965,7 @@ namespace MedRecPro.Models
             new Dictionary<AeCounselingTier, string>
             {
                 [AeCounselingTier.Counsel] = "Expect & counsel",
-                [AeCounselingTier.Watch] = "Watch - rare but serious",
+                [AeCounselingTier.Watch] = "Watch",
                 [AeCounselingTier.Reassure] = "Reassure",
                 [AeCounselingTier.Fragile] = "Low confidence - interpret with care"
             };

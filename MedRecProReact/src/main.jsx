@@ -1,9 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-// Shared masthead styling — single source of truth lives in the MedRecProStatic
-// project and is also linked directly by the server-rendered pages (_Layout, Chat).
-// Imported before index.css so the dashboard can adapt only the container width.
-import '../../MedRecProStatic/wwwroot/css/masthead.css'
+
+/******** IMPORTANT : npm --prefix "..\MedRecProReact" run build *********/
+
+// The masthead is server-rendered by the shared _Masthead.cshtml partial and
+// styled by masthead.css, which the MVC host pages link directly (including the
+// dashboard host view, Views/AdverseEventDashboard/Index.cshtml). React no
+// longer renders or styles the masthead, so this island ships only the
+// dashboard body styles.
 import './index.css'
 import App from './App.jsx'
 
