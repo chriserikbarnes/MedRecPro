@@ -13,6 +13,11 @@ export default defineConfig({
     plugins: [plugin()],
     server: {
         port: 50346,
+        fs: {
+            // Permit importing the shared masthead stylesheet from the sibling
+            // MedRecProStatic project (one source of truth for the masthead style).
+            allow: ['..'],
+        },
     },
     build: {
         outDir: dashboardOutputPath,

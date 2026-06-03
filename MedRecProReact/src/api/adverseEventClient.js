@@ -165,6 +165,20 @@ export const AdverseEventClient = {
 
   /**************************************************************/
   /**
+   * Gets the real distinct-product inventory count for the picker badge.
+   *
+   * @param {{ signal?: AbortSignal }} args - Request options.
+   * @returns {Promise<number>} Distinct product count.
+   */
+  getProductCount({ signal = null } = {}) {
+    // The count reflects actual inventory, independent of search or paging.
+    const url = buildAdverseEventUrl('products/count');
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
    * Gets favorite dashboard products for the authenticated user.
    *
    * @param {{ pageNumber?: number, pageSize?: number, signal?: AbortSignal }} args - Request options.

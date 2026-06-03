@@ -23,6 +23,10 @@ export function useProducts(searchTerm) {
   // Error stores the most recent catalog request failure.
   const [error, setError] = useState(null);
 
+  // Total distinct-product inventory shown in the picker count badge. This is the
+  // real baseline from the API, independent of search text or paging.
+  const [totalProductCount, setTotalProductCount] = useState(0);
+
   // Refresh tokens let retry buttons re-run the current request.
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -119,6 +123,49 @@ export function useProducts(searchTerm) {
     };
   }, [debouncedSearchTerm, refreshToken]);
 
+  useEffect(() => {
+    // The inventory count is search-independent, so it loads once per mount and
+    // again only when a retry bumps the refresh token.
+    const requestController = new AbortController();
+
+    // Stale-response guard mirrors the catalog effect above.
+    let isCurrentRequest = true;
+
+    /**************************************************************/
+    /**
+     * Loads the real distinct-product inventory count for the badge.
+     */
+    async function loadProductCount() {
+      try {
+        const count = await AdverseEventClient.getProductCount({
+          signal: requestController.signal,
+        });
+
+        // Superseded or aborted responses are ignored.
+        if (!isCurrentRequest) {
+          return;
+        }
+
+        // The endpoint returns a bare integer; coerce defensively.
+        setTotalProductCount(Number(count) || 0);
+      } catch (requestError) {
+        // Abort is expected during unmount; a failed count simply leaves the
+        // badge at its previous value rather than surfacing a blocking error.
+        if (requestError.name === 'AbortError') {
+          return;
+        }
+      }
+    }
+
+    loadProductCount();
+
+    // Cleanup cancels the in-flight count request.
+    return () => {
+      isCurrentRequest = false;
+      requestController.abort();
+    };
+  }, [refreshToken]);
+
   // A memoized lookup avoids repeated linear scans in selection logic.
   const productsByGuid = useMemo(() => {
     // Map keys are lowercase GUIDs so casing differences never matter.
@@ -135,6 +182,7 @@ export function useProducts(searchTerm) {
   return {
     products,
     productsByGuid,
+    totalProductCount,
     isLoading,
     error,
     refresh,

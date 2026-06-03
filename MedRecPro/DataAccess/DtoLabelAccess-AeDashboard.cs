@@ -154,6 +154,58 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Gets the count of distinct AE dashboard products in the materialized risk table.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <returns>The number of distinct product names available to the dashboard.</returns>
+        /// <remarks>
+        /// This is the real inventory baseline shown in the product-picker count badge.
+        /// It counts <c>DISTINCT ProductName</c> straight from
+        /// <see cref="LabelView.FlattenedAdverseEventRiskTable"/> and intentionally does
+        /// not reuse the collapsed catalog pipeline (which groups combination products by
+        /// document), so the number matches the canonical inventory query exactly:
+        /// <code>
+        /// SELECT COUNT(*) FROM (SELECT DISTINCT ProductName FROM tmp_FlattenedAdverseEventRiskTable) a
+        /// </code>
+        /// The query is translated to SQL and executed without tracking.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var total = await DtoLabelAccess.GetAeProductCountAsync(db, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetAeProductCatalogAsync"/>
+        /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
+        public static async Task<int> GetAeProductCountAsync(
+            ApplicationDbContext db,
+            ILogger logger)
+        {
+            #region implementation
+
+            try
+            {
+                // Count distinct product names in SQL. The projection + Distinct + Count
+                // composes to a single COUNT over a DISTINCT subquery, matching the
+                // canonical inventory query and keeping the payload to one integer.
+                return await db.Set<LabelView.FlattenedAdverseEventRiskTable>()
+                    .AsNoTracking()
+                    .Select(risk => risk.ProductName)
+                    .Distinct()
+                    .CountAsync();
+            }
+            catch (Exception ex)
+            {
+                // Surface the failure to the controller, which translates it into a 500.
+                logger.LogError(ex, "Error counting distinct AE dashboard products.");
+                throw;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets derived AE risk signals for one SPL document.
         /// </summary>
         /// <param name="db">The application database context.</param>
@@ -1032,7 +1084,15 @@ namespace MedRecPro.DataAccess
                 pkSecret: pkSecret,
                 logger: logger);
             summaries.AddRange(fallbackSummaries);
-            return AeDashboardDerivation.DeriveProducts(summaries);
+
+            // Collapse the per-(substance × class) strata into one row per document so
+            // a combination product yields a single summary with a standardized
+            // ingredient list. Without this, callers keying by DocumentGUID (the
+            // favorites ToDictionary) throw on duplicate keys. Mirrors
+            // getCachedAeProductCatalogAsync and getAeDrugSummaryByDocumentGuidAsync,
+            // which already collapse before scoring.
+            var collapsed = collapseToOneRowPerDocument(summaries);
+            return AeDashboardDerivation.DeriveProducts(collapsed);
 
             #endregion
         }

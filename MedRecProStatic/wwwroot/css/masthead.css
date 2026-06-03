@@ -1,0 +1,279 @@
+/* ============================================================
+   MedRecPro Shared Masthead (navbar)
+   ------------------------------------------------------------
+   Single source of truth for the site masthead so every surface
+   shares one navbar. Linked by both Views/Shared/_Layout.cshtml
+   (all main pages) and Views/Home/Chat.cshtml (self-contained).
+
+   Values are hardcoded rather than referencing site.css design
+   tokens so the component renders identically on the Chat page,
+   which intentionally does not link site.css. On the main pages
+   this stylesheet is loaded after site.css and re-asserts the
+   same navbar values, so there is no visual change there.
+
+   The React AE dashboard mirrors these styles in
+   MedRecProReact/src/index.css (.topbar*) to stay consistent.
+   ============================================================ */
+
+.navbar {
+    background: #342e2a;
+    color: #fff;
+    padding: 1rem 0;
+    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    transition: transform 250ms ease, box-shadow 250ms ease;
+}
+
+/* Scroll-hide state toggled by site.js on the main pages. */
+.navbar--hidden {
+    transform: translateY(-100%);
+}
+
+.navbar .container {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    /* The nav menu is right-aligned via margin-left:auto so the layout is
+       identical whether or not a context subtitle is present. */
+    justify-content: flex-start;
+}
+
+.navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+    text-decoration: none;
+    letter-spacing: -0.01em;
+}
+
+.navbar-logo {
+    width: 50px;
+    height: 38px;
+    border-radius: 8px;
+    background: #f5f0eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+    .navbar-logo svg {
+        width: 34px;
+        height: auto;
+    }
+
+/* Context label shown after the brand (e.g., "Adverse Events", "AI Assistant"). */
+.navbar-subtitle {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.7);
+    padding-left: 0.75rem;
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.navbar-menu {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+    /* Push the nav menu (and any page actions) to the right edge. */
+    margin-left: auto;
+}
+
+    .navbar-menu a {
+        color: #fff;
+        text-decoration: none;
+        /* Explicit size so links match regardless of the host's body font-size
+           (the React dashboard's body is 15px; the MVC pages are 16px). */
+        font-size: 1rem;
+        font-weight: 500;
+        transition: opacity 150ms ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+        .navbar-menu a:hover {
+            opacity: 0.8;
+            color: #fff;
+        }
+
+        /* The API Docs link carries a legacy .btn-primary class. Neutralize any
+           page-level .btn-primary styling (chat.css paints it orange) so it reads
+           as a plain nav link, consistent across every masthead host. */
+        .navbar-menu a.btn-primary {
+            background: none;
+            color: #fff;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            font-weight: 500;
+        }
+
+            .navbar-menu a.btn-primary:hover {
+                opacity: 0.8;
+                color: #fff;
+            }
+
+/* Page-specific action button rendered in the masthead (e.g., Chat's Clear). */
+.navbar-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    font-family: inherit;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: background 150ms ease;
+}
+
+    .navbar-action:hover {
+        background: rgba(255, 255, 255, 0.16);
+        color: #fff;
+    }
+
+    /* Used by the React dashboard's Save/Export actions; the server's Clear
+       button never disables, so this rule is dormant there. */
+    .navbar-action:disabled {
+        opacity: 0.4;
+        cursor: default;
+    }
+
+    .navbar-action svg {
+        width: 16px;
+        height: 16px;
+    }
+
+/* Mobile hamburger toggle. Hidden on desktop; revealed in the media query
+   below. The glyph is an inline SVG supplied by the markup (the React
+   IconMenu component / the server partial's inline <svg>), consistent with
+   the rest of the masthead's inline-SVG convention. */
+.navbar-toggle {
+    display: none;
+    /* On mobile, push the toggle to the right edge so the brand stays left. */
+    margin-left: auto;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 150ms ease;
+    flex-shrink: 0;
+}
+
+    .navbar-toggle:hover {
+        background: rgba(255, 255, 255, 0.16);
+    }
+
+    .navbar-toggle svg {
+        width: 22px;
+        height: 22px;
+        display: block;
+    }
+
+/* The React dashboard wraps its Save/Export actions so they can collapse into
+   the mobile dropdown. On desktop the wrapper is layout-transparent
+   (display:contents), so the buttons sit in the .navbar-menu flex row exactly
+   as before; the media query flips it to a column inside the open panel. */
+.navbar-actions {
+    display: contents;
+}
+
+@media (max-width: 768px) {
+    /* Keep the brand on the left and the toggle on the right; stay a single
+       row of [brand .... toggle] rather than switching to a column.
+       flex-direction:row is asserted explicitly to override site.css, which
+       sets flex-direction:column on .navbar .container at this same 768px
+       breakpoint. masthead.css loads after site.css, so this wins on the
+       server-rendered _Layout pages (the React dashboard never loads site.css,
+       so it was already correct there). */
+    .navbar .container {
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0;
+        position: relative;
+    }
+
+    .navbar-toggle {
+        display: inline-flex;
+    }
+
+    /* The context subtitle is decorative on mobile (restated by the page's
+       breadcrumbs / title), so hide it to keep the bar clean. */
+    .navbar-subtitle {
+        display: none;
+    }
+
+    /* Collapse the nav menu into a closed dropdown. Both the React
+       .navbar-actions wrapper and the server's Clear button live INSIDE
+       .navbar-menu, so this single absolute panel holds the links AND the
+       actions, and natural flow stacks them. */
+    .navbar-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 0.5rem 0;
+        background: #342e2a;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+        z-index: 1000;
+    }
+
+    .navbar.is-open .navbar-menu {
+        display: flex;
+    }
+
+    /* Full-width tap targets for the links inside the open panel. */
+    .navbar-menu a {
+        padding: 0.75rem 1.25rem;
+        gap: 0.625rem;
+        border-radius: 0;
+    }
+
+        .navbar-menu a:hover {
+            background: rgba(255, 255, 255, 0.08);
+            opacity: 1;
+        }
+
+    /* Actions become full-width rows in the panel: the wrapper switches from
+       display:contents to a flex column. */
+    .navbar-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        padding: 0.25rem 1rem 0.5rem;
+    }
+
+    .navbar-action {
+        justify-content: flex-start;
+        width: 100%;
+        border-radius: 8px;
+        padding: 0.625rem 1rem;
+    }
+}

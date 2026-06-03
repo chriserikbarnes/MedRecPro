@@ -146,17 +146,27 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Verify the product exists in the dashboard summary view before writing
-            // favorite state; this avoids storing favorites for unsupported products.
+            // Verify the product is dashboard-eligible before writing favorite state;
+            // this avoids storing favorites for unsupported products.
             var productExists = await db.Set<LabelView.AeDrugSummary>()
                 .AsNoTracking()
                 .AnyAsync(product => product.DocumentGUID == documentGuid);
+
+            // Null-class products are absent from the summary view but remain dashboard-
+            // eligible through the risk-table fallback the catalog and picker use, so
+            // honor that same fallback before rejecting an otherwise-valid favorite.
+            if (!productExists)
+            {
+                productExists = await db.Set<LabelView.FlattenedAdverseEventRiskTable>()
+                    .AsNoTracking()
+                    .AnyAsync(signal => signal.DocumentGUID == documentGuid);
+            }
 
             // A missing product is a valid no-op result that callers can surface as
             // "not found" or "not dashboard eligible".
             if (!productExists)
             {
-                logger.LogDebug("AE dashboard favorite skipped because DocumentGUID {DocumentGuid} is not in vw_AeDrugSummary.", documentGuid);
+                logger.LogDebug("AE dashboard favorite skipped because DocumentGUID {DocumentGuid} is not in vw_AeDrugSummary or the risk-table fallback.", documentGuid);
                 return false;
             }
 

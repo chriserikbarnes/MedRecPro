@@ -387,10 +387,10 @@ function getSignalDirection(signal) {
  */
 function IconLogo() {
   return (
-    <svg viewBox="0 0 95.11 71.96" width="22" height="17" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M0,8l.03,63.93h14.15l-.09-71.93h-6.09C3.58,0,0,3.58,0,8Z" fill="#4a2618" />
-      <polygon points="7.87 0 25.91 71.93 41.06 71.93 22.96 0 7.87 0" fill="#4a2618" />
-      <polygon points="29.39 0 47.43 71.93 62.58 71.93 44.49 0 29.39 0" fill="#4a2618" />
+    <svg viewBox="0 0 95.11 71.96" width="34" height="26" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M0,8l.03,63.93h14.15l-.09-71.93h-6.09C3.58,0,0,3.58,0,8Z" fill="#5a3d2c" />
+      <polygon points="7.87 0 25.91 71.93 41.06 71.93 22.96 0 7.87 0" fill="#5a3d2c" />
+      <polygon points="29.39 0 47.43 71.93 62.58 71.93 44.49 0 29.39 0" fill="#5a3d2c" />
       <path d="M51.22.03l18.04,71.93h4.89c5.21,0,9.03-4.9,7.76-9.95L66.31.03h-15.09Z" fill="#f4a126" />
       <path d="M95.11,27.68h-15.07L73.1.03h8.85c3.67,0,6.87,2.5,7.76,6.06l5.4,21.6Z" fill="#f4a126" />
     </svg>
@@ -429,6 +429,79 @@ function IconDownload() {
 
 /**************************************************************/
 /**
+ * Renders the primary-nav icons, matching the MVC site masthead glyphs.
+ *
+ * @returns {JSX.Element} Home nav icon.
+ */
+function IconNavHome() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4.5a.5.5 0 0 0 .5-.5v-4h2v4a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146ZM2.5 14V7.707l5.5-5.5 5.5 5.5V14H10v-4a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5v4H2.5Z" />
+    </svg>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders the AI (sparkle) nav icon.
+ *
+ * @returns {JSX.Element} AI nav icon.
+ */
+function IconNavAi() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.828 1.828l1.937.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.828l-.645 1.937a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.828l.645-1.937zM3.794 1.148a.217.217 0 0 1 .412 0l.387 1.162c.173.518.579.924 1.097 1.097l1.162.387a.217.217 0 0 1 0 .412l-1.162.387A1.734 1.734 0 0 0 4.593 5.69l-.387 1.162a.217.217 0 0 1-.412 0L3.407 5.69a1.734 1.734 0 0 0-1.097-1.097l-1.162-.387a.217.217 0 0 1 0-.412l1.162-.387A1.734 1.734 0 0 0 3.407 2.31l.387-1.162zM10.863.099a.145.145 0 0 1 .274 0l.258.774c.115.346.386.617.732.732l.774.258a.145.145 0 0 1 0 .274l-.774.258a1.156 1.156 0 0 0-.732.732l-.258.774a.145.145 0 0 1-.274 0l-.258-.774a1.156 1.156 0 0 0-.732-.732L9.1 2.137a.145.145 0 0 1 0-.274l.774-.258c.346-.115.617-.386.732-.732L10.863.1z" />
+    </svg>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders the MCP (document) nav icon.
+ *
+ * @returns {JSX.Element} MCP nav icon.
+ */
+function IconNavMcp() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H4z" />
+      <path d="M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1zM4.5 9a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1h-7zM4 10.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm.5 2.5a.5.5 0 0 1 0-1h4a.5.5 0 0 1 0 1h-4z" />
+    </svg>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders the API Docs (book) nav icon.
+ *
+ * @returns {JSX.Element} API Docs nav icon.
+ */
+function IconNavApi() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M1 2.828c.885-.37 2.154-.769 3.388-.893 1.33-.134 2.458.063 3.112.752v9.746c-.935-.53-2.12-.603-3.213-.493-1.18.12-2.37.461-3.287.811V2.828zm7.5-.141c.654-.689 1.782-.886 3.112-.752 1.234.124 2.503.523 3.388.893v9.923c-.918-.35-2.107-.692-3.287-.81-1.094-.111-2.278-.039-3.213.492V2.687zM8 1.783C7.015.936 5.587.81 4.287.94c-1.514.153-3.042.672-3.994 1.105A.5.5 0 0 0 0 2.5v11a.5.5 0 0 0 .707.455c.882-.4 2.303-.881 3.68-1.02 1.409-.142 2.59.087 3.223.877a.5.5 0 0 0 .78 0c.633-.79 1.814-1.019 3.222-.877 1.378.139 2.8.62 3.681 1.02A.5.5 0 0 0 16 13.5v-11a.5.5 0 0 0-.293-.455c-.952-.433-2.48-.952-3.994-1.105C10.413.809 8.985.936 8 1.783z" />
+    </svg>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders the hamburger (three-bars) icon used by the mobile nav toggle.
+ *
+ * @returns {JSX.Element} Hamburger menu icon.
+ */
+function IconMenu() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
+/**************************************************************/
+/**
  * Renders the prototype-style top navigation bar.
  *
  * @param {object} props - Component props.
@@ -441,36 +514,83 @@ function TopBar({ selectedProduct, onSaveProduct, onExportDashboard }) {
   // Export requires a selected product context.
   const isExportDisabled = !selectedProduct;
 
+  // Mobile hamburger open/closed state. The menu is an absolute dropdown shown
+  // only below the masthead.css 768px breakpoint; on desktop it is inert.
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Collapse the dropdown after navigating or invoking an action.
+  const closeMenu = () => setIsMenuOpen(false);
+
+  // Close on Escape, and reset the open state when the viewport returns to
+  // desktop width so the menu never lingers open behind the inline nav.
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key === 'Escape') setIsMenuOpen(false);
+    }
+    function onResize() {
+      if (window.innerWidth > 768) setIsMenuOpen(false);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+
+  // The masthead reuses the server navbar markup and class names so its styling
+  // comes entirely from the shared masthead.css (imported in main.jsx). Primary
+  // nav hrefs are absolute same-origin paths that resolve when MVC-hosted.
   return (
-    <div className="topbar" data-screen-label="Topbar">
-      <div className="topbar-inner">
-        <a className="brand" href="/adverse-events" aria-label="MedRecPro adverse events dashboard">
-          <span className="brand-logo"><IconLogo /></span>
-          <span>MedRecPro</span>
-        </a>
-        <span className="brand-sep" />
-        <span className="brand-sub">Adverse Events</span>
-        <div className="topbar-spacer" />
-        <button
-          type="button"
-          className="topbar-action"
-          disabled={isSaveDisabled}
-          onClick={onSaveProduct}
-        >
-          <IconBookmark />
-          <span>Save</span>
-        </button>
-        <button
-          type="button"
-          className="topbar-action"
-          disabled={isExportDisabled}
-          onClick={onExportDashboard}
-        >
-          <IconDownload />
-          <span>Export</span>
-        </button>
-      </div>
-    </div>
+    <header data-screen-label="Topbar">
+      <nav className={`navbar${isMenuOpen ? ' is-open' : ''}`}>
+        <div className="container">
+          <a className="navbar-brand" href="/" aria-label="MedRecPro home">
+            <span className="navbar-logo"><IconLogo /></span>
+            <span>MedRecPro</span>
+          </a>
+          <span className="navbar-subtitle">Adverse Events</span>
+          <button
+            type="button"
+            className="navbar-toggle"
+            aria-label="Toggle navigation menu"
+            aria-expanded={isMenuOpen}
+            aria-controls="navbar-menu"
+            onClick={() => setIsMenuOpen((open) => !open)}
+          >
+            <IconMenu />
+          </button>
+          <div className="navbar-menu" id="navbar-menu">
+            <a href="/" onClick={closeMenu}><IconNavHome /> Home</a>
+            <a href="/Home/Chat" onClick={closeMenu}><IconNavAi /> AI</a>
+            <a href="/docs/mcp" onClick={closeMenu}><IconNavMcp /> MCP</a>
+            <a href="/api/swagger/index.html" onClick={closeMenu}><IconNavApi /> API Docs</a>
+            {/* Wrapper is display:contents on desktop (buttons stay in the nav
+                row) and a flex column inside the open dropdown on mobile. */}
+            <div className="navbar-actions">
+              <button
+                type="button"
+                className="navbar-action"
+                disabled={isSaveDisabled}
+                onClick={() => { onSaveProduct(); closeMenu(); }}
+              >
+                <IconBookmark />
+                <span>Save</span>
+              </button>
+              <button
+                type="button"
+                className="navbar-action"
+                disabled={isExportDisabled}
+                onClick={() => { onExportDashboard(); closeMenu(); }}
+              >
+                <IconDownload />
+                <span>Export</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
   );
 }
 
@@ -1105,6 +1225,7 @@ function App() {
   const {
     products,
     productsByGuid,
+    totalProductCount,
     isLoading: isProductLoading,
     error: productError,
     refresh: refreshProducts,
@@ -1131,6 +1252,12 @@ function App() {
     ...product,
     isFavorite: true,
   }));
+
+  // Recents are overlaid with live favorite state so their star renders correctly
+  // and toggling a recent computes the right next state.
+  const visibleRecentProducts = recentProducts.map((product) =>
+    applyFavoriteLookup(product, favoriteGuids),
+  );
 
   // A 503 from the catalog means the whole dashboard should render the disabled state.
   const isFeatureDisabled = productError instanceof ApiError && productError.isFeatureDisabled;
@@ -1479,15 +1606,23 @@ function App() {
    */
   const handleToggleFavorite = useCallback(
     async (product) => {
-      // Recent-only snapshots cannot mutate favorites because they may be stale.
-      if (!product?.documentGuid || product.isRecentOnly) {
+      // A document GUID is the only field the favorite endpoints require, so any
+      // row that carries one (including recent snapshots) can be favorited.
+      if (!product?.documentGuid) {
         return;
       }
 
-      // Desired state is the inverse of the current visible flag.
-      const nextFavoriteState = !product.isFavorite;
+      const lookupKey = product.documentGuid.toLowerCase();
 
-      const updatedProduct = await toggleFavorite(product, nextFavoriteState);
+      // Recent rows are display snapshots. Prefer the fresh catalog row when it is
+      // loaded so the stored favorite carries richer metadata; otherwise keep the
+      // snapshot. The next state is computed from live favorite membership so a
+      // toggle is correct regardless of which copy of the row was clicked.
+      const resolvedProduct = (product.isRecentOnly && productsByGuid.get(lookupKey)) || product;
+      const isCurrentlyFavorite = product.isFavorite || favoriteGuids.has(lookupKey);
+      const nextFavoriteState = !isCurrentlyFavorite;
+
+      const updatedProduct = await toggleFavorite(resolvedProduct, nextFavoriteState);
 
       // Auth failures return null and should leave product state unchanged.
       if (!updatedProduct) {
@@ -1514,7 +1649,7 @@ function App() {
         };
       });
     },
-    [toggleFavorite, updateProduct],
+    [toggleFavorite, updateProduct, productsByGuid, favoriteGuids],
   );
 
   /**************************************************************/
@@ -1678,7 +1813,8 @@ function App() {
             <ProductPicker
               products={visibleProducts}
               favoriteProducts={visibleFavoriteProducts}
-              recentProducts={recentProducts}
+              recentProducts={visibleRecentProducts}
+              totalProductCount={totalProductCount}
               selectedProduct={selectedProductWithFavoriteState}
               searchTerm={productSearch}
               onSearchTermChange={setProductSearch}

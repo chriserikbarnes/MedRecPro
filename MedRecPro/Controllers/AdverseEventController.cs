@@ -274,6 +274,60 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Gets the count of distinct AE dashboard products available to the picker.
+        /// </summary>
+        /// <returns>The real distinct-product inventory count.</returns>
+        /// <remarks>
+        /// ## Dashboard Usage
+        /// Backs the product-picker count badge so it reflects actual inventory rather
+        /// than a hard-coded page size. Returns <c>COUNT(DISTINCT ProductName)</c> from
+        /// the materialized AE risk table. No search, paging, or user resolution applies.
+        ///
+        /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/products/count
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the distinct product count.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeProductCountAsync"/>
+        /// <seealso cref="GetProductCatalog"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [HttpGet("products/count")]
+        [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<int>> GetProductCount()
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            try
+            {
+                var count = await DtoLabelAccess.GetAeProductCountAsync(_dbContext, _logger);
+                return Ok(count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard product count.");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard product count.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the authenticated user's favorited AE dashboard products.
         /// </summary>
         /// <param name="pageNumber">Optional 1-based page number.</param>

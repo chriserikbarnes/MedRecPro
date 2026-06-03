@@ -182,6 +182,113 @@ namespace MedRecProTest
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Verifies GetAeFavoriteDrugSummariesAsync collapses a combination product's
+        /// multiple summary-view strata into a single favorite row instead of throwing
+        /// a duplicate-key error.
+        /// </summary>
+        /// <remarks>
+        /// A combination product fans out into one vw_AeDrugSummary row per
+        /// (substance × pharmacologic class). Before the collapse fix, the duplicate
+        /// DocumentGUID rows reached a ToDictionary keyed by DocumentGUID and threw
+        /// ArgumentException while loading favorites.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetAeFavoriteDrugSummariesAsync(ApplicationDbContext, long, string, ILogger, int?, int?)"/>
+        [TestMethod]
+        public async Task GetAeFavoriteDrugSummariesAsync_CombinationProductMultipleStrata_CollapsesToSingleFavorite()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+            await seedUserAsync(context, 8201);
+
+            // Two strata for the same document simulate a combination product that fans
+            // out across two pharmacologic classes in vw_AeDrugSummary.
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                productName: "COMBO RELIEF",
+                substanceName: "Aspirin",
+                unii: "R16CO5Y76E",
+                pharmClassCode: "N0000175722",
+                pharmClassName: "Nonsteroidal Anti-inflammatory Drug",
+                ingredientSubstanceId: 20);
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                productName: "COMBO RELIEF",
+                substanceName: "Caffeine",
+                unii: "3G6A5W338E",
+                pharmClassCode: "N0000175555",
+                pharmClassName: "Central Nervous System Stimulant",
+                ingredientSubstanceId: 21);
+
+            var added = await DtoLabelAccess.SetAeProductFavoriteAsync(
+                context, 8201, DtoLabelAccessTestHelper.TestDocumentGuid, true, logger);
+
+            var favorites = await DtoLabelAccess.GetAeFavoriteDrugSummariesAsync(context, 8201, PkSecret, logger);
+
+            Assert.IsTrue(added);
+            Assert.AreEqual(1, favorites.Count);
+            Assert.AreEqual(DtoLabelAccessTestHelper.TestDocumentGuid, favorites.Single().DocumentGUID);
+            Assert.IsTrue(favorites.Single().IsFavorite);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies SetAeProductFavoriteAsync accepts a null-class product that exists
+        /// only in the risk-table fallback, and that the favorite round-trips back
+        /// through GetAeFavoriteDrugSummariesAsync.
+        /// </summary>
+        /// <remarks>
+        /// Null-class products are absent from vw_AeDrugSummary and surface only through
+        /// the tmp_FlattenedAdverseEventRiskTable fallback the picker uses. Before the
+        /// eligibility fix, the favorite write rejected them as "not found".
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.SetAeProductFavoriteAsync(ApplicationDbContext, long, Guid, bool, ILogger)"/>
+        [TestMethod]
+        public async Task SetAeProductFavoriteAsync_NullClassProductInRiskTableOnly_SavesAndLoadsFavorite()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+            await seedUserAsync(context, 8301);
+
+            // Seed the product only in the risk table with no pharmacologic class, and
+            // deliberately do not seed vw_AeDrugSummary, mirroring a null-class product.
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                productName: "UNCLASSED DRUG",
+                pharmClassCode: null,
+                pharmClassName: null);
+
+            var added = await DtoLabelAccess.SetAeProductFavoriteAsync(
+                context, 8301, DtoLabelAccessTestHelper.TestDocumentGuid, true, logger);
+            var persistedCount = await context.AspNetUserFavorites.CountAsync();
+
+            var favorites = await DtoLabelAccess.GetAeFavoriteDrugSummariesAsync(context, 8301, PkSecret, logger);
+
+            Assert.IsTrue(added);
+            Assert.AreEqual(1, persistedCount);
+            Assert.AreEqual(1, favorites.Count);
+            Assert.AreEqual(DtoLabelAccessTestHelper.TestDocumentGuid, favorites.Single().DocumentGUID);
+            Assert.IsTrue(favorites.Single().IsFavorite);
+
+            #endregion
+        }
+
         #endregion favorite persistence tests
 
         #region helpers

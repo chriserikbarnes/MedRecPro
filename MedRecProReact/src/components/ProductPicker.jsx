@@ -20,6 +20,9 @@ function mapRecentsToPickerRows(recents) {
     generic: recent.generic,
     pharmClass: recent.pharmClass,
     score: recent.score,
+    // Carry live favorite state so the recent row's star renders filled when the
+    // product is already a favorite and toggling computes the correct next state.
+    isFavorite: recent.isFavorite,
     isRecentOnly: true,
   }));
 }
@@ -187,7 +190,7 @@ function ProductPickerRow({
           className={`pi-star${product.isFavorite ? ' is-on' : ''}`}
           aria-pressed={product.isFavorite}
           aria-label={`${favoriteLabel} ${product.name}`}
-          disabled={isFavoriteBusy || product.isRecentOnly}
+          disabled={isFavoriteBusy}
           title={favoriteLabel}
           onMouseDown={(event) => {
             // Keep the picker input focused while the button handles the click.
@@ -251,6 +254,7 @@ export function ProductPicker({
   products,
   favoriteProducts,
   recentProducts,
+  totalProductCount,
   selectedProduct,
   searchTerm,
   onSearchTermChange,
@@ -386,6 +390,20 @@ export function ProductPicker({
       return;
     }
 
+    // Asterisk toggles the active row's favorite, matching the "* favorite" footer
+    // hint. It is intercepted so the character never lands in the search box.
+    if (event.key === '*') {
+      event.preventDefault();
+
+      // Only act when a row is available to favorite.
+      const activeRow = flattenedRows[boundedActiveIndex];
+      if (activeRow) {
+        onToggleFavorite(activeRow);
+      }
+
+      return;
+    }
+
     // Escape closes the panel without changing selection.
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -461,7 +479,7 @@ export function ProductPicker({
               }}
               onKeyDown={handleInputKeyDown}
             />
-            <span className="picker-count">{formatInteger(products.length)} products</span>
+            <span className="picker-count">{formatInteger(totalProductCount)} products</span>
           </div>
 
           <div className="picker-body" id="product-picker-listbox" role="listbox">
@@ -518,7 +536,7 @@ export function ProductPicker({
                   move
                 </span>
                 <span><kbd>⏎</kbd> select</span>
-                <span><kbd>★</kbd> favorite</span>
+                <span><kbd>*</kbd> favorite</span>
                 <span><kbd>esc</kbd> close</span>
               </>
             )}

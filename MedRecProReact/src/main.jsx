@@ -1,5 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+// Shared masthead styling — single source of truth lives in the MedRecProStatic
+// project and is also linked directly by the server-rendered pages (_Layout, Chat).
+// Imported before index.css so the dashboard can adapt only the container width.
+import '../../MedRecProStatic/wwwroot/css/masthead.css'
 import './index.css'
 import App from './App.jsx'
 
