@@ -140,8 +140,10 @@ builder.Services.AddScoped<AzureSqlMetricsService>();
 builder.Services.AddDatabaseUsageMonitoring();
 
 // Tarpit middleware configuration and service
-builder.Services.Configure<MedRecPro.Models.TarpitSettings>(
-    builder.Configuration.GetSection("TarpitSettings"));
+builder.Services.AddSingleton<IValidateOptions<MedRecPro.Models.TarpitSettings>, MedRecPro.Models.TarpitSettingsValidator>();
+builder.Services.AddOptions<MedRecPro.Models.TarpitSettings>()
+    .Bind(builder.Configuration.GetSection("TarpitSettings"))
+    .ValidateOnStart();
 builder.Services.AddSingleton<MedRecPro.Service.TarpitService>();
 
 // Register ClaudeSkillService for two-stage routing skill management

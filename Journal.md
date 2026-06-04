@@ -4795,3 +4795,27 @@ Implemented the AE dashboard performance plan and renamed the plan artifact from
 **Follow-up verification.** Added SQL contract coverage in `[AeRiskViewSqlTests.cs](MedRecProTest/AeRiskViewSqlTests.cs)` for `vw_AeDashboardProductCatalog` and for the C# materializer reading from `CatalogSourceView`. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "AeRiskViewSqlTests|AdverseEventDenormalizationServiceTests" -p:BaseOutputPath=C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\bin\codex-catalog-view-final\` passed 43/43. Existing warnings remain, including Microsoft.CodeAnalysis version conflict warnings and unrelated nullable warnings. `git diff --check` reported no whitespace errors; line-ending warnings are the existing LF/CRLF working-copy behavior.
 
 ---
+
+### 2026-06-04 12:57 PM EST — AE Dashboard tarpit tolerance plan
+Created a saved implementation plan for making the tarpit more tolerant of normal `/api/AdverseEvent/` dashboard traffic.
+
+**Evidence.** Reviewed the live tarpit service, middleware, settings model, appsettings section, options registration, focused tarpit tests, and AE dashboard React request paths before drafting. The plan records the current failure model: broad `/api/` endpoint monitoring, successful API calls being recorded as endpoint-abuse hits, a 300-second window, and a 30-second endpoint delay cap.
+
+**Plan artifact.** Added `[Plans/(pending) AE Dashboard Tarpit Tolerance Plan.md](Plans/(pending)%20AE%20Dashboard%20Tarpit%20Tolerance%20Plan.md)`. The plan recommends an immediate config-only mitigation that removes broad `/api/` monitoring, then a durable `EndpointMonitoring` configuration shape with exclusion-first matching, per-rule thresholds/windows/delay caps, options validation, policy-aware service methods, middleware updates, and focused regression tests proving `/api/AdverseEvent/` calls do not accumulate endpoint-abuse delay.
+
+**Verification.** Verified the ignored `Plans/` artifact by direct `Get-Item` and `Select-String` reads. No build or test run was needed because this session only added a markdown plan and appended the journal entry.
+
+---
+
+### 2026-06-04 1:29 PM EST — AE Dashboard Tarpit Tolerance Implementation
+Implemented the tarpit tolerance plan and renamed the ignored plan artifact from `[Plans/(pending) AE Dashboard Tarpit Tolerance Plan.md](Plans/(pending)%20AE%20Dashboard%20Tarpit%20Tolerance%20Plan.md)` to `[Plans/(done) AE Dashboard Tarpit Tolerance Plan.md](Plans/(done)%20AE%20Dashboard%20Tarpit%20Tolerance%20Plan.md)`.
+
+**Endpoint policy model.** Added rule-based endpoint monitoring to `[TarpitSettings.cs](MedRecPro/Models/TarpitSettings.cs)`, including `EndpointMonitoring`, exclusions, per-rule thresholds/windows/delay caps, legacy `MonitoredEndpoints` compatibility remarks, a resolved endpoint policy DTO, and `TarpitSettingsValidator` for startup validation. `[Program.cs](MedRecPro/Program.cs) now binds tarpit settings with `AddOptions<TarpitSettings>()`, registers the validator, and calls `ValidateOnStart()`.
+
+**Middleware and service behavior.** Added `[TarpitEndpointPolicyResolver.cs](MedRecPro/Service/TarpitEndpointPolicyResolver.cs)` so exclusions are evaluated before include rules and legacy prefixes are used only when no new rules are configured. Updated `[TarpitService.cs](MedRecPro/Service/TarpitService.cs)` to track endpoint abuse by stable policy name with policy-specific windows and delay caps while retaining legacy string overloads. Updated `[TarpitMiddleware.cs](MedRecPro/Middleware/TarpitMiddleware.cs)` so successful excluded `/api/AdverseEvent/` requests do not record endpoint-abuse hits and still reset prior 404 counters when `ResetOnSuccess` is enabled. Updated `[appsettings.json](MedRecPro/appsettings.json)` to remove broad `/api/` monitoring, add the explicit `EndpointMonitoring` section, exclude `/api/AdverseEvent/`, and keep only a narrow `home-index` rule by default.
+
+**Regression coverage.** Extended `[TarpitServiceTests.cs](MedRecProTest/TarpitServiceTests.cs)` for stable rule-name buckets, policy-specific windows, policy-specific delay caps, legacy fallback policy resolution, exclusion-first behavior, and settings validation. Extended `[TarpitMiddlewareTests.cs](MedRecProTest/TarpitMiddlewareTests.cs)` for AE dashboard exclusion, success reset after prior 404s, non-excluded broad API monitoring, rule-specific threshold/window/cap behavior, and case-insensitive exclusions.
+
+**Verification.** `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~Tarpit" -p:BaseOutputPath=C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\bin\codex-tarpit\` passed 68/68. A full `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore -p:BaseOutputPath=C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\bin\codex-tarpit\` run was attempted but did not complete because environment-dependent `ProductRenderingServiceTests` fail during initialization with `PK encryption secret not configured`, then the run timed out before a full result set. `git diff --check` reported no whitespace errors; line-ending warnings are the existing LF/CRLF working-copy behavior.
+
+---

@@ -67,6 +67,31 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /*************************************************************/
+        /// <summary>
+        /// Creates a resolved endpoint policy for policy-aware endpoint tests.
+        /// </summary>
+        private static TarpitEndpointPolicy CreateEndpointPolicy(
+            string name = "api-broad",
+            string pathPrefix = "/api/",
+            int rateThreshold = 2,
+            int windowSeconds = 60,
+            int maxDelayMs = 50)
+        {
+            #region implementation
+
+            return new TarpitEndpointPolicy
+            {
+                Name = name,
+                PathPrefix = pathPrefix,
+                RateThreshold = rateThreshold,
+                WindowSeconds = windowSeconds,
+                MaxDelayMs = maxDelayMs
+            };
+
+            #endregion
+        }
+
         #endregion
 
         #region RecordHit Tests
@@ -556,6 +581,39 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that policy-aware endpoint hits use the stable rule name as the tracking key.
+        /// </summary>
+        [TestMethod]
+        public void RecordEndpointHit_PoliciesWithSameName_ShareStableRuleKey()
+        {
+            #region implementation
+
+            // Arrange
+            using var service = CreateService();
+            var originalPolicy = CreateEndpointPolicy(
+                name: "api-broad",
+                pathPrefix: "/api/v1/");
+            var sameNameDifferentPrefix = CreateEndpointPolicy(
+                name: "api-broad",
+                pathPrefix: "/api/v2/");
+            var samePrefixDifferentName = CreateEndpointPolicy(
+                name: "api-other",
+                pathPrefix: "/api/v1/");
+
+            // Act
+            service.RecordEndpointHit("192.168.1.1", originalPolicy);
+
+            // Assert
+            Assert.AreEqual(1, service.GetEndpointHitCount("192.168.1.1", sameNameDifferentPrefix),
+                "Policies with the same stable rule name should share the endpoint hit bucket");
+            Assert.AreEqual(0, service.GetEndpointHitCount("192.168.1.1", samePrefixDifferentName),
+                "Policies with different rule names should not share the endpoint hit bucket");
+
+            #endregion
+        }
+
         #endregion
 
         #region Endpoint Abuse — GetEndpointHitCount Tests
@@ -615,6 +673,46 @@ namespace MedRecPro.Service.Test
 
             // Assert
             Assert.AreEqual(0, count, "Expired window should return 0 hits");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that policy-aware hit counts expire using the policy window, not the legacy global window.
+        /// </summary>
+        [TestMethod]
+        public void GetEndpointHitCount_PolicyWindowExpired_IgnoresLegacyWindow()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = new TarpitSettings
+            {
+                Enabled = true,
+                TriggerThreshold = 5,
+                MaxDelayMs = 30_000,
+                StaleEntryTimeoutMinutes = 60,
+                CleanupIntervalMinutes = 60,
+                MaxTrackedIps = 10_000,
+                ResetOnSuccess = true,
+                EndpointRateThreshold = 20,
+                EndpointWindowSeconds = 300
+            };
+
+            using var service = CreateService(settings);
+            var policy = CreateEndpointPolicy(windowSeconds: 1);
+
+            service.RecordEndpointHit("192.168.1.1", policy);
+            Assert.AreEqual(1, service.GetEndpointHitCount("192.168.1.1", policy),
+                "Precondition: policy should have one active hit");
+
+            // Act
+            System.Threading.Thread.Sleep(1200);
+
+            // Assert
+            Assert.AreEqual(0, service.GetEndpointHitCount("192.168.1.1", policy),
+                "The policy-specific one-second window should expire even though the legacy global window is longer");
 
             #endregion
         }
@@ -708,6 +806,40 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that policy-aware endpoint delay uses the policy delay cap.
+        /// </summary>
+        [TestMethod]
+        public void CalculateEndpointDelay_PolicyMaxDelayCap_IgnoresGlobalMaxDelay()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = new TarpitSettings
+            {
+                Enabled = true,
+                TriggerThreshold = 5,
+                MaxDelayMs = 30_000,
+                StaleEntryTimeoutMinutes = 60,
+                CleanupIntervalMinutes = 60,
+                MaxTrackedIps = 10_000,
+                ResetOnSuccess = true
+            };
+
+            using var service = CreateService(settings);
+            var policy = CreateEndpointPolicy(rateThreshold: 2, maxDelayMs: 25);
+
+            // Act
+            var delay = service.CalculateEndpointDelay(10, policy);
+
+            // Assert
+            Assert.AreEqual(25, delay,
+                "Policy-specific endpoint delay should cap at the resolved policy MaxDelayMs, not global MaxDelayMs");
+
+            #endregion
+        }
+
         #endregion
 
         #region Endpoint Abuse — Combined Cap Tests
@@ -783,6 +915,161 @@ namespace MedRecPro.Service.Test
             service.RecordEndpointHit("192.168.1.1", "/api/"); // Same IP+path
             Assert.AreEqual(2, service.TrackedEndpointCount,
                 "Same IP+path should not increase entry count");
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Endpoint Policy Resolver Tests
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that legacy monitored endpoints resolve when no new endpoint rules are configured.
+        /// </summary>
+        [TestMethod]
+        public void Resolve_NoNewRules_UsesLegacyMonitoredEndpoints()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = new TarpitSettings
+            {
+                Enabled = true,
+                TriggerThreshold = 5,
+                MaxDelayMs = 30_000,
+                StaleEntryTimeoutMinutes = 60,
+                CleanupIntervalMinutes = 60,
+                MaxTrackedIps = 10_000,
+                ResetOnSuccess = true,
+                MonitoredEndpoints = new List<string> { "/api/" },
+                EndpointRateThreshold = 7,
+                EndpointWindowSeconds = 90
+            };
+
+            // Act
+            var policy = TarpitEndpointPolicyResolver.Resolve("/api/legacy-path", settings);
+
+            // Assert
+            Assert.IsNotNull(policy, "Legacy monitored endpoint should resolve when no new rules are configured");
+            Assert.AreEqual("/api/", policy.Name, "Legacy policies should use the normalized path prefix as the key");
+            Assert.AreEqual(7, policy.RateThreshold, "Legacy endpoint threshold should flow into the resolved policy");
+            Assert.AreEqual(90, policy.WindowSeconds, "Legacy endpoint window should flow into the resolved policy");
+            Assert.AreEqual(30_000, policy.MaxDelayMs, "Legacy endpoint policy should use the global MaxDelayMs cap");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that endpoint exclusions win before legacy monitored endpoint fallback.
+        /// </summary>
+        [TestMethod]
+        public void Resolve_ExcludedPath_IgnoresLegacyMonitoredEndpoint()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = new TarpitSettings
+            {
+                Enabled = true,
+                TriggerThreshold = 5,
+                MaxDelayMs = 30_000,
+                StaleEntryTimeoutMinutes = 60,
+                CleanupIntervalMinutes = 60,
+                MaxTrackedIps = 10_000,
+                ResetOnSuccess = true,
+                MonitoredEndpoints = new List<string> { "/api/" },
+                EndpointMonitoring = new EndpointMonitoringSettings
+                {
+                    ExcludedPathPrefixes = new List<string> { "/api/AdverseEvent/" }
+                }
+            };
+
+            // Act
+            var policy = TarpitEndpointPolicyResolver.Resolve("/API/ADVERSEEVENT/products/catalog", settings);
+
+            // Assert
+            Assert.IsNull(policy, "Case-insensitive endpoint exclusion should prevent legacy /api/ monitoring");
+
+            #endregion
+        }
+
+        #endregion
+
+        #region Tarpit Settings Validation Tests
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that valid nested endpoint monitoring settings pass validation.
+        /// </summary>
+        [TestMethod]
+        public void TarpitSettingsValidator_ValidEndpointMonitoring_ReturnsSuccess()
+        {
+            #region implementation
+
+            // Arrange
+            var validator = new TarpitSettingsValidator();
+            var settings = new TarpitSettings
+            {
+                EndpointMonitoring = new EndpointMonitoringSettings
+                {
+                    ExcludedPathPrefixes = new List<string> { "/api/AdverseEvent/" },
+                    Rules = new List<TarpitEndpointRule>
+                    {
+                        new()
+                        {
+                            Name = "home-index",
+                            PathPrefix = "/Home/Index",
+                            RateThreshold = 10,
+                            WindowSeconds = 300,
+                            MaxDelayMs = 30_000
+                        }
+                    }
+                }
+            };
+
+            // Act
+            var result = validator.Validate(null, settings);
+
+            // Assert
+            Assert.IsTrue(result.Succeeded, "Valid nested endpoint monitoring settings should pass validation");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that invalid endpoint prefixes fail tarpit settings validation.
+        /// </summary>
+        [TestMethod]
+        public void TarpitSettingsValidator_InvalidEndpointPrefixes_ReturnsFailure()
+        {
+            #region implementation
+
+            // Arrange
+            var validator = new TarpitSettingsValidator();
+            var settings = new TarpitSettings
+            {
+                EndpointMonitoring = new EndpointMonitoringSettings
+                {
+                    ExcludedPathPrefixes = new List<string> { "api/AdverseEvent/" },
+                    Rules = new List<TarpitEndpointRule>
+                    {
+                        new()
+                        {
+                            Name = "home-index",
+                            PathPrefix = "Home/Index"
+                        }
+                    }
+                }
+            };
+
+            // Act
+            var result = validator.Validate(null, settings);
+
+            // Assert
+            Assert.IsFalse(result.Succeeded, "Endpoint exclusions and rules without leading slash should fail validation");
 
             #endregion
         }

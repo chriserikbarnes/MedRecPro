@@ -17,7 +17,7 @@ namespace MedRecPro.Service;
 /// A <see cref="Timer"/> runs periodic cleanup of stale entries to prevent memory leaks.
 ///
 /// **404 delay formula:** <c>min(2^(hitCount - TriggerThreshold) * 1000, MaxDelayMs)</c>
-/// **Endpoint delay formula:** <c>min(2^(hitCount - EndpointRateThreshold) * 1000, MaxDelayMs)</c>
+/// **Endpoint delay formula:** <c>min(2^(hitCount - policyThreshold) * 1000, policyMaxDelayMs)</c>
 ///
 /// **Memory management:**
 /// - Timer fires every <see cref="TarpitSettings.CleanupIntervalMinutes"/> to purge stale entries from both dictionaries.
@@ -45,10 +45,10 @@ public class TarpitService : IDisposable
     /// start time, and last activity timestamp.
     /// </summary>
     /// <remarks>
-    /// When the current time exceeds <c>WindowStart + EndpointWindowSeconds</c>,
+    /// When the current time exceeds <c>WindowStart + policy.WindowSeconds</c>,
     /// the window is considered expired and the count resets to 1 on the next hit.
     /// </remarks>
-    /// <seealso cref="TarpitSettings.EndpointWindowSeconds"/>
+    /// <seealso cref="TarpitEndpointPolicy.WindowSeconds"/>
     internal readonly record struct EndpointAbuseEntry(int Count, DateTime WindowStart, DateTime LastHit);
 
     #endregion
@@ -121,7 +121,7 @@ public class TarpitService : IDisposable
     /// Each entry represents a unique client IP + monitored path combination.
     /// Useful for diagnostics.
     /// </remarks>
-    /// <seealso cref="TarpitSettings.MonitoredEndpoints"/>
+    /// <seealso cref="TarpitEndpointPolicy"/>
     public int TrackedEndpointCount => _endpointTracker.Count;
 
     #endregion
@@ -230,38 +230,42 @@ public class TarpitService : IDisposable
     /**************************************************************/
     /// <summary>
     /// Records a hit on a monitored endpoint for the specified client IP,
-    /// using a tumbling window to track request rate.
+    /// using a resolved endpoint policy and tumbling request window.
     /// </summary>
-    /// <param name="clientIp">The client IP address.</param>
-    /// <param name="path">The normalized (lowercase) matched endpoint path.</param>
+    /// <param name="clientIp">The client IP or stable client identifier.</param>
+    /// <param name="policy">The resolved endpoint monitoring policy.</param>
     /// <remarks>
-    /// The composite key is <c>"{clientIp}|{path}"</c>. If the tumbling window
-    /// (defined by <see cref="TarpitSettings.EndpointWindowSeconds"/>) has expired,
-    /// the counter resets to 1 with a new window start. Otherwise, the counter increments.
+    /// The composite key is <c>"{clientIp}|{policy.Name}"</c>. If the tumbling
+    /// window defined by <see cref="TarpitEndpointPolicy.WindowSeconds"/> has
+    /// expired, the counter resets to 1 with a new window start. Otherwise, the
+    /// counter increments.
     ///
     /// After recording, checks the combined entry count across both dictionaries
     /// and evicts oldest entries if <see cref="TarpitSettings.MaxTrackedIps"/> is exceeded.
     /// </remarks>
-    /// <seealso cref="GetEndpointHitCount"/>
-    /// <seealso cref="CalculateEndpointDelay"/>
-    public void RecordEndpointHit(string clientIp, string path)
+    /// <seealso cref="GetEndpointHitCount(string, TarpitEndpointPolicy)"/>
+    /// <seealso cref="CalculateEndpointDelay(int, TarpitEndpointPolicy)"/>
+    public void RecordEndpointHit(string clientIp, TarpitEndpointPolicy policy)
     {
         #region implementation
 
-        var key = $"{clientIp}|{path}";
+        ArgumentNullException.ThrowIfNull(policy);
+
+        var key = createEndpointTrackerKey(clientIp, policy);
         var settings = _settingsMonitor.CurrentValue;
-        var windowDuration = TimeSpan.FromSeconds(Math.Max(1, settings.EndpointWindowSeconds));
+        var windowDuration = TimeSpan.FromSeconds(Math.Max(1, policy.WindowSeconds));
+        var now = DateTime.UtcNow;
 
         _endpointTracker.AddOrUpdate(
             key,
-            _ => new EndpointAbuseEntry(1, DateTime.UtcNow, DateTime.UtcNow),
+            _ => new EndpointAbuseEntry(1, now, now),
             (_, existing) =>
             {
-                // If the window has expired, reset the counter
-                if (DateTime.UtcNow - existing.WindowStart >= windowDuration)
-                    return new EndpointAbuseEntry(1, DateTime.UtcNow, DateTime.UtcNow);
+                // If the policy-specific window has expired, reset the counter.
+                if (now - existing.WindowStart >= windowDuration)
+                    return new EndpointAbuseEntry(1, now, now);
 
-                return new EndpointAbuseEntry(existing.Count + 1, existing.WindowStart, DateTime.UtcNow);
+                return new EndpointAbuseEntry(existing.Count + 1, existing.WindowStart, now);
             });
 
         if (_tracker.Count + _endpointTracker.Count > settings.MaxTrackedIps)
@@ -274,32 +278,116 @@ public class TarpitService : IDisposable
 
     /**************************************************************/
     /// <summary>
-    /// Gets the current hit count for the specified client IP on a monitored endpoint
-    /// within the active tumbling window.
+    /// Records a hit on a monitored endpoint for the specified client IP,
+    /// using a tumbling window to track request rate.
     /// </summary>
     /// <param name="clientIp">The client IP address.</param>
-    /// <param name="path">The normalized (lowercase) matched endpoint path.</param>
-    /// <returns>
-    /// The hit count within the current window, or 0 if the IP+path is not tracked
-    /// or the window has expired.
-    /// </returns>
-    /// <seealso cref="RecordEndpointHit"/>
-    public int GetEndpointHitCount(string clientIp, string path)
+    /// <param name="path">The normalized legacy matched endpoint path.</param>
+    /// <remarks>
+    /// Legacy compatibility overload. New middleware code should pass a resolved
+    /// <see cref="TarpitEndpointPolicy"/> so rule-specific windows and delay caps
+    /// are respected.
+    /// </remarks>
+    /// <seealso cref="RecordEndpointHit(string, TarpitEndpointPolicy)"/>
+    public void RecordEndpointHit(string clientIp, string path)
     {
         #region implementation
 
-        var key = $"{clientIp}|{path}";
+        RecordEndpointHit(clientIp, createLegacyPolicy(path));
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Gets the current hit count for the specified client IP on a monitored endpoint
+    /// within the resolved policy's active tumbling window.
+    /// </summary>
+    /// <param name="clientIp">The client IP or stable client identifier.</param>
+    /// <param name="policy">The resolved endpoint monitoring policy.</param>
+    /// <returns>
+    /// The hit count within the current policy window, or 0 if the client+policy
+    /// is not tracked or the policy window has expired.
+    /// </returns>
+    /// <seealso cref="RecordEndpointHit(string, TarpitEndpointPolicy)"/>
+    public int GetEndpointHitCount(string clientIp, TarpitEndpointPolicy policy)
+    {
+        #region implementation
+
+        ArgumentNullException.ThrowIfNull(policy);
+
+        var key = createEndpointTrackerKey(clientIp, policy);
         if (!_endpointTracker.TryGetValue(key, out var entry))
             return 0;
 
-        var settings = _settingsMonitor.CurrentValue;
-        var windowDuration = TimeSpan.FromSeconds(Math.Max(1, settings.EndpointWindowSeconds));
+        var windowDuration = TimeSpan.FromSeconds(Math.Max(1, policy.WindowSeconds));
 
-        // If window expired, the count is effectively 0
+        // If the policy-specific window expired, the count is effectively 0.
         if (DateTime.UtcNow - entry.WindowStart >= windowDuration)
             return 0;
 
         return entry.Count;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Gets the current hit count for the specified client IP on a monitored endpoint
+    /// within the active tumbling window.
+    /// </summary>
+    /// <param name="clientIp">The client IP address.</param>
+    /// <param name="path">The normalized legacy matched endpoint path.</param>
+    /// <returns>
+    /// The hit count within the current window, or 0 if the IP+path is not tracked
+    /// or the window has expired.
+    /// </returns>
+    /// <remarks>
+    /// Legacy compatibility overload. New code should pass a resolved
+    /// <see cref="TarpitEndpointPolicy"/>.
+    /// </remarks>
+    /// <seealso cref="GetEndpointHitCount(string, TarpitEndpointPolicy)"/>
+    public int GetEndpointHitCount(string clientIp, string path)
+    {
+        #region implementation
+
+        return GetEndpointHitCount(clientIp, createLegacyPolicy(path));
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Calculates the delay in milliseconds for endpoint abuse using
+    /// exponential backoff based on the resolved endpoint policy.
+    /// </summary>
+    /// <param name="hitCount">The number of hits within the current tumbling window.</param>
+    /// <param name="policy">The resolved endpoint monitoring policy.</param>
+    /// <returns>
+    /// Delay in milliseconds: 0 if below <see cref="TarpitEndpointPolicy.RateThreshold"/>,
+    /// otherwise <c>min(2^(hitCount - RateThreshold) * 1000, MaxDelayMs)</c>.
+    /// </returns>
+    /// <remarks>
+    /// Uses the same exponential backoff formula as <see cref="CalculateDelay"/>
+    /// but with policy-specific threshold and delay cap values.
+    /// </remarks>
+    /// <seealso cref="CalculateDelay"/>
+    /// <seealso cref="TarpitEndpointPolicy"/>
+    public int CalculateEndpointDelay(int hitCount, TarpitEndpointPolicy policy)
+    {
+        #region implementation
+
+        ArgumentNullException.ThrowIfNull(policy);
+
+        if (hitCount < policy.RateThreshold)
+            return 0;
+
+        var exponent = hitCount - policy.RateThreshold;
+        var delayMs = (int)Math.Min(
+            policy.MaxDelayMs,
+            1000.0 * Math.Pow(2, exponent));
+
+        return delayMs;
 
         #endregion
     }
@@ -319,6 +407,7 @@ public class TarpitService : IDisposable
     /// but with <see cref="TarpitSettings.EndpointRateThreshold"/> as the threshold.
     /// </remarks>
     /// <seealso cref="CalculateDelay"/>
+    /// <seealso cref="CalculateEndpointDelay(int, TarpitEndpointPolicy)"/>
     public int CalculateEndpointDelay(int hitCount)
     {
         #region implementation
@@ -341,6 +430,57 @@ public class TarpitService : IDisposable
     #endregion
 
     #region Private Methods
+
+    /**************************************************************/
+    /// <summary>
+    /// Builds the composite endpoint tracker key from a client identifier and policy.
+    /// </summary>
+    /// <param name="clientIp">The client IP or stable client identifier.</param>
+    /// <param name="policy">The resolved endpoint policy.</param>
+    /// <returns>The composite dictionary key.</returns>
+    /// <remarks>
+    /// Rule-based endpoint entries are keyed by stable rule name rather than raw
+    /// path prefix, which keeps hit counts stable across path-formatting edits.
+    /// </remarks>
+    /// <seealso cref="TarpitEndpointPolicy.Name"/>
+    private static string createEndpointTrackerKey(string clientIp, TarpitEndpointPolicy policy)
+    {
+        #region implementation
+
+        return $"{clientIp}|{policy.Name}";
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Creates a policy from legacy endpoint settings for compatibility overloads.
+    /// </summary>
+    /// <param name="path">The legacy endpoint path prefix.</param>
+    /// <returns>A resolved endpoint policy using current legacy settings.</returns>
+    /// <remarks>
+    /// This helper preserves the older string-based API while the middleware and
+    /// new tests move to policy-aware calls.
+    /// </remarks>
+    /// <seealso cref="TarpitSettings.MonitoredEndpoints"/>
+    private TarpitEndpointPolicy createLegacyPolicy(string path)
+    {
+        #region implementation
+
+        var settings = _settingsMonitor.CurrentValue;
+        var normalizedPath = path.Trim().ToLowerInvariant();
+
+        return new TarpitEndpointPolicy
+        {
+            Name = normalizedPath,
+            PathPrefix = path,
+            RateThreshold = Math.Max(1, settings.EndpointRateThreshold),
+            WindowSeconds = Math.Max(1, settings.EndpointWindowSeconds),
+            MaxDelayMs = Math.Max(0, settings.MaxDelayMs)
+        };
+
+        #endregion
+    }
 
     /**************************************************************/
     /// <summary>

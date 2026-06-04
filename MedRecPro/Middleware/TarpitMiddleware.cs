@@ -30,11 +30,11 @@ namespace MedRecPro.Middleware;
 /// Exceptions are logged and swallowed — the middleware never crashes the request pipeline.
 ///
 /// **Success response handling:**
-/// - If the path matches a <see cref="TarpitSettings.MonitoredEndpoints"/> entry,
-///   the hit is recorded in the endpoint abuse tracker. The 404 counter is NOT reset
-///   because a bot hammering a monitored endpoint is not demonstrating legitimate behavior.
-/// - If the path does not match a monitored endpoint and <see cref="TarpitSettings.ResetOnSuccess"/>
-///   is enabled, the 404 counter is reset (existing behavior).
+/// - If the path resolves to an endpoint monitoring policy, the hit is recorded
+///   in the endpoint abuse tracker. The 404 counter is NOT reset because a bot
+///   hammering a monitored endpoint is not demonstrating legitimate behavior.
+/// - If the path is excluded or does not resolve to an endpoint policy and
+///   <see cref="TarpitSettings.ResetOnSuccess"/> is enabled, the 404 counter is reset.
 /// </remarks>
 /// <seealso cref="TarpitService"/>
 /// <seealso cref="TarpitSettings"/>
@@ -194,7 +194,7 @@ public class TarpitMiddleware
     /// </remarks>
     /// <seealso cref="recordPostPipelineHits"/>
     /// <seealso cref="TarpitService.GetHitCount"/>
-    /// <seealso cref="TarpitService.GetEndpointHitCount"/>
+    /// <seealso cref="TarpitService.GetEndpointHitCount(string, TarpitEndpointPolicy)"/>
     private async Task applyPrePipelineDelay(
         HttpContext context, string? clientId, string? clientIp)
     {
@@ -217,14 +217,14 @@ public class TarpitMiddleware
             // where IIS strips the virtual directory prefix from Request.Path.
             var requestPath = (context.Request.PathBase + context.Request.Path).Value
                               ?? context.Request.Path;
-            var matchedEndpoint = getMatchedEndpoint(requestPath, settings.MonitoredEndpoints);
+            var endpointPolicy = TarpitEndpointPolicyResolver.Resolve(requestPath, settings);
 
-            if (matchedEndpoint != null)
+            if (endpointPolicy != null)
             {
                 var epHitCount = _tarpitService.GetEndpointHitCount(
-                    resolvedId, matchedEndpoint);
+                    resolvedId, endpointPolicy);
                 delayMs = Math.Max(delayMs,
-                    _tarpitService.CalculateEndpointDelay(epHitCount));
+                    _tarpitService.CalculateEndpointDelay(epHitCount, endpointPolicy));
             }
 
             if (delayMs > 0)
@@ -266,15 +266,15 @@ public class TarpitMiddleware
     /// Recording logic by response status:
     /// - **404**: Records a 404 hit for the client. The NEXT request from this client
     ///   will see the updated count and be delayed pre-pipeline.
-    /// - **Success (&lt; 400) on monitored endpoint**: Records an endpoint abuse hit.
+    /// - **Success (&lt; 400) on monitored endpoint policy**: Records an endpoint abuse hit.
     ///   Does NOT reset the 404 counter — hammering a monitored endpoint is not
     ///   legitimate behavior.
-    /// - **Success on non-monitored endpoint**: Resets the 404 counter if
+    /// - **Success on excluded or non-monitored endpoint**: Resets the 404 counter if
     ///   <see cref="TarpitSettings.ResetOnSuccess"/> is enabled.
     /// </remarks>
     /// <seealso cref="applyPrePipelineDelay"/>
     /// <seealso cref="TarpitService.RecordHit"/>
-    /// <seealso cref="TarpitService.RecordEndpointHit"/>
+    /// <seealso cref="TarpitService.RecordEndpointHit(string, TarpitEndpointPolicy)"/>
     private void recordPostPipelineHits(
         HttpContext context, ref string? clientId, ref string? clientIp)
     {
@@ -307,17 +307,17 @@ public class TarpitMiddleware
             }
             else if (context.Response.StatusCode < 400)
             {
-                // Success response — check if path matches a monitored endpoint
-                var matchedEndpoint = getMatchedEndpoint(requestPath, settings.MonitoredEndpoints);
+                // Success response: resolve monitoring after exclusions.
+                var endpointPolicy = TarpitEndpointPolicyResolver.Resolve(requestPath, settings);
 
-                if (matchedEndpoint != null)
+                if (endpointPolicy != null)
                 {
-                    // Monitored endpoint abuse — record hit, do NOT reset 404 counter
-                    _tarpitService.RecordEndpointHit(clientId, matchedEndpoint);
+                    // Monitored endpoint abuse: record hit, do NOT reset 404 counter.
+                    _tarpitService.RecordEndpointHit(clientId, endpointPolicy);
                 }
                 else if (settings.ResetOnSuccess)
                 {
-                    // Non-monitored success — reset 404 counter
+                    // Excluded or non-monitored success: reset 404 counter.
                     _tarpitService.ResetClient(clientId);
                 }
             }
@@ -415,38 +415,6 @@ public class TarpitMiddleware
             Path = "/",
             MaxAge = TimeSpan.FromMinutes(Math.Max(1, settings.StaleEntryTimeoutMinutes))
         });
-
-        #endregion
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Checks if the request path matches any of the configured monitored endpoints.
-    /// </summary>
-    /// <param name="requestPath">The request path from the HTTP context.</param>
-    /// <param name="monitoredEndpoints">The list of endpoint prefixes to match against.</param>
-    /// <returns>
-    /// The normalized (lowercase) matched endpoint path, or <c>null</c> if no match is found.
-    /// </returns>
-    /// <remarks>
-    /// Matching is case-insensitive using <see cref="string.StartsWith(string, StringComparison)"/>
-    /// with <see cref="StringComparison.OrdinalIgnoreCase"/>. Returns the first match found.
-    /// </remarks>
-    /// <seealso cref="TarpitSettings.MonitoredEndpoints"/>
-    private static string? getMatchedEndpoint(string requestPath, List<string> monitoredEndpoints)
-    {
-        #region implementation
-
-        if (monitoredEndpoints == null || monitoredEndpoints.Count == 0)
-            return null;
-
-        foreach (var endpoint in monitoredEndpoints)
-        {
-            if (requestPath.StartsWith(endpoint, StringComparison.OrdinalIgnoreCase))
-                return endpoint.ToLowerInvariant();
-        }
-
-        return null;
 
         #endregion
     }

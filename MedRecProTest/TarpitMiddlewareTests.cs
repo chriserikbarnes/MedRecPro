@@ -127,6 +127,53 @@ namespace MedRecPro.Service.Test
             #endregion
         }
 
+        /*************************************************************/
+        /// <summary>
+        /// Creates tarpit settings with a broad API endpoint rule and AE dashboard exclusion.
+        /// </summary>
+        private static TarpitSettings CreateBroadApiRuleWithAdverseEventExclusion(
+            int rateThreshold = 3,
+            int windowSeconds = 60,
+            int maxDelayMs = 25)
+        {
+            #region implementation
+
+            return new TarpitSettings
+            {
+                Enabled = true,
+                TriggerThreshold = 5,
+                MaxDelayMs = 30_000,
+                StaleEntryTimeoutMinutes = 10,
+                CleanupIntervalMinutes = 60,
+                MaxTrackedIps = 10_000,
+                ResetOnSuccess = true,
+                MonitoredEndpoints = new List<string>(),
+                EndpointRateThreshold = 20,
+                EndpointWindowSeconds = 300,
+                EndpointMonitoring = new EndpointMonitoringSettings
+                {
+                    Enabled = true,
+                    DefaultRateThreshold = 60,
+                    DefaultWindowSeconds = 60,
+                    DefaultMaxDelayMs = 5_000,
+                    ExcludedPathPrefixes = new List<string> { "/api/AdverseEvent/" },
+                    Rules = new List<TarpitEndpointRule>
+                    {
+                        new()
+                        {
+                            Name = "api-broad",
+                            PathPrefix = "/api/",
+                            RateThreshold = rateThreshold,
+                            WindowSeconds = windowSeconds,
+                            MaxDelayMs = maxDelayMs
+                        }
+                    }
+                }
+            };
+
+            #endregion
+        }
+
         #endregion
 
         #region Enabled/Disabled Tests
@@ -718,6 +765,150 @@ namespace MedRecPro.Service.Test
             // Assert — should match "/api/" case-insensitively
             Assert.AreEqual(1, tarpitService.GetEndpointHitCount("127.0.0.1", "/api/"),
                 "Case-insensitive match: /API/ should match config /api/");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that AE dashboard paths excluded from endpoint monitoring do not record endpoint hits.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_AdverseEventExcludedFromEndpointMonitoring_DoesNotRecordEndpointHit()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = CreateBroadApiRuleWithAdverseEventExclusion();
+            using var tarpitService = CreateTarpitService(settings);
+            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings);
+            var apiPolicy = TarpitEndpointPolicyResolver.Resolve("/api/SomeHighRiskPath", settings)!;
+
+            // Act
+            await middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/api/AdverseEvent/products/catalog"));
+
+            // Assert
+            Assert.AreEqual(0, tarpitService.GetEndpointHitCount("127.0.0.1", apiPolicy),
+                "Excluded AE dashboard requests should not record hits against the broad API rule");
+            Assert.AreEqual(0, tarpitService.TrackedEndpointCount,
+                "Excluded AE dashboard requests should not create any endpoint tracker entry");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that successful excluded AE dashboard paths reset prior 404 hits.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_AdverseEventExcludedFromEndpointMonitoring_ResetsPrior404OnSuccess()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = CreateBroadApiRuleWithAdverseEventExclusion();
+            using var tarpitService = CreateTarpitService(settings);
+
+            var notFoundMiddleware = CreateMiddleware(CreateNextDelegate(404), tarpitService, settings);
+            for (int i = 0; i < 3; i++)
+            {
+                await notFoundMiddleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/missing"));
+            }
+            Assert.AreEqual(3, tarpitService.GetHitCount("127.0.0.1"),
+                "Precondition: Should have three tracked 404 hits");
+
+            // Act
+            var successMiddleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings);
+            await successMiddleware.InvokeAsync(
+                CreateHttpContext("127.0.0.1", "/api/AdverseEvent/products/catalog"));
+
+            // Assert
+            Assert.AreEqual(0, tarpitService.GetHitCount("127.0.0.1"),
+                "Excluded successful AE dashboard requests should reset prior 404 hits when ResetOnSuccess is enabled");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that a broad API rule still monitors non-excluded API paths.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_BroadApiRuleStillAppliesToNonExcludedApiPath()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = CreateBroadApiRuleWithAdverseEventExclusion();
+            using var tarpitService = CreateTarpitService(settings);
+            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings);
+            var apiPolicy = TarpitEndpointPolicyResolver.Resolve("/api/SomeHighRiskPath", settings)!;
+
+            // Act
+            await middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/api/SomeHighRiskPath"));
+
+            // Assert
+            Assert.AreEqual(1, tarpitService.GetEndpointHitCount("127.0.0.1", apiPolicy),
+                "Non-excluded API requests should record hits against the broad API rule");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that endpoint rules apply their own threshold, window, and delay cap.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_EndpointRuleUsesSpecificThresholdWindowAndDelayCap()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = CreateBroadApiRuleWithAdverseEventExclusion(
+                rateThreshold: 2,
+                windowSeconds: 30,
+                maxDelayMs: 25);
+            using var tarpitService = CreateTarpitService(settings);
+            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings);
+            var apiPolicy = TarpitEndpointPolicyResolver.Resolve("/api/SomeHighRiskPath", settings)!;
+
+            tarpitService.RecordEndpointHit("127.0.0.1", apiPolicy);
+            tarpitService.RecordEndpointHit("127.0.0.1", apiPolicy);
+
+            // Act
+            await middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/api/SomeHighRiskPath"));
+
+            // Assert
+            Assert.AreEqual(3, tarpitService.GetEndpointHitCount("127.0.0.1", apiPolicy),
+                "The request should use the named API policy bucket");
+            Assert.AreEqual(25, tarpitService.CalculateEndpointDelay(3, apiPolicy),
+                "The resolved endpoint policy should use the rule-specific delay cap");
+            Assert.AreEqual(30, apiPolicy.WindowSeconds,
+                "The resolved endpoint policy should use the rule-specific monitoring window");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Verifies that endpoint exclusions are evaluated case-insensitively.
+        /// </summary>
+        [TestMethod]
+        public async Task InvokeAsync_EndpointExclusionIsCaseInsensitive()
+        {
+            #region implementation
+
+            // Arrange
+            var settings = CreateBroadApiRuleWithAdverseEventExclusion();
+            using var tarpitService = CreateTarpitService(settings);
+            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings);
+
+            // Act
+            await middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/API/ADVERSEEVENT/products/catalog"));
+
+            // Assert
+            Assert.AreEqual(0, tarpitService.TrackedEndpointCount,
+                "Uppercase AE dashboard path should still match the exclusion before the broad API rule");
 
             #endregion
         }
