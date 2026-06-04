@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Reflection;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace MedRecProTest
@@ -1768,6 +1769,113 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Seeds a row into the tmp_AeDashboardProductCatalog backing table via raw SQL.
+        /// </summary>
+        public static void SeedAeDashboardProductCatalogTable(
+            SqliteConnection connection,
+            Guid? documentGuid = null,
+            string productName = "ASPIRIN",
+            string substanceName = "Aspirin",
+            string unii = "R16CO5Y76E",
+            string pharmClassCode = "N0000175722",
+            string pharmClassName = "Nonsteroidal Anti-inflammatory Drug",
+            int? activeMoietyId = 10,
+            int? ingredientSubstanceId = 20,
+            int? pharmacologicClassId = 30,
+            int? armN = 100,
+            int? comparatorN = 100,
+            int rowCount = 40,
+            int significantCount = 4,
+            int significantProtectiveCount = 1,
+            int significantElevatedCount = 3,
+            bool placeboCoverage = true,
+            bool activeCoverage = false,
+            double doseCoverage = 0.75,
+            int socBreadth = 8,
+            int socTotal = 17,
+            string monoComboMix = "mono",
+            int? score = null,
+            string? scoreReason = null,
+            IEnumerable<AeActiveIngredientDto>? activeIngredients = null)
+        {
+            #region implementation
+
+            var ingredients = (activeIngredients ?? new[]
+            {
+                new AeActiveIngredientDto
+                {
+                    SubstanceName = substanceName,
+                    UNII = unii,
+                    PharmClassCode = pharmClassCode,
+                    PharmClassName = pharmClassName
+                }
+            }).ToList();
+            var activeIngredientsJson = JsonSerializer.Serialize(ingredients);
+            var searchParts = new[]
+                {
+                    productName,
+                    substanceName,
+                    unii,
+                    pharmClassCode,
+                    pharmClassName
+                }
+                .Concat(ingredients.SelectMany(ingredient => new[]
+                {
+                    ingredient.SubstanceName,
+                    ingredient.UNII,
+                    ingredient.PharmClassCode,
+                    ingredient.PharmClassName
+                }))
+                .Where(part => !string.IsNullOrWhiteSpace(part));
+            var searchText = string.Join(" ", searchParts).ToLowerInvariant();
+
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"INSERT INTO ""tmp_AeDashboardProductCatalog""
+                (DocumentGUID, ProductName, PrimarySubstanceName, PrimaryUNII, PrimaryPharmClassCode, PrimaryPharmClassName,
+                 ActiveIngredientsJson, ActiveMoietyID, IngredientSubstanceID, PharmacologicClassID, ArmN, ComparatorN,
+                 RowCount, SignificantCount, SignificantProtectiveCount, SignificantElevatedCount,
+                 PlaceboCoverage, ActiveCoverage, DoseCoverage, SocBreadth, SocTotal, MonoComboMix, Score, ScoreReason,
+                 SortSignificantElevatedCount, SortProductName, SearchText, RefreshedAt)
+                VALUES ($docGuid, $productName, $substanceName, $unii, $classCode, $className,
+                        $activeIngredientsJson, $activeMoietyId, $ingredientSubstanceId, $pharmacologicClassId, $armN, $comparatorN,
+                        $rowCount, $significantCount, $significantProtectiveCount, $significantElevatedCount,
+                        $placeboCoverage, $activeCoverage, $doseCoverage, $socBreadth, $socTotal, $monoComboMix, $score, $scoreReason,
+                        $sortSignificantElevatedCount, $sortProductName, $searchText, $refreshedAt)";
+            cmd.Parameters.AddWithValue("$docGuid", (documentGuid ?? TestDocumentGuid).ToString("D").ToUpper());
+            cmd.Parameters.AddWithValue("$productName", productName);
+            cmd.Parameters.AddWithValue("$substanceName", substanceName);
+            cmd.Parameters.AddWithValue("$unii", unii);
+            cmd.Parameters.AddWithValue("$classCode", pharmClassCode);
+            cmd.Parameters.AddWithValue("$className", pharmClassName);
+            cmd.Parameters.AddWithValue("$activeIngredientsJson", activeIngredientsJson);
+            cmd.Parameters.AddWithValue("$activeMoietyId", (object?)activeMoietyId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ingredientSubstanceId", (object?)ingredientSubstanceId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pharmacologicClassId", (object?)pharmacologicClassId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$armN", (object?)armN ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$comparatorN", (object?)comparatorN ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$rowCount", rowCount);
+            cmd.Parameters.AddWithValue("$significantCount", significantCount);
+            cmd.Parameters.AddWithValue("$significantProtectiveCount", significantProtectiveCount);
+            cmd.Parameters.AddWithValue("$significantElevatedCount", significantElevatedCount);
+            cmd.Parameters.AddWithValue("$placeboCoverage", placeboCoverage ? 1 : 0);
+            cmd.Parameters.AddWithValue("$activeCoverage", activeCoverage ? 1 : 0);
+            cmd.Parameters.AddWithValue("$doseCoverage", doseCoverage);
+            cmd.Parameters.AddWithValue("$socBreadth", socBreadth);
+            cmd.Parameters.AddWithValue("$socTotal", socTotal);
+            cmd.Parameters.AddWithValue("$monoComboMix", monoComboMix);
+            cmd.Parameters.AddWithValue("$score", (object?)score ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$scoreReason", (object?)scoreReason ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$sortSignificantElevatedCount", significantElevatedCount);
+            cmd.Parameters.AddWithValue("$sortProductName", productName);
+            cmd.Parameters.AddWithValue("$searchText", searchText);
+            cmd.Parameters.AddWithValue("$refreshedAt", DateTime.UtcNow);
+            cmd.ExecuteNonQuery();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Seeds a row into the tmp_FlattenedAdverseEventRiskTable backing table via raw SQL.
         /// </summary>
         public static void SeedAeRiskSignalTable(
@@ -1813,7 +1921,7 @@ namespace MedRecProTest
                  ""tmp_FlattenedAdverseEventTableID"", ""tmp_FlattenedStandardizedTableID"",
                  ActiveMoietyID, IngredientSubstanceID, PharmacologicClassID,
                  ProductName, SubstanceName, PharmClassCode, PharmClassName,
-                 IsPlaceboControlled, ParameterName, ParameterCategory, Significance, NumberNeededType,
+                 IsPlaceboControlled, ParameterName, ParameterNameNormalized, ParameterCategory, Significance, NumberNeededType,
                  ArmN, ComparatorN, EventsTreatment, EventsComparator, NumberNeeded,
                  NumberNeededLowerBound, NumberNeededUpperBound, RR, RRLowerBound, RRUpperBound,
                  LogRR, LogRRLowerBound, LogRRUpperBound, UNII, IsCombo, CalculationFlags,
@@ -1822,7 +1930,7 @@ namespace MedRecProTest
                         $adverseEventId, $standardizedId,
                         $activeMoietyId, $ingredientSubstanceId, $pharmacologicClassId,
                         $productName, $substanceName, $pharmClassCode, $pharmClassName,
-                        $isPlaceboControlled, $parameterName, $parameterCategory, $significance, $numberNeededType,
+                        $isPlaceboControlled, $parameterName, $parameterNameNormalized, $parameterCategory, $significance, $numberNeededType,
                         $armN, $comparatorN, $eventsTreatment, $eventsComparator, $numberNeeded,
                         NULL, NULL, $rr, $rrLowerBound, $rrUpperBound,
                         NULL, NULL, NULL, $unii, $isCombo, $calculationFlags,
@@ -1840,6 +1948,7 @@ namespace MedRecProTest
             cmd.Parameters.AddWithValue("$pharmClassName", (object?)pharmClassName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$isPlaceboControlled", isPlaceboControlled ? 1 : 0);
             cmd.Parameters.AddWithValue("$parameterName", parameterName);
+            cmd.Parameters.AddWithValue("$parameterNameNormalized", parameterName.Trim().ToLowerInvariant());
             cmd.Parameters.AddWithValue("$parameterCategory", parameterCategory);
             cmd.Parameters.AddWithValue("$significance", significance);
             cmd.Parameters.AddWithValue("$numberNeededType", numberNeededType);

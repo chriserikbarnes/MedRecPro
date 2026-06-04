@@ -441,8 +441,8 @@ but product-level dashboard summaries retain null-class rows.
 | Source | `dbo.vw_AeRisk` |
 | Target | `dbo.tmp_FlattenedAdverseEventRiskTable` |
 | Owner | `AdverseEventDenormalizationService.PopulateAsync` |
-| Ordering | Final Stage 5 step, after all AE denormalization batches complete |
-| Truncation | `TruncateAsync` clears the risk table before `tmp_FlattenedAdverseEventTable` |
+| Ordering | Penultimate Stage 5 materialization step, after all AE denormalization batches complete |
+| Truncation | `TruncateAsync` clears the risk table before `tmp_FlattenedAdverseEventTable`; the product catalog is cleared before the risk table |
 
 ### Column Groups
 
@@ -467,6 +467,8 @@ IX_FAER_PlaceboSignificance                      nonclustered on IsPlaceboContro
 IX_FAER_ParameterCategory                        nonclustered on ParameterCategory
 IX_FAER_UNII                                     nonclustered on UNII_IndexKey
 IX_FAER_ParameterName                            nonclustered on ParameterName_IndexKey
+IX_FAER_DocumentGUID_ParameterName_RR            nonclustered on DocumentGUID, ParameterNameNormalized, RR DESC
+IX_FAER_ParameterName_DocumentGUID               nonclustered on ParameterNameNormalized, DocumentGUID
 ```
 
 ### Visualization Field-Shape Mapping
@@ -486,3 +488,40 @@ n    → ArmN                   n    → ArmN
 
 \* `ProductTitle` is not yet sourced into this table; downstream joins or enrichment may add it
 in a future iteration. `cls` maps to `PharmClassName` where class context is available.
+
+## tmp_AeDashboardProductCatalog (Stage 5 AE Dashboard Product Catalog)
+
+Persistent SQL table materialized from `dbo.vw_AeDashboardProductCatalog`
+after the risk snapshot is refreshed. The source view projects
+`dbo.tmp_FlattenedAdverseEventRiskTable` into one product-picker row per
+`DocumentGUID`, including preferred active-ingredient/class JSON, dashboard
+coverage metrics, sort keys, and lower-cased search text.
+
+### Refresh Contract
+
+| Step | Contract |
+|------|----------|
+| Source | `dbo.vw_AeDashboardProductCatalog` |
+| Target | `dbo.tmp_AeDashboardProductCatalog` |
+| Owner | `AdverseEventDenormalizationService.PopulateAsync` |
+| Ordering | Final Stage 5 materialization step, after the risk table refresh |
+| Truncation | `TruncateAsync` clears the catalog before the risk table |
+
+### Column Groups
+
+| Group | Columns |
+|-------|---------|
+| Surrogate key | `AeDashboardProductCatalogID INT IDENTITY` |
+| Product identity | `DocumentGUID`, product name, primary substance, primary UNII, primary class |
+| Ingredient rollup | `ActiveIngredientsJson`, active moiety, ingredient substance, pharmacologic class IDs |
+| Dashboard metrics | arm/comparator N, significant counts, comparator coverage, dose coverage, SOC coverage, mono/combo mix, score fields |
+| Search/sort | `SortSignificantElevatedCount`, `SortProductName`, `SearchText`, `SearchText_IndexKey`, `RefreshedAt` |
+
+### Indexes
+
+```
+PK_tmp_AeDashboardProductCatalog                 clustered on AeDashboardProductCatalogID
+UX_AEDPC_DocumentGUID                            unique nonclustered on DocumentGUID
+IX_AEDPC_Sort                                    nonclustered on SortSignificantElevatedCount DESC, SortProductName, DocumentGUID
+IX_AEDPC_SearchText                              nonclustered on SearchText_IndexKey
+```

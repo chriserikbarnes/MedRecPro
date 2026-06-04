@@ -50,6 +50,14 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         private const string RiskTargetTable = "dbo.tmp_FlattenedAdverseEventRiskTable";
 
         /**************************************************************/
+        /// <summary>Materialized AE dashboard product catalog refreshed from <see cref="CatalogSourceView"/>.</summary>
+        private const string CatalogTargetTable = "dbo.tmp_AeDashboardProductCatalog";
+
+        /**************************************************************/
+        /// <summary>Source view for the materialized AE dashboard product catalog.</summary>
+        private const string CatalogSourceView = "dbo.vw_AeDashboardProductCatalog";
+
+        /**************************************************************/
         /// <summary>Source view for the materialized adverse-event risk table.</summary>
         private const string RiskSourceView = "dbo.vw_AeRisk";
 
@@ -143,6 +151,11 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             if (docIds.Count == 0)
             {
                 var riskRows = await materializeRiskTableAsync(ct);
+                var catalogRows = await materializeProductCatalogAsync(ct);
+                _logger.LogDebug(
+                    "Stage 5 - {CatalogTable} refreshed with {Rows} rows",
+                    CatalogTargetTable,
+                    catalogRows);
                 _logger.LogInformation(
                     "Stage 5 — No AE rows found; {RiskTable} refreshed with {Rows} rows",
                     RiskTargetTable,
@@ -180,10 +193,15 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             }
 
             var riskRowCount = await materializeRiskTableAsync(ct);
+            var catalogRowCount = await materializeProductCatalogAsync(ct);
             stopwatch.Stop();
             _logger.LogInformation(
                 "Stage 5 — Phase 2 complete: {Rows} AE rows in {Batches} batches; {RiskRows} risk rows materialized ({Elapsed})",
                 totalRows, batchNumber, riskRowCount, stopwatch.Elapsed);
+            _logger.LogDebug(
+                "Stage 5 - {CatalogTable} refreshed with {Rows} rows",
+                CatalogTargetTable,
+                catalogRowCount);
 
             return totalRows;
 
@@ -199,11 +217,13 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
             if (providerName.Equals(InMemoryProvider, StringComparison.OrdinalIgnoreCase))
             {
+                var existingCatalogRows = _dbContext.Set<LabelView.AeDashboardProductCatalog>().ToList();
                 var existingRiskRows = _dbContext.Set<LabelView.FlattenedAdverseEventRiskTable>().ToList();
                 var existingCoverageRows = _dbContext.Set<LabelView.FlattenedAdverseEventCoverageTable>().ToList();
                 var existingAeRows = _dbContext.Set<LabelView.FlattenedAdverseEventTable>().ToList();
-                if (existingRiskRows.Count > 0 || existingCoverageRows.Count > 0 || existingAeRows.Count > 0)
+                if (existingCatalogRows.Count > 0 || existingRiskRows.Count > 0 || existingCoverageRows.Count > 0 || existingAeRows.Count > 0)
                 {
+                    _dbContext.RemoveRange(existingCatalogRows);
                     _dbContext.RemoveRange(existingRiskRows);
                     _dbContext.RemoveRange(existingCoverageRows);
                     _dbContext.RemoveRange(existingAeRows);
@@ -214,6 +234,9 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
             }
 
             _logger.LogInformation("Stage 5 — Truncating {Table}", RiskTargetTable);
+            _logger.LogInformation("Stage 5 - Truncating {Table}", CatalogTargetTable);
+            await _dbContext.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE {CatalogTargetTable}", ct);
+
             await _dbContext.Database.ExecuteSqlRawAsync($"TRUNCATE TABLE {RiskTargetTable}", ct);
 
             _logger.LogInformation("Stage 5 - Truncating {Table}", CoverageTargetTable);
@@ -344,6 +367,108 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         }
 
         #endregion Risk Materialization
+
+        #region Product Catalog Materialization
+
+        /**************************************************************/
+        /// <summary>
+        /// Materializes the one-row-per-document AE dashboard product catalog.
+        /// </summary>
+        /// <remarks>
+        /// The catalog is built from <see cref="CatalogSourceView"/> after the
+        /// risk snapshot is refreshed. It persists the picker-ready aggregate,
+        /// preferred ingredient/class JSON, sort keys, and searchable text so
+        /// dashboard product search and paging remain provider-side.
+        /// </remarks>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>Number of catalog rows inserted.</returns>
+        /// <seealso cref="materializeRiskTableAsync"/>
+        /// <seealso cref="TruncateAsync"/>
+        private async Task<int> materializeProductCatalogAsync(CancellationToken ct)
+        {
+            #region implementation
+
+            var providerName = _dbContext.Database.ProviderName ?? string.Empty;
+            if (providerName.Equals(InMemoryProvider, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug(
+                    "Stage 5 - Skipping {CatalogTable} materialization for EF InMemory provider",
+                    CatalogTargetTable);
+                return 0;
+            }
+
+            _logger.LogInformation(
+                "Stage 5 - Materializing {CatalogTable} from {CatalogSourceView}",
+                CatalogTargetTable,
+                CatalogSourceView);
+
+            return await _dbContext.Database.ExecuteSqlRawAsync($"""
+                INSERT INTO {CatalogTargetTable} (
+                    [DocumentGUID],
+                    [ProductName],
+                    [PrimarySubstanceName],
+                    [PrimaryUNII],
+                    [PrimaryPharmClassCode],
+                    [PrimaryPharmClassName],
+                    [ActiveIngredientsJson],
+                    [ActiveMoietyID],
+                    [IngredientSubstanceID],
+                    [PharmacologicClassID],
+                    [ArmN],
+                    [ComparatorN],
+                    [RowCount],
+                    [SignificantCount],
+                    [SignificantProtectiveCount],
+                    [SignificantElevatedCount],
+                    [PlaceboCoverage],
+                    [ActiveCoverage],
+                    [DoseCoverage],
+                    [SocBreadth],
+                    [SocTotal],
+                    [MonoComboMix],
+                    [Score],
+                    [ScoreReason],
+                    [SortSignificantElevatedCount],
+                    [SortProductName],
+                    [SearchText],
+                    [RefreshedAt]
+                )
+                SELECT
+                    [DocumentGUID],
+                    [ProductName],
+                    [PrimarySubstanceName],
+                    [PrimaryUNII],
+                    [PrimaryPharmClassCode],
+                    [PrimaryPharmClassName],
+                    [ActiveIngredientsJson],
+                    [ActiveMoietyID],
+                    [IngredientSubstanceID],
+                    [PharmacologicClassID],
+                    [ArmN],
+                    [ComparatorN],
+                    [RowCount],
+                    [SignificantCount],
+                    [SignificantProtectiveCount],
+                    [SignificantElevatedCount],
+                    [PlaceboCoverage],
+                    [ActiveCoverage],
+                    [DoseCoverage],
+                    [SocBreadth],
+                    [SocTotal],
+                    [MonoComboMix],
+                    [Score],
+                    [ScoreReason],
+                    [SortSignificantElevatedCount],
+                    [SortProductName],
+                    [SearchText],
+                    SYSUTCDATETIME()
+                FROM {CatalogSourceView};
+                """, ct);
+
+            #endregion
+        }
+
+        #endregion Product Catalog Materialization
 
         #region Batch Processing
 

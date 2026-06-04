@@ -4043,6 +4043,10 @@ namespace MedRecPro.Models
             public string? ParameterName { get; set; }
 
             /**************************************************************/
+            /// <summary>Lowercase computed key for exact adverse-event term lookup.</summary>
+            public string? ParameterNameNormalized { get; set; }
+
+            /**************************************************************/
             /// <summary>Canonical adverse-event SOC/category.</summary>
             public string? ParameterCategory { get; set; }
 
@@ -4147,6 +4151,169 @@ namespace MedRecPro.Models
             public string? DoseUnit { get; set; }
 
             #endregion Provenance and Context Properties
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Materialized AE dashboard product catalog at one row per SPL document.
+        /// </summary>
+        /// <remarks>
+        /// Stage 5 refreshes this table after <see cref="FlattenedAdverseEventRiskTable"/>
+        /// so product-picker search, paging, and ordering can use a persisted,
+        /// indexable document-level catalog instead of rebuilding the summary view
+        /// shape on each request.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var page = await db.Set&lt;LabelView.AeDashboardProductCatalog&gt;()
+        ///     .AsNoTracking()
+        ///     .OrderByDescending(row =&gt; row.SortSignificantElevatedCount)
+        ///     .Take(25)
+        ///     .ToListAsync();
+        /// </code>
+        /// </example>
+        /// <seealso cref="FlattenedAdverseEventRiskTable"/>
+        /// <seealso cref="AeDrugSummary"/>
+        [Table("tmp_AeDashboardProductCatalog")]
+        public class AeDashboardProductCatalog
+        {
+            #region Product and Class Properties
+
+            /**************************************************************/
+            /// <summary>Surrogate primary key for the materialized catalog row.</summary>
+            [Key]
+            [Column("AeDashboardProductCatalogID")]
+            public int Id { get; set; }
+
+            /**************************************************************/
+            /// <summary>Source SPL document identifier represented by this catalog row.</summary>
+            public Guid DocumentGUID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Product display name used by the dashboard picker.</summary>
+            public string? ProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Primary active ingredient substance name for display and search.</summary>
+            public string? PrimarySubstanceName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Plus-delimited active ingredient UNII value represented by the row.</summary>
+            public string? PrimaryUNII { get; set; }
+
+            /**************************************************************/
+            /// <summary>Primary pharmacologic class code, preferring EPC classes when available.</summary>
+            public string? PrimaryPharmClassCode { get; set; }
+
+            /**************************************************************/
+            /// <summary>Primary pharmacologic class name, preferring EPC classes when available.</summary>
+            public string? PrimaryPharmClassName { get; set; }
+
+            /**************************************************************/
+            /// <summary>JSON array of active ingredients paired with preferred class metadata.</summary>
+            public string? ActiveIngredientsJson { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative active moiety identifier for encrypted DTO mapping.</summary>
+            public int? ActiveMoietyID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative ingredient substance identifier for encrypted DTO mapping.</summary>
+            public int? IngredientSubstanceID { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative pharmacologic class identifier for encrypted DTO mapping.</summary>
+            public int? PharmacologicClassID { get; set; }
+
+            #endregion Product and Class Properties
+
+            #region Denominator and Signal Count Properties
+
+            /**************************************************************/
+            /// <summary>Representative treatment-arm denominator across represented AE rows.</summary>
+            public int? ArmN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Representative comparator-arm denominator across represented AE rows.</summary>
+            public int? ComparatorN { get; set; }
+
+            /**************************************************************/
+            /// <summary>Total materialized AE risk rows represented by this product.</summary>
+            public int RowCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>Count of elevated or protective AE rows with intervals excluding one.</summary>
+            public int SignificantCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>Count of protective AE rows where risk appears lower than comparator.</summary>
+            public int SignificantProtectiveCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>Count of elevated AE rows where risk appears higher than comparator.</summary>
+            public int SignificantElevatedCount { get; set; }
+
+            #endregion Denominator and Signal Count Properties
+
+            #region Dashboard Coverage Properties
+
+            /**************************************************************/
+            /// <summary>Flag indicating whether any represented row used a placebo-like comparator.</summary>
+            public bool PlaceboCoverage { get; set; }
+
+            /**************************************************************/
+            /// <summary>Flag indicating whether any represented row used an active comparator.</summary>
+            public bool ActiveCoverage { get; set; }
+
+            /**************************************************************/
+            /// <summary>Fraction of represented rows with populated treatment-arm dose values.</summary>
+            public double DoseCoverage { get; set; }
+
+            /**************************************************************/
+            /// <summary>Number of distinct AE system-organ-class categories represented by the row.</summary>
+            public int SocBreadth { get; set; }
+
+            /**************************************************************/
+            /// <summary>Total SOC denominator used by dashboard coverage displays.</summary>
+            public int SocTotal { get; set; }
+
+            /**************************************************************/
+            /// <summary>Aggregate mono/combo composition label: mono, combo, or mixed.</summary>
+            public string? MonoComboMix { get; set; }
+
+            /**************************************************************/
+            /// <summary>Optional persisted chart-worthiness score for picker sorting.</summary>
+            public int? Score { get; set; }
+
+            /**************************************************************/
+            /// <summary>Optional persisted explanation for <see cref="Score"/>.</summary>
+            public string? ScoreReason { get; set; }
+
+            #endregion Dashboard Coverage Properties
+
+            #region Search, Sort, and Refresh Properties
+
+            /**************************************************************/
+            /// <summary>Persisted elevated-signal count used by the catalog sort index.</summary>
+            public int SortSignificantElevatedCount { get; set; }
+
+            /**************************************************************/
+            /// <summary>Persisted product-name sort key used by the catalog sort index.</summary>
+            public string? SortProductName { get; set; }
+
+            /**************************************************************/
+            /// <summary>Lowercase searchable text spanning product, ingredient, UNII, and class metadata.</summary>
+            public string? SearchText { get; set; }
+
+            /**************************************************************/
+            /// <summary>Prefix key for indexing long <see cref="SearchText"/> values.</summary>
+            public string? SearchText_IndexKey { get; set; }
+
+            /**************************************************************/
+            /// <summary>UTC timestamp captured when Stage 5 refreshed this catalog row.</summary>
+            public DateTime RefreshedAt { get; set; }
+
+            #endregion Search, Sort, and Refresh Properties
         }
 
         /**************************************************************/

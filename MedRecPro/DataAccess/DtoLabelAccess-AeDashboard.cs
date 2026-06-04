@@ -2,6 +2,7 @@ using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 using System.Diagnostics;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
@@ -63,30 +64,41 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Serve from the shared, user-independent, per-document catalog cache so
-            // the expensive view query, risk-table fallback, ingredient aggregation,
-            // and scoring run at most once per cache lifetime instead of on every
-            // picker open. Search, paging, and favorites are applied in memory below.
-            var catalog = await getCachedAeProductCatalogAsync(db, pkSecret, logger);
+            var stopwatch = Stopwatch.StartNew();
+            var catalogReady = await hasMaterializedProductCatalogRowsAsync(db);
+            List<AeDrugSummaryDto> summaries;
 
-            // Clone before any per-request mutation. The cache returns the live list
-            // and DTO instances; marking favorites on them would leak one user's
-            // IsFavorite flags into every other request.
-            var summaries = cloneSummaries(catalog);
-
-            // In-memory product/substance/UNII/class search replaces the former EF
-            // LIKE query. Combination ingredients are searchable too (see helper).
-            if (!string.IsNullOrWhiteSpace(productSearch))
+            if (catalogReady)
             {
-                var term = productSearch.Trim();
-                summaries = summaries
-                    .Where(summary => matchesProductSearch(summary, term))
-                    .ToList();
+                // The materialized product catalog is already at one row per
+                // DocumentGUID. Keep search, ordering, and paging provider-side so
+                // picker requests avoid the former full-catalog materialization.
+                summaries = await getMaterializedProductCatalogSummariesAsync(
+                    db,
+                    pkSecret,
+                    logger,
+                    productSearch,
+                    page,
+                    size);
             }
+            else
+            {
+                // Backward-compatible safety net for environments where Stage 5 has
+                // not created/refreshed the catalog yet. This keeps null-class
+                // fallback behavior intact while the materialized table rolls out.
+                var catalog = await getCachedAeProductCatalogAsync(db, pkSecret, logger);
+                summaries = cloneSummaries(catalog);
 
-            // The cached catalog is already sorted, so filtering preserves order;
-            // page after filtering exactly as before.
-            summaries = applyProductSummaryPagination(summaries, page, size);
+                if (!string.IsNullOrWhiteSpace(productSearch))
+                {
+                    var term = productSearch.Trim();
+                    summaries = summaries
+                        .Where(summary => matchesProductSearch(summary, term))
+                        .ToList();
+                }
+
+                summaries = applyProductSummaryPagination(summaries, page, size);
+            }
 
             // Favorite flags are user-specific and therefore applied only to the
             // private clones produced above.
@@ -97,6 +109,16 @@ namespace MedRecPro.DataAccess
                 var favoriteDocumentGuids = await loadFavoriteDocumentGuidsAsync(db, userId.Value);
                 markFavorites(summaries, favoriteDocumentGuids);
             }
+
+            stopwatch.Stop();
+            logger.LogDebug(
+                "AE dashboard products query completed in {ElapsedMs} ms (catalogReady={CatalogReady}, search={Search}, page={Page}, size={Size}, rows={Rows}).",
+                stopwatch.ElapsedMilliseconds,
+                catalogReady,
+                !string.IsNullOrWhiteSpace(productSearch),
+                page,
+                size,
+                summaries.Count);
 
             // Return cloned, optionally favorite-enriched product summaries.
             return summaries;
@@ -185,9 +207,17 @@ namespace MedRecPro.DataAccess
 
             try
             {
-                // Count distinct product names in SQL. The projection + Distinct + Count
-                // composes to a single COUNT over a DISTINCT subquery, matching the
-                // canonical inventory query and keeping the payload to one integer.
+                if (await hasMaterializedProductCatalogRowsAsync(db))
+                {
+                    // The materialized catalog is already one row per picker-ready
+                    // product document, so the badge can use a simple COUNT(*).
+                    return await db.Set<LabelView.AeDashboardProductCatalog>()
+                        .AsNoTracking()
+                        .CountAsync();
+                }
+
+                // Fallback for pre-catalog environments. The projection + Distinct
+                // + Count composes to a single COUNT over a DISTINCT subquery.
                 return await db.Set<LabelView.FlattenedAdverseEventRiskTable>()
                     .AsNoTracking()
                     .Select(risk => risk.ProductName)
@@ -280,6 +310,94 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Gets the reusable product-detail payload for product-level AE dashboard views.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="documentGuid">SPL document identifier for the dashboard product.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="comparator">Optional comparator coverage filter.</param>
+        /// <param name="includeFragile">Whether fragile-precision rows should be returned.</param>
+        /// <returns>Product context plus derived signals, or null when the product is absent.</returns>
+        /// <remarks>
+        /// Product-level tabs need the same product header and filtered signal list.
+        /// This helper centralizes that load and caches the user-independent payload
+        /// for triage, forest, and quadrant assembly. Callers receive clones so later
+        /// derivation and sorting cannot mutate cached DTO instances.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var detail = await DtoLabelAccess.GetAeProductDetailDataAsync(db, documentGuid, secret, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="GetAeRiskSignalsByDocumentAsync(ApplicationDbContext, Guid, string, ILogger, AeComparatorMix?, bool)"/>
+        /// <seealso cref="AeDashboardProductDetailData"/>
+        public static async Task<AeDashboardProductDetailData?> GetAeProductDetailDataAsync(
+            ApplicationDbContext db,
+            Guid documentGuid,
+            string pkSecret,
+            ILogger logger,
+            AeComparatorMix? comparator = null,
+            bool includeFragile = true)
+        {
+            #region implementation
+
+            var stopwatch = Stopwatch.StartNew();
+            var product = await getAeDrugSummaryByDocumentGuidAsync(db, documentGuid, pkSecret, logger);
+            if (product == null)
+            {
+                logger.LogDebug(
+                    "AE dashboard detail query found no product for {DocumentGuid} in {ElapsedMs} ms.",
+                    documentGuid,
+                    stopwatch.ElapsedMilliseconds);
+                return null;
+            }
+
+            var versionToken = await getAeProductDetailVersionTokenAsync(db, documentGuid);
+            var cacheKey = generateCacheKey(
+                nameof(GetAeProductDetailDataAsync),
+                $"{documentGuid:N}:{comparator?.ToString() ?? "all"}:{includeFragile}:{versionToken}",
+                null,
+                null);
+
+            var cached = Cached.GetCache<AeDashboardProductDetailData>(cacheKey);
+            if (cached != null)
+            {
+                stopwatch.Stop();
+                logger.LogDebug(
+                    "AE dashboard detail cache hit for {DocumentGuid} in {ElapsedMs} ms (signals={Signals}).",
+                    documentGuid,
+                    stopwatch.ElapsedMilliseconds,
+                    cached.Signals.Count);
+                return cloneProductDetailData(cached);
+            }
+
+            var signals = await GetAeRiskSignalsByDocumentAsync(db, documentGuid, pkSecret, logger, comparator, includeFragile);
+            var payload = new AeDashboardProductDetailData
+            {
+                Product = product,
+                Signals = signals
+            };
+
+            if (signals.Count > 0)
+            {
+                Cached.SetCacheManageKey(cacheKey, cloneProductDetailData(payload), 1.0);
+            }
+
+            stopwatch.Stop();
+            logger.LogDebug(
+                "AE dashboard detail cache miss for {DocumentGuid}; loaded {Signals} signals in {ElapsedMs} ms.",
+                documentGuid,
+                signals.Count,
+                stopwatch.ElapsedMilliseconds);
+
+            return cloneProductDetailData(payload);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the tiered AE dashboard triage view for one product.
         /// </summary>
         /// <param name="db">The application database context.</param>
@@ -310,24 +428,20 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Load the product summary first because triage output needs product
-            // context as well as per-signal rows.
-            var product = await getAeDrugSummaryByDocumentGuidAsync(db, documentGuid, pkSecret, logger);
+            // Load product context and filtered signals through the shared detail
+            // helper so product tabs reuse one user-independent cache boundary.
+            var detail = await GetAeProductDetailDataAsync(db, documentGuid, pkSecret, logger, comparator, includeFragile);
 
             // A missing product summary means the document is not dashboard-ready,
             // so the controller can translate null into an appropriate response.
-            if (product == null)
+            if (detail == null)
             {
                 return null;
             }
 
-            // Reuse the shared signal source so triage honors the same comparator
-            // and fragile filters as other dashboard views.
-            var signals = await GetAeRiskSignalsByDocumentAsync(db, documentGuid, pkSecret, logger, comparator, includeFragile);
-
             // Delegate tier assembly and sort decisions to the pure derivation
             // helper.
-            return AeDashboardDerivation.BuildTriageView(product, signals);
+            return AeDashboardDerivation.BuildTriageView(detail.Product, detail.Signals);
 
             #endregion
         }
@@ -363,21 +477,18 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Check product existence through the same summary/fallback path used
-            // by triage so null class products can still render a chart shell.
-            var product = await getAeDrugSummaryByDocumentGuidAsync(db, documentGuid, pkSecret, logger);
+            // Load product context and filtered signals through the shared detail
+            // helper so tab requests can reuse the same cache entry.
+            var detail = await GetAeProductDetailDataAsync(db, documentGuid, pkSecret, logger, comparator, includeFragile);
 
             // Null tells the caller there is no forest plot for this document.
-            if (product == null)
+            if (detail == null)
             {
                 return null;
             }
 
-            // Load the same filtered signal set used by other product-level views.
-            var signals = await GetAeRiskSignalsByDocumentAsync(db, documentGuid, pkSecret, logger, comparator, includeFragile);
-
             // The derivation helper owns forest-plot sorting and payload assembly.
-            return AeDashboardDerivation.BuildForestPlot(signals);
+            return AeDashboardDerivation.BuildForestPlot(detail.Signals);
 
             #endregion
         }
@@ -413,22 +524,18 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Check product existence through the same summary/fallback path used
-            // by triage so null class products can still render a chart shell.
-            var product = await getAeDrugSummaryByDocumentGuidAsync(db, documentGuid, pkSecret, logger);
+            // Load product context and filtered signals through the shared detail
+            // helper so product tabs reuse one user-independent cache boundary.
+            var detail = await GetAeProductDetailDataAsync(db, documentGuid, pkSecret, logger, comparator, includeFragile);
 
             // Missing product summary maps to null rather than an empty quadrant.
-            if (product == null)
+            if (detail == null)
             {
                 return null;
             }
 
-            // Load document signals with the requested comparator and fragile-row
-            // policy before calculating chart coordinates.
-            var signals = await GetAeRiskSignalsByDocumentAsync(db, documentGuid, pkSecret, logger, comparator, includeFragile);
-
             // The derivation helper converts each signal into clamped chart points.
-            return AeDashboardDerivation.BuildQuadrantView(signals);
+            return AeDashboardDerivation.BuildQuadrantView(detail.Signals);
 
             #endregion
         }
@@ -477,11 +584,11 @@ namespace MedRecPro.DataAccess
             // inflating generated SQL parameters.
             var scopedDocuments = documentGuids?.Distinct().ToList();
 
-            // Build the exact-term risk query. ParameterName is lowered in SQL so
-            // the match is case-insensitive across providers used in tests.
+            // Build the exact-term risk query against the persisted normalized key
+            // so SQL Server can use the reverse-lookup index.
             var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
                 .AsNoTracking()
-                .Where(signal => signal.ParameterName != null && signal.ParameterName.ToLower() == normalizedSymptom);
+                .Where(signal => signal.ParameterNameNormalized == normalizedSymptom);
 
             // If a product scope was supplied, keep only risk rows from those
             // documents before materialization.
@@ -591,6 +698,207 @@ namespace MedRecPro.DataAccess
         #endregion AE Dashboard Public Read Methods
 
         #region AE Dashboard Private Query Helpers
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether the materialized product catalog currently has rows.
+        /// </summary>
+        private static async Task<bool> hasMaterializedProductCatalogRowsAsync(ApplicationDbContext db)
+        {
+            #region implementation
+
+            // A non-empty catalog means Stage 5 has produced the picker-ready
+            // document grain and callers should avoid the legacy full-view cache.
+            return await db.Set<LabelView.AeDashboardProductCatalog>()
+                .AsNoTracking()
+                .AnyAsync();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a lightweight data-version token for product-detail cache keys.
+        /// </summary>
+        private static async Task<string> getAeProductDetailVersionTokenAsync(
+            ApplicationDbContext db,
+            Guid documentGuid)
+        {
+            #region implementation
+
+            var refreshedAt = await db.Set<LabelView.AeDashboardProductCatalog>()
+                .AsNoTracking()
+                .Where(summary => summary.DocumentGUID == documentGuid)
+                .Select(summary => (DateTime?)summary.RefreshedAt)
+                .FirstOrDefaultAsync();
+
+            if (refreshedAt.HasValue)
+            {
+                return $"catalog:{refreshedAt.Value.Ticks}";
+            }
+
+            var riskToken = await db.Set<LabelView.FlattenedAdverseEventRiskTable>()
+                .AsNoTracking()
+                .Where(signal => signal.DocumentGUID == documentGuid)
+                .GroupBy(signal => signal.DocumentGUID)
+                .Select(group => new
+                {
+                    Count = group.Count(),
+                    MaxId = group.Max(signal => signal.Id)
+                })
+                .FirstOrDefaultAsync();
+
+            return riskToken == null
+                ? "empty"
+                : $"risk:{riskToken.Count}:{riskToken.MaxId}";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets provider-filtered and provider-paged product summaries from the catalog table.
+        /// </summary>
+        private static async Task<List<AeDrugSummaryDto>> getMaterializedProductCatalogSummariesAsync(
+            ApplicationDbContext db,
+            string pkSecret,
+            ILogger logger,
+            string? productSearch,
+            int? page,
+            int? size)
+        {
+            #region implementation
+
+            var query = db.Set<LabelView.AeDashboardProductCatalog>()
+                .AsNoTracking();
+
+            query = applyProductCatalogSearch(query, productSearch);
+            query = applyProductCatalogOrdering(query);
+            query = applyProductCatalogPagination(query, page, size);
+
+            var entities = await query.ToListAsync();
+            return buildAeDashboardProductCatalogDtos(entities, pkSecret, logger);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets catalog-backed product summaries for a document GUID set.
+        /// </summary>
+        private static async Task<List<AeDrugSummaryDto>> getMaterializedProductCatalogSummariesByDocumentGuidsAsync(
+            ApplicationDbContext db,
+            IEnumerable<Guid> documentGuids,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            var guidList = documentGuids.Distinct().ToList();
+            if (guidList.Count == 0)
+            {
+                return new List<AeDrugSummaryDto>();
+            }
+
+            var entities = await db.Set<LabelView.AeDashboardProductCatalog>()
+                .AsNoTracking()
+                .Where(summary => guidList.Contains(summary.DocumentGUID))
+                .ToListAsync();
+
+            return buildAeDashboardProductCatalogDtos(entities, pkSecret, logger);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets one catalog-backed product summary by document GUID.
+        /// </summary>
+        private static async Task<AeDrugSummaryDto?> getMaterializedProductCatalogSummaryAsync(
+            ApplicationDbContext db,
+            Guid documentGuid,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            var entity = await db.Set<LabelView.AeDashboardProductCatalog>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(summary => summary.DocumentGUID == documentGuid);
+
+            return entity == null
+                ? null
+                : buildAeDashboardProductCatalogDto(entity, pkSecret, logger);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies provider-side catalog search against the materialized search text.
+        /// </summary>
+        private static IQueryable<LabelView.AeDashboardProductCatalog> applyProductCatalogSearch(
+            IQueryable<LabelView.AeDashboardProductCatalog> query,
+            string? productSearch)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(productSearch))
+            {
+                return query;
+            }
+
+            var pattern = $"%{productSearch.Trim().ToLowerInvariant()}%";
+            return query.Where(summary =>
+                EF.Functions.Like(summary.SearchText ?? string.Empty, pattern)
+                || EF.Functions.Like(summary.ProductName ?? string.Empty, pattern)
+                || EF.Functions.Like(summary.PrimarySubstanceName ?? string.Empty, pattern)
+                || EF.Functions.Like(summary.PrimaryUNII ?? string.Empty, pattern)
+                || EF.Functions.Like(summary.PrimaryPharmClassCode ?? string.Empty, pattern)
+                || EF.Functions.Like(summary.PrimaryPharmClassName ?? string.Empty, pattern));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies the deterministic materialized catalog order.
+        /// </summary>
+        private static IOrderedQueryable<LabelView.AeDashboardProductCatalog> applyProductCatalogOrdering(
+            IQueryable<LabelView.AeDashboardProductCatalog> query)
+        {
+            #region implementation
+
+            return query
+                .OrderByDescending(summary => summary.SortSignificantElevatedCount)
+                .ThenBy(summary => summary.SortProductName)
+                .ThenBy(summary => summary.DocumentGUID);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies provider-side paging to the materialized product catalog query.
+        /// </summary>
+        private static IQueryable<LabelView.AeDashboardProductCatalog> applyProductCatalogPagination(
+            IQueryable<LabelView.AeDashboardProductCatalog> query,
+            int? page,
+            int? size)
+        {
+            #region implementation
+
+            if (page.HasValue && size.HasValue && page.Value > 0 && size.Value > 0)
+            {
+                return query
+                    .Skip((page.Value - 1) * size.Value)
+                    .Take(size.Value);
+            }
+
+            return query;
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -822,6 +1130,78 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Creates an independent copy of a product-detail cache payload.
+        /// </summary>
+        private static AeDashboardProductDetailData cloneProductDetailData(AeDashboardProductDetailData source)
+        {
+            #region implementation
+
+            return new AeDashboardProductDetailData
+            {
+                Product = cloneSummary(source.Product),
+                Signals = source.Signals
+                    .Select(cloneRiskSignal)
+                    .ToList()
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates an independent copy of one risk-signal DTO.
+        /// </summary>
+        private static AeRiskSignalDto cloneRiskSignal(AeRiskSignalDto source)
+        {
+            #region implementation
+
+            return new AeRiskSignalDto
+            {
+                EncryptedFlattenedAdverseEventRiskTableID = source.EncryptedFlattenedAdverseEventRiskTableID,
+                EncryptedFlattenedAdverseEventTableID = source.EncryptedFlattenedAdverseEventTableID,
+                EncryptedFlattenedStandardizedTableID = source.EncryptedFlattenedStandardizedTableID,
+                ParameterName = source.ParameterName,
+                ParameterCategory = source.ParameterCategory,
+                Significance = source.Significance,
+                NumberNeededType = source.NumberNeededType,
+                UNII = source.UNII,
+                ProductName = source.ProductName,
+                DocumentGUID = source.DocumentGUID,
+                ArmN = source.ArmN,
+                ComparatorN = source.ComparatorN,
+                EventsTreatment = source.EventsTreatment,
+                EventsComparator = source.EventsComparator,
+                RR = source.RR,
+                RRLowerBound = source.RRLowerBound,
+                RRUpperBound = source.RRUpperBound,
+                LogRR = source.LogRR,
+                LogRRLowerBound = source.LogRRLowerBound,
+                LogRRUpperBound = source.LogRRUpperBound,
+                NumberNeeded = source.NumberNeeded,
+                NumberNeededLowerBound = source.NumberNeededLowerBound,
+                NumberNeededUpperBound = source.NumberNeededUpperBound,
+                IsPlaceboControlled = source.IsPlaceboControlled,
+                IsCombo = source.IsCombo,
+                CalculationFlags = source.CalculationFlags,
+                StudyContext = source.StudyContext,
+                Population = source.Population,
+                Subpopulation = source.Subpopulation,
+                Dose = source.Dose,
+                DoseUnit = source.DoseUnit,
+                PrecisionClass = source.PrecisionClass,
+                IsSignificant = source.IsSignificant,
+                IsProtective = source.IsProtective,
+                RiskSignificance = source.RiskSignificance,
+                NumberNeededKind = source.NumberNeededKind,
+                Flags = source.Flags.ToList(),
+                CounselingTier = source.CounselingTier
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Determines whether a product summary matches a free-text search term.
         /// </summary>
         /// <param name="summary">Catalog summary to test.</param>
@@ -1001,6 +1381,12 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            var catalogSummary = await getMaterializedProductCatalogSummaryAsync(db, documentGuid, pkSecret, logger);
+            if (catalogSummary != null)
+            {
+                return catalogSummary;
+            }
+
             // Load ALL summary strata for the document so combination products
             // aggregate every ingredient instead of one arbitrary class row.
             var entities = await db.Set<LabelView.AeDrugSummary>()
@@ -1061,10 +1447,28 @@ namespace MedRecPro.DataAccess
                 return new List<AeDrugSummaryDto>();
             }
 
+            var catalogSummaries = await getMaterializedProductCatalogSummariesByDocumentGuidsAsync(
+                db,
+                guidList,
+                pkSecret,
+                logger);
+            var catalogDocumentGuids = catalogSummaries
+                .Where(summary => summary.DocumentGUID.HasValue)
+                .Select(summary => summary.DocumentGUID!.Value)
+                .ToHashSet();
+            var missingFromCatalog = guidList
+                .Where(documentGuid => !catalogDocumentGuids.Contains(documentGuid))
+                .ToList();
+
+            if (catalogSummaries.Count > 0 && missingFromCatalog.Count == 0)
+            {
+                return catalogSummaries;
+            }
+
             // Load all matching product summary rows as read-only EF data.
             var entities = await db.Set<LabelView.AeDrugSummary>()
                 .AsNoTracking()
-                .Where(summary => summary.DocumentGUID.HasValue && guidList.Contains(summary.DocumentGUID.Value))
+                .Where(summary => summary.DocumentGUID.HasValue && missingFromCatalog.Contains(summary.DocumentGUID.Value))
                 .ToListAsync();
 
             // Convert rows to encrypted DTOs and calculate product score fields.
@@ -1092,7 +1496,9 @@ namespace MedRecPro.DataAccess
             // getCachedAeProductCatalogAsync and getAeDrugSummaryByDocumentGuidAsync,
             // which already collapse before scoring.
             var collapsed = collapseToOneRowPerDocument(summaries);
-            return AeDashboardDerivation.DeriveProducts(collapsed);
+            var derivedFallbacks = AeDashboardDerivation.DeriveProducts(collapsed);
+            catalogSummaries.AddRange(derivedFallbacks);
+            return catalogSummaries;
 
             #endregion
         }
@@ -1229,6 +1635,98 @@ namespace MedRecPro.DataAccess
                 ActiveCoverage = summary.ActiveCoverage,
                 IsFavorite = summary.IsFavorite
             };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds product summary DTOs from materialized catalog rows.
+        /// </summary>
+        private static List<AeDrugSummaryDto> buildAeDashboardProductCatalogDtos(
+            IEnumerable<LabelView.AeDashboardProductCatalog> entities,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            return entities
+                .Select(entity => buildAeDashboardProductCatalogDto(entity, pkSecret, logger))
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one product summary DTO from a materialized catalog row.
+        /// </summary>
+        private static AeDrugSummaryDto buildAeDashboardProductCatalogDto(
+            LabelView.AeDashboardProductCatalog entity,
+            string pkSecret,
+            ILogger logger)
+        {
+            #region implementation
+
+            var dto = new AeDrugSummaryDto
+            {
+                EncryptedActiveMoietyID = encryptNullableInt(entity.ActiveMoietyID, pkSecret, logger, nameof(entity.ActiveMoietyID)),
+                EncryptedIngredientSubstanceID = encryptNullableInt(entity.IngredientSubstanceID, pkSecret, logger, nameof(entity.IngredientSubstanceID)),
+                EncryptedPharmacologicClassID = encryptNullableInt(entity.PharmacologicClassID, pkSecret, logger, nameof(entity.PharmacologicClassID)),
+                DocumentGUID = entity.DocumentGUID,
+                ProductName = entity.ProductName,
+                SubstanceName = entity.PrimarySubstanceName,
+                UNII = entity.PrimaryUNII,
+                PharmClassCode = entity.PrimaryPharmClassCode,
+                PharmClassName = entity.PrimaryPharmClassName,
+                ActiveIngredients = parseCatalogActiveIngredients(entity.ActiveIngredientsJson, logger),
+                ArmN = entity.ArmN,
+                ComparatorN = entity.ComparatorN,
+                RowCount = entity.RowCount,
+                SignificantCount = entity.SignificantCount,
+                SignificantProtectiveCount = entity.SignificantProtectiveCount,
+                SignificantElevatedCount = entity.SignificantElevatedCount,
+                PlaceboCoverage = entity.PlaceboCoverage,
+                ActiveCoverage = entity.ActiveCoverage,
+                DoseCoverage = entity.DoseCoverage,
+                SocBreadth = entity.SocBreadth,
+                SocTotal = entity.SocTotal > 0 ? entity.SocTotal : AeDashboardMetadata.SocTotal,
+                MonoComboMix = parseMonoComboMix(entity.MonoComboMix),
+                Score = entity.Score,
+                ScoreReason = entity.ScoreReason
+            };
+
+            return dto.Score.HasValue && !string.IsNullOrWhiteSpace(dto.ScoreReason)
+                ? dto
+                : AeDashboardDerivation.DeriveProduct(dto);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Parses catalog ingredient JSON into dashboard ingredient DTOs.
+        /// </summary>
+        private static List<AeActiveIngredientDto>? parseCatalogActiveIngredients(
+            string? activeIngredientsJson,
+            ILogger logger)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(activeIngredientsJson))
+            {
+                return null;
+            }
+
+            try
+            {
+                return JsonConvert.DeserializeObject<List<AeActiveIngredientDto>>(activeIngredientsJson);
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "Unable to parse AE dashboard product catalog active ingredients JSON.");
+                return null;
+            }
 
             #endregion
         }

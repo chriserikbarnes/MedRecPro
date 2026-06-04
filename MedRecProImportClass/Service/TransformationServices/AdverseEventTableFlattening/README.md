@@ -2,11 +2,12 @@
 
 **Stage 5** of the pipeline: AdverseEvent statistical denormalization. This folder reads the
 already-parsed, already-standardized AE rows from `tmp_FlattenedStandardizedTable`
-(`TableCategory = 'ADVERSE_EVENT'`) and produces three Stage 5 surfaces:
+(`TableCategory = 'ADVERSE_EVENT'`) and produces four Stage 5 surfaces:
 
 - **`tmp_FlattenedAdverseEventCoverageTable`** records each source row's Stage 5 outcome.
 - **`tmp_FlattenedAdverseEventTable`** stores RR-ready treatment/comparator rows.
 - **`tmp_FlattenedAdverseEventRiskTable`** materializes `dbo.vw_AeRisk` for dashboard reads.
+- **`tmp_AeDashboardProductCatalog`** stores one picker-ready product row per `DocumentGUID`.
 
 Stage 5 persists only rows with a non-null `RR` into the AE stats table, but it no
 longer lets non-RR rows vanish. Source eligibility failures, selected comparators,
@@ -27,6 +28,11 @@ The risk table is a persistent snapshot of `dbo.vw_AeRisk`; SQL Server builds it
 explicit-column `INSERT INTO ... SELECT ... FROM dbo.vw_AeRisk` after all AE batches save.
 `vw_AeRisk` left-preserves RR-ready rows when product/pharmacologic-class context is
 missing and stamps `NO_PRODUCT_CLASS_CONTEXT` into `CalculationFlags`.
+The product catalog is a persistent snapshot of `dbo.vw_AeDashboardProductCatalog`;
+SQL Server builds it with an explicit-column `INSERT INTO ... SELECT ... FROM
+dbo.vw_AeDashboardProductCatalog` after the risk snapshot refresh. That view is
+sourced from `tmp_FlattenedAdverseEventRiskTable`, keeping the catalog projection
+in SQL while preserving the indexed table as the dashboard read surface.
 
 > See the [parent README](../README.md) for where Stage 5 sits in the overall flow. It runs
 > once at the end of `ProcessAllAsync` / `ProcessAllWithValidationAsync`, after Stage 3 (and
@@ -39,7 +45,7 @@ missing and stamps `NO_PRODUCT_CLASS_CONTEXT` into `CalculationFlags`.
 
 ```
 AdverseEventDenormalizationService.PopulateAsync
-  ├─ TruncateAsync                              wipe coverage, AE stats, and risk tables
+  ├─ TruncateAsync                              wipe coverage, AE stats, risk, and catalog tables
   ├─ SELECT DISTINCT DocumentGUID  WHERE TableCategory='ADVERSE_EVENT'
   └─ for each batch of documents → processBatchAsync:
         load standardized rows (AsNoTracking)
@@ -61,7 +67,8 @@ AdverseEventDenormalizationService.PopulateAsync
                          └─ RelativeRiskCalculator.ComputeDnrr        DNRR + 95% CI (log-linear)
                        → coverage row + RR-ready FlattenedAdverseEventTable entity
         AddRange coverage + RR-ready stats → SaveChangesAsync → ChangeTracker.Clear()
-  └─ materializeRiskTableAsync                 insert explicit-column SELECT from dbo.vw_AeRisk
+  ├─ materializeRiskTableAsync                 insert explicit-column SELECT from dbo.vw_AeRisk
+  └─ materializeProductCatalogAsync            insert explicit-column SELECT from dbo.vw_AeDashboardProductCatalog
 ```
 
 The comparator row itself is **excluded** from the output; its identity/N appear on the
@@ -73,7 +80,7 @@ treatment rows as `ComparatorArm` / `ComparatorN`.
 
 | File | Responsibility |
 |---|---|
-| `IAdverseEventDenormalizationService.cs` / `AdverseEventDenormalizationService.cs` | Orchestrates the stage. Public surface: `PopulateAsync` (truncate → batch by document → group → compute → bulk insert → materialize risk table) and `TruncateAsync`. Disables EF change-tracking for bulk insert; fails fast on save errors. |
+| `IAdverseEventDenormalizationService.cs` / `AdverseEventDenormalizationService.cs` | Orchestrates the stage. Public surface: `PopulateAsync` (truncate → batch by document → group → compute → bulk insert → materialize risk table → materialize product catalog) and `TruncateAsync`. Disables EF change-tracking for bulk insert; fails fast on save errors. |
 | `SourceRowEligibility.cs` | The eligibility gate. A source row is denormalizable iff it has a DocumentGUID, a `PrimaryValue`, and a `ParameterName`/`TreatmentArm` that is not a caption, body-system label, threshold fragment, or value-axis token (delegates to `AeColumnContextResolver`). |
 | `AeMeddraTermStandardizer.cs` | Stage 5-only MedDRA standardizer. Canonicalizes AE names before grouping, maps category aliases to the official 27 SOC labels, fills null categories from known AE terms, and emits auditable `AE_STD:*` flags. |
 | `ComparatorGrouper.cs` | Groups one table's rows into comparison cohorts keyed by `{ParameterName, ParameterSubtype, StudyContext, Population, Subpopulation}` — each dimension normalized (trim, collapse whitespace, upper-invariant). Scope is per-`TextTableID`. |

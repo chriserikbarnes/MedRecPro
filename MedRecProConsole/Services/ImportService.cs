@@ -34,6 +34,17 @@ namespace MedRecProConsole.Services
     /// <seealso cref="ImportResults"/>
     public class ImportService
     {
+        /**************************************************************/
+        /// <summary>
+        /// SQL command timeout used for long-running import and table-standardization materialization steps.
+        /// </summary>
+        /// <remarks>
+        /// Full SPL imports can invoke the same Stage 5 analytical-table refreshes used
+        /// by table standardization, so the console host should not keep SqlClient's
+        /// 30-second default command timeout for those set-based operations.
+        /// </remarks>
+        private const int BulkSqlCommandTimeoutSeconds = 600;
+
         #region internal types
 
         /**************************************************************/
@@ -916,7 +927,10 @@ namespace MedRecProConsole.Services
             // Add DbContext
             services.AddDbContext<ApplicationDbContext>(options =>
             {
-                options.UseSqlServer(connectionString);
+                options.UseSqlServer(connectionString, sqlOptions =>
+                {
+                    sqlOptions.CommandTimeout(BulkSqlCommandTimeoutSeconds);
+                });
                 options.EnableSensitiveDataLogging(false);
 
                 // Suppress EF Core warnings unless verbose mode

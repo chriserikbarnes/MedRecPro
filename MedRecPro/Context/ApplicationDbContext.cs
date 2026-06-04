@@ -206,6 +206,21 @@ namespace MedRecPro.Data
                         continue;
                     }
 
+                    // AeDashboardProductCatalog is the one-row-per-document Stage 5
+                    // product picker surface refreshed after the risk snapshot.
+                    if (entityType == typeof(LabelView.AeDashboardProductCatalog))
+                    {
+                        builder.Entity<LabelView.AeDashboardProductCatalog>(e =>
+                        {
+                            e.ToTable("tmp_AeDashboardProductCatalog");
+                            e.HasKey(x => x.Id);
+                            e.Property(x => x.Id)
+                                .HasColumnName("AeDashboardProductCatalogID")
+                                .ValueGeneratedOnAdd();
+                        });
+                        continue;
+                    }
+
                     var entityBuilder = builder.Entity(entityType);
 
                     // Check for [Table] attribute to get view name

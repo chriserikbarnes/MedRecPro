@@ -6,7 +6,9 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
     /// <c>tmp_FlattenedStandardizedTable</c> into the denormalized
     /// <c>tmp_FlattenedAdverseEventCoverageTable</c> and RR-ready rows into
     /// <c>tmp_FlattenedAdverseEventTable</c>, then materializes
-    /// <c>dbo.vw_AeRisk</c> into <c>tmp_FlattenedAdverseEventRiskTable</c>.
+    /// <c>dbo.vw_AeRisk</c> into <c>tmp_FlattenedAdverseEventRiskTable</c>
+    /// and <c>dbo.vw_AeDashboardProductCatalog</c> into
+    /// <c>tmp_AeDashboardProductCatalog</c>.
     /// The AE table stores pre-computed Relative Risk (RR), Dose-Normalized RR
     /// (DNRR), 95% CI bounds, the row-level <c>IsPlaceboControlled</c> bit, and
     /// per-table trial-design diagnostics surfaced through <c>CalculationFlags</c>.
@@ -36,7 +38,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
         /// selection, audits coverage/null-RR outcomes, computes RR/DNRR/CI,
         /// bulk-writes RR-ready rows, and finally
         /// materializes <c>tmp_FlattenedAdverseEventRiskTable</c> from
-        /// <c>dbo.vw_AeRisk</c>.
+        /// <c>dbo.vw_AeRisk</c> and <c>tmp_AeDashboardProductCatalog</c>
+        /// from <c>dbo.vw_AeDashboardProductCatalog</c>.
         /// </summary>
         /// <param name="batchSize">Documents per batch (default 5000).</param>
         /// <param name="progress">Optional progress callback invoked after each batch completes.</param>
@@ -50,7 +53,8 @@ namespace MedRecProImportClass.Service.TransformationServices.AdverseEventTableF
 
         /**************************************************************/
         /// <summary>
-        /// Truncates <c>tmp_FlattenedAdverseEventRiskTable</c>,
+        /// Truncates <c>tmp_AeDashboardProductCatalog</c>,
+        /// <c>tmp_FlattenedAdverseEventRiskTable</c>,
         /// <c>tmp_FlattenedAdverseEventCoverageTable</c>, and
         /// <c>tmp_FlattenedAdverseEventTable</c> for a clean rerun.
         /// Falls back to <c>RemoveRange</c> + <c>SaveChanges</c> on the

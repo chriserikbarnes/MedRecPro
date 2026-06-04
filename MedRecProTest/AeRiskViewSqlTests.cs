@@ -82,6 +82,75 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that the AE dashboard product catalog projection lives in the SQL view script.
+        /// </summary>
+        /// <remarks>
+        /// The Stage 5 product catalog should keep database projection concerns in
+        /// <c>dbo.vw_AeDashboardProductCatalog</c>, then materialize that view into
+        /// the durable picker table during standardization.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// dotnet test MedRecProTest/MedRecProTest.csproj --filter AeRiskViewSqlTests
+        /// </code>
+        /// </example>
+        /// <seealso cref="VwAeRisk_ProductAndSubstanceContext_UsesIngredientFallback"/>
+        [TestMethod]
+        public void VwAeDashboardProductCatalog_ProjectsCatalogFromRiskSnapshot()
+        {
+            #region implementation
+
+            var sql = readViewsSql();
+
+            StringAssert.Contains(sql, "CREATE VIEW dbo.vw_AeDashboardProductCatalog");
+            StringAssert.Contains(sql, "FROM dbo.tmp_FlattenedAdverseEventRiskTable");
+            StringAssert.Contains(sql, "CONVERT(INT, COUNT_BIG(*)) AS [RowCount]");
+            StringAssert.Contains(sql, "ROW_NUMBER() OVER (");
+            StringAssert.Contains(sql, "FOR JSON PATH");
+            StringAssert.Contains(sql, "STRING_AGG(CONCAT_WS(' '");
+            StringAssert.Contains(sql, "CAST(NULL AS INT) AS Score");
+            StringAssert.Contains(sql, "WHEN v.name = 'vw_AeDashboardProductCatalog'");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that the C# Stage 5 materializer reads from the SQL catalog view.
+        /// </summary>
+        /// <remarks>
+        /// This keeps <c>AdverseEventDenormalizationService</c> focused on
+        /// orchestration and snapshot writes instead of owning the catalog projection
+        /// query inline.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// dotnet test MedRecProTest/MedRecProTest.csproj --filter AeRiskViewSqlTests
+        /// </code>
+        /// </example>
+        /// <seealso cref="VwAeDashboardProductCatalog_ProjectsCatalogFromRiskSnapshot"/>
+        [TestMethod]
+        public void AdverseEventDenormalizationService_ProductCatalogMaterializesFromView()
+        {
+            #region implementation
+
+            var service = readRepoFile(
+                "MedRecProImportClass",
+                "Service",
+                "TransformationServices",
+                "AdverseEventTableFlattening",
+                "AdverseEventDenormalizationService.cs");
+
+            StringAssert.Contains(service, "private const string CatalogSourceView = \"dbo.vw_AeDashboardProductCatalog\";");
+            StringAssert.Contains(service, "FROM {CatalogSourceView};");
+            Assert.IsFalse(service.Contains("DocumentAggregates AS ("),
+                "Product-catalog aggregation should live in dbo.vw_AeDashboardProductCatalog, not in the C# materializer.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Reads the repository SQL view script from the test output folder.
         /// </summary>
         /// <returns>The full <c>MedRecPro_Views.sql</c> text.</returns>
@@ -96,10 +165,31 @@ namespace MedRecProTest
         {
             #region implementation
 
+            return readRepoFile("MedRecPro", "SQL", "MedRecPro_Views.sql");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Reads a repository file from the test output folder.
+        /// </summary>
+        /// <param name="relativePath">Path segments relative to the shared repository parent.</param>
+        /// <returns>The file text.</returns>
+        /// <remarks>
+        /// Test execution starts under a build output directory, so the helper
+        /// walks upward until it reaches the shared repository parent that
+        /// contains the requested repo file.
+        /// </remarks>
+        /// <seealso cref="readViewsSql"/>
+        private static string readRepoFile(params string[] relativePath)
+        {
+            #region implementation
+
             var current = new DirectoryInfo(AppContext.BaseDirectory);
             while (current != null)
             {
-                var candidate = Path.Combine(current.FullName, "MedRecPro", "SQL", "MedRecPro_Views.sql");
+                var candidate = Path.Combine(current.FullName, Path.Combine(relativePath));
                 if (File.Exists(candidate))
                 {
                     return File.ReadAllText(candidate);
@@ -108,7 +198,7 @@ namespace MedRecProTest
                 current = current.Parent;
             }
 
-            Assert.Fail("Unable to locate MedRecPro/SQL/MedRecPro_Views.sql from the test output directory.");
+            Assert.Fail($"Unable to locate {Path.Combine(relativePath)} from the test output directory.");
             return string.Empty;
 
             #endregion

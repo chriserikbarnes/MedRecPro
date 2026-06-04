@@ -77,7 +77,8 @@ BEGIN
         -- Prefix keys keep common long-text filters under SQL Server's
         -- nonclustered-index key-width limit.
         UNII_IndexKey                        AS (CONVERT(NVARCHAR(450), LEFT(UNII, 450))) PERSISTED,
-        ParameterName_IndexKey               AS (CONVERT(NVARCHAR(450), LEFT(ParameterName, 450))) PERSISTED
+        ParameterName_IndexKey               AS (CONVERT(NVARCHAR(450), LEFT(ParameterName, 450))) PERSISTED,
+        ParameterNameNormalized              AS (LOWER(CONVERT(NVARCHAR(450), LEFT(ParameterName, 450)))) PERSISTED
     );
 
     CREATE NONCLUSTERED INDEX IX_FAER_DocumentGUID             ON dbo.tmp_FlattenedAdverseEventRiskTable(DocumentGUID);
@@ -88,6 +89,12 @@ BEGIN
     CREATE NONCLUSTERED INDEX IX_FAER_ParameterCategory        ON dbo.tmp_FlattenedAdverseEventRiskTable(ParameterCategory);
     CREATE NONCLUSTERED INDEX IX_FAER_UNII                     ON dbo.tmp_FlattenedAdverseEventRiskTable(UNII_IndexKey) INCLUDE (UNII);
     CREATE NONCLUSTERED INDEX IX_FAER_ParameterName            ON dbo.tmp_FlattenedAdverseEventRiskTable(ParameterName_IndexKey) INCLUDE (ParameterName);
+    CREATE NONCLUSTERED INDEX IX_FAER_DocumentGUID_ParameterName_RR
+        ON dbo.tmp_FlattenedAdverseEventRiskTable(DocumentGUID, ParameterNameNormalized, RR DESC)
+        INCLUDE (ParameterName, ParameterCategory, Significance, NumberNeededType, NumberNeeded, RRLowerBound, RRUpperBound, IsPlaceboControlled, ArmN, ComparatorN, ProductName, SubstanceName, PharmClassCode, PharmClassName);
+    CREATE NONCLUSTERED INDEX IX_FAER_ParameterName_DocumentGUID
+        ON dbo.tmp_FlattenedAdverseEventRiskTable(ParameterNameNormalized, DocumentGUID)
+        INCLUDE (ParameterName, Significance, NumberNeeded, RR, IsPlaceboControlled, ProductName);
 END
 
 -- Idempotent column additions for existing databases (forward-compat upgrades).
@@ -169,6 +176,8 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.tmp_Fl
     ALTER TABLE dbo.tmp_FlattenedAdverseEventRiskTable ADD UNII_IndexKey AS (CONVERT(NVARCHAR(450), LEFT(UNII, 450))) PERSISTED;
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.tmp_FlattenedAdverseEventRiskTable') AND name = 'ParameterName_IndexKey')
     ALTER TABLE dbo.tmp_FlattenedAdverseEventRiskTable ADD ParameterName_IndexKey AS (CONVERT(NVARCHAR(450), LEFT(ParameterName, 450))) PERSISTED;
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.tmp_FlattenedAdverseEventRiskTable') AND name = 'ParameterNameNormalized')
+    ALTER TABLE dbo.tmp_FlattenedAdverseEventRiskTable ADD ParameterNameNormalized AS (LOWER(CONVERT(NVARCHAR(450), LEFT(ParameterName, 450)))) PERSISTED;
 
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.tmp_FlattenedAdverseEventRiskTable') AND name = 'IX_FAER_DocumentGUID')
     CREATE NONCLUSTERED INDEX IX_FAER_DocumentGUID             ON dbo.tmp_FlattenedAdverseEventRiskTable(DocumentGUID);
@@ -186,3 +195,11 @@ IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.tmp_Fl
     CREATE NONCLUSTERED INDEX IX_FAER_UNII                     ON dbo.tmp_FlattenedAdverseEventRiskTable(UNII_IndexKey) INCLUDE (UNII);
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.tmp_FlattenedAdverseEventRiskTable') AND name = 'IX_FAER_ParameterName')
     CREATE NONCLUSTERED INDEX IX_FAER_ParameterName            ON dbo.tmp_FlattenedAdverseEventRiskTable(ParameterName_IndexKey) INCLUDE (ParameterName);
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.tmp_FlattenedAdverseEventRiskTable') AND name = 'IX_FAER_DocumentGUID_ParameterName_RR')
+    CREATE NONCLUSTERED INDEX IX_FAER_DocumentGUID_ParameterName_RR
+        ON dbo.tmp_FlattenedAdverseEventRiskTable(DocumentGUID, ParameterNameNormalized, RR DESC)
+        INCLUDE (ParameterName, ParameterCategory, Significance, NumberNeededType, NumberNeeded, RRLowerBound, RRUpperBound, IsPlaceboControlled, ArmN, ComparatorN, ProductName, SubstanceName, PharmClassCode, PharmClassName);
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.tmp_FlattenedAdverseEventRiskTable') AND name = 'IX_FAER_ParameterName_DocumentGUID')
+    CREATE NONCLUSTERED INDEX IX_FAER_ParameterName_DocumentGUID
+        ON dbo.tmp_FlattenedAdverseEventRiskTable(ParameterNameNormalized, DocumentGUID)
+        INCLUDE (ParameterName, Significance, NumberNeeded, RR, IsPlaceboControlled, ProductName);

@@ -1777,7 +1777,7 @@ namespace MedRecProConsole.Helpers
 
             // Step 2: Truncate prompt
             if (AnsiConsole.Confirm(
-                "[yellow]Truncate tmp_FlattenedStandardizedTable, tmp_FlattenedAdverseEventCoverageTable, tmp_FlattenedAdverseEventTable, and tmp_FlattenedAdverseEventRiskTable first?[/] [grey](deletes all standardized data and Stage 5 outputs)[/]", false))
+                "[yellow]Truncate tmp_FlattenedStandardizedTable, tmp_FlattenedAdverseEventCoverageTable, tmp_FlattenedAdverseEventTable, tmp_FlattenedAdverseEventRiskTable, and tmp_AeDashboardProductCatalog first?[/] [grey](deletes all standardized data and Stage 5 outputs)[/]", false))
             {
                 await service.ExecuteTruncateAsync(connectionString, quiet: false);
                 AnsiConsole.WriteLine();

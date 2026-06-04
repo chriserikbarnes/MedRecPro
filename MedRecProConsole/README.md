@@ -108,7 +108,7 @@ Enter command (import, orange-book, standardize-tables, database, help, quit):
 1. **Run shape**: Standardize all tables, run a limited number of batches, debug one table, or cancel.
 2. **Quality gates**: Choose whether to drop rows missing `ArmN` or `PrimaryValue`; the prompt defaults from `Standardization.DropRowsMissingArmNOrPrimaryValue`.
 3. **Claude and reports**: Choose Claude usage and optional markdown / JSONL diagnostic paths for table-level debug runs.
-4. **Truncation**: Optionally truncate `tmp_FlattenedStandardizedTable`, `tmp_FlattenedAdverseEventCoverageTable`, `tmp_FlattenedAdverseEventTable`, and `tmp_FlattenedAdverseEventRiskTable` before rerun.
+4. **Truncation**: Optionally truncate `tmp_FlattenedStandardizedTable`, `tmp_FlattenedAdverseEventCoverageTable`, `tmp_FlattenedAdverseEventTable`, `tmp_FlattenedAdverseEventRiskTable`, and `tmp_AeDashboardProductCatalog` before rerun.
 
 ### Example Session
 
@@ -393,7 +393,7 @@ The `--standardize-tables` mode runs the SPL table normalization pipeline agains
 |-----------|-------------|
 | `parse` | Run the batch parse/standardization path and write observations to `tmp_FlattenedStandardizedTable` |
 | `validate` | Parse, validate, and run integrated Stage 5 AE denormalization/risk materialization when the service graph includes `IAdverseEventDenormalizationService` |
-| `truncate` | Wipe `tmp_FlattenedStandardizedTable`, truncate Stage 5 coverage, AE stats, and risk tables when registered, and remove the progress file |
+| `truncate` | Wipe `tmp_FlattenedStandardizedTable`, truncate Stage 5 coverage, AE stats, risk, and product catalog tables when registered, and remove the progress file |
 | `parse-single` | Debug one table by TextTableID, display observations without DB write, and optionally append markdown/JSONL diagnostics |
 
 ### Example CLI Usage

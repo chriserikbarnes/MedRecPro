@@ -98,6 +98,97 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that the materialized catalog drives provider-side product picker search, paging, and counts.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeProductCatalogAsync(ApplicationDbContext, string, Microsoft.Extensions.Logging.ILogger, string?, long?, int?, int?)"/>
+        [TestMethod]
+        public async Task GetAeProductCatalogAsync_MaterializedCatalog_SearchesPagesCountsAndMarksFavorites()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+            var userId = 7002L;
+            await seedUserAsync(context, userId);
+
+            DtoLabelAccessTestHelper.SeedAeDashboardProductCatalogTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                "CATALOG ASPIRIN",
+                significantElevatedCount: 4);
+            DtoLabelAccessTestHelper.SeedAeDashboardProductCatalogTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                "CATALOG IBUPROFEN",
+                substanceName: "Ibuprofen",
+                significantElevatedCount: 12);
+            DtoLabelAccessTestHelper.SeedAeDashboardProductCatalogTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid3,
+                "ADVAIR HFA",
+                substanceName: "salmeterol xinafoate",
+                unii: "2N7Z8O3E8T+O2GMZ0LF5W",
+                pharmClassCode: "EPC-SAL",
+                pharmClassName: "beta2-Adrenergic Agonist [EPC]",
+                significantElevatedCount: 2,
+                monoComboMix: "combo",
+                activeIngredients: new[]
+                {
+                    new AeActiveIngredientDto
+                    {
+                        SubstanceName = "salmeterol xinafoate",
+                        UNII = "2N7Z8O3E8T",
+                        PharmClassCode = "EPC-SAL",
+                        PharmClassName = "beta2-Adrenergic Agonist [EPC]"
+                    },
+                    new AeActiveIngredientDto
+                    {
+                        SubstanceName = "fluticasone propionate",
+                        UNII = "O2GMZ0LF5W",
+                        PharmClassCode = "EPC-FLU",
+                        PharmClassName = "Corticosteroid [EPC]"
+                    }
+                });
+            context.AspNetUserFavorites.Add(new AspNetUserFavorite
+            {
+                UserId = userId,
+                DocumentGUID = DtoLabelAccessTestHelper.TestDocumentGuid2,
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+
+            var firstPage = await DtoLabelAccess.GetAeProductCatalogAsync(
+                context,
+                PkSecret,
+                logger,
+                userId: userId,
+                page: 1,
+                size: 2);
+            var ingredientSearch = await DtoLabelAccess.GetAeProductCatalogAsync(
+                context,
+                PkSecret,
+                logger,
+                productSearch: "fluticasone",
+                page: 1,
+                size: 10);
+            var count = await DtoLabelAccess.GetAeProductCountAsync(context, logger);
+
+            Assert.AreEqual(2, firstPage.Count);
+            Assert.AreEqual("CATALOG IBUPROFEN", firstPage[0].ProductName);
+            Assert.IsTrue(firstPage[0].IsFavorite);
+            Assert.AreEqual(1, ingredientSearch.Count);
+            Assert.AreEqual("ADVAIR HFA", ingredientSearch.Single().ProductName);
+            Assert.AreEqual(2, ingredientSearch.Single().ActiveIngredients!.Count);
+            Assert.AreEqual(3, count);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies that null pharmacologic-class risk rows still produce product catalog summaries.
         /// </summary>
         /// <seealso cref="DtoLabelAccess.GetAeDrugSummariesAsync(ApplicationDbContext, string, ILogger, string?, long?, int?, int?)"/>
@@ -601,6 +692,52 @@ namespace MedRecProTest
             Assert.IsNotNull(quadrant);
             Assert.AreEqual(2, quadrant.Points.Count);
             Assert.IsTrue(quadrant.Points.All(point => point.PrecisionX >= 0 && point.PrecisionX <= 1));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that product detail data can be loaded from the materialized catalog and reused by tab views.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeProductDetailDataAsync(ApplicationDbContext, Guid, string, Microsoft.Extensions.Logging.ILogger, AeComparatorMix?, bool)"/>
+        [TestMethod]
+        public async Task GetAeProductDetailDataAsync_WithMaterializedCatalog_LoadsSharedPayload()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            DtoLabelAccessTestHelper.SeedAeDashboardProductCatalogTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                "CATALOG ASPIRIN",
+                significantElevatedCount: 2);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, riskId: 1, adverseEventId: 11, parameterName: "Headache", rr: 5.0, numberNeeded: 10);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, riskId: 2, adverseEventId: 12, parameterName: "Nausea", rr: 2.0, numberNeeded: 30);
+
+            var detail = await DtoLabelAccess.GetAeProductDetailDataAsync(
+                context,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                PkSecret,
+                logger);
+            var triage = await DtoLabelAccess.GetAeTriageViewAsync(context, DtoLabelAccessTestHelper.TestDocumentGuid, PkSecret, logger);
+            var forest = await DtoLabelAccess.GetAeForestPlotAsync(context, DtoLabelAccessTestHelper.TestDocumentGuid, PkSecret, logger);
+            var quadrant = await DtoLabelAccess.GetAeQuadrantViewAsync(context, DtoLabelAccessTestHelper.TestDocumentGuid, PkSecret, logger);
+
+            Assert.IsNotNull(detail);
+            Assert.AreEqual("CATALOG ASPIRIN", detail.Product.ProductName);
+            Assert.AreEqual(2, detail.Signals.Count);
+            Assert.IsNotNull(triage);
+            Assert.AreEqual("CATALOG ASPIRIN", triage.Product!.ProductName);
+            Assert.IsNotNull(forest);
+            Assert.AreEqual(2, forest.Signals.Count);
+            Assert.IsNotNull(quadrant);
+            Assert.AreEqual(2, quadrant.Points.Count);
 
             #endregion
         }

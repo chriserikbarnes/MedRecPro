@@ -573,6 +573,42 @@ namespace MedRecPro.Models
 
     /**************************************************************/
     /// <summary>
+    /// Internal reusable AE dashboard detail payload for one product document.
+    /// </summary>
+    /// <remarks>
+    /// Carries the product summary and derived signal list shared by the triage,
+    /// forest plot, and quadrant views. The payload is intentionally not a new
+    /// client contract; existing endpoint-specific DTOs are still assembled by
+    /// the derivation layer.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var detail = new AeDashboardProductDetailData
+    /// {
+    ///     Product = new AeDrugSummaryDto { ProductName = "ASPIRIN" },
+    ///     Signals = new List&lt;AeRiskSignalDto&gt;()
+    /// };
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeDrugSummaryDto"/>
+    /// <seealso cref="AeRiskSignalDto"/>
+    public class AeDashboardProductDetailData
+    {
+        #region Detail Properties
+
+        /**************************************************************/
+        /// <summary>Product summary context for the requested document.</summary>
+        public AeDrugSummaryDto Product { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Derived adverse-event risk signals for the requested document.</summary>
+        public List<AeRiskSignalDto> Signals { get; set; } = new();
+
+        #endregion Detail Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
     /// Container DTO for one counseling tier in the AE triage dashboard.
     /// </summary>
     /// <remarks>

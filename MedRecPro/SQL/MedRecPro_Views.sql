@@ -1742,6 +1742,7 @@ SELECT
         WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
         WHEN v.name LIKE '%Section%' THEN 'Section Content'
         WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
+        WHEN v.name LIKE '%AeDashboard%' THEN 'Adverse Event Dashboard'
         WHEN v.name LIKE '%AeRisk%' THEN 'Adverse Event Risk'
         WHEN v.name LIKE '%Product%' THEN 'Product Information'
         WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
@@ -1772,6 +1773,8 @@ SELECT
             'Query with: WHERE Significance IN (''elevated'', ''protective'') OR CalculationFlags LIKE ''%NO_PRODUCT_CLASS_CONTEXT%'''
         WHEN v.name = 'vw_AeDrugSummary' THEN
             'Query with: WHERE SignificantElevatedCount > 0 OR PlaceboCoverage = 1'
+        WHEN v.name = 'vw_AeDashboardProductCatalog' THEN
+            'Materialization source for tmp_AeDashboardProductCatalog; query with: WHERE SearchText LIKE ''%aspirin%'''
         WHEN v.name = 'vw_ProductSummary' THEN 
             'Query with: WHERE ProductID = 123 OR ProductName LIKE ''%Lipitor%'''
         WHEN v.name = 'vw_RelatedProducts' THEN 
@@ -3068,6 +3071,7 @@ SELECT
         WHEN v.name LIKE '%Document%' OR v.name LIKE '%Version%' THEN 'Document Navigation'
         WHEN v.name LIKE '%Section%' THEN 'Section Content'
         WHEN v.name LIKE '%Drug%' OR v.name LIKE '%DEA%' THEN 'Drug Safety'
+        WHEN v.name LIKE '%AeDashboard%' THEN 'Adverse Event Dashboard'
         WHEN v.name LIKE '%AeRisk%' THEN 'Adverse Event Risk'
         WHEN v.name LIKE '%Product%' THEN 'Product Information'
         WHEN v.name LIKE '%Related%' THEN 'Cross-Reference'
@@ -3604,6 +3608,211 @@ GO
 
 --#endregion
 
+--#region vw_AeDashboardProductCatalog
+
+/**************************************************************/
+-- View: vw_AeDashboardProductCatalog
+-- Purpose: Projects the Stage 5 AE risk snapshot into one picker-ready
+--          product catalog row per DocumentGUID.
+-- Usage: Materialize tmp_AeDashboardProductCatalog during Stage 5 standardization
+--        after dbo.tmp_FlattenedAdverseEventRiskTable has been refreshed.
+-- Returns: Preferred product/substance/class display fields, ingredient JSON,
+--          dashboard coverage metrics, sort keys, and lower-cased search text.
+-- Indexes Used: IX_FAER_DocumentGUID, IX_FAER_ParameterCategory,
+--               IX_FAER_DocumentGUID_ParameterName_RR
+-- See also: tmp_AeDashboardProductCatalog, tmp_FlattenedAdverseEventRiskTable
+
+IF OBJECT_ID('dbo.vw_AeDashboardProductCatalog', 'V') IS NOT NULL
+    DROP VIEW dbo.vw_AeDashboardProductCatalog;
+GO
+
+CREATE VIEW dbo.vw_AeDashboardProductCatalog
+AS
+/**************************************************************/
+-- Keeps the catalog projection in SQL while leaving RefreshedAt to the
+-- materialization step that writes the durable snapshot table.
+/**************************************************************/
+WITH BaseRows AS (
+    SELECT
+        DocumentGUID,
+        tmp_FlattenedAdverseEventRiskTableID,
+        ActiveMoietyID,
+        IngredientSubstanceID,
+        PharmacologicClassID,
+        ProductName,
+        SubstanceName,
+        PharmClassCode,
+        PharmClassName,
+        IsPlaceboControlled,
+        ParameterCategory,
+        Significance,
+        ArmN,
+        ComparatorN,
+        UNII,
+        IsCombo,
+        Dose
+    FROM dbo.tmp_FlattenedAdverseEventRiskTable
+    WHERE DocumentGUID IS NOT NULL
+),
+DocumentAggregates AS (
+    SELECT
+        DocumentGUID,
+        MAX(ProductName) AS ProductName,
+        MAX(ArmN) AS ArmN,
+        MAX(ComparatorN) AS ComparatorN,
+        CONVERT(INT, COUNT_BIG(*)) AS [RowCount],
+        SUM(CASE WHEN Significance IN ('elevated', 'protective') THEN 1 ELSE 0 END) AS SignificantCount,
+        SUM(CASE WHEN Significance = 'protective' THEN 1 ELSE 0 END) AS SignificantProtectiveCount,
+        SUM(CASE WHEN Significance = 'elevated' THEN 1 ELSE 0 END) AS SignificantElevatedCount,
+        MAX(CASE WHEN IsPlaceboControlled = 1 THEN 1 ELSE 0 END) AS PlaceboCoverage,
+        MAX(CASE WHEN IsPlaceboControlled = 0 THEN 1 ELSE 0 END) AS ActiveCoverage,
+        AVG(CASE WHEN Dose IS NOT NULL THEN 1.0 ELSE 0.0 END) AS DoseCoverage,
+        COUNT(DISTINCT NULLIF(ParameterCategory, '')) AS SocBreadth,
+        CASE
+            WHEN MAX(CASE WHEN IsCombo = 1 THEN 1 ELSE 0 END) = 1
+                 AND MAX(CASE WHEN IsCombo = 0 THEN 1 ELSE 0 END) = 1 THEN 'mixed'
+            WHEN MAX(CASE WHEN IsCombo = 1 THEN 1 ELSE 0 END) = 1 THEN 'combo'
+            ELSE 'mono'
+        END AS MonoComboMix
+    FROM BaseRows
+    GROUP BY DocumentGUID
+),
+RepresentativeRows AS (
+    SELECT
+        risk.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY risk.DocumentGUID
+            ORDER BY
+                CASE WHEN risk.ProductName IS NULL THEN 1 ELSE 0 END,
+                CASE WHEN risk.PharmClassName LIKE '%[[]EPC]%' THEN 0 ELSE 1 END,
+                CASE WHEN risk.IngredientSubstanceID IS NULL THEN 1 ELSE 0 END,
+                risk.IngredientSubstanceID,
+                CASE WHEN risk.PharmacologicClassID IS NULL THEN 1 ELSE 0 END,
+                risk.PharmacologicClassID,
+                risk.tmp_FlattenedAdverseEventRiskTableID
+        ) AS RowRank
+    FROM BaseRows AS risk
+),
+IngredientCandidates AS (
+    SELECT
+        risk.DocumentGUID,
+        risk.ActiveMoietyID,
+        risk.IngredientSubstanceID,
+        risk.PharmacologicClassID,
+        risk.SubstanceName,
+        risk.UNII,
+        risk.PharmClassCode,
+        risk.PharmClassName,
+        ROW_NUMBER() OVER (
+            PARTITION BY risk.DocumentGUID, risk.IngredientSubstanceID, risk.SubstanceName
+            ORDER BY
+                CASE WHEN risk.PharmClassName LIKE '%[[]EPC]%' THEN 0 ELSE 1 END,
+                CASE WHEN risk.PharmacologicClassID IS NULL THEN 1 ELSE 0 END,
+                risk.PharmacologicClassID,
+                risk.tmp_FlattenedAdverseEventRiskTableID
+        ) AS ClassRank
+    FROM BaseRows AS risk
+    WHERE risk.SubstanceName IS NOT NULL
+       OR risk.UNII IS NOT NULL
+       OR risk.PharmClassCode IS NOT NULL
+       OR risk.PharmClassName IS NOT NULL
+),
+Ingredients AS (
+    SELECT *
+    FROM IngredientCandidates
+    WHERE ClassRank = 1
+),
+IngredientJson AS (
+    SELECT
+        documents.DocumentGUID,
+        (
+            SELECT
+                ingredient.SubstanceName,
+                ingredient.UNII,
+                ingredient.PharmClassName,
+                ingredient.PharmClassCode
+            FROM Ingredients AS ingredient
+            WHERE ingredient.DocumentGUID = documents.DocumentGUID
+            ORDER BY
+                CASE WHEN ingredient.IngredientSubstanceID IS NULL THEN 1 ELSE 0 END,
+                ingredient.IngredientSubstanceID,
+                ingredient.SubstanceName
+            FOR JSON PATH
+        ) AS ActiveIngredientsJson,
+        STRING_AGG(CONCAT_WS(' ',
+            ingredient.SubstanceName,
+            ingredient.UNII,
+            ingredient.PharmClassCode,
+            ingredient.PharmClassName), ' ') AS IngredientSearchText
+    FROM (SELECT DISTINCT DocumentGUID FROM BaseRows) AS documents
+    LEFT JOIN Ingredients AS ingredient ON ingredient.DocumentGUID = documents.DocumentGUID
+    GROUP BY documents.DocumentGUID
+)
+SELECT
+    representative.DocumentGUID,
+    COALESCE(representative.ProductName, aggregates.ProductName) AS ProductName,
+    representative.SubstanceName AS PrimarySubstanceName,
+    representative.UNII AS PrimaryUNII,
+    representative.PharmClassCode AS PrimaryPharmClassCode,
+    representative.PharmClassName AS PrimaryPharmClassName,
+    ingredients.ActiveIngredientsJson,
+    representative.ActiveMoietyID,
+    representative.IngredientSubstanceID,
+    representative.PharmacologicClassID,
+    aggregates.ArmN,
+    aggregates.ComparatorN,
+    aggregates.[RowCount],
+    aggregates.SignificantCount,
+    aggregates.SignificantProtectiveCount,
+    aggregates.SignificantElevatedCount,
+    CONVERT(BIT, aggregates.PlaceboCoverage) AS PlaceboCoverage,
+    CONVERT(BIT, aggregates.ActiveCoverage) AS ActiveCoverage,
+    ISNULL(aggregates.DoseCoverage, 0.0) AS DoseCoverage,
+    aggregates.SocBreadth,
+    CAST(17 AS INT) AS SocTotal,
+    aggregates.MonoComboMix,
+    CAST(NULL AS INT) AS Score,
+    CAST(NULL AS NVARCHAR(500)) AS ScoreReason,
+    aggregates.SignificantElevatedCount AS SortSignificantElevatedCount,
+    COALESCE(representative.ProductName, aggregates.ProductName) AS SortProductName,
+    LOWER(CONCAT_WS(' ',
+        COALESCE(representative.ProductName, aggregates.ProductName),
+        representative.SubstanceName,
+        representative.UNII,
+        representative.PharmClassCode,
+        representative.PharmClassName,
+        ingredients.IngredientSearchText)) AS SearchText
+FROM DocumentAggregates AS aggregates
+INNER JOIN RepresentativeRows AS representative
+    ON representative.DocumentGUID = aggregates.DocumentGUID
+   AND representative.RowRank = 1
+LEFT JOIN IngredientJson AS ingredients
+    ON ingredients.DocumentGUID = aggregates.DocumentGUID;
+GO
+
+IF OBJECT_ID('dbo.vw_AeDashboardProductCatalog', 'V') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.extended_properties
+       WHERE major_id = OBJECT_ID('dbo.vw_AeDashboardProductCatalog')
+       AND name = 'MS_Description'
+   )
+BEGIN
+    EXEC sp_addextendedproperty
+        @name = N'MS_Description',
+        @value = N'AE dashboard product catalog materialization source. Projects tmp_FlattenedAdverseEventRiskTable into one picker-ready product row per DocumentGUID with ingredient JSON, dashboard coverage metrics, sort keys, and search text.',
+        @level0type = N'SCHEMA', @level0name = N'dbo',
+        @level1type = N'VIEW', @level1name = N'vw_AeDashboardProductCatalog';
+END
+GO
+
+IF OBJECT_ID('dbo.vw_AeDashboardProductCatalog', 'V') IS NOT NULL
+    PRINT 'Created view: vw_AeDashboardProductCatalog';
+ELSE
+    PRINT 'Skipped view documentation: vw_AeDashboardProductCatalog was not created. Run MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql, then rerun MedRecPro_Views.sql.';
+GO
+
+--#endregion
+
 --#region vw_OrangeBookPatent
 
 /**************************************************************/
@@ -3779,6 +3988,7 @@ PRINT '  - vw_ProductLatestLabel: Latest label per UNII/ProductName combination'
 PRINT '  - vw_InventorySummary: Comprehensive inventory summary for AI discovery';
 PRINT '  - vw_AeRisk: Adverse event RR signals with optional pharmacologic class and NNH/NNT context';
 PRINT '  - vw_AeDrugSummary: Product-level AE dashboard summary rows, including null pharmacologic-class context';
+PRINT '  - vw_AeDashboardProductCatalog: One-row-per-document AE dashboard product catalog materialization source';
 PRINT '  - vw_OrangeBookPatent: NDA patent data with SPL label cross-reference and flags, or an empty compatibility view when Orange Book tables are absent';
 PRINT '';
 

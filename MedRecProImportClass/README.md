@@ -577,14 +577,14 @@ Validation results are returned as in-memory DTOs (`BatchValidationReport`) and 
 
 ### Stage 5: Adverse Event Denormalization
 
-Stage 5 produces three outputs. `tmp_FlattenedAdverseEventCoverageTable` records source-row coverage and non-RR audit reasons. `tmp_FlattenedAdverseEventTable` is the RR-ready, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics. `tmp_FlattenedAdverseEventRiskTable` is a persistent materialization of left-preserving `dbo.vw_AeRisk` refreshed after the AE stats table is populated, so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering, product/class risk views) bind directly without runtime joins or stats. The DDL scripts are at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql`, `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`, and `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`.
+Stage 5 produces four outputs. `tmp_FlattenedAdverseEventCoverageTable` records source-row coverage and non-RR audit reasons. `tmp_FlattenedAdverseEventTable` is the RR-ready, AE-only projection of `tmp_FlattenedStandardizedTable` where each row already carries pre-computed risk statistics. `tmp_FlattenedAdverseEventRiskTable` is a persistent materialization of left-preserving `dbo.vw_AeRisk` refreshed after the AE stats table is populated, so real-time visualizations (RR scatter plots, RR heatmaps with hierarchical clustering, product/class risk views) bind directly without runtime joins or stats. `tmp_AeDashboardProductCatalog` materializes `dbo.vw_AeDashboardProductCatalog` after the risk snapshot refresh, giving the AE dashboard product picker an indexed one-row-per-document read surface. The DDL scripts are at `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql`, `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql`, `MedRecPro/SQL/MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql`, and `MedRecPro/SQL/MedRecPro-Table-tmp_AeDashboardProductCatalog.sql`.
 
 **Status:** Phase 1 (SQL DDL) and Phase 2 (the `AdverseEventDenormalizationService` population service, EF entities, DTO, `RelativeRiskCalculator` utility, helper decomposition, orchestrator hook, DI registration, and final risk-table materialization) are both shipped.
 
 **Entry points:**
 
 - Pipeline-integrated: `TableParsingOrchestrator.ProcessAllWithValidationAsync` invokes `IAdverseEventDenormalizationService.PopulateAsync` after Stage 4 validation when the dependency was provided.
-- Standalone: resolve `IAdverseEventDenormalizationService` from DI and call `PopulateAsync` directly to re-run AE denormalization and risk-table materialization without re-doing Stage 3/4.
+- Standalone: resolve `IAdverseEventDenormalizationService` from DI and call `PopulateAsync` directly to re-run AE denormalization, risk-table materialization, and product-catalog materialization without re-doing Stage 3/4.
 
 **Helper decomposition:**
 

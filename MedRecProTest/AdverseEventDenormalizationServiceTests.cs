@@ -1091,17 +1091,29 @@ namespace MedRecPro.Service.Test
                 ParameterName = "Test",
                 Significance = "elevated"
             });
+            db.Set<LabelView.AeDashboardProductCatalog>().Add(new LabelView.AeDashboardProductCatalog
+            {
+                DocumentGUID = Guid.NewGuid(),
+                ProductName = "Test",
+                RowCount = 1,
+                SocTotal = 17,
+                SortSignificantElevatedCount = 1,
+                SortProductName = "Test",
+                RefreshedAt = DateTime.UtcNow
+            });
             await db.SaveChangesAsync();
 
             Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
             Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventCoverageTable>().Count());
             Assert.AreEqual(1, db.Set<LabelView.FlattenedAdverseEventRiskTable>().Count());
+            Assert.AreEqual(1, db.Set<LabelView.AeDashboardProductCatalog>().Count());
 
             await service.TruncateAsync();
 
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventTable>().Count());
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventCoverageTable>().Count());
             Assert.AreEqual(0, db.Set<LabelView.FlattenedAdverseEventRiskTable>().Count());
+            Assert.AreEqual(0, db.Set<LabelView.AeDashboardProductCatalog>().Count());
 
             #endregion
         }
@@ -1154,6 +1166,29 @@ namespace MedRecPro.Service.Test
             var doseProperty = entityType.FindProperty(nameof(LabelView.FlattenedAdverseEventRiskTable.Dose));
             Assert.IsNotNull(doseProperty);
             Assert.AreEqual("decimal(18, 6)", doseProperty!.FindAnnotation("Relational:ColumnType")?.Value);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the AE dashboard product catalog maps as a keyed Stage 5 table.
+        /// </summary>
+        [TestMethod]
+        public void ApplicationDbContext_MapsAeDashboardProductCatalogAsKeyedTable()
+        {
+            #region implementation
+
+            var (_, db) = createService();
+
+            var entityType = db.Model.FindEntityType(typeof(LabelView.AeDashboardProductCatalog));
+            Assert.IsNotNull(entityType);
+            Assert.AreEqual("tmp_AeDashboardProductCatalog", entityType!.GetTableName());
+            Assert.IsNotNull(entityType.FindPrimaryKey());
+
+            var keyProperty = entityType.FindProperty(nameof(LabelView.AeDashboardProductCatalog.Id));
+            Assert.IsNotNull(keyProperty);
+            Assert.AreEqual("AeDashboardProductCatalogID", keyProperty!.GetColumnName());
 
             #endregion
         }

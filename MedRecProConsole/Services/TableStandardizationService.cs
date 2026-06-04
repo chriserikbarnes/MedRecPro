@@ -45,6 +45,17 @@ namespace MedRecProConsole.Services
     /// <seealso cref="BatchValidationReport"/>
     public class TableStandardizationService
     {
+        /**************************************************************/
+        /// <summary>
+        /// SQL command timeout used for long-running table-standardization materialization steps.
+        /// </summary>
+        /// <remarks>
+        /// Stage 5 refreshes several durable analytical tables with set-based INSERT/SELECT
+        /// statements. Those operations are expected to outlive SqlClient's 30-second
+        /// default on full-corpus runs.
+        /// </remarks>
+        private const int BulkSqlCommandTimeoutSeconds = 600;
+
         #region private types
 
         /**************************************************************/
@@ -105,7 +116,7 @@ namespace MedRecProConsole.Services
 
                 // Truncate the Stage 5 output tables too — when the Stage 3 source
                 // is wiped, AE denormalization coverage, RR-ready stats, and risk
-                // materialization are stale by definition. Resolved from DI so the
+                // materialization/catalog rows are stale by definition. Resolved from DI so the
                 // InMemory-provider fallback inside
                 // AdverseEventDenormalizationService.TruncateAsync remains usable.
                 var aeDenormalizer = scope.ServiceProvider
@@ -127,7 +138,7 @@ namespace MedRecProConsole.Services
                 {
                     AnsiConsole.MarkupLine(
                         aeDenormalizer != null
-                            ? "[green]tmp_FlattenedStandardizedTable, tmp_FlattenedAdverseEventCoverageTable, tmp_FlattenedAdverseEventTable, and tmp_FlattenedAdverseEventRiskTable truncated successfully.[/]"
+                            ? "[green]tmp_FlattenedStandardizedTable, tmp_FlattenedAdverseEventCoverageTable, tmp_FlattenedAdverseEventTable, tmp_FlattenedAdverseEventRiskTable, and tmp_AeDashboardProductCatalog truncated successfully.[/]"
                             : "[green]tmp_FlattenedStandardizedTable truncated successfully.[/]");
                 }
 
@@ -576,7 +587,7 @@ namespace MedRecProConsole.Services
                         statusTask.Value = 100;
 
                         // Stage 5 (Phase 2): denormalize AE rows and refresh the
-                        // materialized risk table. ExecuteParseWithStagesAsync
+                        // materialized risk table and product catalog. ExecuteParseWithStagesAsync
                         // drives its own batch loop via ProcessBatchWithStagesAsync, so the
                         // orchestrator's ProcessAll* Stage 5 hooks never fire here. Resolve
                         // the AE denormalizer from DI directly and invoke it after the parse
@@ -591,7 +602,7 @@ namespace MedRecProConsole.Services
                                 batchSize: 5000, progress: null, ct: ctx.Cts.Token);
                             aeTask.IsIndeterminate = false;
                             aeTask.Value = 100;
-                            aeTask.Description = $"Stage 5: {aeRows:N0} AE rows denormalized and risk table refreshed";
+                            aeTask.Description = $"Stage 5: {aeRows:N0} AE rows denormalized; risk table and product catalog refreshed";
                         }
                     });
 
@@ -934,7 +945,10 @@ namespace MedRecProConsole.Services
             // Add DbContext
             services.AddDbContext<ApplicationDbContext>(options =>
             {
-                options.UseSqlServer(connectionString);
+                options.UseSqlServer(connectionString, sqlOptions =>
+                {
+                    sqlOptions.CommandTimeout(BulkSqlCommandTimeoutSeconds);
+                });
                 options.EnableSensitiveDataLogging(false);
 
                 if (!verbose)
