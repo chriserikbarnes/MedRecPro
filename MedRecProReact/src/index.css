@@ -934,9 +934,9 @@ a { color: var(--color-primary); text-decoration: none; }
 }
 .picker-item {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px 8px 14px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
   cursor: pointer;
   border-left: 2px solid transparent;
   transition: background .08s;
@@ -953,8 +953,10 @@ a { color: var(--color-primary); text-decoration: none; }
   border-left-color: var(--color-primary);
 }
 .picker-item .pi-info {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  display: grid;
+  gap: 3px;
 }
 .picker-item .pi-name {
   font-size: 14px;
@@ -963,11 +965,19 @@ a { color: var(--color-primary); text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.picker-item .pi-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .picker-item .pi-current {
+  flex-shrink: 0;
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: var(--weight-medium);
@@ -979,9 +989,11 @@ a { color: var(--color-primary); text-decoration: none; }
   color: #fff;
 }
 .picker-item .pi-sub {
+  display: block;
+  max-width: 100%;
   font-size: 12px;
   color: var(--color-text-tertiary);
-  margin-top: 2px;
+  margin-top: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -990,7 +1002,8 @@ a { color: var(--color-primary); text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  align-self: center;
 }
 .picker-item .pi-score {
   font-family: var(--font-mono);
@@ -999,6 +1012,7 @@ a { color: var(--color-primary); text-decoration: none; }
   background: var(--color-brown-light);
   padding: 2px 7px;
   border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
 .picker-item .pi-star {
   display: inline-flex;
@@ -1014,7 +1028,7 @@ a { color: var(--color-primary); text-decoration: none; }
   transition: color .12s, background .12s;
 }
 .picker-item .pi-star:hover { background: var(--color-brown-light); color: var(--color-secondary); }
-.picker-item .pi-star.on { color: var(--color-amber); }
+.picker-item .pi-star.is-on { color: var(--color-amber); }
 .picker-mark {
   background: var(--color-cream);
   color: var(--color-secondary);
@@ -1024,32 +1038,25 @@ a { color: var(--color-primary); text-decoration: none; }
 }
 .picker-foot {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 8px 14px;
   padding: 8px 14px;
   border-top: 1px solid var(--color-border-x-light);
   background: var(--color-surface);
   font-size: 11px;
   color: var(--color-text-tertiary);
+  line-height: 1.5;
 }
 .picker-foot kbd {
-    display: inline-block;
-    padding-top: 1px;
-    padding-right: 5px;
-    padding-bottom: 1px;
-    padding-left: 5px;
-    margin-right: 4px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    border: 1px solid var(--color-border-light);
-    border-radius: 3px;
-    background: #fff;
-    color: var(--color-text-secondary);
-    }
-/* The asterisk glyph renders optically high in its keycap; nudge just the glyph
-   (not the box, so it stays aligned with the other keys) down to center it. */
-.picker-foot .keycap-star {
-    position: relative;
-    top: 2px;
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--color-text-secondary);
 }
 
 @media (max-width: 720px) {
@@ -1057,7 +1064,7 @@ a { color: var(--color-primary); text-decoration: none; }
   .picker-item .pi-score { display: none; }
 }
 
-/* CompactDrugPicker — inline button trigger (Interchange) */
+/* CompactDrugPicker - inline button trigger (Interchange) */
 .dp-compact-wrap {
   position: relative;
   width: 100%;
@@ -1067,7 +1074,8 @@ a { color: var(--color-primary); text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  min-height: 58px;
+  padding: 9px 12px;
   background: #fff;
   border: 1px solid var(--color-border-light);
   border-left: 3px solid var(--color-border);
@@ -1079,6 +1087,8 @@ a { color: var(--color-primary); text-decoration: none; }
   min-width: 0;
 }
 .dp-compact:hover { background: var(--color-surface); }
+.dp-compact.a { border-left-color: var(--color-primary); }
+.dp-compact.b { border-left-color: var(--color-teal-deep); }
 .dp-compact.is-open {
   background: var(--color-surface);
   box-shadow: 0 0 0 3px var(--color-orange-light);
@@ -1086,8 +1096,12 @@ a { color: var(--color-primary); text-decoration: none; }
 .dp-compact-text {
   flex: 1;
   min-width: 0;
+  display: grid;
+  gap: 3px;
 }
 .dp-compact-name {
+  display: block;
+  max-width: 100%;
   font-size: 15px;
   font-weight: var(--weight-semibold);
   color: var(--color-secondary);
@@ -1097,9 +1111,11 @@ a { color: var(--color-primary); text-decoration: none; }
   text-overflow: ellipsis;
 }
 .dp-compact-sub {
+  display: block;
+  max-width: 100%;
   font-size: 12px;
   color: var(--color-text-tertiary);
-  margin-top: 2px;
+  margin-top: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1112,7 +1128,7 @@ a { color: var(--color-primary); text-decoration: none; }
   color: var(--color-text-secondary);
 }
 
-/* Right-aligned panel — used by the "to — drug B" picker so it doesn't
+/* Right-aligned panel - used by the "to - drug B" picker so it doesn't
    overflow past the right edge of the panel on narrow viewports. */
 .picker.picker-align-right { left: auto; right: 0; }
 .picker.picker-narrow { width: min(420px, 92vw); }
@@ -1125,6 +1141,7 @@ a { color: var(--color-primary); text-decoration: none; }
 .picker-item.is-disabled:hover { background: transparent; }
 .picker-item.is-disabled .pi-star { pointer-events: none; }
 .pi-disabled-tag {
+  flex-shrink: 0;
   background: var(--color-text-tertiary) !important;
 }
 
@@ -1748,10 +1765,6 @@ a { color: var(--color-primary); text-decoration: none; }
   height: 18px;
   flex-shrink: 0;
 }
-.keycap-glyph {
-  font-family: var(--font-mono);
-}
-
 /* ============================================================
    API-driven states (no prototype equivalent) — warm tokens
    ============================================================ */

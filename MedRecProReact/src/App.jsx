@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from './api/apiError';
 import { AdverseEventClient } from './api/adverseEventClient';
 import { PageHeader } from './components/PageHeader';
-import { ProductPicker } from './components/ProductPicker';
+import { CompactProductPicker, ProductPicker } from './components/ProductPicker';
 import { DisabledFeature } from './components/common/DisabledFeature';
 import { EmptyState } from './components/common/EmptyState';
 import { InlineError } from './components/common/InlineError';
@@ -1299,40 +1299,49 @@ function ReverseLookupPanel({
 function ProductInterchangeSelect({
   label,
   tone,
-  value,
+  align = 'left',
+  selectedProduct,
   products,
+  favoriteProducts,
+  recentProducts,
+  totalProductCount,
   disabledDocumentGuid,
-  onChange,
+  searchTerm,
+  onSearchTermChange,
+  onSelect,
+  onToggleFavorite,
+  favoriteBusyGuids,
+  favoriteNotice,
+  isLoading,
+  error,
+  onRetry,
 }) {
   return (
     <div className="ic-picker">
-      <label className={`ic-picker-label ${tone}`}>
+      <div className={`ic-picker-label ${tone}`}>
         <span className="lbl-dot" aria-hidden="true" />
         {label}
-      </label>
-      <select
-        className={`ic-select ${tone}`}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        aria-label={label}
-      >
-        <option value="">Select product</option>
-        {products.map((product) => {
-          const isDisabled =
-            disabledDocumentGuid
-            && product.documentGuid.toLowerCase() === disabledDocumentGuid.toLowerCase();
-
-          return (
-            <option
-              key={`${label}-${product.documentGuid}`}
-              value={product.documentGuid}
-              disabled={isDisabled}
-            >
-              {product.name}
-            </option>
-          );
-        })}
-      </select>
+      </div>
+      <CompactProductPicker
+        idPrefix={`interchange-${tone}`}
+        tone={tone}
+        align={align}
+        products={products}
+        favoriteProducts={favoriteProducts}
+        recentProducts={recentProducts}
+        totalProductCount={totalProductCount}
+        selectedProduct={selectedProduct}
+        disabledDocumentGuid={disabledDocumentGuid}
+        searchTerm={searchTerm}
+        onSearchTermChange={onSearchTermChange}
+        onSelectProduct={onSelect}
+        onToggleFavorite={onToggleFavorite}
+        favoriteBusyGuids={favoriteBusyGuids}
+        favoriteNotice={favoriteNotice}
+        isLoading={isLoading}
+        error={error}
+        onRetry={onRetry}
+      />
     </div>
   );
 }
@@ -1430,6 +1439,17 @@ function InterchangePanel({
   productA,
   productB,
   products,
+  favoriteProducts,
+  recentProducts,
+  totalProductCount,
+  productSearch,
+  onProductSearchChange,
+  onToggleFavorite,
+  favoriteBusyGuids,
+  favoriteNotice,
+  isProductLoading,
+  productError,
+  onRetryProducts,
   differencesOnly,
   comparison,
   isLoading,
@@ -1469,19 +1489,42 @@ function InterchangePanel({
         <ProductInterchangeSelect
           label="Product A"
           tone="a"
-          value={productA?.documentGuid ?? ''}
+          selectedProduct={productA}
           products={products}
+          favoriteProducts={favoriteProducts}
+          recentProducts={recentProducts}
+          totalProductCount={totalProductCount}
           disabledDocumentGuid={productB?.documentGuid}
-          onChange={onChangeProductA}
+          searchTerm={productSearch}
+          onSearchTermChange={onProductSearchChange}
+          onSelect={onChangeProductA}
+          onToggleFavorite={onToggleFavorite}
+          favoriteBusyGuids={favoriteBusyGuids}
+          favoriteNotice={favoriteNotice}
+          isLoading={isProductLoading}
+          error={productError}
+          onRetry={onRetryProducts}
         />
         <div className="ic-arrow" aria-hidden="true">→</div>
         <ProductInterchangeSelect
           label="Product B"
           tone="b"
-          value={productB?.documentGuid ?? ''}
+          align="right"
+          selectedProduct={productB}
           products={products}
+          favoriteProducts={favoriteProducts}
+          recentProducts={recentProducts}
+          totalProductCount={totalProductCount}
           disabledDocumentGuid={productA?.documentGuid}
-          onChange={onChangeProductB}
+          searchTerm={productSearch}
+          onSearchTermChange={onProductSearchChange}
+          onSelect={onChangeProductB}
+          onToggleFavorite={onToggleFavorite}
+          favoriteBusyGuids={favoriteBusyGuids}
+          favoriteNotice={favoriteNotice}
+          isLoading={isProductLoading}
+          error={productError}
+          onRetry={onRetryProducts}
         />
       </div>
 
@@ -1599,6 +1642,17 @@ function CrossProductTools(props) {
         productA={props.productA}
         productB={props.productB}
         products={props.interchangeProducts}
+        favoriteProducts={props.favoriteProducts}
+        recentProducts={props.recentProducts}
+        totalProductCount={props.totalProductCount}
+        productSearch={props.productSearch}
+        onProductSearchChange={props.onProductSearchChange}
+        onToggleFavorite={props.onToggleFavorite}
+        favoriteBusyGuids={props.favoriteBusyGuids}
+        favoriteNotice={props.favoriteNotice}
+        isProductLoading={props.isProductLoading}
+        productError={props.productError}
+        onRetryProducts={props.onRetryProducts}
         differencesOnly={props.differencesOnly}
         comparison={props.interchangeComparison}
         isLoading={props.isInterchangeLoading}
@@ -2558,15 +2612,17 @@ function App() {
   /**
    * Changes product A by selecting it as the dashboard product.
    *
-   * @param {string} documentGuid - Product document GUID.
+   * @param {object | string} selectedProductOrGuid - Product row or document GUID.
    */
   const handleChangeInterchangeProductA = useCallback(
-    (documentGuid) => {
-      const nextProduct = interchangeProducts.find(
-        (product) => product.documentGuid.toLowerCase() === documentGuid.toLowerCase(),
-      );
+    (selectedProductOrGuid) => {
+      const nextProduct = typeof selectedProductOrGuid === 'string'
+        ? interchangeProducts.find(
+            (product) => product.documentGuid.toLowerCase() === selectedProductOrGuid.toLowerCase(),
+          )
+        : selectedProductOrGuid;
 
-      if (nextProduct) {
+      if (nextProduct?.documentGuid) {
         handleSelectProduct(nextProduct);
       }
     },
@@ -2577,15 +2633,17 @@ function App() {
   /**
    * Changes product B while blocking same-product comparisons.
    *
-   * @param {string} documentGuid - Product document GUID.
+   * @param {object | string} selectedProductOrGuid - Product row or document GUID.
    */
   const handleChangeInterchangeProductB = useCallback(
-    (documentGuid) => {
-      const nextProduct = interchangeProducts.find(
-        (product) => product.documentGuid.toLowerCase() === documentGuid.toLowerCase(),
-      );
+    (selectedProductOrGuid) => {
+      const nextProduct = typeof selectedProductOrGuid === 'string'
+        ? interchangeProducts.find(
+            (product) => product.documentGuid.toLowerCase() === selectedProductOrGuid.toLowerCase(),
+          )
+        : selectedProductOrGuid;
 
-      if (!nextProduct) {
+      if (!nextProduct?.documentGuid) {
         setInterchangeProductB(null);
         return;
       }
@@ -2806,6 +2864,17 @@ function App() {
           productA={interchangeProductA}
           productB={effectiveInterchangeProductB}
           interchangeProducts={interchangeProducts}
+          favoriteProducts={visibleFavoriteProducts}
+          recentProducts={visibleRecentProducts}
+          totalProductCount={totalProductCount}
+          productSearch={productSearch}
+          onProductSearchChange={setProductSearch}
+          onToggleFavorite={handleToggleFavorite}
+          favoriteBusyGuids={busyDocumentGuids}
+          favoriteNotice={favoriteNotice}
+          isProductLoading={isProductLoading}
+          productError={productError}
+          onRetryProducts={refreshProducts}
           differencesOnly={differencesOnly}
           interchangeComparison={interchangeComparison}
           isInterchangeLoading={isInterchangeLoading}

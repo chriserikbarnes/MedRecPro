@@ -92,7 +92,7 @@ function buildPickerSections({ favoriteProducts, recentProducts, products, searc
     }
   } else {
     const matchCount = products.length;
-    const matchLabel = `Results · ${formatInteger(matchCount)} match${matchCount === 1 ? '' : 'es'}`;
+    const matchLabel = `Results - ${formatInteger(matchCount)} match${matchCount === 1 ? '' : 'es'}`;
     addSection('results', matchLabel, products);
   }
 
@@ -100,7 +100,7 @@ function buildPickerSections({ favoriteProducts, recentProducts, products, searc
   for (const section of sections) {
     // Only the recents section gets dynamic label text.
     if (section.id === 'recents') {
-      section.label = `Recent · last ${section.rows.length}`;
+      section.label = `Recent - last ${section.rows.length}`;
     }
   }
 
@@ -153,8 +153,10 @@ function FavoriteIcon({ active = false }) {
  */
 function ProductPickerRow({
   product,
+  optionId,
   isActive,
   isSelected,
+  isDisabled = false,
   onSelect,
   onToggleFavorite,
   isFavoriteBusy,
@@ -164,23 +166,29 @@ function ProductPickerRow({
 
   return (
     <div
-      id={`product-option-${product.documentGuid}`}
-      className={`picker-item${isActive ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}`}
+      id={optionId}
+      className={`picker-item${isActive ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}${isDisabled ? ' is-disabled' : ''}`}
       role="option"
       aria-selected={isSelected}
+      aria-disabled={isDisabled}
       onMouseDown={(event) => {
         // Prevent input blur before selection commits.
         event.preventDefault();
       }}
-      onClick={() => onSelect(product)}
+      onClick={() => {
+        if (!isDisabled) {
+          onSelect(product);
+        }
+      }}
     >
       <div className="pi-info">
         <div className="pi-name">
           <span className="pi-name-text">{product.name}</span>
           {isSelected ? <span className="pi-current">current</span> : null}
+          {isDisabled && !isSelected ? <span className="ae-tag pi-disabled-tag">in use</span> : null}
         </div>
         <span className="pi-sub">
-          {product.generic} · {product.pharmClass}
+          {product.generic} - {product.pharmClass}
         </span>
       </div>
       <div className="pi-right">
@@ -190,7 +198,7 @@ function ProductPickerRow({
           className={`pi-star${product.isFavorite ? ' is-on' : ''}`}
           aria-pressed={product.isFavorite}
           aria-label={`${favoriteLabel} ${product.name}`}
-          disabled={isFavoriteBusy}
+          disabled={isFavoriteBusy || isDisabled}
           title={favoriteLabel}
           onMouseDown={(event) => {
             // Keep the picker input focused while the button handles the click.
@@ -232,7 +240,7 @@ function buildTriggerMetaItems(selectedProduct) {
     // Each ingredient is paired with its standardized EPC class on its own line.
     const ingredientLines = ingredients.map((ingredient) =>
       ingredient.pharmClass
-        ? `${ingredient.substance} · ${ingredient.pharmClass}`
+        ? `${ingredient.substance} - ${ingredient.pharmClass}`
         : ingredient.substance,
     );
 
@@ -241,6 +249,312 @@ function buildTriggerMetaItems(selectedProduct) {
 
   // Fallback to the legacy single-line metadata when no ingredient list exists.
   return [selectedProduct.generic, selectedProduct.pharmClass, selectedProduct.moiety].filter(Boolean);
+}
+
+/**************************************************************/
+/**
+ * Compact product picker for inline two-product tools.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Compact picker UI.
+ */
+export function CompactProductPicker({
+  idPrefix,
+  tone = '',
+  align = 'left',
+  products,
+  favoriteProducts = [],
+  recentProducts = [],
+  totalProductCount = 0,
+  selectedProduct,
+  disabledDocumentGuid = '',
+  searchTerm,
+  onSearchTermChange,
+  onSelectProduct,
+  onToggleFavorite,
+  favoriteBusyGuids = new Set(),
+  favoriteNotice = '',
+  isLoading,
+  error,
+  onRetry,
+}) {
+  // Compact pickers use the same floating product menu as the page header.
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Active option index tracks keyboard navigation over the flattened rows.
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Root ref supports outside-click closure.
+  const pickerRef = useRef(null);
+
+  // Input ref lets the compact trigger move focus into the floating panel.
+  const inputRef = useRef(null);
+
+  // Sections match the main product picker: favorites, recents, browse, or results.
+  const sections = useMemo(
+    () => buildPickerSections({ favoriteProducts, recentProducts, products, searchTerm }),
+    [favoriteProducts, recentProducts, products, searchTerm],
+  );
+
+  // Flattened rows let keyboard handling ignore visual section boundaries.
+  const flattenedRows = useMemo(
+    () => sections.flatMap((section) => section.rows),
+    [sections],
+  );
+
+  // The bounded active index prevents stale indexes after result-set changes.
+  const boundedActiveIndex = flattenedRows.length === 0
+    ? 0
+    : Math.min(activeIndex, flattenedRows.length - 1);
+
+  // Prefix IDs so two compact pickers can be open without duplicate active descendants.
+  const optionIdPrefix = idPrefix || `compact-product-${tone || 'picker'}`;
+  const activeDescendant = flattenedRows[boundedActiveIndex]
+    ? `${optionIdPrefix}-option-${flattenedRows[boundedActiveIndex].documentGuid}`
+    : undefined;
+  const selectedMeta = buildTriggerMetaItems(selectedProduct);
+  const triggerTitle = selectedProduct?.name ?? 'Select product';
+  const triggerSub = selectedProduct ? selectedMeta[0] : selectedMeta[0];
+  const disabledLookupKey = disabledDocumentGuid?.toLowerCase() ?? '';
+  const pickerAlignmentClass = align === 'right' ? ' picker-align-right' : '';
+
+  useEffect(() => {
+    /**************************************************************/
+    /**
+     * Closes the picker when the user clicks outside it.
+     *
+     * @param {MouseEvent} event - Browser mouse event.
+     */
+    function handleDocumentMouseDown(event) {
+      // The ref may be null during unmount.
+      if (!pickerRef.current) {
+        return;
+      }
+
+      // Clicks inside the picker should keep the panel open.
+      if (pickerRef.current.contains(event.target)) {
+        return;
+      }
+
+      setIsOpen(false);
+    }
+
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+
+    // Cleanup avoids leaking global listeners.
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Opening the floating panel should place keyboard users in the search box.
+    if (isOpen) {
+      inputRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  /**************************************************************/
+  /**
+   * Selects a row from mouse or keyboard input.
+   *
+   * @param {object} product - Product row to select.
+   */
+  function commitSelection(product) {
+    // Same-product rows are visible for context but cannot be selected.
+    if (!product?.documentGuid || product.documentGuid.toLowerCase() === disabledLookupKey) {
+      return;
+    }
+
+    onSelectProduct(product);
+    setIsOpen(false);
+  }
+
+  /**************************************************************/
+  /**
+   * Handles compact combobox keyboard behavior.
+   *
+   * @param {React.KeyboardEvent<HTMLInputElement>} event - Keyboard event.
+   */
+  function handleInputKeyDown(event) {
+    // ArrowDown opens the panel and moves to the next row.
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setIsOpen(true);
+      setActiveIndex((currentIndex) =>
+        flattenedRows.length === 0 ? 0 : Math.min(currentIndex + 1, flattenedRows.length - 1),
+      );
+      return;
+    }
+
+    // ArrowUp keeps the active index within bounds.
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setIsOpen(true);
+      setActiveIndex((currentIndex) => Math.max(currentIndex - 1, 0));
+      return;
+    }
+
+    // Enter commits the active row when the panel is open.
+    if (event.key === 'Enter' && isOpen && flattenedRows[boundedActiveIndex]) {
+      event.preventDefault();
+      commitSelection(flattenedRows[boundedActiveIndex]);
+      return;
+    }
+
+    // Asterisk toggles the active row's favorite.
+    if (event.key === '*') {
+      event.preventDefault();
+
+      const activeRow = flattenedRows[boundedActiveIndex];
+      if (activeRow && activeRow.documentGuid.toLowerCase() !== disabledLookupKey) {
+        onToggleFavorite(activeRow);
+      }
+
+      return;
+    }
+
+    // Escape closes the panel without changing selection.
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setIsOpen(false);
+    }
+  }
+
+  return (
+    <div className="dp-compact-wrap" ref={pickerRef}>
+      <button
+        type="button"
+        className={`dp-compact ${tone}${isOpen ? ' is-open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => {
+          // The compact trigger opens the same product-picker menu.
+          setIsOpen((currentValue) => !currentValue);
+        }}
+      >
+        <span className="dp-compact-text">
+          <span className="dp-compact-name">{triggerTitle}</span>
+          <span className="dp-compact-sub">{triggerSub}</span>
+        </span>
+        <svg
+          aria-hidden="true"
+          className="dp-compact-chev"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2.2"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {isOpen ? (
+        <div className={`picker picker-narrow${pickerAlignmentClass}`} role="presentation">
+          <div className="picker-search">
+            <svg
+              aria-hidden="true"
+              className="picker-search-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              id={`${optionIdPrefix}-search`}
+              ref={inputRef}
+              className="picker-input"
+              type="text"
+              value={searchTerm}
+              placeholder="Search by brand, generic, or class..."
+              role="combobox"
+              aria-controls={`${optionIdPrefix}-listbox`}
+              aria-expanded={isOpen}
+              aria-activedescendant={activeDescendant}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => {
+                // Search text is controlled by the dashboard root hook.
+                onSearchTermChange(event.target.value);
+                setIsOpen(true);
+              }}
+              onKeyDown={handleInputKeyDown}
+            />
+            <span className="picker-count">{formatInteger(totalProductCount)} products</span>
+          </div>
+
+          <div className="picker-body" id={`${optionIdPrefix}-listbox`} role="listbox">
+            {isLoading ? <Loading label="Loading products" /> : null}
+            {error ? <InlineError error={error} onRetry={onRetry} /> : null}
+            {!isLoading && !error && flattenedRows.length === 0 ? (
+              <EmptyState
+                title={searchTerm.trim() ? 'No products match this search.' : 'No dashboard-ready products found.'}
+              />
+            ) : null}
+            {!isLoading && !error
+              ? sections.map((section) => (
+                  <div className="picker-section" key={section.id}>
+                    <div className="picker-section-label">{section.label}</div>
+                    {section.rows.map((product) => {
+                      // Flattened index controls active styling across sections.
+                      const rowIndex = flattenedRows.findIndex(
+                        (row) => row.documentGuid === product.documentGuid,
+                      );
+
+                      // Selection is based on DocumentGUID only.
+                      const isSelected =
+                        selectedProduct?.documentGuid?.toLowerCase() === product.documentGuid.toLowerCase();
+                      const isDisabled =
+                        Boolean(disabledLookupKey)
+                        && !isSelected
+                        && product.documentGuid.toLowerCase() === disabledLookupKey;
+
+                      // Favorite busy lookup may be case-sensitive depending on the hook source.
+                      const isFavoriteBusy = favoriteBusyGuids.has(product.documentGuid)
+                        || favoriteBusyGuids.has(product.documentGuid.toLowerCase());
+
+                      return (
+                        <ProductPickerRow
+                          key={`${section.id}-${product.documentGuid}`}
+                          product={product}
+                          optionId={`${optionIdPrefix}-option-${product.documentGuid}`}
+                          isActive={rowIndex === boundedActiveIndex}
+                          isSelected={isSelected}
+                          isDisabled={isDisabled}
+                          isFavoriteBusy={isFavoriteBusy}
+                          onSelect={commitSelection}
+                          onToggleFavorite={onToggleFavorite}
+                        />
+                      );
+                    })}
+                  </div>
+                ))
+              : null}
+          </div>
+
+          <div className="picker-foot">
+            {favoriteNotice ? (
+              <span>{favoriteNotice}</span>
+            ) : (
+              <>
+                <span><kbd>up</kbd><kbd>down</kbd> move</span>
+                <span><kbd>enter</kbd> select</span>
+                <span><kbd>*</kbd> favorite</span>
+                <span><kbd>esc</kbd> close</span>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /**************************************************************/
@@ -297,7 +611,7 @@ export function ProductPicker({
 
   // The active descendant ID is exposed to assistive technology.
   const activeDescendant = flattenedRows[boundedActiveIndex]
-    ? `product-option-${flattenedRows[boundedActiveIndex].documentGuid}`
+    ? `dashboard-product-option-${flattenedRows[boundedActiveIndex].documentGuid}`
     : undefined;
 
   // The title trigger mirrors the original prototype when no product is selected.
@@ -465,7 +779,7 @@ export function ProductPicker({
               className="picker-input"
               type="text"
               value={searchTerm}
-              placeholder="Search by brand, generic, or class…"
+              placeholder="Search by brand, generic, or class..."
               role="combobox"
               aria-controls="product-picker-listbox"
               aria-expanded={isOpen}
@@ -512,6 +826,7 @@ export function ProductPicker({
                         <ProductPickerRow
                           key={`${section.id}-${product.documentGuid}`}
                           product={product}
+                          optionId={`dashboard-product-option-${product.documentGuid}`}
                           isActive={rowIndex === boundedActiveIndex}
                           isSelected={isSelected}
                           isFavoriteBusy={isFavoriteBusy}
@@ -530,13 +845,9 @@ export function ProductPicker({
               <span>{favoriteNotice}</span>
             ) : (
               <>
-                <span>
-                  <kbd className="keycap-arrow"><span className="keycap-glyph">↑</span></kbd>
-                  <kbd className="keycap-arrow"><span className="keycap-glyph">↓</span></kbd>
-                  move
-                </span>
-                <span><kbd>⏎</kbd> select</span>
-                <span><kbd><span className="keycap-star">*</span></kbd> favorite</span>
+                <span><kbd>up</kbd><kbd>down</kbd> move</span>
+                <span><kbd>enter</kbd> select</span>
+                <span><kbd>*</kbd> favorite</span>
                 <span><kbd>esc</kbd> close</span>
               </>
             )}

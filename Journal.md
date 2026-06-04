@@ -4863,3 +4863,25 @@ Updated the AE dashboard cross-product tools so reverse lookup can submit multip
 **Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 15 tests. `npm.cmd run build` passed. `git diff --check` passed with line-ending normalization warnings only. A live API smoke for WEGOVY/ZEPBOUND `Abdominal Pain` confirmed the raw 4-row response now normalizes to 2 de-duplicated visible rows, and a multi-term merge de-dupes submitted term casing. Standalone Vite starts in the foreground, but the hidden detached dev-server launch did not stay available for a browser visual smoke in this environment.
 
 ---
+
+### 2026-06-04 3:07 PM EST — AE Dashboard Interchange Product Pickers
+Replaced the therapeutic interchange native product lists with the dashboard product-picker menu experience.
+
+**Picker reuse.** Added a reusable compact product picker in [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx) that shares the main picker's sectioned favorites, recents, browse/results rows, search box, favorite star handling, keyboard navigation, and empty/loading/error states. The shared row renderer now supports unique option IDs and a disabled same-product state so both interchange menus can be open safely.
+
+**Interchange wiring.** Updated [App.jsx](MedRecProReact/src/App.jsx) so Product A and Product B use the compact picker, with Product B right-aligned to stay inside the panel. The interchange pickers now receive the live product catalog, favorites, recents, product search state, favorite busy state, and retry handlers already used by the main picker. Added orange/teal compact-trigger accents in [index.css](MedRecProReact/src/index.css) and rebuilt [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css) plus [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js).
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 15 tests. `npm.cmd run build` passed. `git diff --check` passed with line-ending normalization warnings only. Browser verification against `localhost:5093/adverse-events` was attempted, but the in-app browser reported the local target could not be loaded.
+
+---
+
+### 2026-06-04 3:17 PM EST — AE Dashboard Product Picker Layout Cleanup
+Revised the therapeutic interchange compact product picker after visual review found crowded rows, trigger text running together, and encoded footer shortcut glyphs.
+
+**Picker layout.** Updated [ProductPicker.jsx](MedRecProReact/src/components/ProductPicker.jsx) so picker section labels, row subtitles, placeholders, and shortcut hints use ASCII-safe text. Both compact and main picker footers now show `up`, `down`, `enter`, `*`, and `esc` key labels instead of glyphs that could render as mojibake.
+
+**Visual spacing.** Tightened [index.css](MedRecProReact/src/index.css) so compact triggers stack product name and metadata in separate ellipsis lanes, picker rows reserve fixed space for score and favorite controls, disabled "in use" pills cannot crush names, footer key hints wrap cleanly, and active favorite stars use the correct `.is-on` selector. Rebuilt [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css) and [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js).
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 15 tests. `npm.cmd run build` passed. `git diff --check` passed with line-ending normalization warnings only. A source and built-bundle scan found no remaining `Â`, `Ã`, `â`, arrow, enter-glyph, or keycap class patterns in the picker footer path. Browser visual verification against `http://localhost:5093/adverse-events` was attempted, but the in-app browser reported `ERR_HTTP_RESPONSE_CODE_FAILURE` for the local target.
+
+---
