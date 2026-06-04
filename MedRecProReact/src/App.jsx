@@ -10,14 +10,18 @@ import { EmptyState } from './components/common/EmptyState';
 import { InlineError } from './components/common/InlineError';
 import { Loading } from './components/common/Loading';
 import { useFavorites } from './hooks/useFavorites';
+import { useMediaQuery } from './hooks/useMediaQuery';
 import { useProducts } from './hooks/useProducts';
 import { useRecents } from './hooks/useRecents';
 import {
+  COMPACT_FOREST_TICKS,
+  COMPACT_FOREST_TICKS_NARROW,
   DEFAULT_FOREST_TICKS,
   formatForestTick,
   getForestScaleDomain,
   getForestTicks,
   getForestXPercent,
+  MAX_FOREST_TICKS,
 } from './lib/forestScale';
 import { formatDecimal, formatDose, formatInteger } from './lib/formatters';
 import { normalizeForest, normalizeQuadrant, normalizeTriage } from './lib/normalizers';
@@ -634,8 +638,17 @@ function ForestView({ signals }) {
   // The rendered rows determine one shared dynamic log domain.
   const scaleDomain = useMemo(() => getForestScaleDomain(forestSignals), [forestSignals]);
 
+  // Narrow viewports thin the axis labels so they never overlap on phones.
+  const isNarrow = useMediaQuery('(max-width: 420px)');
+  const isCompact = useMediaQuery('(max-width: 620px)');
+  const maxTicks = isNarrow
+    ? COMPACT_FOREST_TICKS_NARROW
+    : isCompact
+      ? COMPACT_FOREST_TICKS
+      : MAX_FOREST_TICKS;
+
   // Tick labels follow the expanded domain instead of trusting server bounds.
-  const scaleTicks = useMemo(() => getForestTicks(scaleDomain), [scaleDomain]);
+  const scaleTicks = useMemo(() => getForestTicks(scaleDomain, maxTicks), [scaleDomain, maxTicks]);
 
   // Empty signal payloads render a stable message.
   if (forestSignals.length === 0) {

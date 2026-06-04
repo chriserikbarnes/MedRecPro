@@ -3,7 +3,12 @@ export const DEFAULT_FOREST_TICKS = Object.freeze([0.1, 0.25, 0.5, 1, 2, 4, 10])
 export const FOREST_EDGE_INSET_PERCENT = 2.5;
 
 const FRIENDLY_MANTISSAS = [1, 2, 5];
-const MAX_FOREST_TICKS = 11;
+
+// Tick caps thin the axis labels by viewport so they never overlap on phones.
+export const MAX_FOREST_TICKS = 11;
+export const COMPACT_FOREST_TICKS = 6;
+export const COMPACT_FOREST_TICKS_NARROW = 4;
+
 const FLOAT_TOLERANCE = 1e-12;
 
 /**************************************************************/
@@ -100,11 +105,12 @@ function normalizeDomain(domain) {
  * Reduces expanded-domain ticks so labels remain readable.
  *
  * @param {number[]} ticks - Candidate tick values.
+ * @param {number} [maxTicks] - Maximum labels to retain; defaults to the desktop cap.
  * @returns {number[]} Sparse tick list.
  */
-function sparsifyTicks(ticks) {
+function sparsifyTicks(ticks, maxTicks = MAX_FOREST_TICKS) {
   // Prototype/default domains are already compact enough.
-  if (ticks.length <= MAX_FOREST_TICKS) {
+  if (ticks.length <= maxTicks) {
     return ticks;
   }
 
@@ -112,7 +118,7 @@ function sparsifyTicks(ticks) {
   let selectedTicks = ticks;
 
   // Keep the domain endpoints and RR=1 while thinning intermediate labels.
-  while (selectedTicks.length > MAX_FOREST_TICKS) {
+  while (selectedTicks.length > maxTicks) {
     selectedTicks = ticks.filter((tick, index) => (
       index === 0
       || index === ticks.length - 1
@@ -171,9 +177,10 @@ export function getForestScaleDomain(signals) {
  * Gets readable log-axis ticks for a forest-plot domain.
  *
  * @param {{ min?: number, max?: number } | null | undefined} domain - Forest scale domain.
+ * @param {number} [maxTicks] - Maximum labels to retain; lower it on narrow viewports.
  * @returns {number[]} Tick values.
  */
-export function getForestTicks(domain) {
+export function getForestTicks(domain, maxTicks = MAX_FOREST_TICKS) {
   const normalizedDomain = normalizeDomain(domain);
 
   // Preserve the exact prototype tick set when no expansion is needed.
@@ -208,7 +215,7 @@ export function getForestTicks(domain) {
     ticks.push(1);
   }
 
-  return sparsifyTicks(ticks.sort((left, right) => left - right));
+  return sparsifyTicks(ticks.sort((left, right) => left - right), maxTicks);
 }
 
 /**************************************************************/

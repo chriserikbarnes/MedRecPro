@@ -214,6 +214,7 @@ a { color: var(--color-primary); text-decoration: none; }
   text-transform: uppercase;
   letter-spacing: .08em;
   font-weight: var(--weight-medium);
+  white-space: nowrap;
 }
 .kpi-value {
   font-size: 28px;
@@ -241,10 +242,11 @@ a { color: var(--color-primary); text-decoration: none; }
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 6px;
+  padding: 1px 4px;
   border-radius: var(--radius-full);
   font-size: 11px;
   font-weight: var(--weight-semibold);
+  white-space: nowrap;
 }
 .kpi-pip.amber { background: var(--color-amber-light); color: var(--tier-watch-fg); }
 .kpi-pip.teal { background: var(--color-teal-light); color: var(--color-teal-deep); }
@@ -1513,6 +1515,10 @@ a { color: var(--color-primary); text-decoration: none; }
   .kpi-strip { padding: 14px 14px 4px; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .kpi-card { padding: 12px 12px; }
   .kpi-value { font-size: 24px; }
+  /* Tighter tracking keeps the longest title (SIGNIFICANT SIGNALS) on one line in the narrow 2-up card. */
+  .kpi-label { letter-spacing: .02em; }
+  /* Let the two signal pips stack (each still single-line) when they cannot sit side by side. */
+  .kpi-sub { flex-wrap: wrap; row-gap: 4px; }
   .ae-row {
     grid-template-columns: 1fr auto;
     gap: 10px;
@@ -1528,6 +1534,7 @@ a { color: var(--color-primary); text-decoration: none; }
   .forest-axis, .forest-row { grid-template-columns: 110px 1fr; }
   .forest-label { font-size: 11px; }
   .forest-label .sub { display: none; }
+  .forest-tick { font-size: 10px; }
   .quadrant { height: 320px; }
   .q-cell { padding: 8px 10px; }
   .q-cell-name { font-size: 11px; }
@@ -1563,7 +1570,12 @@ a { color: var(--color-primary); text-decoration: none; }
 }
 @media (max-width: 420px) {
   .kpi-strip { grid-template-columns: 1fr 1fr; }
+  /* One notch smaller so every title clears the narrowest phone card with margin. */
+  .kpi-label { font-size: 10px; }
+  /* Slightly smaller pips keep both signal counts side by side on common phones. */
+  .kpi-pip { font-size: 10px; }
   .forest-axis, .forest-row { grid-template-columns: 96px 1fr; }
+  .forest-tick { font-size: 9px; letter-spacing: -0.02em; }
 }
 
 
