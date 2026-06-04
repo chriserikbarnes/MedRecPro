@@ -167,6 +167,24 @@ wwwroot/js/chat/
 - `POST /api/Ai/synthesize` — API results to human-readable responses
 - `GET /api/Ai/chat` — Convenience endpoint for simple queries
 
+## Adverse-Event Dashboard React Island
+
+The `/adverse-events` route is served by `AdverseEventDashboardController` and
+`Views/AdverseEventDashboard/Index.cshtml`. The view is layout-free, renders the
+shared masthead partial, and mounts the committed Vite bundle from
+`wwwroot/ae-dashboard`.
+
+Dashboard source lives in the sibling `MedRecProReact` project. After changing
+the React source, run:
+
+```powershell
+npm.cmd --prefix ..\MedRecProReact run build
+```
+
+The Vite config writes deterministic bundle files directly into
+`MedRecProStatic/wwwroot/ae-dashboard`; commit those built assets together with
+the React source because normal .NET builds do not run the Vite build script.
+
 ## Tarpit Middleware (Rate Limiting)
 
 The tarpit middleware progressively delays responses to abusive clients. It runs after the rest of the pipeline completes, inspecting response status codes.

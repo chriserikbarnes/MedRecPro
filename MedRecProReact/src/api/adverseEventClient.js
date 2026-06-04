@@ -291,4 +291,39 @@ export const AdverseEventClient = {
 
     return requestJson(url, getFetchOptions(signal));
   },
+
+  /**************************************************************/
+  /**
+   * Gets reverse-lookup matches for one exact adverse-event term.
+   *
+   * @param {{ symptom: string, documentGuids?: string[], signal?: AbortSignal }} args - Request options.
+   * @returns {Promise<unknown>} API reverse-lookup payload.
+   */
+  getReverseLookup({ symptom, documentGuids = [], signal = null } = {}) {
+    // documentGuids intentionally serializes as repeated query keys.
+    const url = buildAdverseEventUrl('reverse-lookup', {
+      symptom,
+      documentGuids,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
+   * Gets a therapeutic-interchange comparison for two dashboard products.
+   *
+   * @param {{ documentGuidA: string, documentGuidB: string, differencesOnly?: boolean, signal?: AbortSignal }} args - Request options.
+   * @returns {Promise<unknown>} API interchange payload.
+   */
+  getInterchange({ documentGuidA, documentGuidB, differencesOnly = false, signal = null } = {}) {
+    // The controller rejects missing or identical GUIDs; the UI blocks those first.
+    const url = buildAdverseEventUrl('interchange', {
+      documentGuidA,
+      documentGuidB,
+      differencesOnly,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
 };

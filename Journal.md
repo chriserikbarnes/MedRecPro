@@ -4758,8 +4758,6 @@ Fixed the masthead navigation and breadcrumbs "falling apart" at mobile viewport
 
 **Follow-up (same session) — dead-CSS cleanup in index.css.** Pruned the vestigial `.topbar-inner`, `.brand`, `.brand-sub`, `.topbar-action*`, `.topbar-action-icon`, and `.brand-logo svg` rules — leftovers from the old in-React top bar that no JSX references anymore (grep-confirmed across `src`; the old icon components that used `.topbar-action-icon` were deleted in the consolidation). Also corrected the stale comment above `.navbar .container { max-width: 1240px }`, which still claimed the masthead was React-rendered and "imported in main.jsx"; it now describes the masthead as server-rendered by the partial. No behavior change (the removed rules matched nothing); rebuilt the island bundle (ae-dashboard.css 36.50→36.15 kB). File: `MedRecProReact/src/index.css`.
 
----
-
 ### 2026-06-04 10:21 AM EST — AE Dashboard data response time optimization plan
 Created a saved performance remediation plan for the adverse-event dashboard data loads, with emphasis on the product picker cold path and repeated triage/forest/quadrant detail requests.
 
@@ -4817,5 +4815,51 @@ Implemented the tarpit tolerance plan and renamed the ignored plan artifact from
 **Regression coverage.** Extended `[TarpitServiceTests.cs](MedRecProTest/TarpitServiceTests.cs)` for stable rule-name buckets, policy-specific windows, policy-specific delay caps, legacy fallback policy resolution, exclusion-first behavior, and settings validation. Extended `[TarpitMiddlewareTests.cs](MedRecProTest/TarpitMiddlewareTests.cs)` for AE dashboard exclusion, success reset after prior 404s, non-excluded broad API monitoring, rule-specific threshold/window/cap behavior, and case-insensitive exclusions.
 
 **Verification.** `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~Tarpit" -p:BaseOutputPath=C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\bin\codex-tarpit\` passed 68/68. A full `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore -p:BaseOutputPath=C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\bin\codex-tarpit\` run was attempted but did not complete because environment-dependent `ProductRenderingServiceTests` fail during initialization with `PK encryption secret not configured`, then the run timed out before a full result set. `git diff --check` reported no whitespace errors; line-ending warnings are the existing LF/CRLF working-copy behavior.
+
+---
+
+### 2026-06-04 2:10 PM EST — AE Dashboard Client Completion
+Completed the remaining AE dashboard client implementation phases and updated the client-side implementation plan.
+
+**Phase verification.** Verified Phases 1-3 against the live React/static host files: Vite build wiring, MVC `/adverse-events` island host, product picker, recents/favorites/KPI strip, and the triage/forest/quadrant API-backed tabs are present. Updated `[Plans/(done) AE Dashboard Client-Side Implementation Plan.md](Plans/(done)%20AE%20Dashboard%20Client-Side%20Implementation%20Plan.md)` with completion evidence, command results, and the local runtime caveat.
+
+**Phase 4 implementation.** Added live reverse lookup and interchange support in `[App.jsx](MedRecProReact/src/App.jsx)`, `[adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js)`, and `[normalizers.js](MedRecProReact/src/lib/normalizers.js)`. Reverse lookup now submits exact loaded AE terms, scopes repeated `documentGuids` to the selected products, and renders API verdicts. Interchange now compares two distinct products through the live endpoint, supports `differencesOnly`, shows grouped rows/counts/warnings, and draws paired RR mini-tracks using the shared forest-scale helpers.
+
+**Phase 5 hardening.** Installed Vitest, added the `npm.cmd test` script, and created focused tests under `[MedRecProReact/src/test](MedRecProReact/src/test)` for URL builders, normalizers, formatters, and forest-scale behavior. Documented the React island build-and-commit workflow in `[README.md](MedRecProStatic/README.md)` and rebuilt the committed dashboard bundle `[ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js)`.
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 14 tests. `npm.cmd run build` passed and emitted deterministic dashboard assets. `dotnet build MedRecProStatic/MedRecProStatic.csproj --no-restore` passed with one existing nullable warning in `Views/Home/Index.cshtml`. `git diff --check` passed with line-ending normalization warnings only. Standalone Vite shell responded at `http://127.0.0.1:50346/ae-dashboard/`; integrated `dotnet run` smoke was blocked by sandbox EventLog write permissions during DataProtection startup, not by a dashboard build failure.
+
+---
+
+### 2026-06-04 2:18 PM EST — AE Dashboard Interchange Fetch Loop Fix
+Fixed the therapeutic interchange request loop reported from browser network traces.
+
+**Root cause.** The interchange fetch effect in [App.jsx](MedRecProReact/src/App.jsx) depended on render-fresh product objects for product A and product B. Normal state updates after a successful interchange response recreated those objects, which caused cleanup aborts and another identical fetch for the same document pair.
+
+**Fix.** Added stable `interchangeDocumentGuidA` and `interchangeDocumentGuidB` keys, then changed the effect guards, API call, and dependency array to use those primitive GUID strings plus `differencesOnly` and the explicit reload token. Rebuilt the dashboard bundle in [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js).
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 14 tests. `npm.cmd run build` passed. `git diff --check` passed with line-ending normalization warnings only.
+
+---
+
+### 2026-06-04 2:27 PM EST — AE Dashboard Interchange Forest Render Fix
+Fixed the therapeutic interchange comparison forest plot so API rows render beneath the axis.
+
+**Root cause.** The live `/api/AdverseEvent/interchange` payload serializes `AeInterchangeClass` as numeric enum values (`0` through `4`). The React normalizer in [normalizers.js](MedRecProReact/src/lib/normalizers.js) was converting those values to string tokens like `"3"`, while [App.jsx](MedRecProReact/src/App.jsx) grouped rows by named tokens such as `aworse`, `onlyb`, and `similar`. Summary counts still rendered because they come from separate count fields, but no rows matched a visual group.
+
+**Fix.** Added a numeric/string interchange classification map that normalizes `OnlyA`, `OnlyB`, `Similar`, `AWorse`, and `BWorse` to stable UI tokens. Extended [normalizers.test.js](MedRecProReact/src/test/normalizers.test.js) with the numeric enum payload shape and rebuilt [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js).
+
+**Verification.** Confirmed the live ZEPBOUND/WEGOVY API payload returns numeric classifications and now normalizes into 31 renderable rows: 9 product-A concern, 16 product-B concern, 6 similar, and 0 unknown. `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 14 tests. `npm.cmd run build` passed. `git diff --check` passed with line-ending normalization warnings only. Browser visual verification was attempted but the in-app browser blocked the local `localhost:5093` target with `net::ERR_BLOCKED_BY_CLIENT`.
+
+---
+
+### 2026-06-04 2:51 PM EST — AE Dashboard Reverse Lookup Multi-Select
+Updated the AE dashboard cross-product tools so reverse lookup can submit multiple exact AE terms and interchange warnings have breathing room above the comparison KPIs.
+
+**Reverse lookup.** Changed [App.jsx](MedRecProReact/src/App.jsx) so loaded-term chips toggle selected symptoms, typed input can add one or more comma/semicolon-separated exact terms, selected chips can be removed, and the client issues one exact-term API request per selected symptom before merging the result. Added merge support in [normalizers.js](MedRecProReact/src/lib/normalizers.js), including reverse-lookup verdict enum normalization and product-plus-AE-term de-duplication that keeps the strongest representative row.
+
+**Layout.** Added selected-chip affordance styling and extra spacing between the last `.ic-warn` yellow warning and the interchange KPI strip in [index.css](MedRecProReact/src/index.css). Rebuilt [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css) and [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js).
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 15 tests. `npm.cmd run build` passed. `git diff --check` passed with line-ending normalization warnings only. A live API smoke for WEGOVY/ZEPBOUND `Abdominal Pain` confirmed the raw 4-row response now normalizes to 2 de-duplicated visible rows, and a multi-term merge de-dupes submitted term casing. Standalone Vite starts in the foreground, but the hidden detached dev-server launch did not stay available for a browser visual smoke in this environment.
 
 ---

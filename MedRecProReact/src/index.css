@@ -356,6 +356,12 @@ a { color: var(--color-primary); text-decoration: none; }
   color: #fff;
   border-color: var(--color-secondary);
 }
+.chip.removable { padding-right: 7px; }
+.chip-remove {
+  font-size: 10px;
+  line-height: 1;
+  opacity: .72;
+}
 .chip-toggle {
   display: inline-flex;
   align-items: center;
@@ -1263,6 +1269,7 @@ a { color: var(--color-primary); text-decoration: none; }
   color: var(--color-teal-deep);
   line-height: 1.45;
 }
+.rl-selected-row { padding-bottom: 8px; }
 
 /* ============================================================
    INTERCHANGE
@@ -1491,6 +1498,7 @@ a { color: var(--color-primary); text-decoration: none; }
   color: var(--tier-watch-fg);
   line-height: 1.45;
 }
+.ic-warn + .ic-summary { padding-top: 10px; }
 
 /* ============================================================
    RESPONSIVE — mobile

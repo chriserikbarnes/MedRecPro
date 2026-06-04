@@ -1012,7 +1012,7 @@ namespace MedRecPro.Models
             new Dictionary<AeCounselingTier, string>
             {
                 [AeCounselingTier.Counsel] = "Common, tight-precision signals to mention to the patient up front.",
-                [AeCounselingTier.Watch] = "Lower-probability signals in serious organ systems with red-flag instructions.",
+                [AeCounselingTier.Watch] = "Lower-probability signals.",
                 [AeCounselingTier.Reassure] = "Not significantly elevated, or significantly protective.",
                 [AeCounselingTier.Fragile] = "Data-quality flags or extreme bounds. Do not drive counseling from these alone."
             };

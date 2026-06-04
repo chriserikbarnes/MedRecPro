@@ -24,7 +24,14 @@ import {
   MAX_FOREST_TICKS,
 } from './lib/forestScale';
 import { formatDecimal, formatDose, formatInteger } from './lib/formatters';
-import { normalizeForest, normalizeQuadrant, normalizeTriage } from './lib/normalizers';
+import {
+  mergeReverseLookupResults,
+  normalizeForest,
+  normalizeInterchange,
+  normalizeQuadrant,
+  normalizeReverseLookup,
+  normalizeTriage,
+} from './lib/normalizers';
 
 // Supported dashboard views mirror the prototype tab names.
 const DASHBOARD_VIEWS = new Set(['triage', 'forest', 'quadrant']);
@@ -69,6 +76,47 @@ const FLAG_TEXT = {
   WIDE_CI: 'Confidence interval spans more than two orders of magnitude.',
   LowEventCount: 'Fewer than 10 total events.',
   LOW_EVENT_COUNT: 'Fewer than 10 total events.',
+};
+
+// Reverse-lookup verdict labels come from server enum values.
+const REVERSE_LOOKUP_VERDICT_COPY = {
+  plausiblycausal: 'Plausibly causal',
+  protective: 'Protective',
+  notsignificantlyelevated: 'Not significantly elevated',
+  lowconfidence: 'Low confidence',
+};
+
+// Interchange groups keep API-derived classifications visually organized.
+const INTERCHANGE_GROUPS = [
+  {
+    id: 'a-concern',
+    label: 'Higher concern on product A',
+    classes: new Set(['aworse', 'onlya']),
+  },
+  {
+    id: 'b-concern',
+    label: 'Higher concern on product B',
+    classes: new Set(['bworse', 'onlyb']),
+  },
+  {
+    id: 'similar',
+    label: 'Similar or shared signal profile',
+    classes: new Set(['similar']),
+  },
+];
+
+// Empty interchange state keeps render paths simple before the first comparison.
+const EMPTY_INTERCHANGE_VIEW = {
+  productA: null,
+  productB: null,
+  rows: [],
+  onlyACount: 0,
+  onlyBCount: 0,
+  similarCount: 0,
+  aWorseCount: 0,
+  bWorseCount: 0,
+  classMismatchWarning: '',
+  comparatorMismatchWarning: '',
 };
 
 /**************************************************************/
@@ -383,6 +431,201 @@ function getSignalDirection(signal) {
 
   // Significant non-protective rows are elevated risk.
   return 'elevated';
+}
+
+/**************************************************************/
+/**
+ * Builds a unique product list for cross-product controls.
+ *
+ * @param {object[]} productGroups - Product collections in priority order.
+ * @returns {object[]} Dedupe product list.
+ */
+function buildUniqueProductList(...productGroups) {
+  const usedDocumentGuids = new Set();
+  const uniqueProducts = [];
+
+  // Preserve first-seen order so the selected product and favorites stay near the top.
+  for (const group of productGroups) {
+    if (!Array.isArray(group)) {
+      continue;
+    }
+
+    for (const product of group) {
+      if (!product?.documentGuid) {
+        continue;
+      }
+
+      const lookupKey = product.documentGuid.toLowerCase();
+      if (usedDocumentGuids.has(lookupKey)) {
+        continue;
+      }
+
+      usedDocumentGuids.add(lookupKey);
+      uniqueProducts.push(product);
+    }
+  }
+
+  return uniqueProducts;
+}
+
+/**************************************************************/
+/**
+ * Builds exact AE-term suggestions from loaded signal rows only.
+ *
+ * @param {object[]} signalGroups - Loaded signal collections.
+ * @returns {string[]} Suggestion terms.
+ */
+function buildAeTermSuggestions(...signalGroups) {
+  const usedTerms = new Set();
+  const suggestions = [];
+
+  // Suggestions intentionally come only from already-loaded live data.
+  for (const group of signalGroups) {
+    if (!Array.isArray(group)) {
+      continue;
+    }
+
+    for (const signal of group) {
+      const term = signal?.name?.trim();
+      if (!term) {
+        continue;
+      }
+
+      const lookupKey = term.toLowerCase();
+      if (usedTerms.has(lookupKey)) {
+        continue;
+      }
+
+      usedTerms.add(lookupKey);
+      suggestions.push(term);
+    }
+  }
+
+  return suggestions.slice(0, 12);
+}
+
+/**************************************************************/
+/**
+ * Builds the scoped product GUIDs for reverse lookup.
+ *
+ * @param {object[]} products - Product view models to scope.
+ * @returns {string[]} Unique document GUIDs.
+ */
+function buildReverseLookupScope(products) {
+  const usedDocumentGuids = new Set();
+  const documentGuids = [];
+
+  // Repeated query values are emitted later by the API client.
+  for (const product of products) {
+    if (!product?.documentGuid) {
+      continue;
+    }
+
+    const lookupKey = product.documentGuid.toLowerCase();
+    if (usedDocumentGuids.has(lookupKey)) {
+      continue;
+    }
+
+    usedDocumentGuids.add(lookupKey);
+    documentGuids.push(product.documentGuid);
+  }
+
+  return documentGuids;
+}
+
+/**************************************************************/
+/**
+ * Builds a de-duplicated exact-term list for reverse lookup.
+ *
+ * @param {Array<string | string[]>} termGroups - Term values or lists.
+ * @returns {string[]} Unique display terms.
+ */
+function buildReverseLookupTerms(...termGroups) {
+  const usedTerms = new Set();
+  const terms = [];
+
+  // Text input may contain pasted comma/semicolon lists; chips pass arrays.
+  for (const group of termGroups) {
+    const candidates = Array.isArray(group) ? group : [group];
+
+    for (const candidate of candidates) {
+      const splitTerms = String(candidate ?? '')
+        .split(/[;,]/)
+        .map((term) => term.trim())
+        .filter(Boolean);
+
+      for (const term of splitTerms) {
+        const lookupKey = term.toLowerCase();
+
+        if (usedTerms.has(lookupKey)) {
+          continue;
+        }
+
+        usedTerms.add(lookupKey);
+        terms.push(term);
+      }
+    }
+  }
+
+  return terms;
+}
+
+/**************************************************************/
+/**
+ * Converts an interchange classification into a delta CSS class.
+ *
+ * @param {string} classification - API classification token.
+ * @returns {string} Delta CSS token.
+ */
+function getInterchangeDeltaClass(classification) {
+  if (classification === 'aworse') {
+    return 'a-worse';
+  }
+
+  if (classification === 'bworse') {
+    return 'b-worse';
+  }
+
+  if (classification === 'onlya' || classification === 'onlyb') {
+    return 'only';
+  }
+
+  return 'similar';
+}
+
+/**************************************************************/
+/**
+ * Gets the display label for a reverse-lookup verdict.
+ *
+ * @param {string} verdict - Server verdict token.
+ * @returns {string} Display label.
+ */
+function getReverseLookupVerdictLabel(verdict) {
+  return REVERSE_LOOKUP_VERDICT_COPY[verdict] ?? 'Signal reviewed';
+}
+
+/**************************************************************/
+/**
+ * Extracts all signals from an interchange view.
+ *
+ * @param {object} interchangeView - Interchange view model.
+ * @returns {object[]} Signal list.
+ */
+function getInterchangeSignals(interchangeView) {
+  const signals = [];
+
+  // Both product signal columns contribute to the shared RR scale.
+  for (const row of interchangeView.rows) {
+    if (row.signalA) {
+      signals.push(row.signalA);
+    }
+
+    if (row.signalB) {
+      signals.push(row.signalB);
+    }
+  }
+
+  return signals;
 }
 
 /**************************************************************/
@@ -868,6 +1111,509 @@ function QuadrantView({ points }) {
 
 /**************************************************************/
 /**
+ * Renders one exact-term suggestion chip for reverse lookup.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Suggestion button.
+ */
+function ReverseLookupSuggestion({ term, isSelected, onSelect }) {
+  return (
+    <button
+      type="button"
+      className={`chip${isSelected ? ' active' : ''}`}
+      aria-pressed={isSelected}
+      onClick={() => onSelect(term)}
+    >
+      {term}
+    </button>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders the reverse-lookup tool from the live API.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Reverse-lookup panel.
+ */
+function ReverseLookupPanel({
+  term,
+  selectedTerms,
+  suggestions,
+  scopeProducts,
+  result,
+  isLoading,
+  error,
+  onTermChange,
+  onSubmit,
+  onPickSuggestion,
+  onRemoveTerm,
+}) {
+  const scopeLabel = scopeProducts.length > 1
+    ? `${scopeProducts.length} selected products`
+    : scopeProducts[0]?.name ?? 'Selected product';
+  const selectedTermKeys = new Set(selectedTerms.map((selectedTerm) => selectedTerm.toLowerCase()));
+  const resultSymptomLabel = result?.symptoms?.length > 1
+    ? `${result.symptoms.length} selected terms`
+    : result?.symptom;
+
+  return (
+    <section className="panel" aria-labelledby="reverse-lookup-title">
+      <div className="panel-header">
+        <div className="panel-heading">
+          <div id="reverse-lookup-title" className="panel-title">Symptom reverse lookup</div>
+          <div className="panel-sub">Exact AE terms from loaded live data, scoped to {scopeLabel}.</div>
+        </div>
+      </div>
+
+      <form
+        className="search-wrap"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(term);
+        }}
+      >
+        <svg
+          aria-hidden="true"
+          className="search-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        <input
+          className="search-input"
+          type="search"
+          list="ae-term-suggestions"
+          value={term}
+          placeholder="Add exact AE term, for example Headache"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Add reverse lookup adverse-event term"
+          onChange={(event) => onTermChange(event.target.value)}
+        />
+        <datalist id="ae-term-suggestions">
+          {suggestions.map((suggestion) => (
+            <option key={suggestion} value={suggestion} />
+          ))}
+        </datalist>
+      </form>
+
+      {selectedTerms.length > 0 ? (
+        <div className="filter-row rl-selected-row" aria-label="Selected reverse-lookup terms">
+          <span className="filter-label">Selected terms</span>
+          {selectedTerms.map((selectedTerm) => (
+            <button
+              key={selectedTerm}
+              type="button"
+              className="chip active removable"
+              aria-label={`Remove ${selectedTerm}`}
+              onClick={() => onRemoveTerm(selectedTerm)}
+            >
+              {selectedTerm}
+              <span className="chip-remove" aria-hidden="true">x</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {suggestions.length > 0 ? (
+        <div className="filter-row" aria-label="Loaded adverse-event term suggestions">
+          <span className="filter-label">Loaded terms</span>
+          {suggestions.slice(0, 8).map((suggestion) => (
+            <ReverseLookupSuggestion
+              key={suggestion}
+              term={suggestion}
+              isSelected={selectedTermKeys.has(suggestion.toLowerCase())}
+              onSelect={onPickSuggestion}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {isLoading ? <Loading label="Running reverse lookup" /> : null}
+      {error ? <InlineError error={error} /> : null}
+
+      {!isLoading && !error && result ? (
+        <div className="rl-results">
+          {result.allReassuring && result.matches.length > 0 ? (
+            <div className="rl-no-sig-banner">
+              All scoped matches are reassuring, protective, or low confidence for {resultSymptomLabel}.
+            </div>
+          ) : null}
+
+          {result.matches.length === 0 ? (
+            <div className="rl-empty">No scoped products matched {resultSymptomLabel || 'those terms'}.</div>
+          ) : null}
+
+          {result.matches.map((match) => {
+            const direction = getSignalDirection(match.signal);
+            const rowKey = `${match.drug.documentGuid}-${match.signal.id || match.signal.name}`;
+
+            return (
+              <div
+                key={rowKey}
+                className={`rl-row${match.signal.prec === 'fragile' ? ' fragile' : ''}`}
+              >
+                <div>
+                  <div className="rl-drug-name">{match.drug.name}</div>
+                  <div className="rl-drug-sub">{match.drug.generic} · {match.drug.pharmClass}</div>
+                </div>
+                <div className="rl-meta">
+                  <span className={`precision-pill ${match.signal.prec}`}>
+                    <span className="pip" />
+                    {match.signal.prec}
+                  </span>
+                  <span className="ae-tag rr">RR {formatDecimal(match.signal.rr, 2)}</span>
+                </div>
+                <div className="ae-body">
+                  <div className="ae-name">{match.signal.name}</div>
+                  <div className="ae-meta">
+                    <span className="ae-tag soc">{match.signal.soc}</span>
+                    <span className={`ae-tag ${direction === 'elevated' ? 'serious' : ''}`}>
+                      {getReverseLookupVerdictLabel(match.verdict)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders a compact product select used by interchange controls.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Product select.
+ */
+function ProductInterchangeSelect({
+  label,
+  tone,
+  value,
+  products,
+  disabledDocumentGuid,
+  onChange,
+}) {
+  return (
+    <div className="ic-picker">
+      <label className={`ic-picker-label ${tone}`}>
+        <span className="lbl-dot" aria-hidden="true" />
+        {label}
+      </label>
+      <select
+        className={`ic-select ${tone}`}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={label}
+      >
+        <option value="">Select product</option>
+        {products.map((product) => {
+          const isDisabled =
+            disabledDocumentGuid
+            && product.documentGuid.toLowerCase() === disabledDocumentGuid.toLowerCase();
+
+          return (
+            <option
+              key={`${label}-${product.documentGuid}`}
+              value={product.documentGuid}
+              disabled={isDisabled}
+            >
+              {product.name}
+            </option>
+          );
+        })}
+      </select>
+    </div>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders one half-row in the interchange mini forest track.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Track half.
+ */
+function InterchangeTrackHalf({ signal, side, scaleDomain }) {
+  const direction = signal ? getSignalDirection(signal) : 'ns';
+  const pointLeft = getForestXPercent(signal?.rr, scaleDomain);
+
+  const lowerBoundValue = Number(signal?.rrL);
+  const upperBoundValue = Number(signal?.rrH);
+  const hasInterval = Number.isFinite(lowerBoundValue)
+    && lowerBoundValue > 0
+    && Number.isFinite(upperBoundValue)
+    && upperBoundValue > 0;
+  const intervalStartValue = hasInterval ? Math.min(lowerBoundValue, upperBoundValue) : null;
+  const intervalEndValue = hasInterval ? Math.max(lowerBoundValue, upperBoundValue) : null;
+  const lowerLeft = getForestXPercent(intervalStartValue, scaleDomain);
+  const upperLeft = getForestXPercent(intervalEndValue, scaleDomain);
+  const intervalWidth = lowerLeft !== null && upperLeft !== null
+    ? Math.max(0, upperLeft - lowerLeft)
+    : 0;
+
+  return (
+    <div className={`ic-track-half ${side}${direction === 'ns' ? ' ns' : ''}`}>
+      {lowerLeft !== null && upperLeft !== null ? (
+        <>
+          <div className="ic-ci" style={{ left: `${lowerLeft}%`, width: `${intervalWidth}%` }} />
+          <div className="ic-ci-cap" style={{ left: `${lowerLeft}%` }} />
+          <div className="ic-ci-cap" style={{ left: `${upperLeft}%` }} />
+        </>
+      ) : null}
+      {pointLeft !== null ? <div className="ic-pt" style={{ left: `${pointLeft}%` }} /> : null}
+    </div>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders the two-product interchange signal track.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Mini forest track.
+ */
+function InterchangeTrack({ row, scaleDomain }) {
+  const referenceLeft = getForestXPercent(1, scaleDomain);
+
+  return (
+    <div className="ic-track" aria-hidden="true">
+      <div className="ic-refline" style={{ left: `${referenceLeft}%` }} />
+      <InterchangeTrackHalf signal={row.signalA} side="a" scaleDomain={scaleDomain} />
+      <InterchangeTrackHalf signal={row.signalB} side="b" scaleDomain={scaleDomain} />
+    </div>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders one interchange comparison row.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Interchange row.
+ */
+function InterchangeRow({ row, scaleDomain }) {
+  const deltaClass = getInterchangeDeltaClass(row.classification);
+
+  return (
+    <div className="ic-row">
+      <div className="ic-name" title={row.parameterName}>
+        {row.parameterName}
+        <span className="sub">{row.parameterCategory || 'SOC not listed'}</span>
+      </div>
+      <InterchangeTrack row={row} scaleDomain={scaleDomain} />
+      <div className={`ic-delta ${deltaClass}`}>
+        {row.deltaLabel}
+      </div>
+    </div>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders grouped interchange rows and controls.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Interchange panel.
+ */
+function InterchangePanel({
+  productA,
+  productB,
+  products,
+  differencesOnly,
+  comparison,
+  isLoading,
+  error,
+  onChangeProductA,
+  onChangeProductB,
+  onToggleDifferencesOnly,
+  onRetry,
+}) {
+  const comparisonSignals = useMemo(() => getInterchangeSignals(comparison), [comparison]);
+  const scaleDomain = useMemo(() => getForestScaleDomain(comparisonSignals), [comparisonSignals]);
+  const axisTicks = useMemo(() => getForestTicks(scaleDomain, COMPACT_FOREST_TICKS), [scaleDomain]);
+  const hasRunnablePair = Boolean(productA?.documentGuid && productB?.documentGuid)
+    && productA.documentGuid.toLowerCase() !== productB.documentGuid.toLowerCase();
+  const aConcernCount = comparison.aWorseCount + comparison.onlyACount;
+  const bConcernCount = comparison.bWorseCount + comparison.onlyBCount;
+
+  return (
+    <section className="panel" aria-labelledby="interchange-title">
+      <div className="panel-header">
+        <div className="panel-heading">
+          <div id="interchange-title" className="panel-title">Therapeutic interchange comparison</div>
+          <div className="panel-sub">Compare API-derived AE signals across two dashboard products.</div>
+        </div>
+        <button
+          type="button"
+          className={`chip-toggle${differencesOnly ? ' on' : ''}`}
+          aria-pressed={differencesOnly}
+          onClick={onToggleDifferencesOnly}
+        >
+          <span className="sw" aria-hidden="true" />
+          Differences only
+        </button>
+      </div>
+
+      <div className="ic-pickers">
+        <ProductInterchangeSelect
+          label="Product A"
+          tone="a"
+          value={productA?.documentGuid ?? ''}
+          products={products}
+          disabledDocumentGuid={productB?.documentGuid}
+          onChange={onChangeProductA}
+        />
+        <div className="ic-arrow" aria-hidden="true">→</div>
+        <ProductInterchangeSelect
+          label="Product B"
+          tone="b"
+          value={productB?.documentGuid ?? ''}
+          products={products}
+          disabledDocumentGuid={productA?.documentGuid}
+          onChange={onChangeProductB}
+        />
+      </div>
+
+      {!hasRunnablePair ? (
+        <EmptyState title="Choose two different products to compare." />
+      ) : null}
+      {isLoading ? <Loading label="Loading interchange comparison" /> : null}
+      {error ? <InlineError error={error} onRetry={onRetry} /> : null}
+
+      {!isLoading && !error && hasRunnablePair && comparison.rows.length > 0 ? (
+        <>
+          {comparison.classMismatchWarning ? (
+            <div className="ic-warn">{comparison.classMismatchWarning}</div>
+          ) : null}
+          {comparison.comparatorMismatchWarning ? (
+            <div className="ic-warn">{comparison.comparatorMismatchWarning}</div>
+          ) : null}
+
+          <div className="ic-summary">
+            <div className="ic-summary-cell">
+              <div className="ic-summary-num a">{formatInteger(aConcernCount)}</div>
+              <div className="ic-summary-lbl">Higher or unique on product A</div>
+            </div>
+            <div className="ic-summary-cell">
+              <div className="ic-summary-num">{formatInteger(comparison.similarCount)}</div>
+              <div className="ic-summary-lbl">Similar signal rows</div>
+            </div>
+            <div className="ic-summary-cell">
+              <div className="ic-summary-num b">{formatInteger(bConcernCount)}</div>
+              <div className="ic-summary-lbl">Higher or unique on product B</div>
+            </div>
+          </div>
+
+          <div className="ic-axis">
+            <span>Adverse event</span>
+            <div className="ic-axis-ticks">
+              {axisTicks.map((tick) => {
+                const left = getForestXPercent(tick, scaleDomain);
+
+                if (left === null) {
+                  return null;
+                }
+
+                return (
+                  <span key={tick} className={`tk${tick === 1 ? ' ref' : ''}`} style={{ left: `${left}%` }}>
+                    {formatForestTick(tick)}
+                  </span>
+                );
+              })}
+            </div>
+            <span>Delta</span>
+          </div>
+
+          {INTERCHANGE_GROUPS.map((group) => {
+            const rows = comparison.rows.filter((row) => group.classes.has(row.classification));
+
+            if (rows.length === 0) {
+              return null;
+            }
+
+            return (
+              <div key={group.id}>
+                <div className="ic-divider">
+                  <span className="ic-divider-text">{group.label}</span>
+                  <span className="line" />
+                </div>
+                {rows.map((row) => (
+                  <InterchangeRow
+                    key={`${group.id}-${row.id}`}
+                    row={row}
+                    scaleDomain={scaleDomain}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </>
+      ) : null}
+
+      {!isLoading && !error && hasRunnablePair && comparison.rows.length === 0 ? (
+        <EmptyState title="No interchange rows match the current filter." />
+      ) : null}
+    </section>
+  );
+}
+
+/**************************************************************/
+/**
+ * Renders the cross-product dashboard tools.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} Cross-product tools.
+ */
+function CrossProductTools(props) {
+  return (
+    <>
+      <div className="section-heading">
+        <span className="section-heading-text">Cross-product tools</span>
+        <span className="line" />
+      </div>
+      <ReverseLookupPanel
+        term={props.reverseLookupTerm}
+        selectedTerms={props.selectedReverseLookupTerms}
+        suggestions={props.reverseLookupSuggestions}
+        scopeProducts={props.reverseLookupScopeProducts}
+        result={props.reverseLookupResult}
+        isLoading={props.isReverseLookupLoading}
+        error={props.reverseLookupError}
+        onTermChange={props.onReverseLookupTermChange}
+        onSubmit={props.onRunReverseLookup}
+        onPickSuggestion={props.onPickReverseLookupSuggestion}
+        onRemoveTerm={props.onRemoveReverseLookupTerm}
+      />
+      <InterchangePanel
+        productA={props.productA}
+        productB={props.productB}
+        products={props.interchangeProducts}
+        differencesOnly={props.differencesOnly}
+        comparison={props.interchangeComparison}
+        isLoading={props.isInterchangeLoading}
+        error={props.interchangeError}
+        onChangeProductA={props.onChangeInterchangeProductA}
+        onChangeProductB={props.onChangeInterchangeProductB}
+        onToggleDifferencesOnly={props.onToggleDifferencesOnly}
+        onRetry={props.onRetryInterchange}
+      />
+    </>
+  );
+}
+
+/**************************************************************/
+/**
  * Renders the tabbed primary dashboard panel.
  *
  * @param {object} props - Component props.
@@ -1035,6 +1781,39 @@ function App() {
   // Reload tokens allow retry buttons to re-run active requests.
   const [reloadTokens, setReloadTokens] = useState({ triage: 0, forest: 0, quadrant: 0 });
 
+  // Reverse lookup term is exact-match because the API intentionally does not do substring search.
+  const [reverseLookupTerm, setReverseLookupTerm] = useState('');
+
+  // Reverse lookup supports several exact terms while de-duplicating casing and repeats.
+  const [selectedReverseLookupTerms, setSelectedReverseLookupTerms] = useState([]);
+
+  // Reverse lookup result stores scoped live matches.
+  const [reverseLookupResult, setReverseLookupResult] = useState(null);
+
+  // Reverse lookup loading is independent from the main tabs.
+  const [isReverseLookupLoading, setIsReverseLookupLoading] = useState(false);
+
+  // Reverse lookup validation and request errors render inside the panel.
+  const [reverseLookupError, setReverseLookupError] = useState(null);
+
+  // Product B is local to the interchange tool; product A follows the selected dashboard product.
+  const [interchangeProductB, setInterchangeProductB] = useState(null);
+
+  // Differences-only is sent to the API so the server remains the comparison authority.
+  const [differencesOnly, setDifferencesOnly] = useState(false);
+
+  // Interchange comparison stores normalized rows/counts/warnings.
+  const [interchangeComparison, setInterchangeComparison] = useState(EMPTY_INTERCHANGE_VIEW);
+
+  // Interchange loading is independent from tab loading.
+  const [isInterchangeLoading, setIsInterchangeLoading] = useState(false);
+
+  // Interchange request errors are recoverable through retry.
+  const [interchangeError, setInterchangeError] = useState(null);
+
+  // Interchange retry uses a token so the selected products stay unchanged.
+  const [interchangeReloadToken, setInterchangeReloadToken] = useState(0);
+
   // Initial selection should happen once after products or deep-link hydration become available.
   const hasResolvedInitialSelectionRef = useRef(false);
 
@@ -1087,8 +1866,68 @@ function App() {
   // The selected document GUID is the shared key for visualization requests.
   const selectedDocumentGuid = selectedProductWithFavoriteState?.documentGuid ?? '';
 
+  // Product A follows the selected dashboard product so the comparison stays contextual.
+  const interchangeProductA = selectedProductWithFavoriteState;
+
+  // Cross-product controls reuse every product row the app has already hydrated.
+  const interchangeProducts = useMemo(
+    () => buildUniqueProductList(
+      selectedProductWithFavoriteState ? [selectedProductWithFavoriteState] : [],
+      visibleFavoriteProducts,
+      visibleRecentProducts,
+      visibleProducts,
+    ),
+    [selectedProductWithFavoriteState, visibleFavoriteProducts, visibleProducts, visibleRecentProducts],
+  );
+
+  // Product B falls back to the first available product that is not product A.
+  const effectiveInterchangeProductB = useMemo(() => {
+    if (!interchangeProductA?.documentGuid) {
+      return null;
+    }
+
+    const productAKey = interchangeProductA.documentGuid.toLowerCase();
+    const productBKey = interchangeProductB?.documentGuid?.toLowerCase() ?? '';
+
+    if (productBKey && productBKey !== productAKey) {
+      const refreshedProductB = interchangeProducts.find(
+        (product) => product.documentGuid.toLowerCase() === productBKey,
+      );
+
+      if (refreshedProductB) {
+        return refreshedProductB;
+      }
+    }
+
+    return interchangeProducts.find(
+      (product) => product.documentGuid.toLowerCase() !== productAKey,
+    ) ?? null;
+  }, [interchangeProductA, interchangeProductB, interchangeProducts]);
+
+  // Reverse lookup scopes to the selected regimen products.
+  const reverseLookupScopeProducts = useMemo(
+    () => buildUniqueProductList(
+      interchangeProductA ? [interchangeProductA] : [],
+      effectiveInterchangeProductB ? [effectiveInterchangeProductB] : [],
+    ),
+    [effectiveInterchangeProductB, interchangeProductA],
+  );
+
+  // Interchange requests are keyed by stable GUIDs, not render-fresh product objects.
+  const interchangeDocumentGuidA = interchangeProductA?.documentGuid ?? '';
+  const interchangeDocumentGuidB = effectiveInterchangeProductB?.documentGuid ?? '';
+
   // Flat triage signals feed counts, exports, and chip labels.
   const triageSignals = useMemo(() => flattenTriageSignals(triageView.tiers), [triageView.tiers]);
+
+  // Interchange rows can add more loaded terms once the comparison has run.
+  const interchangeSignals = useMemo(() => getInterchangeSignals(interchangeComparison), [interchangeComparison]);
+
+  // Exact-term suggestions come only from loaded live payloads.
+  const reverseLookupSuggestions = useMemo(
+    () => buildAeTermSuggestions(triageSignals, interchangeSignals),
+    [interchangeSignals, triageSignals],
+  );
 
   // Signal counts update whenever the full triage payload changes.
   const signalCounts = useMemo(() => countSignals(triageSignals), [triageSignals]);
@@ -1383,6 +2222,64 @@ function App() {
     };
   }, [activeView, comparatorFilter, reloadTokens.quadrant, selectedDocumentGuid, showFragile]);
 
+  useEffect(() => {
+    // Interchange is quiet until the user has two distinct products.
+    if (!interchangeDocumentGuidA || !interchangeDocumentGuidB) {
+      return;
+    }
+
+    // Same-product selection is blocked before it can reach the API.
+    if (interchangeDocumentGuidA.toLowerCase() === interchangeDocumentGuidB.toLowerCase()) {
+      return;
+    }
+
+    const abortController = new AbortController();
+
+    /**************************************************************/
+    /**
+     * Loads the live therapeutic-interchange comparison.
+     */
+    async function loadInterchange() {
+      setIsInterchangeLoading(true);
+      setInterchangeError(null);
+
+      try {
+        const payload = await AdverseEventClient.getInterchange({
+          documentGuidA: interchangeDocumentGuidA,
+          documentGuidB: interchangeDocumentGuidB,
+          differencesOnly,
+          signal: abortController.signal,
+        });
+
+        setInterchangeComparison(normalizeInterchange(payload));
+      } catch (requestError) {
+        // Abort errors mean a newer comparison superseded this request.
+        if (requestError.name === 'AbortError') {
+          return;
+        }
+
+        setInterchangeComparison(EMPTY_INTERCHANGE_VIEW);
+        setInterchangeError(requestError);
+      } finally {
+        // Aborted requests should not clear a newer request's loading state.
+        if (!abortController.signal.aborted) {
+          setIsInterchangeLoading(false);
+        }
+      }
+    }
+
+    loadInterchange();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [
+    differencesOnly,
+    interchangeDocumentGuidA,
+    interchangeDocumentGuidB,
+    interchangeReloadToken,
+  ]);
+
   /**************************************************************/
   /**
    * Selects a product from the picker and writes bookmarkable URL state.
@@ -1545,6 +2442,177 @@ function App() {
 
   /**************************************************************/
   /**
+   * Runs exact-term reverse lookups scoped to selected products.
+   *
+   * @param {string[]} requestedTerms - AE terms to submit.
+   */
+  const runReverseLookupForTerms = useCallback(
+    async (requestedTerms) => {
+      const symptoms = buildReverseLookupTerms(requestedTerms);
+
+      // The API requires at least one exact non-empty term.
+      if (symptoms.length === 0) {
+        setReverseLookupError(new Error('Add at least one exact adverse-event term before searching.'));
+        setReverseLookupResult(null);
+        return;
+      }
+
+      const documentGuids = buildReverseLookupScope(reverseLookupScopeProducts);
+
+      setSelectedReverseLookupTerms(symptoms);
+      setReverseLookupTerm('');
+      setIsReverseLookupLoading(true);
+      setReverseLookupError(null);
+
+      try {
+        const payloads = await Promise.all(
+          symptoms.map((symptom) => AdverseEventClient.getReverseLookup({
+            symptom,
+            documentGuids,
+          })),
+        );
+        const normalizedResults = payloads.map((payload) => normalizeReverseLookup(payload));
+
+        setReverseLookupResult(mergeReverseLookupResults(normalizedResults, symptoms));
+      } catch (requestError) {
+        setReverseLookupResult(null);
+        setReverseLookupError(requestError);
+      } finally {
+        setIsReverseLookupLoading(false);
+      }
+    },
+    [reverseLookupScopeProducts],
+  );
+
+  /**************************************************************/
+  /**
+   * Runs reverse lookup from the current selected terms plus optional input.
+   *
+   * @param {string} requestedTerm - Optional AE term to add before submitting.
+   */
+  const handleRunReverseLookup = useCallback(
+    (requestedTerm = '') => {
+      const symptoms = buildReverseLookupTerms(selectedReverseLookupTerms, requestedTerm);
+
+      return runReverseLookupForTerms(symptoms);
+    },
+    [runReverseLookupForTerms, selectedReverseLookupTerms],
+  );
+
+  /**************************************************************/
+  /**
+   * Submits a loaded exact-term suggestion.
+   *
+   * @param {string} suggestion - Suggestion term.
+   */
+  const handlePickReverseLookupSuggestion = useCallback(
+    (suggestion) => {
+      const lookupKey = suggestion.trim().toLowerCase();
+      const isSelected = selectedReverseLookupTerms.some(
+        (selectedTerm) => selectedTerm.toLowerCase() === lookupKey,
+      );
+      const symptoms = isSelected
+        ? selectedReverseLookupTerms.filter((selectedTerm) => selectedTerm.toLowerCase() !== lookupKey)
+        : buildReverseLookupTerms(selectedReverseLookupTerms, suggestion);
+
+      if (symptoms.length === 0) {
+        setSelectedReverseLookupTerms([]);
+        setReverseLookupResult(null);
+        setReverseLookupError(null);
+        setReverseLookupTerm('');
+        return;
+      }
+
+      runReverseLookupForTerms(symptoms);
+    },
+    [runReverseLookupForTerms, selectedReverseLookupTerms],
+  );
+
+  /**************************************************************/
+  /**
+   * Removes one selected reverse-lookup term and refreshes the merged result.
+   *
+   * @param {string} term - Selected AE term to remove.
+   */
+  const handleRemoveReverseLookupTerm = useCallback(
+    (term) => {
+      const lookupKey = term.trim().toLowerCase();
+      const symptoms = selectedReverseLookupTerms.filter(
+        (selectedTerm) => selectedTerm.toLowerCase() !== lookupKey,
+      );
+
+      if (symptoms.length === 0) {
+        setSelectedReverseLookupTerms([]);
+        setReverseLookupResult(null);
+        setReverseLookupError(null);
+        setReverseLookupTerm('');
+        return;
+      }
+
+      runReverseLookupForTerms(symptoms);
+    },
+    [runReverseLookupForTerms, selectedReverseLookupTerms],
+  );
+
+  /**************************************************************/
+  /**
+   * Changes product A by selecting it as the dashboard product.
+   *
+   * @param {string} documentGuid - Product document GUID.
+   */
+  const handleChangeInterchangeProductA = useCallback(
+    (documentGuid) => {
+      const nextProduct = interchangeProducts.find(
+        (product) => product.documentGuid.toLowerCase() === documentGuid.toLowerCase(),
+      );
+
+      if (nextProduct) {
+        handleSelectProduct(nextProduct);
+      }
+    },
+    [handleSelectProduct, interchangeProducts],
+  );
+
+  /**************************************************************/
+  /**
+   * Changes product B while blocking same-product comparisons.
+   *
+   * @param {string} documentGuid - Product document GUID.
+   */
+  const handleChangeInterchangeProductB = useCallback(
+    (documentGuid) => {
+      const nextProduct = interchangeProducts.find(
+        (product) => product.documentGuid.toLowerCase() === documentGuid.toLowerCase(),
+      );
+
+      if (!nextProduct) {
+        setInterchangeProductB(null);
+        return;
+      }
+
+      // Same-product selection is disabled in the control and ignored here.
+      if (
+        interchangeProductA?.documentGuid
+        && nextProduct.documentGuid.toLowerCase() === interchangeProductA.documentGuid.toLowerCase()
+      ) {
+        return;
+      }
+
+      setInterchangeProductB(nextProduct);
+    },
+    [interchangeProductA, interchangeProducts],
+  );
+
+  /**************************************************************/
+  /**
+   * Toggles server-side difference filtering for interchange.
+   */
+  const handleToggleDifferencesOnly = useCallback(() => {
+    setDifferencesOnly((currentValue) => !currentValue);
+  }, []);
+
+  /**************************************************************/
+  /**
    * Retries a visualization request.
    *
    * @param {'triage' | 'forest' | 'quadrant'} view - View token.
@@ -1555,6 +2623,14 @@ function App() {
       ...currentTokens,
       [view]: currentTokens[view] + 1,
     }));
+  }, []);
+
+  /**************************************************************/
+  /**
+   * Retries the current interchange comparison.
+   */
+  const retryInterchange = useCallback(() => {
+    setInterchangeReloadToken((currentToken) => currentToken + 1);
   }, []);
 
   /**************************************************************/
@@ -1591,6 +2667,8 @@ function App() {
       triage: filteredTiers,
       forest: forestView,
       quadrant: quadrantView,
+      reverseLookup: reverseLookupResult,
+      interchange: interchangeComparison,
     };
 
     // Blob URLs avoid server round trips for a client-side export.
@@ -1608,7 +2686,17 @@ function App() {
     exportLink.download = `${selectedProductWithFavoriteState.name}-ae-dashboard.json`.replace(/[^a-z0-9._-]+/gi, '-');
     exportLink.click();
     URL.revokeObjectURL(exportUrl);
-  }, [activeView, comparatorFilter, filteredTiers, forestView, quadrantView, selectedProductWithFavoriteState, showFragile]);
+  }, [
+    activeView,
+    comparatorFilter,
+    filteredTiers,
+    forestView,
+    interchangeComparison,
+    quadrantView,
+    reverseLookupResult,
+    selectedProductWithFavoriteState,
+    showFragile,
+  ]);
 
   /**************************************************************/
   /**
@@ -1701,6 +2789,31 @@ function App() {
           onChangeView={handleChangeView}
           onChangeComparator={handleChangeComparator}
           onToggleFragile={handleToggleFragile}
+        />
+
+        <CrossProductTools
+          reverseLookupTerm={reverseLookupTerm}
+          selectedReverseLookupTerms={selectedReverseLookupTerms}
+          reverseLookupSuggestions={reverseLookupSuggestions}
+          reverseLookupScopeProducts={reverseLookupScopeProducts}
+          reverseLookupResult={reverseLookupResult}
+          isReverseLookupLoading={isReverseLookupLoading}
+          reverseLookupError={reverseLookupError}
+          onReverseLookupTermChange={setReverseLookupTerm}
+          onRunReverseLookup={handleRunReverseLookup}
+          onPickReverseLookupSuggestion={handlePickReverseLookupSuggestion}
+          onRemoveReverseLookupTerm={handleRemoveReverseLookupTerm}
+          productA={interchangeProductA}
+          productB={effectiveInterchangeProductB}
+          interchangeProducts={interchangeProducts}
+          differencesOnly={differencesOnly}
+          interchangeComparison={interchangeComparison}
+          isInterchangeLoading={isInterchangeLoading}
+          interchangeError={interchangeError}
+          onChangeInterchangeProductA={handleChangeInterchangeProductA}
+          onChangeInterchangeProductB={handleChangeInterchangeProductB}
+          onToggleDifferencesOnly={handleToggleDifferencesOnly}
+          onRetryInterchange={retryInterchange}
         />
 
         <div className="foot-note">

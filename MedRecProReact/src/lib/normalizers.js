@@ -108,6 +108,61 @@ function toToken(value, fallback = '') {
   return String(value).trim().toLowerCase();
 }
 
+// ASP.NET Core serializes enums as numbers unless a string converter is applied.
+// The interchange UI groups rows by stable lowercase tokens, so tolerate both
+// numeric wire values and future string enum values from the API.
+const INTERCHANGE_CLASSIFICATION_TOKENS = {
+  0: 'onlya',
+  1: 'onlyb',
+  2: 'similar',
+  3: 'aworse',
+  4: 'bworse',
+  onlya: 'onlya',
+  onlyb: 'onlyb',
+  similar: 'similar',
+  aworse: 'aworse',
+  bworse: 'bworse',
+};
+
+const REVERSE_LOOKUP_VERDICT_TOKENS = {
+  0: 'plausiblycausal',
+  1: 'protective',
+  2: 'notsignificantlyelevated',
+  3: 'lowconfidence',
+  plausiblycausal: 'plausiblycausal',
+  protective: 'protective',
+  notsignificantlyelevated: 'notsignificantlyelevated',
+  lowconfidence: 'lowconfidence',
+};
+
+/**************************************************************/
+/**
+ * Normalizes interchange enum values to UI grouping tokens.
+ *
+ * @param {unknown} value - API enum value, numeric or string.
+ * @returns {'onlya' | 'onlyb' | 'similar' | 'aworse' | 'bworse'} Stable classification token.
+ */
+function normalizeInterchangeClassification(value) {
+  // Separators are removed so "A_Worse", "A-Worse", and "A Worse" all group.
+  const token = toToken(value, 'similar').replace(/[\s_-]/g, '');
+
+  return INTERCHANGE_CLASSIFICATION_TOKENS[token] ?? 'similar';
+}
+
+/**************************************************************/
+/**
+ * Normalizes reverse-lookup verdict enum values to UI tokens.
+ *
+ * @param {unknown} value - API enum value, numeric or string.
+ * @returns {'plausiblycausal' | 'protective' | 'notsignificantlyelevated' | 'lowconfidence'} Stable verdict token.
+ */
+function normalizeReverseLookupVerdict(value) {
+  // Separators are removed so enum names and display labels share one path.
+  const token = toToken(value, 'notsignificantlyelevated').replace(/[\s_-]/g, '');
+
+  return REVERSE_LOOKUP_VERDICT_TOKENS[token] ?? 'notsignificantlyelevated';
+}
+
 /**************************************************************/
 /**
  * Splits semicolon or comma delimited calculation flags into a stable list.
@@ -554,4 +609,267 @@ export function normalizeQuadrant(payload) {
     : [];
 
   return { points };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one reverse-lookup match from the API.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API reverse-lookup match DTO.
+ * @returns {object | null} Reverse-lookup match view model or null.
+ */
+function normalizeReverseLookupMatch(dto) {
+  // Missing matches cannot render a drug/signal result.
+  if (!dto) {
+    return null;
+  }
+
+  const drug = normalizeProduct(readFirst(dto, ['Drug', 'drug']));
+  const signal = normalizeSignal(readFirst(dto, ['Signal', 'signal']));
+
+  // Both sides are required for the row to be meaningful.
+  if (!drug || !signal) {
+    return null;
+  }
+
+  return {
+    drug,
+    signal,
+    verdict: normalizeReverseLookupVerdict(readFirst(dto, ['Verdict', 'verdict'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Builds a stable reverse-lookup de-duplication key.
+ *
+ * @param {object} match - Normalized reverse-lookup match.
+ * @returns {string} Product and signal identity key.
+ */
+function getReverseLookupMatchKey(match) {
+  const drugKey = match.drug?.documentGuid || match.drug?.name || '';
+  const signalKey = match.signal?.name || match.signal?.id || '';
+
+  return `${drugKey}`.trim().toLowerCase() + '|' + `${signalKey}`.trim().toLowerCase();
+}
+
+/**************************************************************/
+/**
+ * Ranks a reverse-lookup match for duplicate collapse.
+ *
+ * @param {object} match - Normalized reverse-lookup match.
+ * @returns {number} Lower rank means a more actionable representative row.
+ */
+function getReverseLookupMatchRank(match) {
+  // Fragile rows stay behind tighter evidence even when they have larger ratios.
+  if (match.signal?.prec === 'fragile') {
+    return 4;
+  }
+
+  if (match.signal?.sig && !match.signal?.prot) {
+    return 1;
+  }
+
+  if (match.signal?.sig && match.signal?.prot) {
+    return 2;
+  }
+
+  return 3;
+}
+
+/**************************************************************/
+/**
+ * Chooses the better representative when duplicate reverse-lookup rows exist.
+ *
+ * @param {object} candidate - Candidate normalized match.
+ * @param {object} current - Current normalized match.
+ * @returns {boolean} True when candidate should replace current.
+ */
+function isBetterReverseLookupMatch(candidate, current) {
+  const candidateRank = getReverseLookupMatchRank(candidate);
+  const currentRank = getReverseLookupMatchRank(current);
+
+  if (candidateRank !== currentRank) {
+    return candidateRank < currentRank;
+  }
+
+  const candidateNumberNeeded = candidate.signal?.nnh ?? candidate.signal?.nnt;
+  const currentNumberNeeded = current.signal?.nnh ?? current.signal?.nnt;
+
+  if (Number.isFinite(candidateNumberNeeded) && Number.isFinite(currentNumberNeeded)
+    && candidateNumberNeeded !== currentNumberNeeded) {
+    return candidateNumberNeeded < currentNumberNeeded;
+  }
+
+  const candidateRr = candidate.signal?.rr;
+  const currentRr = current.signal?.rr;
+
+  if (Number.isFinite(candidateRr) && Number.isFinite(currentRr) && candidateRr !== currentRr) {
+    return candidate.signal?.prot ? candidateRr < currentRr : candidateRr > currentRr;
+  }
+
+  return false;
+}
+
+/**************************************************************/
+/**
+ * De-duplicates reverse-lookup matches by product and AE term.
+ *
+ * @param {object[]} matches - Normalized reverse-lookup matches.
+ * @returns {object[]} De-duplicated matches preserving first-seen order.
+ */
+function dedupeReverseLookupMatches(matches) {
+  const orderedKeys = [];
+  const bestMatches = new Map();
+
+  for (const match of matches) {
+    const key = getReverseLookupMatchKey(match);
+
+    if (!key || key === '|') {
+      continue;
+    }
+
+    const currentMatch = bestMatches.get(key);
+
+    if (!currentMatch) {
+      orderedKeys.push(key);
+      bestMatches.set(key, match);
+      continue;
+    }
+
+    if (isBetterReverseLookupMatch(match, currentMatch)) {
+      bestMatches.set(key, match);
+    }
+  }
+
+  return orderedKeys.map((key) => bestMatches.get(key)).filter(Boolean);
+}
+
+/**************************************************************/
+/**
+ * Normalizes the reverse-lookup payload into product/signal matches.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API reverse-lookup DTO.
+ * @returns {{ symptom: string, matches: object[], allReassuring: boolean }} Reverse-lookup view model.
+ */
+export function normalizeReverseLookup(payload) {
+  // The controller always echoes the submitted symptom when the request succeeds.
+  const symptom = toDisplayString(readFirst(payload, ['Symptom', 'symptom']));
+
+  // Match arrays are defensive because a valid exact term can return no rows.
+  const matchPayloads = readFirst(payload, ['Matches', 'matches']);
+  const matches = Array.isArray(matchPayloads)
+    ? matchPayloads.map((match) => normalizeReverseLookupMatch(match)).filter(Boolean)
+    : [];
+
+  return {
+    symptom,
+    matches: dedupeReverseLookupMatches(matches),
+    allReassuring: toBoolean(readFirst(payload, ['AllReassuring', 'allReassuring'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Merges multiple normalized reverse-lookup results into one de-duplicated view.
+ *
+ * @param {object[]} results - Normalized reverse-lookup results.
+ * @param {string[]} symptoms - Submitted symptoms in display order.
+ * @returns {{ symptom: string, symptoms: string[], matches: object[], allReassuring: boolean }} Merged result.
+ */
+export function mergeReverseLookupResults(results, symptoms) {
+  const usedSymptoms = new Set();
+  const selectedSymptoms = [];
+
+  if (Array.isArray(symptoms)) {
+    for (const symptom of symptoms) {
+      const displaySymptom = toDisplayString(symptom);
+      const lookupKey = displaySymptom.toLowerCase();
+
+      if (!displaySymptom || usedSymptoms.has(lookupKey)) {
+        continue;
+      }
+
+      usedSymptoms.add(lookupKey);
+      selectedSymptoms.push(displaySymptom);
+    }
+  }
+
+  const resultList = Array.isArray(results) ? results.filter(Boolean) : [];
+  const matches = dedupeReverseLookupMatches(resultList.flatMap((result) => result.matches ?? []));
+
+  return {
+    symptom: selectedSymptoms.join(', '),
+    symptoms: selectedSymptoms,
+    matches,
+    allReassuring: matches.length > 0
+      && matches.every((match) => match.verdict !== 'plausiblycausal'),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one interchange row from the API.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API interchange row DTO.
+ * @returns {object | null} Interchange row view model or null.
+ */
+function normalizeInterchangeRow(dto) {
+  // Missing rows cannot render a comparison.
+  if (!dto) {
+    return null;
+  }
+
+  const parameterName = toDisplayString(readFirst(dto, ['ParameterName', 'parameterName']));
+
+  // Rows without an AE term cannot be explained to the user.
+  if (!parameterName) {
+    return null;
+  }
+
+  return {
+    id: parameterName.toLowerCase(),
+    parameterName,
+    parameterCategory: toDisplayString(readFirst(dto, ['ParameterCategory', 'parameterCategory'])),
+    signalA: normalizeSignal(readFirst(dto, ['SignalA', 'signalA'])),
+    signalB: normalizeSignal(readFirst(dto, ['SignalB', 'signalB'])),
+    classification: normalizeInterchangeClassification(readFirst(dto, ['Classification', 'classification'])),
+    deltaLabel: toDisplayString(readFirst(dto, ['DeltaLabel', 'deltaLabel']), 'Similar signal profile'),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes the interchange comparison payload.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API interchange DTO.
+ * @returns {object} Interchange comparison view model.
+ */
+export function normalizeInterchange(payload) {
+  // Compared products carry full product context from the API.
+  const productA = normalizeProduct(readFirst(payload, ['ProductA', 'productA']));
+  const productB = normalizeProduct(readFirst(payload, ['ProductB', 'productB']));
+
+  // Rows are grouped by classification in the component, preserving API order within groups.
+  const rowPayloads = readFirst(payload, ['Rows', 'rows']);
+  const rows = Array.isArray(rowPayloads)
+    ? rowPayloads.map((row) => normalizeInterchangeRow(row)).filter(Boolean)
+    : [];
+
+  return {
+    productA,
+    productB,
+    rows,
+    onlyACount: toNullableNumber(readFirst(payload, ['OnlyACount', 'onlyACount'])) ?? 0,
+    onlyBCount: toNullableNumber(readFirst(payload, ['OnlyBCount', 'onlyBCount'])) ?? 0,
+    similarCount: toNullableNumber(readFirst(payload, ['SimilarCount', 'similarCount'])) ?? 0,
+    aWorseCount: toNullableNumber(readFirst(payload, ['AWorseCount', 'aWorseCount'])) ?? 0,
+    bWorseCount: toNullableNumber(readFirst(payload, ['BWorseCount', 'bWorseCount'])) ?? 0,
+    classMismatchWarning: toDisplayString(
+      readFirst(payload, ['ClassMismatchWarning', 'classMismatchWarning']),
+    ),
+    comparatorMismatchWarning: toDisplayString(
+      readFirst(payload, ['ComparatorMismatchWarning', 'comparatorMismatchWarning']),
+    ),
+  };
 }
