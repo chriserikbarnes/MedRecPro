@@ -4929,3 +4929,21 @@ Implemented the therapeutic interchange `Shared signals only` toggle so common-c
 **Verification.** `npm.cmd run lint`, `npm.cmd test` (4 files / 15 tests), and `npm.cmd run build` passed. Focused `.NET` filters passed: `AeDashboardDerivationTests` 11/11, `AeDashboardDataAccessTests` 19/19, and `AdverseEventControllerTests` 11/11. `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore` passed with 1 existing nullable warning, and `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with the existing warning backlog. `git diff --check` passed with line-ending normalization warnings only. A full `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore` run was attempted but timed out after compilation at 120 seconds, so focused filters were used for this change set.
 
 ---
+
+### 2026-06-08 12:42 PM EST — Masthead Insight Navigation
+Added an `Insight` navigation item to the shared MedRecPro masthead so users can reach the adverse-event dashboard from every surface that renders the common partial.
+
+**Implementation.** Updated [\_Masthead.cshtml](MedRecProStatic/Views/Shared/_Masthead.cshtml) with a new `/adverse-events` link between `AI` and `MCP`. The item uses the same 16px inline SVG convention, `currentColor` fill, and baseline margin used by the neighboring masthead icons.
+
+**Verification.** `git diff --check -- MedRecProStatic/Views/Shared/_Masthead.cshtml` passed with the existing LF-to-CRLF normalization warning. The normal `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore` reached compilation but could not overwrite the running `MedRecProStatic.exe` locked by process `30996`; a follow-up workspace-output build, `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore -p:UseAppHost=false -p:OutDir=C:\Users\chris\OneDrive\Documents\Repos\.codex-build\MedRecProStatic\`, passed with 0 warnings and 0 errors, and the temporary `.codex-build` output was removed afterward.
+
+---
+
+### 2026-06-08 12:50 PM EST — Masthead Insight Lightbulb Icon
+Updated the new `Insight` masthead item so its icon reads as an idea lightbulb rather than an analytics chart.
+
+**Implementation.** Revised [\_Masthead.cshtml](MedRecProStatic/Views/Shared/_Masthead.cshtml) by replacing the `Insight` link's chart SVG path with a two-path lightbulb SVG while keeping the same `/adverse-events` href, label placement, 16px icon dimensions, `currentColor` fill, and baseline margin used by the surrounding masthead navigation.
+
+**Verification.** `git diff --check -- MedRecProStatic/Views/Shared/_Masthead.cshtml` passed with the existing LF-to-CRLF normalization warning. `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore -p:UseAppHost=false -p:OutDir=C:\Users\chris\OneDrive\Documents\Repos\.codex-build\MedRecProStatic\` passed with 1 existing nullable warning in `Views\Home\Index.cshtml` and 0 errors, and the temporary `.codex-build` output was removed afterward.
+
+---
