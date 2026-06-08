@@ -4885,3 +4885,32 @@ Revised the therapeutic interchange compact product picker after visual review f
 **Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 4 test files / 15 tests. `npm.cmd run build` passed. `git diff --check` passed with line-ending normalization warnings only. A source and built-bundle scan found no remaining `Â`, `Ã`, `â`, arrow, enter-glyph, or keycap class patterns in the picker footer path. Browser visual verification against `http://localhost:5093/adverse-events` was attempted, but the in-app browser reported `ERR_HTTP_RESPONSE_CODE_FAILURE` for the local target.
 
 ---
+
+### 2026-06-08 10:09 AM EST — Adverse Event BCP Migration Script
+Added a dedicated BCP full-refresh utility for moving the materialized adverse event tables from local SQL Server into Azure SQL without appending duplicate production data.
+
+**Implementation.** Created [MedRecPro-AdverseEvent-Export-Import.ps1](MedRecPro/SQL/MedRecPro-AdverseEvent-Export-Import.ps1) from the existing export/import script patterns. The script supports `Export`, `Import`, and `Both`, exports the five requested AE tables to native `.dat` files, imports with `-n`, `-q`, `TABLOCK`, and identity preservation via `-E`, and writes adverse-event-specific inventory/result CSVs and logs.
+
+**Refresh safety.** The import path requires all five expected `.dat` files, prompts for `IMPORT`, truncates the target tables in reverse pipeline order, and aborts before BCP import if any truncation fails so a failed cleanup cannot silently become an append.
+
+**Verification.** Parsed [MedRecPro-AdverseEvent-Export-Import.ps1](MedRecPro/SQL/MedRecPro-AdverseEvent-Export-Import.ps1) with `System.Management.Automation.Language.Parser` successfully, verified the requested table names plus `TRUNCATE TABLE`, `-q`, `-E`, and truncate-failure abort logic are present with `Select-String`, confirmed the new script is ASCII-only, and checked `git status --short` showing the new untracked script. No live BCP export/import was run.
+
+---
+
+### 2026-06-08 11:10 AM EST — AE Dashboard Adverse-Event Data Limitation Caveat
+Added a limitation caveat to the Adverse Event dashboard footnote clarifying that the displayed figures do not represent every product-attributable adverse outcome, because coverage is bounded by what each product's label discloses and by what the table parser can extract.
+
+**Implementation.** Appended a third paragraph to the `.foot-note` block in [App.jsx](MedRecProReact/src/App.jsx) with a bold `Limitation:` lead-in. The caveat names both constraints requested — label content and parser coverage — and adds an "absence of a signal is not evidence of its absence in practice" line so the note is not read as a safety claim. It reuses the footnote's existing `<strong>` styling and HTML entities (`&apos;`, `&mdash;`) for visual consistency.
+
+**Verification.** Started the `MedRecProReact` Vite dev server and confirmed the new paragraph renders with no build or console errors. Verified via DOM inspection that the footnote now holds three paragraphs, that the `Limitation:` label inherits the footnote's secondary text color, and that the entities resolved correctly, then captured a screenshot of the rendered footnote. The unrelated "Failed to fetch" banner reflects the absent .NET backend in the preview-only setup.
+
+---
+
+### 2026-06-08 11:42 AM EST — AE Dashboard Shared-Signal Toggle Plan
+Created a pending implementation handoff for reducing therapeutic interchange crowding by adding a `Shared signals only` toggle.
+
+**Plan.** Saved [AE Dashboard Interchange Shared-Signal Toggle Plan](<Plans/(pending) AE Dashboard Interchange Shared-Signal Toggle Plan.md>) with live-code findings from [App.jsx](MedRecProReact/src/App.jsx), [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js), [normalizers.js](MedRecProReact/src/lib/normalizers.js), [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs), [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs), and [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs). The plan recommends a server-backed `sharedSignalsOnly` query flag so `OnlyA` and `OnlyB` rows can be hidden without changing the existing `Differences only` semantics.
+
+**Verification.** Confirmed the plan file exists at `Plans/(pending) AE Dashboard Interchange Shared-Signal Toggle Plan.md` and read back the opening sections. No build or test commands were run because this session created a plan artifact only and did not implement code.
+
+---
