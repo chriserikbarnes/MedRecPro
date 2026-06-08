@@ -222,11 +222,11 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that BuildInterchangeComparison handles only-A, only-B, similar, A-worse, and B-worse rows.
+        /// Verifies that BuildInterchangeComparison handles classification counts and both interchange filters.
         /// </summary>
-        /// <seealso cref="AeDashboardDerivation.BuildInterchangeComparison(AeDrugSummaryDto, AeDrugSummaryDto, IEnumerable{AeRiskSignalDto}, IEnumerable{AeRiskSignalDto}, bool, AeDashboardDerivationSettings?)"/>
+        /// <seealso cref="AeDashboardDerivation.BuildInterchangeComparison(AeDrugSummaryDto, AeDrugSummaryDto, IEnumerable{AeRiskSignalDto}, IEnumerable{AeRiskSignalDto}, bool, bool, AeDashboardDerivationSettings?)"/>
         [TestMethod]
-        public void BuildInterchangeComparison_AllClassificationBranchesAndDifferencesOnly_ReturnsExpectedCounts()
+        public void BuildInterchangeComparison_AllClassificationBranchesAndFilters_ReturnsExpectedCounts()
         {
             #region implementation
 
@@ -249,6 +249,20 @@ namespace MedRecProTest
 
             var comparison = AeDashboardDerivation.BuildInterchangeComparison(productA, productB, signalsA, signalsB);
             var differences = AeDashboardDerivation.BuildInterchangeComparison(productA, productB, signalsA, signalsB, true);
+            var sharedOnly = AeDashboardDerivation.BuildInterchangeComparison(
+                productA,
+                productB,
+                signalsA,
+                signalsB,
+                differencesOnly: false,
+                sharedSignalsOnly: true);
+            var sharedDifferences = AeDashboardDerivation.BuildInterchangeComparison(
+                productA,
+                productB,
+                signalsA,
+                signalsB,
+                differencesOnly: true,
+                sharedSignalsOnly: true);
 
             Assert.AreEqual(1, comparison.OnlyACount);
             Assert.AreEqual(1, comparison.OnlyBCount);
@@ -258,6 +272,19 @@ namespace MedRecProTest
             Assert.IsNotNull(comparison.ClassMismatchWarning);
             Assert.IsNotNull(comparison.ComparatorMismatchWarning);
             Assert.IsFalse(differences.Rows.Any(row => row.Classification == AeInterchangeClass.Similar));
+            Assert.AreEqual(0, sharedOnly.OnlyACount);
+            Assert.AreEqual(0, sharedOnly.OnlyBCount);
+            Assert.AreEqual(1, sharedOnly.SimilarCount);
+            Assert.AreEqual(1, sharedOnly.AWorseCount);
+            Assert.AreEqual(1, sharedOnly.BWorseCount);
+            Assert.IsTrue(sharedOnly.Rows.All(row => row.SignalA != null && row.SignalB != null));
+            Assert.AreEqual(0, sharedDifferences.OnlyACount);
+            Assert.AreEqual(0, sharedDifferences.OnlyBCount);
+            Assert.AreEqual(0, sharedDifferences.SimilarCount);
+            Assert.AreEqual(2, sharedDifferences.Rows.Count);
+            Assert.IsTrue(sharedDifferences.Rows.All(row =>
+                row.Classification == AeInterchangeClass.AWorse
+                || row.Classification == AeInterchangeClass.BWorse));
 
             #endregion
         }

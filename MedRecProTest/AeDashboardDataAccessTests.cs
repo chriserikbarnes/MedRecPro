@@ -899,7 +899,7 @@ namespace MedRecProTest
         /// <summary>
         /// Verifies that GetAeInterchangeAsync returns comparisons and null for missing products.
         /// </summary>
-        /// <seealso cref="DtoLabelAccess.GetAeInterchangeAsync(ApplicationDbContext, Guid, Guid, string, ILogger, bool)"/>
+        /// <seealso cref="DtoLabelAccess.GetAeInterchangeAsync(ApplicationDbContext, Guid, Guid, string, ILogger, bool, bool)"/>
         [TestMethod]
         public async Task GetAeInterchangeAsync_WithPresentAndMissingProducts_ReturnsComparisonOrNull()
         {
@@ -923,6 +923,14 @@ namespace MedRecProTest
                 DtoLabelAccessTestHelper.TestDocumentGuid2,
                 PkSecret,
                 logger);
+            var sharedComparison = await DtoLabelAccess.GetAeInterchangeAsync(
+                context,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                PkSecret,
+                logger,
+                differencesOnly: false,
+                sharedSignalsOnly: true);
             var missing = await DtoLabelAccess.GetAeInterchangeAsync(
                 context,
                 DtoLabelAccessTestHelper.TestDocumentGuid,
@@ -931,8 +939,11 @@ namespace MedRecProTest
                 logger);
 
             Assert.IsNotNull(comparison);
+            Assert.IsNotNull(sharedComparison);
             Assert.AreEqual(1, comparison.BWorseCount + comparison.AWorseCount);
             Assert.AreEqual(1, comparison.OnlyBCount);
+            Assert.AreEqual(0, sharedComparison.OnlyBCount);
+            Assert.IsTrue(sharedComparison.Rows.All(row => row.SignalA != null && row.SignalB != null));
             Assert.IsNull(missing);
 
             #endregion

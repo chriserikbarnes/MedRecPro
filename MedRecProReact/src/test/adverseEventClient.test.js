@@ -36,9 +36,10 @@ describe('buildAdverseEventUrl', () => {
       documentGuidA: '11111111-1111-1111-1111-111111111111',
       documentGuidB: '22222222-2222-2222-2222-222222222222',
       differencesOnly: true,
+      sharedSignalsOnly: true,
     });
 
-    expect(url).toBe('http://localhost:5093/api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&documentGuidB=22222222-2222-2222-2222-222222222222&differencesOnly=true');
+    expect(url).toBe('http://localhost:5093/api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&documentGuidB=22222222-2222-2222-2222-222222222222&differencesOnly=true&sharedSignalsOnly=true');
   });
 
   it('omits null, undefined, and empty-string query values', () => {

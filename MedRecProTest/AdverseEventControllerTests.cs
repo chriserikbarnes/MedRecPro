@@ -410,7 +410,7 @@ namespace MedRecProTest
         /// <summary>
         /// Verifies interchange comparison validates GUIDs, reports missing products, and returns a comparison for seeded products.
         /// </summary>
-        /// <seealso cref="AdverseEventController.GetInterchange(Guid, Guid, bool)"/>
+        /// <seealso cref="AdverseEventController.GetInterchange(Guid, Guid, bool, bool)"/>
         [TestMethod]
         public async Task GetInterchange_ValidatesGuidsAndReturnsComparisonOrNotFound()
         {
@@ -426,6 +426,7 @@ namespace MedRecProTest
             DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, "IBUPROFEN");
             DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid, riskId: 1, parameterName: "Headache", rr: 4.0);
             DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, riskId: 2, parameterName: "Headache", rr: 1.5);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid, riskId: 3, parameterName: "Nausea", rr: 2.0);
 
             var empty = await controller.GetInterchange(Guid.Empty, DtoLabelAccessTestHelper.TestDocumentGuid2, false);
             var identical = await controller.GetInterchange(
@@ -440,12 +441,20 @@ namespace MedRecProTest
                 DtoLabelAccessTestHelper.TestDocumentGuid,
                 DtoLabelAccessTestHelper.TestDocumentGuid2,
                 false));
+            var sharedComparison = getOkValue<AeInterchangeComparisonDto>(await controller.GetInterchange(
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                differencesOnly: false,
+                sharedSignalsOnly: true));
 
             assertStatus(empty.Result!, StatusCodes.Status400BadRequest);
             assertStatus(identical.Result!, StatusCodes.Status400BadRequest);
             assertStatus(missing.Result!, StatusCodes.Status404NotFound);
             Assert.AreEqual("ASPIRIN", comparison.ProductA!.ProductName);
             Assert.AreEqual("IBUPROFEN", comparison.ProductB!.ProductName);
+            Assert.AreEqual(1, comparison.OnlyACount);
+            Assert.AreEqual(0, sharedComparison.OnlyACount);
+            Assert.IsTrue(sharedComparison.Rows.All(row => row.SignalA != null && row.SignalB != null));
 
             #endregion
         }

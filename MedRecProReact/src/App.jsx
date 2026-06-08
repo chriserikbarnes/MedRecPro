@@ -1450,12 +1450,14 @@ function InterchangePanel({
     isProductLoading,
     productError,
     onRetryProducts,
+    sharedSignalsOnly,
     differencesOnly,
     comparison,
     isLoading,
     error,
     onChangeProductA,
     onChangeProductB,
+    onToggleSharedSignalsOnly,
     onToggleDifferencesOnly,
     onRetry,
 }) {
@@ -1474,15 +1476,26 @@ function InterchangePanel({
                     <div id="interchange-title" className="panel-title">Therapeutic interchange comparison</div>
                     <div className="panel-sub">Compare API-derived AE signals across two dashboard products.</div>
                 </div>
-                <button
-                    type="button"
-                    className={`chip-toggle${differencesOnly ? ' on' : ''}`}
-                    aria-pressed={differencesOnly}
-                    onClick={onToggleDifferencesOnly}
-                >
-                    <span className="sw" aria-hidden="true" />
-                    Differences only
-                </button>
+                <div className="panel-actions" aria-label="Interchange row filters">
+                    <button
+                        type="button"
+                        className={`chip-toggle${sharedSignalsOnly ? ' on' : ''}`}
+                        aria-pressed={sharedSignalsOnly}
+                        onClick={onToggleSharedSignalsOnly}
+                    >
+                        <span className="sw" aria-hidden="true" />
+                        Shared signals only
+                    </button>
+                    <button
+                        type="button"
+                        className={`chip-toggle${differencesOnly ? ' on' : ''}`}
+                        aria-pressed={differencesOnly}
+                        onClick={onToggleDifferencesOnly}
+                    >
+                        <span className="sw" aria-hidden="true" />
+                        Differences only
+                    </button>
+                </div>
             </div>
 
             <div className="ic-pickers">
@@ -1653,12 +1666,14 @@ function CrossProductTools(props) {
                 isProductLoading={props.isProductLoading}
                 productError={props.productError}
                 onRetryProducts={props.onRetryProducts}
+                sharedSignalsOnly={props.sharedSignalsOnly}
                 differencesOnly={props.differencesOnly}
                 comparison={props.interchangeComparison}
                 isLoading={props.isInterchangeLoading}
                 error={props.interchangeError}
                 onChangeProductA={props.onChangeInterchangeProductA}
                 onChangeProductB={props.onChangeInterchangeProductB}
+                onToggleSharedSignalsOnly={props.onToggleSharedSignalsOnly}
                 onToggleDifferencesOnly={props.onToggleDifferencesOnly}
                 onRetry={props.onRetryInterchange}
             />
@@ -1855,6 +1870,9 @@ function App() {
 
     // Differences-only is sent to the API so the server remains the comparison authority.
     const [differencesOnly, setDifferencesOnly] = useState(false);
+
+    // Shared-signals-only is server-side so counts match the rendered row set.
+    const [sharedSignalsOnly, setSharedSignalsOnly] = useState(false);
 
     // Interchange comparison stores normalized rows/counts/warnings.
     const [interchangeComparison, setInterchangeComparison] = useState(EMPTY_INTERCHANGE_VIEW);
@@ -2302,6 +2320,7 @@ function App() {
                     documentGuidA: interchangeDocumentGuidA,
                     documentGuidB: interchangeDocumentGuidB,
                     differencesOnly,
+                    sharedSignalsOnly,
                     signal: abortController.signal,
                 });
 
@@ -2332,6 +2351,7 @@ function App() {
         interchangeDocumentGuidA,
         interchangeDocumentGuidB,
         interchangeReloadToken,
+        sharedSignalsOnly,
     ]);
 
     /**************************************************************/
@@ -2671,6 +2691,14 @@ function App() {
 
     /**************************************************************/
     /**
+     * Toggles server-side shared-signal filtering for interchange.
+     */
+    const handleToggleSharedSignalsOnly = useCallback(() => {
+        setSharedSignalsOnly((currentValue) => !currentValue);
+    }, []);
+
+    /**************************************************************/
+    /**
      * Retries a visualization request.
      *
      * @param {'triage' | 'forest' | 'quadrant'} view - View token.
@@ -2875,12 +2903,14 @@ function App() {
                     isProductLoading={isProductLoading}
                     productError={productError}
                     onRetryProducts={refreshProducts}
+                    sharedSignalsOnly={sharedSignalsOnly}
                     differencesOnly={differencesOnly}
                     interchangeComparison={interchangeComparison}
                     isInterchangeLoading={isInterchangeLoading}
                     interchangeError={interchangeError}
                     onChangeInterchangeProductA={handleChangeInterchangeProductA}
                     onChangeInterchangeProductB={handleChangeInterchangeProductB}
+                    onToggleSharedSignalsOnly={handleToggleSharedSignalsOnly}
                     onToggleDifferencesOnly={handleToggleDifferencesOnly}
                     onRetryInterchange={retryInterchange}
                 />

@@ -816,6 +816,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="documentGuidA">SPL document identifier for product A.</param>
         /// <param name="documentGuidB">SPL document identifier for product B.</param>
         /// <param name="differencesOnly">Whether rows classified as similar should be removed.</param>
+        /// <param name="sharedSignalsOnly">Whether rows without signals on both products should be removed.</param>
         /// <returns>An interchange comparison between two dashboard products.</returns>
         /// <remarks>
         /// ## Dashboard Usage
@@ -825,7 +826,7 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         /// <example>
         /// <code>
-        /// GET /api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&amp;documentGuidB=22222222-2222-2222-2222-222222222222&amp;differencesOnly=true
+        /// GET /api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&amp;documentGuidB=22222222-2222-2222-2222-222222222222&amp;differencesOnly=true&amp;sharedSignalsOnly=true
         /// </code>
         /// </example>
         /// <response code="200">Returns an interchange comparison.</response>
@@ -847,7 +848,8 @@ namespace MedRecPro.Api.Controllers
         public async Task<ActionResult<AeInterchangeComparisonDto>> GetInterchange(
             [FromQuery] Guid documentGuidA,
             [FromQuery] Guid documentGuidB,
-            [FromQuery] bool differencesOnly = false)
+            [FromQuery] bool differencesOnly = false,
+            [FromQuery] bool sharedSignalsOnly = false)
         {
             #region implementation
 
@@ -874,7 +876,8 @@ namespace MedRecPro.Api.Controllers
                     documentGuidB,
                     _pkSecret,
                     _logger,
-                    differencesOnly);
+                    differencesOnly,
+                    sharedSignalsOnly);
 
                 if (result == null)
                 {

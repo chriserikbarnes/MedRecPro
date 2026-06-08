@@ -632,6 +632,7 @@ namespace MedRecPro.DataAccess
         /// <param name="pkSecret">Secret used for integer ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="differencesOnly">Whether rows classified as similar should be removed.</param>
+        /// <param name="sharedSignalsOnly">Whether rows without signals on both products should be removed.</param>
         /// <returns>An interchange comparison DTO, or null when either product is missing.</returns>
         /// <remarks>
         /// The comparison unions adverse-event terms across both products and delegates
@@ -639,7 +640,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <example>
         /// <code>
-        /// var comparison = await DtoLabelAccess.GetAeInterchangeAsync(db, a, b, secret, logger, true);
+        /// var comparison = await DtoLabelAccess.GetAeInterchangeAsync(db, a, b, secret, logger, true, true);
         /// </code>
         /// </example>
         /// <seealso cref="AeInterchangeComparisonDto"/>
@@ -649,7 +650,8 @@ namespace MedRecPro.DataAccess
             Guid documentGuidB,
             string pkSecret,
             ILogger logger,
-            bool differencesOnly = false)
+            bool differencesOnly = false,
+            bool sharedSignalsOnly = false)
         {
             #region implementation
 
@@ -690,7 +692,8 @@ namespace MedRecPro.DataAccess
                 productB,
                 signalsA,
                 signalsB,
-                differencesOnly);
+                differencesOnly,
+                sharedSignalsOnly);
 
             #endregion
         }

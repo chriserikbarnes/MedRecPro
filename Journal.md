@@ -4914,3 +4914,18 @@ Created a pending implementation handoff for reducing therapeutic interchange cr
 **Verification.** Confirmed the plan file exists at `Plans/(pending) AE Dashboard Interchange Shared-Signal Toggle Plan.md` and read back the opening sections. No build or test commands were run because this session created a plan artifact only and did not implement code.
 
 ---
+
+### 2026-06-08 12:02 PM EST — AE Dashboard Shared-Signal Toggle Implementation
+Implemented the therapeutic interchange `Shared signals only` toggle so common-comparison rows can be isolated without changing the existing `Differences only` behavior.
+
+**Server filtering.** Added the `sharedSignalsOnly` query flag to [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs), passed it through [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs), and filtered rows in [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs) only after interchange classification. The resulting server counts now match the filtered row set for all four toggle combinations.
+
+**Client wiring.** Added `sharedSignalsOnly` state, request serialization, and a second header toggle in [App.jsx](MedRecProReact/src/App.jsx) and [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js). Added responsive `.panel-actions` styling in [index.css](MedRecProReact/src/index.css) and rebuilt [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css) plus [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js).
+
+**Tests.** Extended [adverseEventClient.test.js](MedRecProReact/src/test/adverseEventClient.test.js), [AeDashboardDerivationTests.cs](MedRecProTest/AeDashboardDerivationTests.cs), [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs), and [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) to cover URL serialization, derivation truth-table behavior, and server pass-through.
+
+**Plan status.** Renamed the handoff from `(pending)` to [AE Dashboard Interchange Shared-Signal Toggle Plan](<Plans/(done) AE Dashboard Interchange Shared-Signal Toggle Plan.md>) after implementation.
+
+**Verification.** `npm.cmd run lint`, `npm.cmd test` (4 files / 15 tests), and `npm.cmd run build` passed. Focused `.NET` filters passed: `AeDashboardDerivationTests` 11/11, `AeDashboardDataAccessTests` 19/19, and `AdverseEventControllerTests` 11/11. `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore` passed with 1 existing nullable warning, and `dotnet build MedRecPro\MedRecPro.csproj --no-restore` passed with the existing warning backlog. `git diff --check` passed with line-ending normalization warnings only. A full `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore` run was attempted but timed out after compilation at 120 seconds, so focused filters were used for this change set.
+
+---

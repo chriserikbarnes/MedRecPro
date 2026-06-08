@@ -281,6 +281,10 @@ a { color: var(--color-primary); text-decoration: none; }
   padding: 16px 18px 12px;
   flex-wrap: wrap;
 }
+.panel-heading {
+  flex: 1 1 260px;
+  min-width: 0;
+}
 .panel-title {
   font-size: 16px;
   font-weight: var(--weight-semibold);
@@ -294,6 +298,14 @@ a { color: var(--color-primary); text-decoration: none; }
   color: var(--color-text-tertiary);
   font-weight: var(--weight-regular);
   margin-top: 2px;
+}
+.panel-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
 }
 
 /* Tab segmented control */
@@ -1536,6 +1548,11 @@ a { color: var(--color-primary); text-decoration: none; }
   .page-header { padding: 18px 14px 6px; }
   .panel { margin: 10px 14px; border-radius: var(--radius-md); }
   .panel-header { padding: 14px 14px 10px; }
+  .panel-actions {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
   .filter-row { padding: 0 14px 12px; }
   .kpi-strip { padding: 14px 14px 4px; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .kpi-card { padding: 12px 12px; }

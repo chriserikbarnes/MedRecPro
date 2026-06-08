@@ -606,6 +606,7 @@ namespace MedRecPro.DataAccess
         /// <param name="signalsA">Signals for the first product.</param>
         /// <param name="signalsB">Signals for the second product.</param>
         /// <param name="differencesOnly">Whether to remove rows classified as similar.</param>
+        /// <param name="sharedSignalsOnly">Whether to remove rows where only one product has the signal.</param>
         /// <param name="settings">Optional derivation settings. Defaults mirror FeatureFlags:AeDashboard.</param>
         /// <returns>An interchange comparison DTO with row counts and warnings.</returns>
         /// <remarks>
@@ -625,6 +626,7 @@ namespace MedRecPro.DataAccess
             IEnumerable<AeRiskSignalDto> signalsA,
             IEnumerable<AeRiskSignalDto> signalsB,
             bool differencesOnly = false,
+            bool sharedSignalsOnly = false,
             AeDashboardDerivationSettings? settings = null)
         {
             #region implementation
@@ -654,11 +656,12 @@ namespace MedRecPro.DataAccess
                 .Union(signalLookupB.Keys, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(term => term, StringComparer.OrdinalIgnoreCase);
 
-            // Build the row list and optionally suppress "similar" rows for a
-            // differences-only UI mode.
+            // Build the row list after classification, then apply independent UI
+            // filters so similar shared rows can survive when only shared rows are requested.
             var rows = terms
                 .Select(term => buildInterchangeRow(term, signalLookupA, signalLookupB))
                 .Where(row => !differencesOnly || row.Classification != AeInterchangeClass.Similar)
+                .Where(row => !sharedSignalsOnly || (row.SignalA != null && row.SignalB != null))
                 .ToList();
 
             // Count the rendered rows by classification so the dashboard can show
