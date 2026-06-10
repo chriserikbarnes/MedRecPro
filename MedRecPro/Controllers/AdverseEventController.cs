@@ -901,6 +901,395 @@ namespace MedRecPro.Api.Controllers
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets the SOC × SOC adverse-event correlation map for one pharmacologic class.
+        /// </summary>
+        /// <param name="pharmClassCode">Pharmacologic class code (the public dashboard text form, like a UNII).</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept before correlating.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before correlating.</param>
+        /// <param name="minDrugsPerCell">Minimum drugs a cell needs for a coefficient (server floor 3).</param>
+        /// <param name="method">Correlation method; Spearman by default.</param>
+        /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
+        /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The class-scoped correlation map.</returns>
+        /// <remarks>
+        /// ## Dashboard Usage
+        /// Within a pharmacologic class, correlates each pair of MedDRA System Organ Classes on
+        /// their per-drug LogRR profiles. The observation unit is a drug, so cells are usually
+        /// thin; the response defaults to placebo-only, fragile-excluded, Spearman over median
+        /// LogRR with a drugs-per-cell floor, and returns per-cell `n`, null thin cells, and
+        /// honesty `Warnings` so the map renders truthfully.
+        ///
+        /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation?pharmClassCode=N0000175076&amp;comparator=Placebo&amp;minDrugsPerCell=3
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the correlation map.</response>
+        /// <response code="400">If the pharmacologic class code is empty.</response>
+        /// <response code="404">If the class has no AE rows for the dashboard.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationMapAsync"/>
+        /// <seealso cref="AeCorrelationMapDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation")]
+        [ProducesResponseType(typeof(AeCorrelationMapDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<AeCorrelationMapDto>> GetCorrelationMap(
+            [FromQuery] string? pharmClassCode,
+            [FromQuery] AeComparatorMix? comparator,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] int minDrugsPerCell = 4,
+            [FromQuery] AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            [FromQuery] bool seriousSocOnly = false,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            if (string.IsNullOrWhiteSpace(pharmClassCode))
+            {
+                return BadRequest("Pharmacologic class code is required.");
+            }
+
+            try
+            {
+                var result = await DtoLabelAccess.GetAeCorrelationMapAsync(
+                    _dbContext,
+                    pharmClassCode.Trim(),
+                    _pkSecret,
+                    _logger,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    minDrugsPerCell,
+                    method,
+                    aggregation,
+                    seriousSocOnly,
+                    excludeCombos,
+                    minEvents);
+
+                if (result == null)
+                {
+                    return NotFound("The requested pharmacologic class is not available in the AE dashboard.");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard correlation map for {PharmClassCode}.", pharmClassCode);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard correlation map.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the pharmacologic classes that have AE rows, for the correlation class picker.
+        /// </summary>
+        /// <param name="classSearch">Optional class code or name search text.</param>
+        /// <param name="pageNumber">Optional 1-based page number.</param>
+        /// <param name="pageSize">Optional page size.</param>
+        /// <returns>Pharmacologic class picker items ordered correlatable-first.</returns>
+        /// <remarks>
+        /// ## Dashboard Usage
+        /// Backs the correlation class picker. Scoped to classes that actually have AE risk rows
+        /// and flags which classes have enough drugs and SOCs to be worth correlating.
+        ///
+        /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation/classes?classSearch=kinase&amp;pageNumber=1&amp;pageSize=25
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the pharmacologic class picker items.</response>
+        /// <response code="400">If pagination values are invalid.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationClassesAsync"/>
+        /// <seealso cref="AePharmClassPickerItemDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation/classes")]
+        [ProducesResponseType(typeof(List<AePharmClassPickerItemDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<List<AePharmClassPickerItemDto>>> GetCorrelationClasses(
+            [FromQuery] string? classSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            try
+            {
+                var results = await DtoLabelAccess.GetAeCorrelationClassesAsync(
+                    _dbContext,
+                    _pkSecret,
+                    _logger,
+                    classSearch,
+                    pageNumber,
+                    pageSize);
+
+                addPaginationHeaders(pageNumber, pageSize, results.Count);
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard correlation classes.");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving AE dashboard correlation classes.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the SOC × drug relative-risk heatmap for one pharmacologic class.
+        /// </summary>
+        /// <param name="pharmClassCode">Pharmacologic class code (the public dashboard text form).</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
+        /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The class-scoped SOC × drug heatmap.</returns>
+        /// <remarks>
+        /// ## Dashboard Usage
+        /// The honest small-n companion to the correlation map: rows are SOCs, columns are drugs,
+        /// and each populated cell is an aggregated LogRR. Stays meaningful when a class is too
+        /// small to correlate.
+        ///
+        /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation/heatmap?pharmClassCode=N0000175076&amp;comparator=Placebo
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the heatmap.</response>
+        /// <response code="400">If the pharmacologic class code is empty.</response>
+        /// <response code="404">If the class has no AE rows for the dashboard.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationHeatmapAsync"/>
+        /// <seealso cref="AeCorrelationHeatmapDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation/heatmap")]
+        [ProducesResponseType(typeof(AeCorrelationHeatmapDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<AeCorrelationHeatmapDto>> GetCorrelationHeatmap(
+            [FromQuery] string? pharmClassCode,
+            [FromQuery] AeComparatorMix? comparator,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            [FromQuery] bool seriousSocOnly = false,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            if (string.IsNullOrWhiteSpace(pharmClassCode))
+            {
+                return BadRequest("Pharmacologic class code is required.");
+            }
+
+            try
+            {
+                var result = await DtoLabelAccess.GetAeCorrelationHeatmapAsync(
+                    _dbContext,
+                    pharmClassCode.Trim(),
+                    _pkSecret,
+                    _logger,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    aggregation,
+                    seriousSocOnly,
+                    excludeCombos,
+                    minEvents);
+
+                if (result == null)
+                {
+                    return NotFound("The requested pharmacologic class is not available in the AE dashboard.");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard correlation heatmap for {PharmClassCode}.", pharmClassCode);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard correlation heatmap.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the per-drug drill-down behind one SOC × SOC correlation cell.
+        /// </summary>
+        /// <param name="pharmClassCode">Pharmacologic class code (the public dashboard text form).</param>
+        /// <param name="socX">Row SOC of the cell.</param>
+        /// <param name="socY">Column SOC of the cell.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="method">Correlation method used for the recomputed coefficient.</param>
+        /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
+        /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The cell drill-down with the per-drug paired observations.</returns>
+        /// <remarks>
+        /// ## Dashboard Usage
+        /// Mirrors the triage/forest/quadrant drill pattern. Returns the per-drug paired
+        /// (SOC X LogRR, SOC Y LogRR) observations the cell's coefficient was computed over, with
+        /// encrypted moiety provenance — the answer to "why is this cell 0.9?".
+        ///
+        /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation/cell?pharmClassCode=N0000175076&amp;socX=Cardiac%20Disorders&amp;socY=Vascular%20Disorders
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the cell drill-down.</response>
+        /// <response code="400">If the class code or either SOC is empty.</response>
+        /// <response code="404">If the class has no AE rows for the dashboard.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationCellDetailAsync"/>
+        /// <seealso cref="AeCorrelationCellDetailDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation/cell")]
+        [ProducesResponseType(typeof(AeCorrelationCellDetailDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<AeCorrelationCellDetailDto>> GetCorrelationCell(
+            [FromQuery] string? pharmClassCode,
+            [FromQuery] string? socX,
+            [FromQuery] string? socY,
+            [FromQuery] AeComparatorMix? comparator,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            [FromQuery] bool seriousSocOnly = false,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            if (string.IsNullOrWhiteSpace(pharmClassCode))
+            {
+                return BadRequest("Pharmacologic class code is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(socX) || string.IsNullOrWhiteSpace(socY))
+            {
+                return BadRequest("Both socX and socY are required.");
+            }
+
+            try
+            {
+                var result = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(
+                    _dbContext,
+                    pharmClassCode.Trim(),
+                    socX.Trim(),
+                    socY.Trim(),
+                    _pkSecret,
+                    _logger,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    method,
+                    aggregation,
+                    seriousSocOnly,
+                    excludeCombos,
+                    minEvents);
+
+                if (result == null)
+                {
+                    return NotFound("The requested pharmacologic class is not available in the AE dashboard.");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard correlation cell for {PharmClassCode}.", pharmClassCode);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard correlation cell detail.");
+            }
+
+            #endregion
+        }
+
         #endregion public dashboard actions
 
         #region private helpers

@@ -1014,6 +1014,479 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Builds the SOC × SOC correlation map for one pharmacologic class.
+        /// </summary>
+        /// <param name="pharmClassCode">Pharmacologic class code the map is scoped to.</param>
+        /// <param name="pharmClassName">Pharmacologic class display name.</param>
+        /// <param name="encryptedPharmacologicClassId">Encrypted class identifier for client-safe navigation.</param>
+        /// <param name="filters">Applied filters, echoed onto the payload.</param>
+        /// <param name="observations">Drug-within-class observations to correlate.</param>
+        /// <param name="warnings">Base honesty warnings collected during observation assembly.</param>
+        /// <returns>A correlation map DTO with an ordered SOC axis, upper-triangle cells, and per-SOC summaries.</returns>
+        /// <remarks>
+        /// Each off-diagonal cell is the correlation, across drugs present in both SOCs, of
+        /// the two SOCs' per-drug aggregated LogRR. Cells below <c>max(MinDrugsPerCell, 3)</c>
+        /// return a null coefficient and <see cref="AeCorrelationCellDto.InsufficientN"/>; the
+        /// diagonal is forced to 1.0. Pure function — no EF, cache, or mutable state.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var map = AeDashboardDerivation.BuildCorrelationMap(code, name, encId, filters, observations, warnings);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCorrelationMapDto"/>
+        /// <seealso cref="ComputeCorrelation(IReadOnlyList{double}, IReadOnlyList{double}, AeCorrelationMethod)"/>
+        public static AeCorrelationMapDto BuildCorrelationMap(
+            string pharmClassCode,
+            string? pharmClassName,
+            string? encryptedPharmacologicClassId,
+            AeCorrelationFilters filters,
+            IReadOnlyList<AeCorrelationObservation> observations,
+            IReadOnlyList<string> warnings)
+        {
+            #region implementation
+
+            // Aggregate each drug's terms to one LogRR per SOC, then pivot to drug -> SOC.
+            var aggregates = AggregatePerDrugSoc(observations, filters.Aggregation);
+            var socAxis = orderedSocAxis(observations);
+            var perDrug = pivotByDrug(aggregates);
+
+            // The drugs-per-cell floor is clamped to a hard minimum of three so a coefficient
+            // is never returned for a mechanically ±1 pair of two drugs.
+            var floor = Math.Max(filters.MinDrugsPerCell, 3);
+
+            // Build only the upper triangle including the diagonal; the client mirrors it.
+            var cells = new List<AeCorrelationCellDto>();
+            for (var i = 0; i < socAxis.Count; i++)
+            {
+                for (var j = i; j < socAxis.Count; j++)
+                {
+                    cells.Add(i == j
+                        ? buildDiagonalCell(i, socAxis[i], perDrug)
+                        : buildOffDiagonalCell(i, j, socAxis, perDrug, filters.Method, floor));
+                }
+            }
+
+            // Per-SOC marginal context the matrix cells cannot show on their own.
+            var socSummaries = socAxis
+                .Select((soc, index) => buildSocSummary(index, soc, observations, perDrug))
+                .ToList();
+
+            // Carry forward the assembly warnings and add the correlation-specific honesty notes.
+            var mapWarnings = new List<string>(warnings)
+            {
+                "Cells use pairwise-complete drugs; the matrix is not guaranteed positive semi-definite, so do not cluster or run PCA on it without repair."
+            };
+            if (cells.Any(cell => !cell.IsDiagonal && cell.InsufficientN))
+            {
+                mapWarnings.Add($"Some cells fall below the minimum of {floor} drugs and are returned as null.");
+            }
+
+            return new AeCorrelationMapDto
+            {
+                PharmClassCode = pharmClassCode,
+                PharmClassName = pharmClassName,
+                EncryptedPharmacologicClassID = encryptedPharmacologicClassId,
+                AppliedFilters = filters,
+                DrugCount = perDrug.Count,
+                Soc = socAxis,
+                Cells = cells,
+                SocSummaries = socSummaries,
+                Warnings = mapWarnings
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the SOC × drug relative-risk heatmap for one pharmacologic class.
+        /// </summary>
+        /// <param name="pharmClassCode">Pharmacologic class code the heatmap is scoped to.</param>
+        /// <param name="pharmClassName">Pharmacologic class display name.</param>
+        /// <param name="encryptedPharmacologicClassId">Encrypted class identifier for client-safe navigation.</param>
+        /// <param name="filters">Applied filters, echoed onto the payload.</param>
+        /// <param name="observations">Drug-within-class observations to aggregate.</param>
+        /// <param name="warnings">Base honesty warnings collected during observation assembly.</param>
+        /// <returns>A heatmap DTO with SOC rows, drug columns, and populated aggregated cells.</returns>
+        /// <remarks>
+        /// The honest small-n companion to <see cref="BuildCorrelationMap"/>: it stays meaningful
+        /// when a class is too small to correlate. Only populated (SOC, drug) cells are emitted.
+        /// Pure function — no EF, cache, or mutable state.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var heatmap = AeDashboardDerivation.BuildCorrelationHeatmap(code, name, encId, filters, observations, warnings);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCorrelationHeatmapDto"/>
+        public static AeCorrelationHeatmapDto BuildCorrelationHeatmap(
+            string pharmClassCode,
+            string? pharmClassName,
+            string? encryptedPharmacologicClassId,
+            AeCorrelationFilters filters,
+            IReadOnlyList<AeCorrelationObservation> observations,
+            IReadOnlyList<string> warnings)
+        {
+            #region implementation
+
+            var aggregates = AggregatePerDrugSoc(observations, filters.Aggregation);
+            var socAxis = orderedSocAxis(observations);
+            var socIndex = indexLookup(socAxis);
+
+            // Drug columns are deduplicated to one per drug key and ordered for stable rendering.
+            var drugReps = observations
+                .GroupBy(observation => observation.DrugKey)
+                .Select(group => group.First())
+                .OrderBy(observation => observation.DrugDisplayName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(observation => observation.DrugKey, StringComparer.Ordinal)
+                .ToList();
+            var drugIndex = drugReps
+                .Select((observation, index) => (observation.DrugKey, index))
+                .ToDictionary(entry => entry.DrugKey, entry => entry.index);
+
+            // Emit one cell per populated (SOC, drug) aggregate; the client fills the gaps.
+            var cells = new List<AeCorrelationHeatmapCellDto>();
+            foreach (var aggregate in aggregates)
+            {
+                if (!socIndex.TryGetValue(aggregate.Key.Soc, out var socColumn)
+                    || !drugIndex.TryGetValue(aggregate.Key.DrugKey, out var drugColumn))
+                {
+                    continue;
+                }
+
+                cells.Add(new AeCorrelationHeatmapCellDto
+                {
+                    SocIndex = socColumn,
+                    DrugIndex = drugColumn,
+                    LogRr = aggregate.Value.Value,
+                    Rr = Math.Exp(aggregate.Value.Value),
+                    Precision = aggregate.Value.Precision,
+                    Significance = aggregate.Value.Significance,
+                    TermCount = aggregate.Value.Count
+                });
+            }
+
+            return new AeCorrelationHeatmapDto
+            {
+                PharmClassCode = pharmClassCode,
+                PharmClassName = pharmClassName,
+                EncryptedPharmacologicClassID = encryptedPharmacologicClassId,
+                AppliedFilters = filters,
+                DrugCount = drugReps.Count,
+                Soc = socAxis,
+                Drugs = drugReps
+                    .Select(observation => new AeCorrelationHeatmapDrugDto
+                    {
+                        EncryptedActiveMoietyID = observation.EncryptedActiveMoietyID,
+                        DrugDisplayName = observation.DrugDisplayName,
+                        DocumentGUID = observation.DocumentGUID
+                    })
+                    .ToList(),
+                Cells = cells
+                    .OrderBy(cell => cell.SocIndex)
+                    .ThenBy(cell => cell.DrugIndex)
+                    .ToList(),
+                Warnings = new List<string>(warnings)
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the per-drug drill-down behind one SOC × SOC correlation cell.
+        /// </summary>
+        /// <param name="pharmClassCode">Pharmacologic class code the cell belongs to.</param>
+        /// <param name="pharmClassName">Pharmacologic class display name.</param>
+        /// <param name="socX">Requested row SOC (matched case-insensitively).</param>
+        /// <param name="socY">Requested column SOC (matched case-insensitively).</param>
+        /// <param name="filters">Applied filters, echoed onto the payload.</param>
+        /// <param name="observations">Drug-within-class observations to pair.</param>
+        /// <param name="warnings">Base honesty warnings collected during observation assembly.</param>
+        /// <returns>A cell-detail DTO with the per-drug paired LogRR observations and recomputed coefficient.</returns>
+        /// <remarks>
+        /// Includes only drugs present in both SOCs (the pairwise-complete contributors), so the
+        /// pair count matches the map cell. Pure function — no EF, cache, or mutable state.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var detail = AeDashboardDerivation.BuildCorrelationCellDetail(code, name, socX, socY, filters, observations, warnings);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCorrelationCellDetailDto"/>
+        public static AeCorrelationCellDetailDto BuildCorrelationCellDetail(
+            string pharmClassCode,
+            string? pharmClassName,
+            string socX,
+            string socY,
+            AeCorrelationFilters filters,
+            IReadOnlyList<AeCorrelationObservation> observations,
+            IReadOnlyList<string> warnings)
+        {
+            #region implementation
+
+            var detailWarnings = new List<string>(warnings);
+            var aggregates = AggregatePerDrugSoc(observations, filters.Aggregation);
+
+            // Resolve the requested SOCs to their canonical casing from the data.
+            var canonicalX = observations
+                .Select(observation => observation.Soc)
+                .FirstOrDefault(soc => string.Equals(soc, socX, StringComparison.OrdinalIgnoreCase));
+            var canonicalY = observations
+                .Select(observation => observation.Soc)
+                .FirstOrDefault(soc => string.Equals(soc, socY, StringComparison.OrdinalIgnoreCase));
+
+            var detail = new AeCorrelationCellDetailDto
+            {
+                PharmClassCode = pharmClassCode,
+                PharmClassName = pharmClassName,
+                SocX = canonicalX ?? socX,
+                SocY = canonicalY ?? socY,
+                AppliedFilters = filters,
+                Warnings = detailWarnings
+            };
+
+            // A cell only exists when both SOCs are present in the filtered data.
+            if (canonicalX == null || canonicalY == null)
+            {
+                detailWarnings.Add("One or both requested SOCs have no rows in this class after filtering.");
+                return detail;
+            }
+
+            var perDrug = pivotByDrug(aggregates);
+            var drugReps = observations
+                .GroupBy(observation => observation.DrugKey)
+                .ToDictionary(group => group.Key, group => group.First());
+
+            // Pair each contributing drug's SOC-X and SOC-Y aggregates.
+            var pairs = new List<AeCorrelationDrugPairDto>();
+            var xs = new List<double>();
+            var ys = new List<double>();
+            foreach (var (drugKey, perSoc) in perDrug)
+            {
+                if (!perSoc.TryGetValue(canonicalX, out var aggregateX)
+                    || !perSoc.TryGetValue(canonicalY, out var aggregateY))
+                {
+                    continue;
+                }
+
+                var representative = drugReps[drugKey];
+                xs.Add(aggregateX.Value);
+                ys.Add(aggregateY.Value);
+                pairs.Add(new AeCorrelationDrugPairDto
+                {
+                    DrugDisplayName = representative.DrugDisplayName,
+                    EncryptedActiveMoietyID = representative.EncryptedActiveMoietyID,
+                    LogRrX = aggregateX.Value,
+                    LogRrY = aggregateY.Value,
+                    RrX = Math.Exp(aggregateX.Value),
+                    RrY = Math.Exp(aggregateY.Value),
+                    PrecisionX = aggregateX.Precision,
+                    PrecisionY = aggregateY.Precision,
+                    TermCountX = aggregateX.Count,
+                    TermCountY = aggregateY.Count
+                });
+            }
+
+            // The drill-down shows every contributing pair, so it returns the raw coefficient
+            // (null only for fewer than two pairs or zero variance) rather than applying the
+            // map's drugs-per-cell floor; the reader can see the small n directly.
+            var (coefficient, pairCount, _) = ComputeCorrelation(xs, ys, filters.Method);
+            detail.DrugPairs = pairs
+                .OrderBy(pair => pair.DrugDisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(pair => pair.LogRrX)
+                .ToList();
+            detail.Coefficient = coefficient;
+            detail.PairCount = pairCount;
+            return detail;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Aggregates each drug's adverse-event terms to one value per SOC.
+        /// </summary>
+        /// <param name="observations">Drug-within-class observations.</param>
+        /// <param name="aggregation">Median (default) or mean of the terms' LogRR.</param>
+        /// <returns>A map from (drug key, SOC) to the aggregated value, fragility, term count, and representative direction.</returns>
+        /// <remarks>
+        /// A drug can report several terms in one SOC; this collapses them to a single number
+        /// before correlation so each drug contributes one point per SOC. Pure function.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var aggregates = AeDashboardDerivation.AggregatePerDrugSoc(observations, AeCorrelationAggregation.MedianLogRr);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCorrelationAggregate"/>
+        public static Dictionary<(string DrugKey, string Soc), AeCorrelationAggregate> AggregatePerDrugSoc(
+            IReadOnlyList<AeCorrelationObservation> observations,
+            AeCorrelationAggregation aggregation)
+        {
+            #region implementation
+
+            // Fold SOC casing to one canonical (first-seen) form before grouping. The tuple
+            // key compares strings ordinally, while the downstream pivot, axis, and index are
+            // all case-insensitive — without this fold, one drug with two casings of the same
+            // SOC would split into two aggregates and one would silently overwrite the other.
+            var canonicalSocs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var observation in observations)
+            {
+                canonicalSocs.TryAdd(observation.Soc, observation.Soc);
+            }
+
+            return observations
+                .GroupBy(observation => (observation.DrugKey, Soc: canonicalSocs[observation.Soc]))
+                .ToDictionary(
+                    group => group.Key,
+                    group =>
+                    {
+                        // Collapse the term-level LogRR values for this drug/SOC pair.
+                        var logs = group.Select(observation => observation.LogRr).ToList();
+                        var value = aggregation == AeCorrelationAggregation.MeanLogRr
+                            ? logs.Average()
+                            : median(logs);
+
+                        // The strongest-magnitude term supplies the representative direction
+                        // and precision shown by the heatmap and drill-down.
+                        var representative = group
+                            .OrderByDescending(observation => Math.Abs(observation.LogRr))
+                            .ThenByDescending(observation => observation.Events)
+                            .First();
+
+                        return new AeCorrelationAggregate(
+                            value,
+                            group.Any(observation => observation.Precision == AePrecisionClass.Fragile),
+                            group.Count(),
+                            representative.Precision,
+                            representative.RiskSignificance);
+                    });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Computes a correlation coefficient, pair count, and two-sided p-value.
+        /// </summary>
+        /// <param name="xs">First paired vector.</param>
+        /// <param name="ys">Second paired vector.</param>
+        /// <param name="method">Spearman (rank) or Pearson.</param>
+        /// <returns>The coefficient (null for n &lt; 2 or zero variance), the pair count, and the p-value (null for n &lt; 3 or |r| = 1).</returns>
+        /// <remarks>
+        /// Spearman is Pearson over tie-averaged ranks. The coefficient is clamped to [-1, 1].
+        /// The p-value uses the t-statistic <c>r·sqrt((n-2)/(1-r²))</c> against Student's t with
+        /// <c>n - 2</c> degrees of freedom. Pure function.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var (coefficient, pairCount, pValue) = AeDashboardDerivation.ComputeCorrelation(xs, ys, AeCorrelationMethod.Spearman);
+        /// </code>
+        /// </example>
+        /// <seealso cref="StudentTTwoSidedP(double, int)"/>
+        public static (double? Coefficient, int PairCount, double? PValue) ComputeCorrelation(
+            IReadOnlyList<double> xs,
+            IReadOnlyList<double> ys,
+            AeCorrelationMethod method)
+        {
+            #region implementation
+
+            // A correlation needs at least two paired points; fewer is undefined.
+            var n = Math.Min(xs.Count, ys.Count);
+            if (n < 2)
+            {
+                return (null, n, null);
+            }
+
+            // Spearman ranks both vectors first; Pearson uses the raw values.
+            var a = method == AeCorrelationMethod.Spearman ? ranks(xs) : xs.Take(n).ToArray();
+            var b = method == AeCorrelationMethod.Spearman ? ranks(ys) : ys.Take(n).ToArray();
+
+            // Zero variance on either side leaves the coefficient undefined (never NaN).
+            var r = pearson(a, b);
+            if (!r.HasValue)
+            {
+                return (null, n, null);
+            }
+
+            var coefficient = clamp(r.Value, -1.0, 1.0);
+
+            // A p-value is only defined with at least three points and a non-perfect coefficient.
+            double? pValue = null;
+            if (n >= 3 && Math.Abs(coefficient) < 1.0)
+            {
+                var t = coefficient * Math.Sqrt((n - 2) / (1.0 - coefficient * coefficient));
+                pValue = StudentTTwoSidedP(t, n - 2);
+            }
+
+            return (coefficient, n, pValue);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Computes the two-sided p-value of a t-statistic under Student's t distribution.
+        /// </summary>
+        /// <param name="t">The t-statistic.</param>
+        /// <param name="df">Degrees of freedom (must be positive).</param>
+        /// <returns>The two-sided p-value, or NaN for non-positive degrees of freedom or non-finite input.</returns>
+        /// <remarks>
+        /// Evaluates the regularized incomplete beta function
+        /// <c>I_x(df/2, 1/2)</c> with <c>x = df / (df + t²)</c> using a deterministic
+        /// continued-fraction expansion. Pure function.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var p = AeDashboardDerivation.StudentTTwoSidedP(2.0, 8);
+        /// </code>
+        /// </example>
+        /// <seealso cref="ComputeCorrelation(IReadOnlyList{double}, IReadOnlyList{double}, AeCorrelationMethod)"/>
+        public static double StudentTTwoSidedP(double t, int df)
+        {
+            #region implementation
+
+            // Degrees of freedom must be positive and the statistic finite for a defined p-value.
+            if (df <= 0 || double.IsNaN(t) || double.IsInfinity(t))
+            {
+                return double.NaN;
+            }
+
+            // x maps the t-statistic onto the incomplete beta's domain; larger |t| -> smaller x -> smaller p.
+            var x = df / (df + t * t);
+            return betai(df / 2.0, 0.5, x);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a deterministic per-drug key from a document identifier.
+        /// </summary>
+        /// <param name="documentGuid">Source SPL document identifier.</param>
+        /// <returns>A stable string key derived from the GUID.</returns>
+        /// <remarks>
+        /// Used as the observation unit when a row has no active moiety. The GUID's fixed
+        /// hexadecimal form is stable across runtimes, unlike <see cref="object.GetHashCode"/>.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var key = AeDashboardDerivation.StableDrugKey(documentGuid);
+        /// </code>
+        /// </example>
+        public static string StableDrugKey(Guid documentGuid)
+        {
+            #region implementation
+
+            return $"doc:{documentGuid:N}";
+
+            #endregion
+        }
+
         #endregion public methods
 
         #region private methods
@@ -1475,6 +1948,449 @@ namespace MedRecPro.DataAccess
 
             // Clamp by applying the lower bound first and then the upper bound.
             return Math.Min(Math.Max(value, min), max);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the ordered, distinct SOC axis from correlation observations.
+        /// </summary>
+        private static List<string> orderedSocAxis(IReadOnlyList<AeCorrelationObservation> observations)
+        {
+            #region implementation
+
+            return observations
+                .Select(observation => observation.Soc)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(soc => soc, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pivots per-(drug, SOC) aggregates into a drug -> SOC -> aggregate map.
+        /// </summary>
+        private static Dictionary<string, Dictionary<string, AeCorrelationAggregate>> pivotByDrug(
+            IReadOnlyDictionary<(string DrugKey, string Soc), AeCorrelationAggregate> aggregates)
+        {
+            #region implementation
+
+            var perDrug = new Dictionary<string, Dictionary<string, AeCorrelationAggregate>>(StringComparer.Ordinal);
+            foreach (var aggregate in aggregates)
+            {
+                if (!perDrug.TryGetValue(aggregate.Key.DrugKey, out var perSoc))
+                {
+                    perSoc = new Dictionary<string, AeCorrelationAggregate>(StringComparer.OrdinalIgnoreCase);
+                    perDrug[aggregate.Key.DrugKey] = perSoc;
+                }
+
+                perSoc[aggregate.Key.Soc] = aggregate.Value;
+            }
+
+            return perDrug;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a case-insensitive name -> axis-index lookup.
+        /// </summary>
+        private static Dictionary<string, int> indexLookup(IReadOnlyList<string> axis)
+        {
+            #region implementation
+
+            var lookup = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < axis.Count; i++)
+            {
+                if (!lookup.ContainsKey(axis[i]))
+                {
+                    lookup[axis[i]] = i;
+                }
+            }
+
+            return lookup;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a non-informative diagonal correlation cell.
+        /// </summary>
+        private static AeCorrelationCellDto buildDiagonalCell(
+            int index,
+            string soc,
+            IReadOnlyDictionary<string, Dictionary<string, AeCorrelationAggregate>> perDrug)
+        {
+            #region implementation
+
+            // Diagonal n is the number of drugs with any data in this SOC.
+            var drugsInSoc = perDrug.Values.Where(perSoc => perSoc.ContainsKey(soc)).ToList();
+
+            return new AeCorrelationCellDto
+            {
+                RowIndex = index,
+                ColumnIndex = index,
+                RowSoc = soc,
+                ColumnSoc = soc,
+                Coefficient = 1.0,
+                PairCount = drugsInSoc.Count,
+                PValue = null,
+                IsSignificant = false,
+                IsFragile = drugsInSoc.Any(perSoc => perSoc[soc].AnyFragile),
+                InsufficientN = false,
+                IsDiagonal = true
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one off-diagonal correlation cell from the drugs present in both SOCs.
+        /// </summary>
+        private static AeCorrelationCellDto buildOffDiagonalCell(
+            int rowIndex,
+            int columnIndex,
+            IReadOnlyList<string> socAxis,
+            IReadOnlyDictionary<string, Dictionary<string, AeCorrelationAggregate>> perDrug,
+            AeCorrelationMethod method,
+            int floor)
+        {
+            #region implementation
+
+            var rowSoc = socAxis[rowIndex];
+            var columnSoc = socAxis[columnIndex];
+
+            // Pairwise-complete deletion: only drugs with data in both SOCs contribute.
+            var xs = new List<double>();
+            var ys = new List<double>();
+            var anyFragile = false;
+            foreach (var perSoc in perDrug.Values)
+            {
+                if (perSoc.TryGetValue(rowSoc, out var rowAggregate)
+                    && perSoc.TryGetValue(columnSoc, out var columnAggregate))
+                {
+                    xs.Add(rowAggregate.Value);
+                    ys.Add(columnAggregate.Value);
+                    anyFragile |= rowAggregate.AnyFragile || columnAggregate.AnyFragile;
+                }
+            }
+
+            var (coefficient, pairCount, pValue) = ComputeCorrelation(xs, ys, method);
+
+            // Thin cells return null rather than a confident number over noise.
+            var insufficient = pairCount < floor;
+            var cellCoefficient = insufficient ? null : coefficient;
+            var cellPValue = insufficient ? null : pValue;
+
+            return new AeCorrelationCellDto
+            {
+                RowIndex = rowIndex,
+                ColumnIndex = columnIndex,
+                RowSoc = rowSoc,
+                ColumnSoc = columnSoc,
+                Coefficient = cellCoefficient,
+                PairCount = pairCount,
+                PValue = cellPValue,
+                IsSignificant = cellCoefficient.HasValue && cellPValue.HasValue && cellPValue.Value < 0.05,
+                IsFragile = anyFragile,
+                InsufficientN = insufficient,
+                IsDiagonal = false
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the per-SOC marginal summary shown beside the matrix.
+        /// </summary>
+        private static AeCorrelationSocSummaryDto buildSocSummary(
+            int index,
+            string soc,
+            IReadOnlyList<AeCorrelationObservation> observations,
+            IReadOnlyDictionary<string, Dictionary<string, AeCorrelationAggregate>> perDrug)
+        {
+            #region implementation
+
+            // Drug-level values in this SOC are the same inputs the correlation uses.
+            var drugAggregates = perDrug.Values
+                .Where(perSoc => perSoc.ContainsKey(soc))
+                .Select(perSoc => perSoc[soc])
+                .ToList();
+            var medianLogRr = drugAggregates.Count > 0
+                ? median(drugAggregates.Select(aggregate => aggregate.Value))
+                : (double?)null;
+
+            // Direction shares are computed over the SOC's term-level observations.
+            var socObservations = observations
+                .Where(observation => string.Equals(observation.Soc, soc, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            return new AeCorrelationSocSummaryDto
+            {
+                Index = index,
+                Soc = soc,
+                DrugCount = drugAggregates.Count,
+                FragileDrugCount = drugAggregates.Count(aggregate => aggregate.AnyFragile),
+                MedianLogRr = medianLogRr,
+                MedianRr = medianLogRr.HasValue ? Math.Exp(medianLogRr.Value) : null,
+                ElevatedShare = socObservations.Count > 0
+                    ? socObservations.Count(observation => observation.RiskSignificance == AeRiskSignificance.Elevated) / (double)socObservations.Count
+                    : 0.0,
+                ProtectiveShare = socObservations.Count > 0
+                    ? socObservations.Count(observation => observation.RiskSignificance == AeRiskSignificance.Protective) / (double)socObservations.Count
+                    : 0.0
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Returns the median of a sequence, or zero for an empty sequence.
+        /// </summary>
+        private static double median(IEnumerable<double> values)
+        {
+            #region implementation
+
+            var sorted = values.OrderBy(value => value).ToList();
+            if (sorted.Count == 0)
+            {
+                return 0.0;
+            }
+
+            var mid = sorted.Count / 2;
+            return sorted.Count % 2 == 1
+                ? sorted[mid]
+                : (sorted[mid - 1] + sorted[mid]) / 2.0;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Computes tie-averaged ranks for a vector (1-based).
+        /// </summary>
+        private static double[] ranks(IReadOnlyList<double> values)
+        {
+            #region implementation
+
+            var n = values.Count;
+            var order = Enumerable.Range(0, n).OrderBy(i => values[i]).ToArray();
+            var result = new double[n];
+
+            // Walk the sorted order, assigning the average rank to each run of ties.
+            var i = 0;
+            while (i < n)
+            {
+                var j = i;
+                while (j + 1 < n && values[order[j + 1]] == values[order[i]])
+                {
+                    j++;
+                }
+
+                var averageRank = (i + j) / 2.0 + 1.0;
+                for (var k = i; k <= j; k++)
+                {
+                    result[order[k]] = averageRank;
+                }
+
+                i = j + 1;
+            }
+
+            return result;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Computes the Pearson correlation, or null when either vector has zero variance.
+        /// </summary>
+        private static double? pearson(IReadOnlyList<double> a, IReadOnlyList<double> b)
+        {
+            #region implementation
+
+            var n = Math.Min(a.Count, b.Count);
+            if (n < 2)
+            {
+                return null;
+            }
+
+            // First pass: means.
+            double sumA = 0.0, sumB = 0.0;
+            for (var k = 0; k < n; k++)
+            {
+                sumA += a[k];
+                sumB += b[k];
+            }
+
+            var meanA = sumA / n;
+            var meanB = sumB / n;
+
+            // Second pass: covariance and per-vector variance.
+            double covariance = 0.0, varianceA = 0.0, varianceB = 0.0;
+            for (var k = 0; k < n; k++)
+            {
+                var deltaA = a[k] - meanA;
+                var deltaB = b[k] - meanB;
+                covariance += deltaA * deltaB;
+                varianceA += deltaA * deltaA;
+                varianceB += deltaB * deltaB;
+            }
+
+            // A constant vector has no direction to correlate with.
+            if (varianceA <= 1e-12 || varianceB <= 1e-12)
+            {
+                return null;
+            }
+
+            return covariance / Math.Sqrt(varianceA * varianceB);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Evaluates the regularized incomplete beta function I_x(a, b).
+        /// </summary>
+        private static double betai(double a, double b, double x)
+        {
+            #region implementation
+
+            if (x <= 0.0)
+            {
+                return 0.0;
+            }
+
+            if (x >= 1.0)
+            {
+                return 1.0;
+            }
+
+            // Factor in front of the continued fraction, evaluated in log space for stability.
+            var front = Math.Exp(gammaln(a + b) - gammaln(a) - gammaln(b)
+                + a * Math.Log(x) + b * Math.Log(1.0 - x));
+
+            // Use the continued fraction on whichever side converges fastest.
+            return x < (a + 1.0) / (a + b + 2.0)
+                ? front * betacf(a, b, x) / a
+                : 1.0 - front * betacf(b, a, 1.0 - x) / b;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Evaluates the continued fraction used by <see cref="betai"/> (Lentz's method).
+        /// </summary>
+        private static double betacf(double a, double b, double x)
+        {
+            #region implementation
+
+            const int maxIterations = 200;
+            const double epsilon = 3.0e-12;
+            const double tiny = 1.0e-300;
+
+            var qab = a + b;
+            var qap = a + 1.0;
+            var qam = a - 1.0;
+            var c = 1.0;
+            var d = 1.0 - qab * x / qap;
+            if (Math.Abs(d) < tiny)
+            {
+                d = tiny;
+            }
+
+            d = 1.0 / d;
+            var h = d;
+
+            for (var m = 1; m <= maxIterations; m++)
+            {
+                var m2 = 2 * m;
+
+                // Even step.
+                var aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+                d = 1.0 + aa * d;
+                if (Math.Abs(d) < tiny)
+                {
+                    d = tiny;
+                }
+
+                c = 1.0 + aa / c;
+                if (Math.Abs(c) < tiny)
+                {
+                    c = tiny;
+                }
+
+                d = 1.0 / d;
+                h *= d * c;
+
+                // Odd step.
+                aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+                d = 1.0 + aa * d;
+                if (Math.Abs(d) < tiny)
+                {
+                    d = tiny;
+                }
+
+                c = 1.0 + aa / c;
+                if (Math.Abs(c) < tiny)
+                {
+                    c = tiny;
+                }
+
+                d = 1.0 / d;
+                var delta = d * c;
+                h *= delta;
+
+                if (Math.Abs(delta - 1.0) < epsilon)
+                {
+                    break;
+                }
+            }
+
+            return h;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Evaluates the natural log of the gamma function (Lanczos approximation).
+        /// </summary>
+        private static double gammaln(double x)
+        {
+            #region implementation
+
+            double[] coefficients =
+            {
+                76.18009172947146,
+                -86.50532032941677,
+                24.01409824083091,
+                -1.231739572450155,
+                0.1208650973866179e-2,
+                -0.5395239384953e-5
+            };
+
+            var y = x;
+            var tmp = x + 5.5;
+            tmp -= (x + 0.5) * Math.Log(tmp);
+
+            var series = 1.000000000190015;
+            for (var j = 0; j < coefficients.Length; j++)
+            {
+                y += 1.0;
+                series += coefficients[j] / y;
+            }
+
+            return -tmp + Math.Log(2.5066282746310005 * series / x);
 
             #endregion
         }

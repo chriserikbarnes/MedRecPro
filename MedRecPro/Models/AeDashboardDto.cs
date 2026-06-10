@@ -1157,4 +1157,672 @@ namespace MedRecPro.Models
         NotSignificantlyElevated,
         LowConfidence
     }
+
+    /**************************************************************/
+    /// <summary>
+    /// Correlation coefficient method used by the SOC × SOC correlation map.
+    /// </summary>
+    /// <remarks>
+    /// Spearman (rank) is the default because it resists outliers and is more honest
+    /// at the small per-cell sample sizes typical of a pharmacologic class. Pearson
+    /// is opt-in for linear-on-log-scale relationships.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationMapDto"/>
+    public enum AeCorrelationMethod
+    {
+        Spearman,
+        Pearson
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Within-SOC per-drug aggregation used before correlating two SOCs.
+    /// </summary>
+    /// <remarks>
+    /// A drug can have several adverse-event terms in one SOC; the terms are collapsed
+    /// to a single LogRR value first. Median resists outlier terms (default); mean is
+    /// opt-in.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationMapDto"/>
+    public enum AeCorrelationAggregation
+    {
+        MedianLogRr,
+        MeanLogRr
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Applied-filter echo shared by every correlation-map payload.
+    /// </summary>
+    /// <remarks>
+    /// The same object is used to filter the input observations and is echoed back to
+    /// the client so a rendered map can be reproduced exactly. Defaults are the strict,
+    /// honesty-first settings: placebo comparator only, fragile rows excluded, a minimum
+    /// drugs-per-cell floor, Spearman over median LogRR.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var filters = new AeCorrelationFilters { Comparator = AeComparatorMix.Placebo };
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeCorrelationMapDto"/>
+    public sealed class AeCorrelationFilters
+    {
+        #region Filter Properties
+
+        /**************************************************************/
+        /// <summary>Comparator mix used to scope input rows; defaults to placebo-controlled only.</summary>
+        public AeComparatorMix Comparator { get; set; } = AeComparatorMix.Placebo;
+
+        /**************************************************************/
+        /// <summary>Whether RR-non-significant input rows are retained before correlating.</summary>
+        public bool IncludeNonSignificant { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>Whether fragile/wide-CI input rows are dropped before correlating.</summary>
+        public bool ExcludeFragile { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>Minimum drugs a cell needs before a coefficient is returned (server floor 3).</summary>
+        public int MinDrugsPerCell { get; set; } = 4;
+
+        /**************************************************************/
+        /// <summary>Correlation coefficient method.</summary>
+        public AeCorrelationMethod Method { get; set; } = AeCorrelationMethod.Spearman;
+
+        /**************************************************************/
+        /// <summary>Within-SOC per-drug LogRR aggregation method.</summary>
+        public AeCorrelationAggregation Aggregation { get; set; } = AeCorrelationAggregation.MedianLogRr;
+
+        /**************************************************************/
+        /// <summary>Whether the SOC axis is restricted to serious-organ-system categories.</summary>
+        public bool SeriousSocOnly { get; set; } = false;
+
+        /**************************************************************/
+        /// <summary>Whether combination-product input rows are dropped before correlating.</summary>
+        public bool ExcludeCombos { get; set; } = false;
+
+        /**************************************************************/
+        /// <summary>Minimum total (treatment + comparator) events an input row needs to count.</summary>
+        public int MinEvents { get; set; } = 0;
+
+        #endregion Filter Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One drug-within-class observation feeding the correlation pipeline.
+    /// </summary>
+    /// <remarks>
+    /// This is an internal pipeline record, never serialized to clients. The observation
+    /// unit is a drug (distinct active moiety) within the pharmacologic class; a stable
+    /// document-derived key is used when the active moiety is null so two SPL labels of
+    /// one molecule do not double-count. <see cref="LogRr"/> is computed in memory because
+    /// the persisted log column is null for seeded rows.
+    /// </remarks>
+    /// <seealso cref="MedRecPro.DataAccess.AeDashboardDerivation.BuildCorrelationMap"/>
+    public sealed record AeCorrelationObservation
+    {
+        #region Observation Properties
+
+        /**************************************************************/
+        /// <summary>Stable per-drug key (active moiety, or a document-derived fallback).</summary>
+        public string DrugKey { get; init; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>Encrypted active moiety identifier for client-safe drill-down provenance.</summary>
+        public string? EncryptedActiveMoietyID { get; init; }
+
+        /**************************************************************/
+        /// <summary>Drug display name (substance, falling back to product).</summary>
+        public string? DrugDisplayName { get; init; }
+
+        /**************************************************************/
+        /// <summary>Source SPL document identifier for the observation.</summary>
+        public Guid? DocumentGUID { get; init; }
+
+        /**************************************************************/
+        /// <summary>MedDRA System Organ Class (ParameterCategory) of the observation.</summary>
+        public string Soc { get; init; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>Natural-log relative risk for the observation.</summary>
+        public double LogRr { get; init; }
+
+        /**************************************************************/
+        /// <summary>Raw relative risk for the observation, retained for display.</summary>
+        public double? Rr { get; init; }
+
+        /**************************************************************/
+        /// <summary>Derived precision class for the observation.</summary>
+        public AePrecisionClass Precision { get; init; }
+
+        /**************************************************************/
+        /// <summary>Derived typed RR significance for the observation.</summary>
+        public AeRiskSignificance RiskSignificance { get; init; }
+
+        /**************************************************************/
+        /// <summary>Whether the observation came from a combination-product row.</summary>
+        public bool IsCombo { get; init; }
+
+        /**************************************************************/
+        /// <summary>Total (treatment + comparator) event count for the observation.</summary>
+        public double Events { get; init; }
+
+        #endregion Observation Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Aggregated per-(drug, SOC) value used by correlation and heatmap assembly.
+    /// </summary>
+    /// <remarks>
+    /// Internal pipeline record. <see cref="Value"/> is the median or mean LogRR across a
+    /// drug's terms in one SOC; <see cref="Precision"/> and <see cref="Significance"/> come
+    /// from the strongest-magnitude term for display; <see cref="AnyFragile"/> is true when
+    /// any contributing term is fragile, which a correlation cell surfaces honestly.
+    /// </remarks>
+    /// <seealso cref="MedRecPro.DataAccess.AeDashboardDerivation.AggregatePerDrugSoc"/>
+    public sealed record AeCorrelationAggregate(
+        double Value,
+        bool AnyFragile,
+        int Count,
+        AePrecisionClass Precision,
+        AeRiskSignificance Significance);
+
+    /**************************************************************/
+    /// <summary>
+    /// One cell of the SOC × SOC correlation matrix.
+    /// </summary>
+    /// <remarks>
+    /// Off-diagonal cells hold the correlation, across drugs in the class, of two SOCs'
+    /// per-drug LogRR profiles. Thin cells below the drugs-per-cell floor return a null
+    /// <see cref="Coefficient"/> with <see cref="InsufficientN"/> set and the real
+    /// <see cref="PairCount"/>; diagonal cells return 1.0 and are flagged non-informative.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationMapDto"/>
+    public class AeCorrelationCellDto
+    {
+        #region Cell Properties
+
+        /**************************************************************/
+        /// <summary>Row index into the SOC axis.</summary>
+        public int RowIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column index into the SOC axis.</summary>
+        public int ColumnIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Row SOC name.</summary>
+        public string? RowSoc { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column SOC name.</summary>
+        public string? ColumnSoc { get; set; }
+
+        /**************************************************************/
+        /// <summary>Correlation coefficient, or null below the floor or with zero variance.</summary>
+        public double? Coefficient { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of drugs present in both SOCs (the cell sample size).</summary>
+        public int PairCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Two-sided p-value, when computable.</summary>
+        public double? PValue { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the coefficient is significant at p &lt; 0.05.</summary>
+        public bool IsSignificant { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether any contributing observation was fragile.</summary>
+        public bool IsFragile { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the cell fell below the minimum drugs-per-cell floor.</summary>
+        public bool InsufficientN { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the cell is on the diagonal (non-informative 1.0).</summary>
+        public bool IsDiagonal { get; set; }
+
+        #endregion Cell Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Per-SOC summary row shown alongside the correlation matrix.
+    /// </summary>
+    /// <remarks>
+    /// Gives the reader the marginal context a single cell cannot: how many drugs and
+    /// fragile drugs are in the SOC, the central LogRR/RR, and the elevated/protective
+    /// share of the SOC's terms.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationMapDto"/>
+    public class AeCorrelationSocSummaryDto
+    {
+        #region Summary Properties
+
+        /**************************************************************/
+        /// <summary>Index into the SOC axis.</summary>
+        public int Index { get; set; }
+
+        /**************************************************************/
+        /// <summary>SOC name.</summary>
+        public string? Soc { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct drugs with data in this SOC.</summary>
+        public int DrugCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct drugs whose data in this SOC included a fragile term.</summary>
+        public int FragileDrugCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Median per-drug LogRR across drugs in this SOC.</summary>
+        public double? MedianLogRr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Median per-drug RR (exp of <see cref="MedianLogRr"/>).</summary>
+        public double? MedianRr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Share of this SOC's terms classified elevated.</summary>
+        public double ElevatedShare { get; set; }
+
+        /**************************************************************/
+        /// <summary>Share of this SOC's terms classified protective.</summary>
+        public double ProtectiveShare { get; set; }
+
+        #endregion Summary Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// SOC × SOC correlation map scoped to one pharmacologic class.
+    /// </summary>
+    /// <remarks>
+    /// ## Front-end rendering
+    /// Render the matrix with a diverging, colorblind-safe scale centered at 0 (avoid
+    /// red/green). Hatch or gray any cell where <see cref="AeCorrelationCellDto.InsufficientN"/>
+    /// is true, and treat <see cref="AeCorrelationCellDto.IsDiagonal"/> cells as non-informative.
+    /// The <see cref="Soc"/> array is the shared axis: index <c>i</c> is row and column <c>i</c>.
+    /// Cells are the upper triangle including the diagonal; mirror them client-side. Always
+    /// surface <see cref="Warnings"/> (small-n, mixed-comparator, fragile-included,
+    /// pairwise-deletion-not-PSD) so the map reads honestly.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationCellDto"/>
+    /// <seealso cref="AeCorrelationSocSummaryDto"/>
+    public class AeCorrelationMapDto
+    {
+        #region Class Context Properties
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code the map is scoped to.</summary>
+        public string? PharmClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class display name.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Encrypted pharmacologic class identifier for client-safe navigation.</summary>
+        public string? EncryptedPharmacologicClassID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class identifier for server-side navigation.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? PharmacologicClassID =>
+            !string.IsNullOrWhiteSpace(EncryptedPharmacologicClassID)
+                ? Util.DecryptAndParseInt(EncryptedPharmacologicClassID)
+                : null;
+
+        /**************************************************************/
+        /// <summary>Applied filters echoed for reproducibility.</summary>
+        public AeCorrelationFilters AppliedFilters { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Distinct drugs (observation units) in the class after filtering.</summary>
+        public int DrugCount { get; set; }
+
+        #endregion Class Context Properties
+
+        #region Matrix Properties
+
+        /**************************************************************/
+        /// <summary>Ordered SOC axis; index i is both row i and column i.</summary>
+        public List<string> Soc { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Upper-triangle-including-diagonal correlation cells.</summary>
+        public List<AeCorrelationCellDto> Cells { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Per-SOC marginal summaries aligned to <see cref="Soc"/>.</summary>
+        public List<AeCorrelationSocSummaryDto> SocSummaries { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Honesty warnings for the front end to surface.</summary>
+        public List<string> Warnings { get; set; } = new();
+
+        #endregion Matrix Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One pharmacologic class option for the correlation-map class picker.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to classes that actually have AE risk rows. <see cref="IsCorrelatable"/> is a
+    /// hint that the class has enough drugs and SOCs (at least two of each) for a correlation
+    /// map to mean anything; the companion heatmap stays meaningful below that.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationMapDto"/>
+    public class AePharmClassPickerItemDto
+    {
+        #region Picker Properties
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code used as the picker key.</summary>
+        public string? PharmClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class display name.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Encrypted pharmacologic class identifier for client-safe navigation.</summary>
+        public string? EncryptedPharmacologicClassID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class identifier for server-side navigation.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? PharmacologicClassID =>
+            !string.IsNullOrWhiteSpace(EncryptedPharmacologicClassID)
+                ? Util.DecryptAndParseInt(EncryptedPharmacologicClassID)
+                : null;
+
+        /**************************************************************/
+        /// <summary>Distinct drugs (observation units) with AE rows in the class.</summary>
+        public int DrugCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct SOC categories with AE rows in the class.</summary>
+        public int SocCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the class has at least two drugs and two SOCs.</summary>
+        public bool IsCorrelatable { get; set; }
+
+        #endregion Picker Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One drug column of the SOC × drug RR heatmap.
+    /// </summary>
+    /// <seealso cref="AeCorrelationHeatmapDto"/>
+    public class AeCorrelationHeatmapDrugDto
+    {
+        #region Drug Properties
+
+        /**************************************************************/
+        /// <summary>Encrypted active moiety identifier for client-safe navigation.</summary>
+        public string? EncryptedActiveMoietyID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Active moiety identifier for server-side navigation.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ActiveMoietyID =>
+            !string.IsNullOrWhiteSpace(EncryptedActiveMoietyID)
+                ? Util.DecryptAndParseInt(EncryptedActiveMoietyID)
+                : null;
+
+        /**************************************************************/
+        /// <summary>Drug display name.</summary>
+        public string? DrugDisplayName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Source SPL document identifier for the drug column.</summary>
+        public Guid? DocumentGUID { get; set; }
+
+        #endregion Drug Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One populated cell of the SOC × drug RR heatmap.
+    /// </summary>
+    /// <remarks>
+    /// Only populated (SOC, drug) pairs are emitted; the client fills the rest of the grid
+    /// as empty. Precision and significance come from the drug's strongest-magnitude term in
+    /// the SOC, and <see cref="TermCount"/> shows how many terms were aggregated.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationHeatmapDto"/>
+    public class AeCorrelationHeatmapCellDto
+    {
+        #region Cell Properties
+
+        /**************************************************************/
+        /// <summary>Row index into the SOC axis.</summary>
+        public int SocIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column index into the drug axis.</summary>
+        public int DrugIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated LogRR for the (SOC, drug) cell.</summary>
+        public double? LogRr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated RR (exp of <see cref="LogRr"/>) for display.</summary>
+        public double? Rr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative precision class for the cell.</summary>
+        public AePrecisionClass? Precision { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative RR significance for the cell.</summary>
+        public AeRiskSignificance? Significance { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of adverse-event terms aggregated into the cell.</summary>
+        public int TermCount { get; set; }
+
+        #endregion Cell Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// SOC × drug relative-risk heatmap; the honest small-n companion to the map.
+    /// </summary>
+    /// <remarks>
+    /// Rows are SOCs, columns are drugs (deduplicated to active moiety), and each populated
+    /// cell is an aggregated LogRR. This stays meaningful when a class is too small for a
+    /// correlation map to be trustworthy.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationMapDto"/>
+    /// <seealso cref="AeCorrelationHeatmapCellDto"/>
+    public class AeCorrelationHeatmapDto
+    {
+        #region Class Context Properties
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code the heatmap is scoped to.</summary>
+        public string? PharmClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class display name.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Encrypted pharmacologic class identifier for client-safe navigation.</summary>
+        public string? EncryptedPharmacologicClassID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class identifier for server-side navigation.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? PharmacologicClassID =>
+            !string.IsNullOrWhiteSpace(EncryptedPharmacologicClassID)
+                ? Util.DecryptAndParseInt(EncryptedPharmacologicClassID)
+                : null;
+
+        /**************************************************************/
+        /// <summary>Applied filters echoed for reproducibility.</summary>
+        public AeCorrelationFilters AppliedFilters { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Distinct drugs in the heatmap.</summary>
+        public int DrugCount { get; set; }
+
+        #endregion Class Context Properties
+
+        #region Grid Properties
+
+        /**************************************************************/
+        /// <summary>Ordered SOC rows.</summary>
+        public List<string> Soc { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Ordered drug columns.</summary>
+        public List<AeCorrelationHeatmapDrugDto> Drugs { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Populated (SOC, drug) cells.</summary>
+        public List<AeCorrelationHeatmapCellDto> Cells { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Honesty warnings for the front end to surface.</summary>
+        public List<string> Warnings { get; set; } = new();
+
+        #endregion Grid Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One drug's paired (SOC X, SOC Y) LogRR behind a correlation cell.
+    /// </summary>
+    /// <remarks>
+    /// These are the per-drug points the cell's coefficient is computed over — the answer to
+    /// "why is this cell 0.9?". Encrypted moiety carries the drill-down provenance.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationCellDetailDto"/>
+    public class AeCorrelationDrugPairDto
+    {
+        #region Pair Properties
+
+        /**************************************************************/
+        /// <summary>Drug display name.</summary>
+        public string? DrugDisplayName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Encrypted active moiety identifier for client-safe provenance.</summary>
+        public string? EncryptedActiveMoietyID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Active moiety identifier for server-side navigation.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ActiveMoietyID =>
+            !string.IsNullOrWhiteSpace(EncryptedActiveMoietyID)
+                ? Util.DecryptAndParseInt(EncryptedActiveMoietyID)
+                : null;
+
+        /**************************************************************/
+        /// <summary>Aggregated LogRR for the drug in SOC X.</summary>
+        public double? LogRrX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated LogRR for the drug in SOC Y.</summary>
+        public double? LogRrY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated RR for the drug in SOC X.</summary>
+        public double? RrX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated RR for the drug in SOC Y.</summary>
+        public double? RrY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative precision for the drug in SOC X.</summary>
+        public AePrecisionClass? PrecisionX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative precision for the drug in SOC Y.</summary>
+        public AePrecisionClass? PrecisionY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Adverse-event terms aggregated for the drug in SOC X.</summary>
+        public int TermCountX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Adverse-event terms aggregated for the drug in SOC Y.</summary>
+        public int TermCountY { get; set; }
+
+        #endregion Pair Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Drill-down detail behind one SOC × SOC correlation cell.
+    /// </summary>
+    /// <remarks>
+    /// Returns the per-drug paired observations the cell was computed from, mirroring the
+    /// triage/forest/quadrant drill pattern. Echoes the recomputed
+    /// <see cref="Coefficient"/> and <see cref="PairCount"/> so the cell can be explained
+    /// without re-querying the map.
+    /// </remarks>
+    /// <seealso cref="AeCorrelationDrugPairDto"/>
+    public class AeCorrelationCellDetailDto
+    {
+        #region Cell Context Properties
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code the cell belongs to.</summary>
+        public string? PharmClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class display name.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Row SOC of the cell.</summary>
+        public string? SocX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column SOC of the cell.</summary>
+        public string? SocY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Applied filters echoed for reproducibility.</summary>
+        public AeCorrelationFilters AppliedFilters { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Recomputed correlation coefficient for the cell.</summary>
+        public double? Coefficient { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of paired drugs behind the cell.</summary>
+        public int PairCount { get; set; }
+
+        #endregion Cell Context Properties
+
+        #region Pair Properties
+
+        /**************************************************************/
+        /// <summary>Per-drug paired observations behind the cell.</summary>
+        public List<AeCorrelationDrugPairDto> DrugPairs { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Honesty warnings for the front end to surface.</summary>
+        public List<string> Warnings { get; set; } = new();
+
+        #endregion Pair Properties
+    }
 }

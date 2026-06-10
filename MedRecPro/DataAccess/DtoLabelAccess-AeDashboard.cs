@@ -698,6 +698,344 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets the SOC × SOC adverse-event correlation map for one pharmacologic class.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pharmClassCode">Pharmacologic class code (the public dashboard text form).</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained before correlating.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before correlating.</param>
+        /// <param name="minDrugsPerCell">Minimum drugs a cell needs for a coefficient (clamped to a floor of 3).</param>
+        /// <param name="method">Correlation method; Spearman by default.</param>
+        /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
+        /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The correlation map, or null when the class has no usable rows.</returns>
+        /// <remarks>
+        /// The observation unit is a drug within the class, so each cell's sample size is the
+        /// number of drugs with data in both SOCs — usually small. Correlating on LogRR with a
+        /// single comparator, fragile-row exclusion, and a drugs-per-cell floor keeps the map
+        /// from rendering confident color over noise.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var map = await DtoLabelAccess.GetAeCorrelationMapAsync(db, "N0000175076", secret, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCorrelationMapDto"/>
+        /// <seealso cref="AeDashboardDerivation.BuildCorrelationMap"/>
+        public static async Task<AeCorrelationMapDto?> GetAeCorrelationMapAsync(
+            ApplicationDbContext db,
+            string pharmClassCode,
+            string pkSecret,
+            ILogger logger,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            int minDrugsPerCell = 4,
+            AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            bool seriousSocOnly = false,
+            bool excludeCombos = false,
+            int minEvents = 0)
+        {
+            #region implementation
+
+            // Carry the request knobs as one object that both filters input rows and is
+            // echoed back to the client. The drugs-per-cell floor is clamped server-side.
+            var filters = new AeCorrelationFilters
+            {
+                Comparator = comparator,
+                IncludeNonSignificant = includeNonSignificant,
+                ExcludeFragile = excludeFragile,
+                MinDrugsPerCell = Math.Max(minDrugsPerCell, 3),
+                Method = method,
+                Aggregation = aggregation,
+                SeriousSocOnly = seriousSocOnly,
+                ExcludeCombos = excludeCombos,
+                MinEvents = minEvents
+            };
+
+            // Build the drug-within-class observations; a missing class returns null (-> 404).
+            var context = await buildCorrelationObservationsAsync(db, pharmClassCode, pkSecret, logger, filters);
+            if (context == null)
+            {
+                return null;
+            }
+
+            // Hand the observations to the pure derivation layer for matrix assembly.
+            return AeDashboardDerivation.BuildCorrelationMap(
+                pharmClassCode,
+                context.Value.PharmClassName,
+                context.Value.EncryptedPharmacologicClassID,
+                filters,
+                context.Value.Observations,
+                context.Value.Warnings);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the pharmacologic classes that have AE risk rows, for the correlation class picker.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="classSearch">Optional class code or name search text.</param>
+        /// <param name="page">Optional 1-based page number.</param>
+        /// <param name="size">Optional page size.</param>
+        /// <returns>Pharmacologic class picker items ordered correlatable-first.</returns>
+        /// <remarks>
+        /// Scoped to classes that actually have AE risk rows (the generic pharm-class summary
+        /// is not AE-scoped). <see cref="AePharmClassPickerItemDto.IsCorrelatable"/> flags classes
+        /// with at least two drugs and two SOCs. Grouping and paging run in memory.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var classes = await DtoLabelAccess.GetAeCorrelationClassesAsync(db, secret, logger, "kinase");
+        /// </code>
+        /// </example>
+        /// <seealso cref="AePharmClassPickerItemDto"/>
+        public static async Task<List<AePharmClassPickerItemDto>> GetAeCorrelationClassesAsync(
+            ApplicationDbContext db,
+            string pkSecret,
+            ILogger logger,
+            string? classSearch = null,
+            int? page = null,
+            int? size = null)
+        {
+            #region implementation
+
+            // Only classed, document-backed AE rows can seed a correlation class.
+            var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
+                .AsNoTracking()
+                .Where(signal => signal.PharmClassCode != null && signal.DocumentGUID.HasValue);
+
+            // Optional provider-side search on class code or display name.
+            if (!string.IsNullOrWhiteSpace(classSearch))
+            {
+                var pattern = $"%{classSearch.Trim()}%";
+                query = query.Where(signal =>
+                    EF.Functions.Like(signal.PharmClassCode!, pattern)
+                    || EF.Functions.Like(signal.PharmClassName ?? string.Empty, pattern));
+            }
+
+            // Project the minimal columns the picker grouping needs.
+            var rows = await query
+                .Select(signal => new
+                {
+                    signal.PharmClassCode,
+                    signal.PharmClassName,
+                    signal.PharmacologicClassID,
+                    signal.ActiveMoietyID,
+                    signal.DocumentGUID,
+                    signal.ParameterCategory
+                })
+                .ToListAsync();
+
+            // Group by class code in memory to count distinct drugs and SOCs per class.
+            var items = rows
+                .GroupBy(row => row.PharmClassCode!)
+                .Select(group =>
+                {
+                    var drugCount = group
+                        .Select(row => correlationDrugKey(row.ActiveMoietyID, row.DocumentGUID))
+                        .Distinct()
+                        .Count();
+                    var socCount = group
+                        .Select(row => row.ParameterCategory)
+                        .Where(category => !string.IsNullOrWhiteSpace(category))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count();
+                    var className = group
+                        .Select(row => row.PharmClassName)
+                        .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+                    var classId = group
+                        .Where(row => row.PharmacologicClassID.HasValue)
+                        .Select(row => row.PharmacologicClassID)
+                        .FirstOrDefault();
+
+                    return new AePharmClassPickerItemDto
+                    {
+                        PharmClassCode = group.Key,
+                        PharmClassName = className,
+                        EncryptedPharmacologicClassID = encryptNullableInt(classId, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.PharmacologicClassID)),
+                        DrugCount = drugCount,
+                        SocCount = socCount,
+                        IsCorrelatable = drugCount >= 2 && socCount >= 2
+                    };
+                })
+                .OrderByDescending(item => item.IsCorrelatable)
+                .ThenByDescending(item => item.DrugCount)
+                .ThenBy(item => item.PharmClassName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // In-memory paging mirrors applyProductSummaryPagination.
+            if (page.HasValue && size.HasValue && page.Value > 0 && size.Value > 0)
+            {
+                return items
+                    .Skip((page.Value - 1) * size.Value)
+                    .Take(size.Value)
+                    .ToList();
+            }
+
+            return items;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the SOC × drug relative-risk heatmap for one pharmacologic class.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pharmClassCode">Pharmacologic class code (the public dashboard text form).</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
+        /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The heatmap, or null when the class has no usable rows.</returns>
+        /// <remarks>
+        /// The honest small-n companion to <see cref="GetAeCorrelationMapAsync"/>; it stays
+        /// meaningful when a class is too small to correlate.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var heatmap = await DtoLabelAccess.GetAeCorrelationHeatmapAsync(db, "N0000175076", secret, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCorrelationHeatmapDto"/>
+        public static async Task<AeCorrelationHeatmapDto?> GetAeCorrelationHeatmapAsync(
+            ApplicationDbContext db,
+            string pharmClassCode,
+            string pkSecret,
+            ILogger logger,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            bool seriousSocOnly = false,
+            bool excludeCombos = false,
+            int minEvents = 0)
+        {
+            #region implementation
+
+            var filters = new AeCorrelationFilters
+            {
+                Comparator = comparator,
+                IncludeNonSignificant = includeNonSignificant,
+                ExcludeFragile = excludeFragile,
+                Aggregation = aggregation,
+                SeriousSocOnly = seriousSocOnly,
+                ExcludeCombos = excludeCombos,
+                MinEvents = minEvents
+            };
+
+            var context = await buildCorrelationObservationsAsync(db, pharmClassCode, pkSecret, logger, filters);
+            if (context == null)
+            {
+                return null;
+            }
+
+            return AeDashboardDerivation.BuildCorrelationHeatmap(
+                pharmClassCode,
+                context.Value.PharmClassName,
+                context.Value.EncryptedPharmacologicClassID,
+                filters,
+                context.Value.Observations,
+                context.Value.Warnings);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the per-drug drill-down behind one SOC × SOC correlation cell.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pharmClassCode">Pharmacologic class code (the public dashboard text form).</param>
+        /// <param name="socX">Row SOC of the cell.</param>
+        /// <param name="socY">Column SOC of the cell.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="method">Correlation method used for the recomputed coefficient.</param>
+        /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
+        /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The cell drill-down, or null when the class has no usable rows.</returns>
+        /// <remarks>
+        /// Mirrors the triage/forest/quadrant drill pattern: it returns the per-drug paired
+        /// observations behind one cell so the front end can explain "why is this cell 0.9?".
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var detail = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(db, "N0000175076", socX, socY, secret, logger);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeCorrelationCellDetailDto"/>
+        public static async Task<AeCorrelationCellDetailDto?> GetAeCorrelationCellDetailAsync(
+            ApplicationDbContext db,
+            string pharmClassCode,
+            string socX,
+            string socY,
+            string pkSecret,
+            ILogger logger,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            bool seriousSocOnly = false,
+            bool excludeCombos = false,
+            int minEvents = 0)
+        {
+            #region implementation
+
+            var filters = new AeCorrelationFilters
+            {
+                Comparator = comparator,
+                IncludeNonSignificant = includeNonSignificant,
+                ExcludeFragile = excludeFragile,
+                Method = method,
+                Aggregation = aggregation,
+                SeriousSocOnly = seriousSocOnly,
+                ExcludeCombos = excludeCombos,
+                MinEvents = minEvents
+            };
+
+            var context = await buildCorrelationObservationsAsync(db, pharmClassCode, pkSecret, logger, filters);
+            if (context == null)
+            {
+                return null;
+            }
+
+            return AeDashboardDerivation.BuildCorrelationCellDetail(
+                pharmClassCode,
+                context.Value.PharmClassName,
+                socX,
+                socY,
+                filters,
+                context.Value.Observations,
+                context.Value.Warnings);
+
+            #endregion
+        }
+
         #endregion AE Dashboard Public Read Methods
 
         #region AE Dashboard Private Query Helpers
@@ -1599,6 +1937,232 @@ namespace MedRecPro.DataAccess
                 summary.IsFavorite = summary.DocumentGUID.HasValue
                     && favoriteDocumentGuids.Contains(summary.DocumentGUID.Value);
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds drug-within-class correlation observations for one pharmacologic class.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pharmClassCode">Pharmacologic class code scoping the query.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="filters">Applied filters used both to scope SQL and drop input rows.</param>
+        /// <returns>Surviving observations plus resolved class context and warnings, or null when nothing survives.</returns>
+        /// <remarks>
+        /// This is the single source for all four correlation read methods. It reuses
+        /// <see cref="applyComparatorFilter"/>, <see cref="collapseToMostPoweredStratum"/>, and
+        /// <see cref="buildAeRiskSignalDto"/>, then runs each surviving row through
+        /// <see cref="AeDashboardDerivation.DeriveSignal"/> to get precision and significance.
+        /// LogRR is computed in memory as <c>entity.LogRR ?? Math.Log(entity.RR)</c> because the
+        /// persisted log column is null in seeded rows; rows with a non-positive RR are skipped.
+        /// </remarks>
+        /// <seealso cref="AeCorrelationObservation"/>
+        /// <seealso cref="GetAeCorrelationMapAsync"/>
+        private static async Task<(List<AeCorrelationObservation> Observations, string? PharmClassName, string? EncryptedPharmacologicClassID, List<string> Warnings)?> buildCorrelationObservationsAsync(
+            ApplicationDbContext db,
+            string pharmClassCode,
+            string pkSecret,
+            ILogger logger,
+            AeCorrelationFilters filters)
+        {
+            #region implementation
+
+            // Scope to classed, categorized, document-backed AE rows in SQL.
+            var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
+                .AsNoTracking()
+                .Where(signal => signal.PharmClassCode == pharmClassCode
+                    && signal.ParameterCategory != null
+                    && signal.DocumentGUID.HasValue);
+
+            // Apply the comparator mix while the query is still translated to SQL.
+            query = applyComparatorFilter(query, filters.Comparator);
+
+            // Deterministic order mirrors GetAeRiskSignalsByDocumentAsync for stable output.
+            var entities = await query
+                .OrderBy(signal => signal.ParameterName)
+                .ThenByDescending(signal => signal.RR)
+                .ToListAsync();
+            if (entities.Count == 0)
+            {
+                return null;
+            }
+
+            // Collapse class fan-out and multi-arm duplication to one row per clinical stratum.
+            var collapsed = collapseToMostPoweredStratum(entities);
+
+            // Build one observation per surviving row, deriving precision/significance and
+            // reading moiety/class/combo/events directly off the entity.
+            var observations = new List<AeCorrelationObservation>();
+            foreach (var entity in collapsed)
+            {
+                // Guard RR before log math; the persisted LogRR is null in seeded rows.
+                if (entity.RR is not double rr || rr <= 0.0 || double.IsNaN(rr) || double.IsInfinity(rr))
+                {
+                    continue;
+                }
+
+                var logRr = entity.LogRR ?? Math.Log(rr);
+                if (double.IsNaN(logRr) || double.IsInfinity(logRr))
+                {
+                    continue;
+                }
+
+                // DeriveSignal reuses ClassifyPrecision/ParseRiskSignificance off the mapped DTO.
+                var signal = AeDashboardDerivation.DeriveSignal(buildAeRiskSignalDto(entity, pkSecret, logger));
+
+                observations.Add(new AeCorrelationObservation
+                {
+                    DrugKey = correlationDrugKey(entity.ActiveMoietyID, entity.DocumentGUID),
+                    EncryptedActiveMoietyID = encryptNullableInt(entity.ActiveMoietyID, pkSecret, logger, nameof(entity.ActiveMoietyID)),
+                    DrugDisplayName = !string.IsNullOrWhiteSpace(entity.SubstanceName) ? entity.SubstanceName : entity.ProductName,
+                    DocumentGUID = entity.DocumentGUID,
+                    Soc = entity.ParameterCategory!,
+                    LogRr = logRr,
+                    Rr = rr,
+                    Precision = signal.PrecisionClass ?? AePrecisionClass.Fragile,
+                    RiskSignificance = signal.RiskSignificance ?? AeRiskSignificance.NotSignificant,
+                    IsCombo = entity.IsCombo,
+                    Events = (entity.EventsTreatment ?? 0.0) + (entity.EventsComparator ?? 0.0)
+                });
+            }
+
+            // Apply the input-row filters that depend on derived or contextual fields.
+            IEnumerable<AeCorrelationObservation> filtered = observations;
+            if (filters.ExcludeFragile)
+            {
+                filtered = filtered.Where(observation => observation.Precision != AePrecisionClass.Fragile);
+            }
+
+            if (!filters.IncludeNonSignificant)
+            {
+                filtered = filtered.Where(observation => observation.RiskSignificance != AeRiskSignificance.NotSignificant);
+            }
+
+            if (filters.ExcludeCombos)
+            {
+                filtered = filtered.Where(observation => !observation.IsCombo);
+            }
+
+            if (filters.MinEvents > 0)
+            {
+                filtered = filtered.Where(observation => observation.Events >= filters.MinEvents);
+            }
+
+            if (filters.SeriousSocOnly)
+            {
+                filtered = filtered.Where(observation => isSeriousCorrelationSoc(observation.Soc));
+            }
+
+            var survivors = filtered.ToList();
+            if (survivors.Count == 0)
+            {
+                return null;
+            }
+
+            // Class name and id are stable across the class; take the first populated values.
+            var pharmClassName = entities
+                .Select(entity => entity.PharmClassName)
+                .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+            var pharmacologicClassId = entities
+                .Where(entity => entity.PharmacologicClassID.HasValue)
+                .Select(entity => entity.PharmacologicClassID)
+                .FirstOrDefault();
+            var encryptedClassId = encryptNullableInt(
+                pharmacologicClassId,
+                pkSecret,
+                logger,
+                nameof(LabelView.FlattenedAdverseEventRiskTable.PharmacologicClassID));
+
+            // Collect the honesty warnings shared by every correlation payload.
+            var warnings = new List<string>();
+            if (filters.Comparator == AeComparatorMix.Both)
+            {
+                warnings.Add("Cells may mix placebo-controlled and active-controlled estimates.");
+            }
+
+            if (!filters.ExcludeFragile && survivors.Any(observation => observation.Precision == AePrecisionClass.Fragile))
+            {
+                warnings.Add("Fragile or wide-confidence-interval rows are included; interpret affected cells with care.");
+            }
+
+            var distinctDrugs = survivors.Select(observation => observation.DrugKey).Distinct().Count();
+            if (distinctDrugs < 2)
+            {
+                warnings.Add($"This class has {distinctDrugs} drug(s) with usable rows; a correlation is not computable, so use the heatmap.");
+            }
+
+            return (survivors, pharmClassName, encryptedClassId, warnings);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the stable per-drug key used as the correlation observation unit.
+        /// </summary>
+        /// <param name="activeMoietyId">Active moiety identifier, when present.</param>
+        /// <param name="documentGuid">Source document identifier used as a fallback key.</param>
+        /// <returns>A deterministic key keyed on the moiety, or the document when the moiety is null.</returns>
+        /// <remarks>
+        /// Keying on active moiety collapses two SPL labels of one molecule into a single drug;
+        /// the document-derived fallback keeps moiety-less rows distinct without a runtime-unstable
+        /// hash. Shared by the observation builder and the class picker so both count drugs the same way.
+        /// </remarks>
+        /// <seealso cref="AeDashboardDerivation.StableDrugKey"/>
+        private static string correlationDrugKey(int? activeMoietyId, Guid? documentGuid)
+        {
+            #region implementation
+
+            if (activeMoietyId.HasValue)
+            {
+                return $"moiety:{activeMoietyId.Value}";
+            }
+
+            return documentGuid.HasValue
+                ? AeDashboardDerivation.StableDrugKey(documentGuid.Value)
+                : "unknown";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a SOC is treated as a serious organ system for the axis filter.
+        /// </summary>
+        /// <param name="soc">The SOC (ParameterCategory) to test.</param>
+        /// <returns>True when the SOC approximately matches a serious-organ-system keyword.</returns>
+        /// <remarks>
+        /// TODO: replace this approximate keyword match against
+        /// <see cref="AeDashboardMetadata.SocSerious"/> with a proper MedDRA SOC → seriousness map.
+        /// The metadata tokens are abbreviations (e.g. "Cardiac") while ParameterCategory holds the
+        /// full SOC names (e.g. "Cardiac Disorders"), so the first keyword of each token is matched
+        /// as a substring.
+        /// </remarks>
+        private static bool isSeriousCorrelationSoc(string? soc)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(soc))
+            {
+                return false;
+            }
+
+            foreach (var token in AeDashboardMetadata.SocSerious)
+            {
+                var keyword = token
+                    .Split(new[] { ' ', '&' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .FirstOrDefault();
+                if (!string.IsNullOrEmpty(keyword)
+                    && soc.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
 
             #endregion
         }
