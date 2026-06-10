@@ -746,6 +746,10 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            // Reject undefined enum values up front so an out-of-range numeric value cannot
+            // silently degrade (for example to "no comparator filter") in the pipeline below.
+            validateCorrelationEnums(comparator, aggregation, method);
+
             // Carry the request knobs as one object that both filters input rows and is
             // echoed back to the client. The drugs-per-cell floor is clamped server-side.
             var filters = new AeCorrelationFilters
@@ -812,6 +816,9 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            // Lightweight observability for the in-memory grouping fan-out.
+            var stopwatch = Stopwatch.StartNew();
+
             // Only classed, document-backed AE rows can seed a correlation class.
             var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
                 .AsNoTracking()
@@ -826,7 +833,10 @@ namespace MedRecPro.DataAccess
                     || EF.Functions.Like(signal.PharmClassName ?? string.Empty, pattern));
             }
 
-            // Project the minimal columns the picker grouping needs.
+            // Project the minimal columns the picker grouping needs, then collapse provider-side
+            // duplicates: a drug with many AE terms in one SOC repeats the same tuple, and the
+            // distinct drug/SOC counts below are unaffected by those repeats, so Distinct() only
+            // reduces the rows materialized into memory.
             var rows = await query
                 .Select(signal => new
                 {
@@ -837,6 +847,7 @@ namespace MedRecPro.DataAccess
                     signal.DocumentGUID,
                     signal.ParameterCategory
                 })
+                .Distinct()
                 .ToListAsync();
 
             // Group by class code in memory to count distinct drugs and SOCs per class.
@@ -875,6 +886,14 @@ namespace MedRecPro.DataAccess
                 .ThenByDescending(item => item.DrugCount)
                 .ThenBy(item => item.PharmClassName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            stopwatch.Stop();
+            logger.LogDebug(
+                "AE correlation class picker: {RowCount} distinct rows grouped into {ClassCount} classes (search: {HasSearch}) in {ElapsedMs} ms.",
+                rows.Count,
+                items.Count,
+                !string.IsNullOrWhiteSpace(classSearch),
+                stopwatch.ElapsedMilliseconds);
 
             // In-memory paging mirrors applyProductSummaryPagination.
             if (page.HasValue && size.HasValue && page.Value > 0 && size.Value > 0)
@@ -931,6 +950,10 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            // Reject undefined enum values up front so an out-of-range numeric value cannot
+            // silently degrade (for example to "no comparator filter") in the pipeline below.
+            validateCorrelationEnums(comparator, aggregation);
+
             var filters = new AeCorrelationFilters
             {
                 Comparator = comparator,
@@ -972,6 +995,7 @@ namespace MedRecPro.DataAccess
         /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
         /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained.</param>
         /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="minDrugsPerCell">Minimum drugs for the map-safe coefficient (clamped to a floor of 3); the raw coefficient ignores it.</param>
         /// <param name="method">Correlation method used for the recomputed coefficient.</param>
         /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
         /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
@@ -998,6 +1022,7 @@ namespace MedRecPro.DataAccess
             AeComparatorMix comparator = AeComparatorMix.Placebo,
             bool includeNonSignificant = true,
             bool excludeFragile = true,
+            int minDrugsPerCell = 4,
             AeCorrelationMethod method = AeCorrelationMethod.Spearman,
             AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
             bool seriousSocOnly = false,
@@ -1006,11 +1031,18 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            // Reject undefined enum values up front so an out-of-range numeric value cannot
+            // silently degrade (for example to "no comparator filter") in the pipeline below.
+            validateCorrelationEnums(comparator, aggregation, method);
+
             var filters = new AeCorrelationFilters
             {
                 Comparator = comparator,
                 IncludeNonSignificant = includeNonSignificant,
                 ExcludeFragile = excludeFragile,
+                // The cell drill-down applies the same clamped drugs-per-cell floor as the map
+                // so a below-floor cell reads null in both payloads.
+                MinDrugsPerCell = Math.Max(minDrugsPerCell, 3),
                 Method = method,
                 Aggregation = aggregation,
                 SeriousSocOnly = seriousSocOnly,
@@ -1691,14 +1723,59 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Convert the optional comparator enum into a SQL predicate; null or an
-            // unsupported value intentionally leaves the query unfiltered.
+            // Convert the optional comparator enum into a SQL predicate. Only two values mean
+            // "no comparator filter": an unspecified (null) comparator and the explicit Both mode
+            // (whose mixed-estimand caveat is surfaced to clients as a warning). Any other,
+            // undefined value throws rather than silently mixing placebo and active comparators.
             return comparator switch
             {
                 AeComparatorMix.Placebo => query.Where(signal => signal.IsPlaceboControlled),
                 AeComparatorMix.Active => query.Where(signal => !signal.IsPlaceboControlled),
-                _ => query
+                AeComparatorMix.Both => query,
+                null => query,
+                _ => throw new ArgumentOutOfRangeException(nameof(comparator), comparator, "Unsupported comparator mix.")
             };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates that the supplied correlation enum values are defined before they reach the pipeline.
+        /// </summary>
+        /// <param name="comparator">Comparator mix to validate.</param>
+        /// <param name="aggregation">Within-SOC aggregation to validate.</param>
+        /// <param name="method">Optional correlation method to validate (heatmap omits it).</param>
+        /// <exception cref="ArgumentOutOfRangeException">When any value is outside its enum definition.</exception>
+        /// <remarks>
+        /// A second line of defense behind the controller's request validation: model binding can
+        /// produce an undefined enum from an out-of-range numeric query value, and silently treating
+        /// such a value as a default (for example "no comparator filter") would mix estimands. The
+        /// controller rejects these with 400; this guard keeps direct/internal callers from
+        /// reaching <see cref="applyComparatorFilter"/> or the derivation layer with bad input.
+        /// </remarks>
+        /// <seealso cref="applyComparatorFilter"/>
+        private static void validateCorrelationEnums(
+            AeComparatorMix comparator,
+            AeCorrelationAggregation aggregation,
+            AeCorrelationMethod? method = null)
+        {
+            #region implementation
+
+            if (!Enum.IsDefined(typeof(AeComparatorMix), comparator))
+            {
+                throw new ArgumentOutOfRangeException(nameof(comparator), comparator, "Unsupported comparator mix.");
+            }
+
+            if (!Enum.IsDefined(typeof(AeCorrelationAggregation), aggregation))
+            {
+                throw new ArgumentOutOfRangeException(nameof(aggregation), aggregation, "Unsupported correlation aggregation.");
+            }
+
+            if (method.HasValue && !Enum.IsDefined(typeof(AeCorrelationMethod), method.Value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(method), method.Value, "Unsupported correlation method.");
+            }
 
             #endregion
         }
@@ -1970,6 +2047,11 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
+            // Lightweight observability: large pharmacologic classes materialize every matching
+            // risk row before collapse/filter, so log the row counts and elapsed time at Debug
+            // to make an expensive class request diagnosable before any caching is considered.
+            var stopwatch = Stopwatch.StartNew();
+
             // Scope to classed, categorized, document-backed AE rows in SQL.
             var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
                 .AsNoTracking()
@@ -2093,6 +2175,17 @@ namespace MedRecPro.DataAccess
             {
                 warnings.Add($"This class has {distinctDrugs} drug(s) with usable rows; a correlation is not computable, so use the heatmap.");
             }
+
+            stopwatch.Stop();
+            logger.LogDebug(
+                "AE correlation observations for class {PharmClassCode} (comparator {Comparator}): {RowCount} rows before collapse, {SurvivorCount} survivors after filters, {DrugCount} drugs across {SocCount} SOCs in {ElapsedMs} ms.",
+                pharmClassCode,
+                filters.Comparator,
+                entities.Count,
+                survivors.Count,
+                distinctDrugs,
+                survivors.Select(observation => observation.Soc).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                stopwatch.ElapsedMilliseconds);
 
             return (survivors, pharmClassName, encryptedClassId, warnings);
 

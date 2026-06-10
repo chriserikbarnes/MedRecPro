@@ -1209,7 +1209,12 @@ namespace MedRecPro.DataAccess
         /// <returns>A cell-detail DTO with the per-drug paired LogRR observations and recomputed coefficient.</returns>
         /// <remarks>
         /// Includes only drugs present in both SOCs (the pairwise-complete contributors), so the
-        /// pair count matches the map cell. Pure function — no EF, cache, or mutable state.
+        /// pair count matches the map cell. The coefficient is reported twice so the drill-down
+        /// is honest the same way the map is: <see cref="AeCorrelationCellDetailDto.Coefficient"/>
+        /// is map-safe (null below the same drugs-per-cell floor the map applies) while
+        /// <see cref="AeCorrelationCellDetailDto.RawCoefficient"/> is the unsuppressed diagnostic
+        /// value. When <c>socX</c> and <c>socY</c> are the same SOC the cell is the diagonal and
+        /// is forced to a non-informative 1.0. Pure function — no EF, cache, or mutable state.
         /// </remarks>
         /// <example>
         /// <code>
@@ -1231,6 +1236,9 @@ namespace MedRecPro.DataAccess
             var detailWarnings = new List<string>(warnings);
             var aggregates = AggregatePerDrugSoc(observations, filters.Aggregation);
 
+            // Resolve the same hard floor the map uses so a thin cell reads null in both places.
+            var floor = Math.Max(filters.MinDrugsPerCell, 3);
+
             // Resolve the requested SOCs to their canonical casing from the data.
             var canonicalX = observations
                 .Select(observation => observation.Soc)
@@ -1239,6 +1247,9 @@ namespace MedRecPro.DataAccess
                 .Select(observation => observation.Soc)
                 .FirstOrDefault(soc => string.Equals(soc, socY, StringComparison.OrdinalIgnoreCase));
 
+            // The diagonal is requested when both SOCs name the same organ system.
+            var isDiagonal = string.Equals(socX, socY, StringComparison.OrdinalIgnoreCase);
+
             var detail = new AeCorrelationCellDetailDto
             {
                 PharmClassCode = pharmClassCode,
@@ -1246,6 +1257,8 @@ namespace MedRecPro.DataAccess
                 SocX = canonicalX ?? socX,
                 SocY = canonicalY ?? socY,
                 AppliedFilters = filters,
+                MinDrugsPerCell = floor,
+                IsDiagonal = isDiagonal,
                 Warnings = detailWarnings
             };
 
@@ -1291,16 +1304,47 @@ namespace MedRecPro.DataAccess
                 });
             }
 
-            // The drill-down shows every contributing pair, so it returns the raw coefficient
-            // (null only for fewer than two pairs or zero variance) rather than applying the
-            // map's drugs-per-cell floor; the reader can see the small n directly.
-            var (coefficient, pairCount, _) = ComputeCorrelation(xs, ys, filters.Method);
+            // Always preserve every contributing pair so the endpoint stays useful for inspection.
             detail.DrugPairs = pairs
                 .OrderBy(pair => pair.DrugDisplayName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(pair => pair.LogRrX)
                 .ToList();
-            detail.Coefficient = coefficient;
+
+            // The raw (unsuppressed) coefficient is computed from the pairwise-complete drugs.
+            var (rawCoefficient, pairCount, rawPValue) = ComputeCorrelation(xs, ys, filters.Method);
             detail.PairCount = pairCount;
+            detail.RawCoefficient = rawCoefficient;
+            detail.RawPValue = rawPValue;
+
+            // A diagonal cell correlates a SOC with itself: forced to a non-informative 1.0 to
+            // mirror the map, with the per-drug pairs still shown for inspection.
+            if (isDiagonal)
+            {
+                detail.Coefficient = 1.0;
+                detail.RawCoefficient = 1.0;
+                detail.PValue = null;
+                detail.RawPValue = null;
+                detail.IsSignificant = false;
+                detail.InsufficientN = false;
+                detailWarnings.Add("This is a diagonal cell (a SOC correlated with itself); the 1.0 coefficient is non-informative.");
+                return detail;
+            }
+
+            // Apply the same drugs-per-cell floor the map applies before exposing the map-safe value.
+            var insufficient = pairCount < floor;
+            detail.InsufficientN = insufficient;
+            detail.Coefficient = insufficient ? null : rawCoefficient;
+            detail.PValue = insufficient ? null : rawPValue;
+            detail.IsSignificant = detail.Coefficient.HasValue
+                && detail.PValue.HasValue
+                && detail.PValue.Value < 0.05;
+
+            // Make the map/detail disagreement impossible to miss when the floor hides a value.
+            if (insufficient && rawCoefficient.HasValue)
+            {
+                detailWarnings.Add($"Map-safe coefficient suppressed: only {pairCount} drug(s) in both SOCs, below the minimum of {floor}. RawCoefficient is shown for diagnosis only.");
+            }
+
             return detail;
 
             #endregion

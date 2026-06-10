@@ -1459,15 +1459,20 @@ namespace MedRecProTest
             seedCorrelationRow(connection, drugDoc(3), riskId: 5, activeMoietyId: 103, pharmClassCode: code, parameterCategory: socA, rr: 8.0);
             seedCorrelationRow(connection, drugDoc(3), riskId: 6, activeMoietyId: 103, pharmClassCode: code, parameterCategory: socB, rr: 8.0);
 
-            var detail = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(context, code, socA, socB, PkSecret, logger);
+            // minDrugsPerCell:3 keeps the three-drug cell at or above the floor so the map-safe
+            // coefficient is populated; the raw coefficient mirrors it.
+            var detail = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(context, code, socA, socB, PkSecret, logger, minDrugsPerCell: 3);
 
             Assert.IsNotNull(detail);
             Assert.AreEqual(3, detail.PairCount);
             Assert.AreEqual(3, detail.DrugPairs.Count);
             Assert.IsTrue(detail.DrugPairs.All(pair => pair.LogRrX.HasValue && pair.LogRrY.HasValue));
             Assert.IsTrue(detail.DrugPairs.All(pair => !string.IsNullOrWhiteSpace(pair.EncryptedActiveMoietyID)));
+            Assert.IsFalse(detail.InsufficientN);
             Assert.IsNotNull(detail.Coefficient);
             Assert.AreEqual(1.0, detail.Coefficient!.Value, 1e-9);
+            Assert.IsNotNull(detail.RawCoefficient);
+            Assert.AreEqual(1.0, detail.RawCoefficient!.Value, 1e-9);
 
             #endregion
         }
@@ -1575,6 +1580,239 @@ namespace MedRecProTest
             var aggregate = aggregates.Single();
             Assert.AreEqual(2, aggregate.Value.Count);
             Assert.AreEqual(2.0, aggregate.Value.Value, 1e-9);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the cell drill-down suppresses the map-safe coefficient below the floor while
+        /// still exposing the raw diagnostic coefficient and all contributing pairs.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationCellDetailAsync"/>
+        [TestMethod]
+        public async Task GetAeCorrelationCellDetailAsync_BelowMinDrugsPerCell_ReturnsNullMapCoefficientAndRawCoefficient()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string code = "TESTKINASE";
+            const string socA = "Skin and Subcutaneous Tissue Disorders";
+            const string socB = "Gastrointestinal Disorders";
+
+            // Three drugs overlap the pair, below the default floor of four.
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socA, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(1), riskId: 2, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socB, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 3, activeMoietyId: 102, pharmClassCode: code, parameterCategory: socA, rr: 4.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 4, activeMoietyId: 102, pharmClassCode: code, parameterCategory: socB, rr: 4.0);
+            seedCorrelationRow(connection, drugDoc(3), riskId: 5, activeMoietyId: 103, pharmClassCode: code, parameterCategory: socA, rr: 8.0);
+            seedCorrelationRow(connection, drugDoc(3), riskId: 6, activeMoietyId: 103, pharmClassCode: code, parameterCategory: socB, rr: 8.0);
+
+            var detail = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(context, code, socA, socB, PkSecret, logger);
+
+            Assert.IsNotNull(detail);
+            Assert.AreEqual(3, detail.PairCount);
+            Assert.AreEqual(4, detail.MinDrugsPerCell);
+            Assert.IsTrue(detail.InsufficientN);
+            Assert.IsNull(detail.Coefficient);
+            Assert.IsNull(detail.PValue);
+            Assert.IsNotNull(detail.RawCoefficient);
+            Assert.AreEqual(1.0, detail.RawCoefficient!.Value, 1e-9);
+            // RawPValue is null here not because of the floor but because a perfect ±1
+            // coefficient has no defined p-value; the raw pair stays internally consistent.
+            Assert.IsNull(detail.RawPValue);
+            Assert.AreEqual(3, detail.DrugPairs.Count);
+            Assert.IsFalse(detail.IsDiagonal);
+            Assert.IsTrue(detail.Warnings.Any(warning => warning.Contains("suppressed")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that requesting the same SOC for both axes returns a non-informative diagonal cell.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationCellDetailAsync"/>
+        [TestMethod]
+        public async Task GetAeCorrelationCellDetailAsync_Diagonal_ReturnsNonInformativeDiagonal()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string code = "TESTKINASE";
+            const string socA = "Skin and Subcutaneous Tissue Disorders";
+
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socA, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 2, activeMoietyId: 102, pharmClassCode: code, parameterCategory: socA, rr: 4.0);
+            seedCorrelationRow(connection, drugDoc(3), riskId: 3, activeMoietyId: 103, pharmClassCode: code, parameterCategory: socA, rr: 8.0);
+
+            // Same SOC on both axes (case-insensitive) is the diagonal.
+            var detail = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(context, code, socA, socA.ToLowerInvariant(), PkSecret, logger);
+
+            Assert.IsNotNull(detail);
+            Assert.IsTrue(detail.IsDiagonal);
+            Assert.IsNotNull(detail.Coefficient);
+            Assert.AreEqual(1.0, detail.Coefficient!.Value, 1e-9);
+            Assert.IsNotNull(detail.RawCoefficient);
+            Assert.AreEqual(1.0, detail.RawCoefficient!.Value, 1e-9);
+            Assert.IsNull(detail.PValue);
+            Assert.IsFalse(detail.IsSignificant);
+            Assert.IsTrue(detail.DrugPairs.Count > 0);
+            Assert.IsTrue(detail.Warnings.Any(warning => warning.Contains("diagonal")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that requesting a SOC with no rows after filtering returns empty pairs, null
+        /// coefficients, and an explanatory warning rather than an error.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationCellDetailAsync"/>
+        [TestMethod]
+        public async Task GetAeCorrelationCellDetailAsync_MissingSoc_ReturnsEmptyPairsAndWarning()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string code = "TESTKINASE";
+            const string socA = "Skin and Subcutaneous Tissue Disorders";
+
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socA, rr: 2.0);
+
+            var detail = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(context, code, socA, "Cardiac Disorders", PkSecret, logger);
+
+            Assert.IsNotNull(detail);
+            Assert.AreEqual(0, detail.DrugPairs.Count);
+            Assert.AreEqual(0, detail.PairCount);
+            Assert.IsNull(detail.Coefficient);
+            Assert.IsNull(detail.RawCoefficient);
+            Assert.IsNull(detail.PValue);
+            Assert.IsTrue(detail.Warnings.Any(warning => warning.Contains("no rows")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the map clamps a below-floor drugs-per-cell request up to the hard floor of three and echoes it.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationMapAsync"/>
+        [TestMethod]
+        public async Task GetAeCorrelationMapAsync_MinDrugsPerCellBelowFloor_EchoesThree()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string code = "TESTKINASE";
+            const string socA = "Skin and Subcutaneous Tissue Disorders";
+            const string socB = "Gastrointestinal Disorders";
+
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socA, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(1), riskId: 2, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socB, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 3, activeMoietyId: 102, pharmClassCode: code, parameterCategory: socA, rr: 4.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 4, activeMoietyId: 102, pharmClassCode: code, parameterCategory: socB, rr: 4.0);
+
+            var map = await DtoLabelAccess.GetAeCorrelationMapAsync(context, code, PkSecret, logger, minDrugsPerCell: 1);
+
+            Assert.IsNotNull(map);
+            Assert.AreEqual(3, map.AppliedFilters.MinDrugsPerCell);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that the Both comparator includes active and placebo rows and adds a mixed-estimand warning.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationMapAsync"/>
+        [TestMethod]
+        public async Task GetAeCorrelationMapAsync_BothComparator_AddsMixedComparatorWarning()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string code = "TESTKINASE";
+            const string placeboSoc = "Skin and Subcutaneous Tissue Disorders";
+            const string activeSoc = "Nervous System Disorders";
+
+            // Placebo drugs populate one SOC; active-only drugs populate another.
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: code, parameterCategory: placeboSoc, rr: 2.0, isPlaceboControlled: true);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 2, activeMoietyId: 102, pharmClassCode: code, parameterCategory: placeboSoc, rr: 4.0, isPlaceboControlled: true);
+            seedCorrelationRow(connection, drugDoc(3), riskId: 3, activeMoietyId: 103, pharmClassCode: code, parameterCategory: activeSoc, rr: 3.0, isPlaceboControlled: false);
+            seedCorrelationRow(connection, drugDoc(4), riskId: 4, activeMoietyId: 104, pharmClassCode: code, parameterCategory: activeSoc, rr: 5.0, isPlaceboControlled: false);
+
+            var map = await DtoLabelAccess.GetAeCorrelationMapAsync(context, code, PkSecret, logger, comparator: AeComparatorMix.Both, minDrugsPerCell: 3);
+
+            Assert.IsNotNull(map);
+            Assert.AreEqual(AeComparatorMix.Both, map.AppliedFilters.Comparator);
+            Assert.IsTrue(map.Soc.Contains(placeboSoc));
+            Assert.IsTrue(map.Soc.Contains(activeSoc));
+            Assert.IsTrue(map.Warnings.Any(warning => warning.Contains("mix")));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that the class picker honors the search filter and in-memory paging.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationClassesAsync"/>
+        [TestMethod]
+        public async Task GetAeCorrelationClassesAsync_SearchAndPaging_ReturnsExpectedSlice()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string socA = "Skin and Subcutaneous Tissue Disorders";
+            const string socB = "Gastrointestinal Disorders";
+
+            // Two searchable, correlatable kinase classes plus one non-matching class.
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmacologicClassId: 701, pharmClassCode: "KINASE-A", pharmClassName: "Alpha Kinase Inhibitors", parameterCategory: socA, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 2, activeMoietyId: 102, pharmacologicClassId: 701, pharmClassCode: "KINASE-A", pharmClassName: "Alpha Kinase Inhibitors", parameterCategory: socB, rr: 4.0);
+            seedCorrelationRow(connection, drugDoc(3), riskId: 3, activeMoietyId: 201, pharmacologicClassId: 702, pharmClassCode: "KINASE-B", pharmClassName: "Beta Kinase Inhibitors", parameterCategory: socA, rr: 3.0);
+            seedCorrelationRow(connection, drugDoc(4), riskId: 4, activeMoietyId: 202, pharmacologicClassId: 702, pharmClassCode: "KINASE-B", pharmClassName: "Beta Kinase Inhibitors", parameterCategory: socB, rr: 5.0);
+            seedCorrelationRow(connection, drugDoc(5), riskId: 5, activeMoietyId: 301, pharmacologicClassId: 703, pharmClassCode: "OTHER-C", pharmClassName: "Gamma Other Agents", parameterCategory: socA, rr: 6.0);
+
+            var firstPage = await DtoLabelAccess.GetAeCorrelationClassesAsync(context, PkSecret, logger, classSearch: "Kinase", page: 1, size: 1);
+            var secondPage = await DtoLabelAccess.GetAeCorrelationClassesAsync(context, PkSecret, logger, classSearch: "Kinase", page: 2, size: 1);
+
+            // Search restricts to the two kinase classes; correlatable-then-name ordering yields Alpha first.
+            Assert.AreEqual(1, firstPage.Count);
+            Assert.AreEqual("KINASE-A", firstPage[0].PharmClassCode);
+            Assert.IsTrue(firstPage[0].IsCorrelatable);
+            Assert.AreEqual(1, secondPage.Count);
+            Assert.AreEqual("KINASE-B", secondPage[0].PharmClassCode);
 
             #endregion
         }

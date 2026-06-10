@@ -4958,3 +4958,32 @@ Implemented the four-endpoint AE correlation feature from the pending plan: a ph
 **Verification.** `dotnet build` clean on both projects; added 16 tests (the 15 from the plan plus a casing regression) — the full suite passes at 2223/2224 (1 pre-existing skip). An adversarial multi-agent review surfaced one real low-severity defect: `AggregatePerDrugSoc` grouped `(DrugKey, SOC)` case-sensitively while the downstream pivot/axis were case-insensitive, so a drug reporting one SOC under two casings would split and silently overwrite. Fixed by folding SOC casing to a canonical first-seen form at the aggregation boundary, with `AggregatePerDrugSoc_MixedCaseSoc_FoldsToOneAggregate` covering it.
 
 ---
+
+### 2026-06-10 11:17 AM EST — AE Dashboard SOC Correlation Implementation Report
+Created a completed implementation-success report for the pending AE dashboard SOC correlation map plan.
+
+**Implementation.** Added [Plans/(done) AE Dashboard SOC correlation maps implementation report.md](Plans/(done) AE Dashboard SOC correlation maps implementation report.md), evaluating the latest commit against the plan across backend endpoint coverage, DTO/data-access/derivation fidelity, tests, missed frontend integration, controller-test gaps, performance concerns, and gotchas such as below-floor cell drill-down coefficients and approximate serious-SOC matching.
+
+**Verification.** Reviewed the plan file, latest commit metadata, changed-file scope, controller/data-access/derivation/DTO/test implementations, existing dashboard bundle/source search results, and `Journal.md`. Ran `dotnet test MedRecProTest/MedRecProTest.csproj --filter "FullyQualifiedName~AeDashboardDataAccessTests" --no-restore -p:BaseOutputPath="C:\Users\chris\OneDrive\Documents\Repos\.codex-build\ae-correlation-test\" -p:UseAppHost=false`, which passed with 35 tests and 0 failures, then removed the temporary `.codex-build\ae-correlation-test` output.
+
+---
+
+### 2026-06-10 11:33 AM EST — AE Dashboard SOC Correlation Backend Hardening Plan
+Created a backend-only revision plan for tightening the implemented SOC correlation API.
+
+**Implementation.** Added [Plans/(pending) AE Dashboard SOC Correlation Backend Hardening Plan.md](Plans/(pending) AE Dashboard SOC Correlation Backend Hardening Plan.md), using the implementation report findings while treating frontend work as explicitly out of scope. The plan focuses on controller contract tests, cell-detail small-n semantics, invalid enum and `minEvents` validation, comparator hardening, pipeline-model boundary cleanup, performance logging/caching guardrails, and Swagger documentation for backend gotchas.
+
+**Verification.** Read the saved implementation report, current `Plans/` naming conventions, relevant memory notes about AE dashboard backend/planning work, and the journal tail before appending this entry. Verified the plan by direct file creation under ignored `Plans/`; no code or tests were changed in this planning-only session.
+
+---
+
+### 2026-06-10 12:18 PM EST — AE Dashboard SOC Correlation Backend Hardening Implementation
+Implemented all seven phases of the backend hardening plan for the SOC correlation API, keeping the feature backend-only.
+
+**Implementation.** Aligned the cell drill-down with the map's small-n semantics: `AeCorrelationCellDetailDto` now carries a map-safe `Coefficient`/`PValue` (null below the clamped `minDrugsPerCell` floor, with a suppression warning) alongside diagnostic `RawCoefficient`/`RawPValue`, plus `IsSignificant`, `InsufficientN`, `IsDiagonal`, and `MinDrugsPerCell`; same-SOC requests return a non-informative 1.0 diagonal. Added `minDrugsPerCell` to `GetCorrelationCell` and `GetAeCorrelationCellDetailAsync`. Hardened parameters: the controller rejects negative `minEvents` and undefined `AeComparatorMix`/`AeCorrelationMethod`/`AeCorrelationAggregation` numeric values with 400 via a shared `validateCorrelationFilters` helper, `DtoLabelAccess.validateCorrelationEnums` is the second line of defense, and `applyComparatorFilter` now maps `Placebo`/`Active`/`Both`/`null` explicitly and throws on undefined values so an unsupported comparator can no longer silently mix estimands. Moved the pipeline-only records `AeCorrelationObservation` and `AeCorrelationAggregate` from `Models/AeDashboardDto.cs` to `DataAccess/AeCorrelationPipelineModels.cs` (kept public with prominent non-response documentation, because `internal` would force the public derivation methods internal with no `InternalsVisibleTo` configured). Added Debug-level Stopwatch logging to `buildCorrelationObservationsAsync` and the class picker, plus a `Distinct()` projection that collapses duplicate picker rows provider-side; deferred version-token caching since the plan gates it on production measurements. Tightened Swagger/XML docs on all four correlation actions (non-PSD pairwise deletion, `Both` mixed estimands, approximate `seriousSocOnly`, sparse heatmap cells, pre-correlation `includeNonSignificant` filtering, map-safe vs raw drill-down coefficients, backend-only status).
+
+**Tests.** Added controller coverage in `AdverseEventControllerTests.cs`: route/metadata assertions for `correlation`, `correlation/classes`, `correlation/heatmap`, and `correlation/cell` (templates, anonymous access, database governance, ProducesResponseType payloads), feature-disabled 503s for all four routes, blank/invalid-enum/negative-`minEvents` 400s, unknown-class 404s, and filter-echo assertions including the floor clamp from `minDrugsPerCell=1` to 3. Added data-access tests for below-floor raw-vs-map-safe cell behavior, diagonal cells, missing-SOC requests, floor echoes, the `Both` mixed-comparator warning, and class-picker search plus paging; updated the existing per-drug-pairs test for the new floor default. A multi-agent adversarial review of the diff (statistical semantics, plan coverage, regression risk) found no blocker or major issues; its minor findings (RawPValue doc clarity, missing RawPValue assertion, untested missing-SOC path) were fixed in-session.
+
+**Verification.** `dotnet build MedRecPro` clean (0 errors); focused `AeDashboardDataAccessTests` + `AdverseEventControllerTests` run passed 54/54; the full `MedRecProTest` suite passed 2,231 with 0 failures (1 pre-existing unrelated skip); `git diff --check` clean.
+
+---

@@ -924,6 +924,15 @@ namespace MedRecPro.Api.Controllers
         /// LogRR with a drugs-per-cell floor, and returns per-cell `n`, null thin cells, and
         /// honesty `Warnings` so the map renders truthfully.
         ///
+        /// ## Backend notes
+        /// This is a backend/API-only feature; no client renders it yet. Gotchas a consumer must
+        /// know: cells below `minDrugsPerCell` return `Coefficient=null` (`InsufficientN=true`);
+        /// pairwise deletion means the matrix is **not guaranteed positive semi-definite**, so do
+        /// not cluster or run PCA on it without repair; `comparator=Both` mixes placebo and active
+        /// estimands and adds a warning; `seriousSocOnly` is an approximate SOC keyword match;
+        /// `includeNonSignificant=false` drops rows **before** aggregation/correlation; and
+        /// `minEvents` is the total of treatment + comparator events for a row.
+        ///
         /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
         /// </remarks>
         /// <example>
@@ -969,6 +978,12 @@ namespace MedRecPro.Api.Controllers
             if (string.IsNullOrWhiteSpace(pharmClassCode))
             {
                 return BadRequest("Pharmacologic class code is required.");
+            }
+
+            var filterValidation = validateCorrelationFilters(comparator, aggregation, minEvents, method);
+            if (filterValidation != null)
+            {
+                return filterValidation;
             }
 
             try
@@ -1101,6 +1116,13 @@ namespace MedRecPro.Api.Controllers
         /// and each populated cell is an aggregated LogRR. Stays meaningful when a class is too
         /// small to correlate.
         ///
+        /// ## Backend notes
+        /// Backend/API-only until a client is added. Cells are **sparse**: only populated
+        /// `(SOC, drug)` pairs are emitted and the client fills the gaps. The same input filters
+        /// as the map apply — `includeNonSignificant=false` drops rows before aggregation,
+        /// `seriousSocOnly` is an approximate keyword match, `comparator=Both` mixes estimands
+        /// (warned), and `minEvents` counts treatment + comparator events.
+        ///
         /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
         /// </remarks>
         /// <example>
@@ -1146,6 +1168,12 @@ namespace MedRecPro.Api.Controllers
                 return BadRequest("Pharmacologic class code is required.");
             }
 
+            var filterValidation = validateCorrelationFilters(comparator, aggregation, minEvents);
+            if (filterValidation != null)
+            {
+                return filterValidation;
+            }
+
             try
             {
                 var result = await DtoLabelAccess.GetAeCorrelationHeatmapAsync(
@@ -1189,6 +1217,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
         /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept.</param>
         /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="minDrugsPerCell">Minimum drugs for the map-safe coefficient (server floor 3); the raw coefficient ignores it.</param>
         /// <param name="method">Correlation method used for the recomputed coefficient.</param>
         /// <param name="aggregation">Within-SOC per-drug aggregation; median LogRR by default.</param>
         /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
@@ -1200,6 +1229,14 @@ namespace MedRecPro.Api.Controllers
         /// Mirrors the triage/forest/quadrant drill pattern. Returns the per-drug paired
         /// (SOC X LogRR, SOC Y LogRR) observations the cell's coefficient was computed over, with
         /// encrypted moiety provenance — the answer to "why is this cell 0.9?".
+        ///
+        /// ## Backend notes
+        /// Backend/API-only until a client is added. The drill-down is honest the same way the map
+        /// is: `Coefficient` is **map-safe** (null when the cell is below `minDrugsPerCell`, exactly
+        /// as the map suppresses it), while `RawCoefficient` is the **diagnostic** unsuppressed
+        /// value; `InsufficientN` explains any difference and a warning is added when the floor hides
+        /// a value. When `socX == socY` the cell is the non-informative diagonal, forced to 1.0. All
+        /// `DrugPairs` are preserved for inspection regardless of the floor.
         ///
         /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
         /// </remarks>
@@ -1231,6 +1268,7 @@ namespace MedRecPro.Api.Controllers
             [FromQuery] AeComparatorMix? comparator,
             [FromQuery] bool includeNonSignificant = true,
             [FromQuery] bool excludeFragile = true,
+            [FromQuery] int minDrugsPerCell = 4,
             [FromQuery] AeCorrelationMethod method = AeCorrelationMethod.Spearman,
             [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
             [FromQuery] bool seriousSocOnly = false,
@@ -1254,6 +1292,12 @@ namespace MedRecPro.Api.Controllers
                 return BadRequest("Both socX and socY are required.");
             }
 
+            var filterValidation = validateCorrelationFilters(comparator, aggregation, minEvents, method);
+            if (filterValidation != null)
+            {
+                return filterValidation;
+            }
+
             try
             {
                 var result = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(
@@ -1266,6 +1310,7 @@ namespace MedRecPro.Api.Controllers
                     comparator ?? AeComparatorMix.Placebo,
                     includeNonSignificant,
                     excludeFragile,
+                    minDrugsPerCell,
                     method,
                     aggregation,
                     seriousSocOnly,
@@ -1325,6 +1370,57 @@ namespace MedRecPro.Api.Controllers
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 "The AE dashboard feature is disabled.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates the shared correlation filter inputs, returning a 400 response when any value is invalid.
+        /// </summary>
+        /// <param name="comparator">Optional comparator mix; null means the placebo default.</param>
+        /// <param name="aggregation">Within-SOC aggregation enum.</param>
+        /// <param name="minEvents">Minimum total events filter; must be non-negative.</param>
+        /// <param name="method">Optional correlation method enum (the heatmap omits it).</param>
+        /// <returns>A <see cref="BadRequestObjectResult"/> when a value is invalid; otherwise null.</returns>
+        /// <remarks>
+        /// Model binding can produce an undefined enum value from an out-of-range numeric query
+        /// string (for example <c>comparator=99</c>), which would otherwise bind silently. This
+        /// guard rejects those deterministically with 400 and also rejects a negative
+        /// <paramref name="minEvents"/> (which would otherwise be equivalent to "no minimum").
+        /// </remarks>
+        /// <seealso cref="AeComparatorMix"/>
+        /// <seealso cref="AeCorrelationMethod"/>
+        /// <seealso cref="AeCorrelationAggregation"/>
+        private ActionResult? validateCorrelationFilters(
+            AeComparatorMix? comparator,
+            AeCorrelationAggregation aggregation,
+            int minEvents,
+            AeCorrelationMethod? method = null)
+        {
+            #region implementation
+
+            if (minEvents < 0)
+            {
+                return BadRequest("minEvents cannot be negative.");
+            }
+
+            if (comparator.HasValue && !Enum.IsDefined(typeof(AeComparatorMix), comparator.Value))
+            {
+                return BadRequest("Unsupported comparator value.");
+            }
+
+            if (!Enum.IsDefined(typeof(AeCorrelationAggregation), aggregation))
+            {
+                return BadRequest("Unsupported aggregation value.");
+            }
+
+            if (method.HasValue && !Enum.IsDefined(typeof(AeCorrelationMethod), method.Value))
+            {
+                return BadRequest("Unsupported method value.");
+            }
+
+            return null;
 
             #endregion
         }

@@ -224,6 +224,10 @@ namespace MedRecProTest
                 DtoLabelAccessTestHelper.TestDocumentGuid,
                 DtoLabelAccessTestHelper.TestDocumentGuid2,
                 false)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetCorrelationMap("ANY", null)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetCorrelationClasses(null, null, null)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetCorrelationHeatmap("ANY", null)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetCorrelationCell("ANY", "A", "B", null)).Result!, StatusCodes.Status503ServiceUnavailable);
 
             #endregion
         }
@@ -500,6 +504,125 @@ namespace MedRecProTest
 
         #endregion metadata tests
 
+        #region correlation tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the four SOC correlation routes expose the expected route templates,
+        /// anonymous access, database governance, and Swagger response metadata.
+        /// </summary>
+        /// <seealso cref="AdverseEventController.GetCorrelationMap"/>
+        /// <seealso cref="AdverseEventController.GetCorrelationClasses"/>
+        /// <seealso cref="AdverseEventController.GetCorrelationHeatmap"/>
+        /// <seealso cref="AdverseEventController.GetCorrelationCell"/>
+        [TestMethod]
+        public void CorrelationEndpoints_Metadata_ExposesExpectedAttributes()
+        {
+            #region implementation
+
+            var map = getAction(nameof(AdverseEventController.GetCorrelationMap));
+            var classes = getAction(nameof(AdverseEventController.GetCorrelationClasses));
+            var heatmap = getAction(nameof(AdverseEventController.GetCorrelationHeatmap));
+            var cell = getAction(nameof(AdverseEventController.GetCorrelationCell));
+
+            Assert.AreEqual("correlation", map.GetCustomAttribute<HttpGetAttribute>()!.Template);
+            Assert.AreEqual("correlation/classes", classes.GetCustomAttribute<HttpGetAttribute>()!.Template);
+            Assert.AreEqual("correlation/heatmap", heatmap.GetCustomAttribute<HttpGetAttribute>()!.Template);
+            Assert.AreEqual("correlation/cell", cell.GetCustomAttribute<HttpGetAttribute>()!.Template);
+
+            // Every correlation route is anonymous, database-governed, and reports 500/503.
+            foreach (var action in new[] { map, classes, heatmap, cell })
+            {
+                Assert.IsNotNull(action.GetCustomAttribute<AllowAnonymousAttribute>(), $"{action.Name} should be anonymous.");
+                Assert.IsTrue(action.GetCustomAttributes<DatabaseLimitAttribute>().Any(), $"{action.Name} should declare DatabaseLimit.");
+                Assert.IsTrue(action.GetCustomAttributes<DatabaseIntensiveAttribute>().Any(), $"{action.Name} should declare DatabaseIntensive.");
+                assertProduces(action, StatusCodes.Status500InternalServerError);
+                assertProduces(action, StatusCodes.Status503ServiceUnavailable);
+            }
+
+            // Per-route 200 payload types and the request-shaped error codes.
+            assertProduces(map, StatusCodes.Status200OK, typeof(AeCorrelationMapDto));
+            assertProduces(map, StatusCodes.Status400BadRequest);
+            assertProduces(map, StatusCodes.Status404NotFound);
+            assertProduces(classes, StatusCodes.Status200OK, typeof(List<AePharmClassPickerItemDto>));
+            assertProduces(classes, StatusCodes.Status400BadRequest);
+            assertProduces(heatmap, StatusCodes.Status200OK, typeof(AeCorrelationHeatmapDto));
+            assertProduces(heatmap, StatusCodes.Status400BadRequest);
+            assertProduces(heatmap, StatusCodes.Status404NotFound);
+            assertProduces(cell, StatusCodes.Status200OK, typeof(AeCorrelationCellDetailDto));
+            assertProduces(cell, StatusCodes.Status400BadRequest);
+            assertProduces(cell, StatusCodes.Status404NotFound);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the correlation endpoints reject blank, invalid-enum, and negative inputs
+        /// with 400, map unknown classes to 404, and echo the normalized filters on success.
+        /// </summary>
+        /// <seealso cref="AdverseEventController.GetCorrelationMap"/>
+        /// <seealso cref="AdverseEventController.GetCorrelationCell"/>
+        [TestMethod]
+        public async Task CorrelationEndpoints_ValidateInputsAndReturnNormalizedResults()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var controller = createController(context, createConfiguration());
+
+            const string code = "CTRLKINASE";
+            const string socA = "Skin and Subcutaneous Tissue Disorders";
+            const string socB = "Gastrointestinal Disorders";
+
+            // A correlatable class: three placebo drugs across the two SOCs.
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socA, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(1), riskId: 2, activeMoietyId: 101, pharmClassCode: code, parameterCategory: socB, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 3, activeMoietyId: 102, pharmClassCode: code, parameterCategory: socA, rr: 4.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 4, activeMoietyId: 102, pharmClassCode: code, parameterCategory: socB, rr: 4.0);
+            seedCorrelationRow(connection, drugDoc(3), riskId: 5, activeMoietyId: 103, pharmClassCode: code, parameterCategory: socA, rr: 8.0);
+            seedCorrelationRow(connection, drugDoc(3), riskId: 6, activeMoietyId: 103, pharmClassCode: code, parameterCategory: socB, rr: 8.0);
+
+            // Blank required strings -> 400 (controller-level, before data access).
+            assertStatus((await controller.GetCorrelationMap(" ", null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetCorrelationHeatmap(" ", null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetCorrelationCell(" ", socA, socB, null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetCorrelationCell(code, " ", socB, null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetCorrelationCell(code, socA, " ", null)).Result!, StatusCodes.Status400BadRequest);
+
+            // Undefined numeric enum and negative minEvents -> 400.
+            assertStatus((await controller.GetCorrelationMap(code, (AeComparatorMix)99)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetCorrelationMap(code, null, minEvents: -1)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetCorrelationCell(code, socA, socB, (AeComparatorMix)99)).Result!, StatusCodes.Status400BadRequest);
+
+            // Unknown class -> 404 (controller maps null data-access result).
+            assertStatus((await controller.GetCorrelationMap("NO_SUCH", null)).Result!, StatusCodes.Status404NotFound);
+            assertStatus((await controller.GetCorrelationHeatmap("NO_SUCH", null)).Result!, StatusCodes.Status404NotFound);
+            assertStatus((await controller.GetCorrelationCell("NO_SUCH", socA, socB, null)).Result!, StatusCodes.Status404NotFound);
+
+            // Valid map echoes the placebo default and the clamped drugs-per-cell floor.
+            var map = getOkValue<AeCorrelationMapDto>(await controller.GetCorrelationMap(code, null, minDrugsPerCell: 1));
+            Assert.AreEqual(AeComparatorMix.Placebo, map.AppliedFilters.Comparator);
+            Assert.AreEqual(3, map.AppliedFilters.MinDrugsPerCell);
+            Assert.AreEqual(3, map.DrugCount);
+
+            // Valid cell echoes the clamped floor on the dedicated scalar property.
+            var cell = getOkValue<AeCorrelationCellDetailDto>(await controller.GetCorrelationCell(code, socA, socB, null, minDrugsPerCell: 1));
+            Assert.AreEqual(3, cell.MinDrugsPerCell);
+            Assert.AreEqual(3, cell.AppliedFilters.MinDrugsPerCell);
+
+            // The class picker surfaces the seeded correlatable class.
+            var classes = getOkValue<List<AePharmClassPickerItemDto>>(await controller.GetCorrelationClasses(null, null, null));
+            Assert.IsTrue(classes.Any(item => item.PharmClassCode == code && item.IsCorrelatable));
+
+            #endregion
+        }
+
+        #endregion correlation tests
+
         #region helpers
 
         /**************************************************************/
@@ -706,6 +829,64 @@ namespace MedRecProTest
                     matches.Any(attribute => attribute.Type == responseType),
                     $"Missing ProducesResponseType type {responseType.Name} for {statusCode} on {method.Name}.");
             }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a deterministic, distinct document GUID for a synthetic correlation drug.
+        /// </summary>
+        /// <param name="n">Drug ordinal used to vary the GUID.</param>
+        /// <returns>A stable document GUID for the drug.</returns>
+        private static Guid drugDoc(int n) => Guid.Parse($"c2c2c2c2-0000-0000-0000-{n:D12}");
+
+        /**************************************************************/
+        /// <summary>
+        /// Seeds one risk-table row for a synthetic correlation drug, keeping the CI tight and non-fragile.
+        /// </summary>
+        /// <param name="connection">Open SQLite connection backing the test context.</param>
+        /// <param name="documentGuid">Source document identifier for the drug.</param>
+        /// <param name="riskId">Unique risk-table identifier for the row.</param>
+        /// <param name="activeMoietyId">Active moiety identifier (the correlation observation unit).</param>
+        /// <param name="pharmClassCode">Pharmacologic class code the row belongs to.</param>
+        /// <param name="parameterCategory">MedDRA SOC for the row.</param>
+        /// <param name="rr">Relative risk for the row.</param>
+        /// <param name="isPlaceboControlled">Whether the row is placebo-controlled.</param>
+        /// <seealso cref="DtoLabelAccessTestHelper.SeedAeRiskSignalTable"/>
+        private static void seedCorrelationRow(
+            SqliteConnection connection,
+            Guid documentGuid,
+            int riskId,
+            int activeMoietyId,
+            string pharmClassCode,
+            string parameterCategory,
+            double rr,
+            bool isPlaceboControlled = true)
+        {
+            #region implementation
+
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(
+                connection,
+                documentGuid: documentGuid,
+                riskId: riskId,
+                adverseEventId: riskId,
+                standardizedId: riskId,
+                activeMoietyId: activeMoietyId,
+                ingredientSubstanceId: activeMoietyId + 1000,
+                pharmacologicClassId: 500,
+                pharmClassCode: pharmClassCode,
+                pharmClassName: "Test Pharmacologic Class",
+                substanceName: $"Substance {activeMoietyId}",
+                parameterCategory: parameterCategory,
+                parameterName: $"{parameterCategory} term",
+                significance: "elevated",
+                isPlaceboControlled: isPlaceboControlled,
+                rr: rr,
+                rrLowerBound: rr * 0.7,
+                rrUpperBound: rr * 1.4,
+                eventsTreatment: 30,
+                eventsComparator: 10);
 
             #endregion
         }

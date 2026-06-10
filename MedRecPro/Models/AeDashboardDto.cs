@@ -1251,87 +1251,6 @@ namespace MedRecPro.Models
 
     /**************************************************************/
     /// <summary>
-    /// One drug-within-class observation feeding the correlation pipeline.
-    /// </summary>
-    /// <remarks>
-    /// This is an internal pipeline record, never serialized to clients. The observation
-    /// unit is a drug (distinct active moiety) within the pharmacologic class; a stable
-    /// document-derived key is used when the active moiety is null so two SPL labels of
-    /// one molecule do not double-count. <see cref="LogRr"/> is computed in memory because
-    /// the persisted log column is null for seeded rows.
-    /// </remarks>
-    /// <seealso cref="MedRecPro.DataAccess.AeDashboardDerivation.BuildCorrelationMap"/>
-    public sealed record AeCorrelationObservation
-    {
-        #region Observation Properties
-
-        /**************************************************************/
-        /// <summary>Stable per-drug key (active moiety, or a document-derived fallback).</summary>
-        public string DrugKey { get; init; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>Encrypted active moiety identifier for client-safe drill-down provenance.</summary>
-        public string? EncryptedActiveMoietyID { get; init; }
-
-        /**************************************************************/
-        /// <summary>Drug display name (substance, falling back to product).</summary>
-        public string? DrugDisplayName { get; init; }
-
-        /**************************************************************/
-        /// <summary>Source SPL document identifier for the observation.</summary>
-        public Guid? DocumentGUID { get; init; }
-
-        /**************************************************************/
-        /// <summary>MedDRA System Organ Class (ParameterCategory) of the observation.</summary>
-        public string Soc { get; init; } = string.Empty;
-
-        /**************************************************************/
-        /// <summary>Natural-log relative risk for the observation.</summary>
-        public double LogRr { get; init; }
-
-        /**************************************************************/
-        /// <summary>Raw relative risk for the observation, retained for display.</summary>
-        public double? Rr { get; init; }
-
-        /**************************************************************/
-        /// <summary>Derived precision class for the observation.</summary>
-        public AePrecisionClass Precision { get; init; }
-
-        /**************************************************************/
-        /// <summary>Derived typed RR significance for the observation.</summary>
-        public AeRiskSignificance RiskSignificance { get; init; }
-
-        /**************************************************************/
-        /// <summary>Whether the observation came from a combination-product row.</summary>
-        public bool IsCombo { get; init; }
-
-        /**************************************************************/
-        /// <summary>Total (treatment + comparator) event count for the observation.</summary>
-        public double Events { get; init; }
-
-        #endregion Observation Properties
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Aggregated per-(drug, SOC) value used by correlation and heatmap assembly.
-    /// </summary>
-    /// <remarks>
-    /// Internal pipeline record. <see cref="Value"/> is the median or mean LogRR across a
-    /// drug's terms in one SOC; <see cref="Precision"/> and <see cref="Significance"/> come
-    /// from the strongest-magnitude term for display; <see cref="AnyFragile"/> is true when
-    /// any contributing term is fragile, which a correlation cell surfaces honestly.
-    /// </remarks>
-    /// <seealso cref="MedRecPro.DataAccess.AeDashboardDerivation.AggregatePerDrugSoc"/>
-    public sealed record AeCorrelationAggregate(
-        double Value,
-        bool AnyFragile,
-        int Count,
-        AePrecisionClass Precision,
-        AeRiskSignificance Significance);
-
-    /**************************************************************/
-    /// <summary>
     /// One cell of the SOC × SOC correlation matrix.
     /// </summary>
     /// <remarks>
@@ -1774,11 +1693,20 @@ namespace MedRecPro.Models
     /// </summary>
     /// <remarks>
     /// Returns the per-drug paired observations the cell was computed from, mirroring the
-    /// triage/forest/quadrant drill pattern. Echoes the recomputed
-    /// <see cref="Coefficient"/> and <see cref="PairCount"/> so the cell can be explained
-    /// without re-querying the map.
+    /// triage/forest/quadrant drill pattern. The payload carries two coefficients so the
+    /// drill-down stays honest the same way the map does:
+    /// <list type="bullet">
+    /// <item><see cref="Coefficient"/> is the <b>map-safe</b> value — it is null whenever
+    /// <see cref="PairCount"/> is below <see cref="MinDrugsPerCell"/> (the same suppression
+    /// the map applies), so a cell that reads null on the map also reads null here.</item>
+    /// <item><see cref="RawCoefficient"/> is the <b>diagnostic</b> value — the unsuppressed
+    /// pairwise-complete coefficient, available even below the floor for transparency.</item>
+    /// </list>
+    /// When the two differ, <see cref="InsufficientN"/> is the reason and a warning is added.
+    /// <see cref="PValue"/>/<see cref="RawPValue"/> follow the same map-safe/raw split.
     /// </remarks>
     /// <seealso cref="AeCorrelationDrugPairDto"/>
+    /// <seealso cref="AeCorrelationCellDto"/>
     public class AeCorrelationCellDetailDto
     {
         #region Cell Context Properties
@@ -1804,8 +1732,48 @@ namespace MedRecPro.Models
         public AeCorrelationFilters AppliedFilters { get; set; } = new();
 
         /**************************************************************/
-        /// <summary>Recomputed correlation coefficient for the cell.</summary>
+        /// <summary>
+        /// Map-safe correlation coefficient for the cell: null when
+        /// <see cref="PairCount"/> is below <see cref="MinDrugsPerCell"/>, exactly as the
+        /// map suppresses thin cells. Use <see cref="RawCoefficient"/> for the unsuppressed value.
+        /// </summary>
         public double? Coefficient { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unsuppressed diagnostic coefficient computed from the pairwise-complete drugs,
+        /// available even below the drugs-per-cell floor. Null only for fewer than two pairs
+        /// or zero variance (never a fabricated number or NaN).
+        /// </summary>
+        public double? RawCoefficient { get; set; }
+
+        /**************************************************************/
+        /// <summary>Map-safe two-sided p-value: null when the cell is below the floor or undefined.</summary>
+        public double? PValue { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Unsuppressed diagnostic two-sided p-value, available even below the floor. Null when
+        /// statistically undefined (perfect ±1 correlation, fewer than three pairs, or zero
+        /// variance) even if <see cref="RawCoefficient"/> exists; always null for diagonal cells.
+        /// </summary>
+        public double? RawPValue { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the map-safe coefficient is significant at p &lt; 0.05.</summary>
+        public bool IsSignificant { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the cell fell below <see cref="MinDrugsPerCell"/> (why <see cref="Coefficient"/> is null but <see cref="RawCoefficient"/> may not be).</summary>
+        public bool InsufficientN { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the requested SOCs are identical (a non-informative diagonal cell forced to 1.0).</summary>
+        public bool IsDiagonal { get; set; }
+
+        /**************************************************************/
+        /// <summary>The clamped drugs-per-cell floor applied to derive <see cref="Coefficient"/> (hard minimum 3).</summary>
+        public int MinDrugsPerCell { get; set; }
 
         /**************************************************************/
         /// <summary>Number of paired drugs behind the cell.</summary>
