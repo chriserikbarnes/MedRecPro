@@ -62,6 +62,28 @@ function normalizeComparatorParameter(comparator) {
 
 /**************************************************************/
 /**
+ * Converts the class-correlation comparator into the ASP.NET Core enum name.
+ *
+ * @param {string} comparator - Class comparator token or enum value.
+ * @returns {'Placebo' | 'Active' | 'Both'} API comparator value.
+ */
+function normalizeClassComparatorParameter(comparator) {
+  // Class mode has no "all" tab; bad URL tokens fall back to the API default.
+  const token = String(comparator ?? 'Placebo').trim().toLowerCase();
+
+  if (token === 'active') {
+    return 'Active';
+  }
+
+  if (token === 'both') {
+    return 'Both';
+  }
+
+  return 'Placebo';
+}
+
+/**************************************************************/
+/**
  * Converts the configured API base plus endpoint path into a fetchable URL.
  *
  * @param {string} path - Endpoint path beneath /api/AdverseEvent.
@@ -329,6 +351,131 @@ export const AdverseEventClient = {
       documentGuidB,
       differencesOnly,
       sharedSignalsOnly,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
+   * Gets pharmacologic classes that have AE rows for correlation views.
+   *
+   * @param {{ classSearch?: string, pageNumber?: number, pageSize?: number, signal?: AbortSignal }} args - Request options.
+   * @returns {Promise<unknown>} API class-picker payload.
+   */
+  getCorrelationClasses({ classSearch = '', pageNumber = 1, pageSize = 50, signal = null } = {}) {
+    const url = buildAdverseEventUrl('correlation/classes', {
+      classSearch,
+      pageNumber,
+      pageSize,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
+   * Gets the SOC by SOC correlation map for one pharmacologic class.
+   *
+   * @param {object} args - Request options.
+   * @returns {Promise<unknown>} API correlation-map payload.
+   */
+  getCorrelationMap({
+    pharmClassCode,
+    comparator = 'Placebo',
+    includeNonSignificant = true,
+    excludeFragile = true,
+    minDrugsPerCell = 4,
+    method = 'Spearman',
+    aggregation = 'MedianLogRr',
+    seriousSocOnly = false,
+    excludeCombos = false,
+    minEvents = 0,
+    signal = null,
+  } = {}) {
+    const url = buildAdverseEventUrl('correlation', {
+      pharmClassCode,
+      comparator: normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      minDrugsPerCell,
+      method,
+      aggregation,
+      seriousSocOnly,
+      excludeCombos,
+      minEvents,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
+   * Gets the sparse SOC by drug heatmap for one pharmacologic class.
+   *
+   * @param {object} args - Request options.
+   * @returns {Promise<unknown>} API correlation-heatmap payload.
+   */
+  getCorrelationHeatmap({
+    pharmClassCode,
+    comparator = 'Placebo',
+    includeNonSignificant = true,
+    excludeFragile = true,
+    aggregation = 'MedianLogRr',
+    seriousSocOnly = false,
+    excludeCombos = false,
+    minEvents = 0,
+    signal = null,
+  } = {}) {
+    const url = buildAdverseEventUrl('correlation/heatmap', {
+      pharmClassCode,
+      comparator: normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      aggregation,
+      seriousSocOnly,
+      excludeCombos,
+      minEvents,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
+   * Gets the per-drug drill-down for one SOC by SOC correlation cell.
+   *
+   * @param {object} args - Request options.
+   * @returns {Promise<unknown>} API correlation-cell payload.
+   */
+  getCorrelationCell({
+    pharmClassCode,
+    socX,
+    socY,
+    comparator = 'Placebo',
+    includeNonSignificant = true,
+    excludeFragile = true,
+    minDrugsPerCell = 4,
+    method = 'Spearman',
+    aggregation = 'MedianLogRr',
+    seriousSocOnly = false,
+    excludeCombos = false,
+    minEvents = 0,
+    signal = null,
+  } = {}) {
+    const url = buildAdverseEventUrl('correlation/cell', {
+      pharmClassCode,
+      socX,
+      socY,
+      comparator: normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      minDrugsPerCell,
+      method,
+      aggregation,
+      seriousSocOnly,
+      excludeCombos,
+      minEvents,
     });
 
     return requestJson(url, getFetchOptions(signal));

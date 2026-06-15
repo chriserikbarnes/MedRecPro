@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from './api/apiError';
 import { AdverseEventClient } from './api/adverseEventClient';
+import { ClassPageHeader } from './components/ClassPageHeader';
+import { ClassPicker } from './components/ClassPicker';
+import { FocusSwitch } from './components/FocusSwitch';
 import { PageHeader } from './components/PageHeader';
 import { CompactProductPicker, ProductPicker } from './components/ProductPicker';
 import { DisabledFeature } from './components/common/DisabledFeature';
 import { EmptyState } from './components/common/EmptyState';
 import { InlineError } from './components/common/InlineError';
 import { Loading } from './components/common/Loading';
+import { ClassCorrelationSurface } from './components/correlation/ClassCorrelationSurface';
+import { useDebouncedValue } from './hooks/useDebouncedValue';
 import { useFavorites } from './hooks/useFavorites';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useProducts } from './hooks/useProducts';
@@ -26,6 +31,10 @@ import {
 import { formatDecimal, formatDose, formatInteger } from './lib/formatters';
 import {
     mergeReverseLookupResults,
+    normalizeCorrelationCellDetail,
+    normalizeCorrelationClasses,
+    normalizeCorrelationHeatmap,
+    normalizeCorrelationMap,
     normalizeForest,
     normalizeInterchange,
     normalizeQuadrant,
@@ -38,6 +47,17 @@ const DASHBOARD_VIEWS = new Set(['triage', 'forest', 'quadrant']);
 
 // Supported comparator filters mirror the API enum through client-safe tokens.
 const COMPARATOR_FILTERS = new Set(['all', 'placebo', 'active']);
+
+// Supported top-level dashboard focuses preserve the existing product default.
+const DASHBOARD_FOCUSES = new Set(['product', 'class']);
+
+// Supported class-mode tabs.
+const CLASS_DASHBOARD_VIEWS = new Set(['map', 'heatmap']);
+
+// Supported class-mode enum filters mirror the backend query values.
+const CLASS_COMPARATORS = new Set(['Placebo', 'Active', 'Both']);
+const CLASS_CORRELATION_METHODS = new Set(['Spearman', 'Pearson']);
+const CLASS_CORRELATION_AGGREGATIONS = new Set(['MedianLogRr', 'MeanLogRr']);
 
 // View copy is centralized so tabs and panel headings stay in sync.
 const VIEW_COPY = {
@@ -121,18 +141,85 @@ const EMPTY_INTERCHANGE_VIEW = {
 
 /**************************************************************/
 /**
+ * Reads a boolean query value with a default.
+ *
+ * @param {URLSearchParams} searchParams - Query parameters.
+ * @param {string} name - Query key.
+ * @param {boolean} fallback - Fallback value.
+ * @returns {boolean} Parsed boolean value.
+ */
+function readBooleanQuery(searchParams, name, fallback) {
+    const value = searchParams.get(name);
+
+    if (value === null) {
+        return fallback;
+    }
+
+    return value !== 'false';
+}
+
+/**************************************************************/
+/**
+ * Reads a bounded integer query value with a default.
+ *
+ * @param {URLSearchParams} searchParams - Query parameters.
+ * @param {string} name - Query key.
+ * @param {number} fallback - Fallback value.
+ * @param {number} min - Minimum accepted value.
+ * @returns {number} Parsed integer value.
+ */
+function readIntegerQuery(searchParams, name, fallback, min = 0) {
+    const value = Number(searchParams.get(name));
+
+    if (!Number.isInteger(value) || value < min) {
+        return fallback;
+    }
+
+    return value;
+}
+
+/**************************************************************/
+/**
+ * Reads an enum-like query value against an allow-list.
+ *
+ * @param {URLSearchParams} searchParams - Query parameters.
+ * @param {string} name - Query key.
+ * @param {Set<string>} allowedValues - Allowed values.
+ * @param {string} fallback - Fallback value.
+ * @returns {string} Parsed value.
+ */
+function readEnumQuery(searchParams, name, allowedValues, fallback) {
+    const value = searchParams.get(name) ?? fallback;
+
+    return allowedValues.has(value) ? value : fallback;
+}
+
+/**************************************************************/
+/**
  * Reads the current query string into dashboard state.
  *
- * @returns {{ productGuid: string, view: string, comparator: string, fragile: boolean }} URL state.
+ * @returns {object} URL state.
  */
 function readDashboardUrlState() {
     // Non-browser imports use the default dashboard state.
     if (!globalThis.window?.location) {
         return {
+            focus: 'product',
             productGuid: '',
             view: 'triage',
             comparator: 'all',
             fragile: true,
+            classCode: '',
+            classView: 'map',
+            classComparator: 'Placebo',
+            includeNonSignificant: true,
+            excludeFragile: true,
+            minDrugsPerCell: 4,
+            method: 'Spearman',
+            aggregation: 'MedianLogRr',
+            seriousSocOnly: false,
+            excludeCombos: false,
+            minEvents: 0,
         };
     }
 
@@ -141,6 +228,9 @@ function readDashboardUrlState() {
 
     // Product state is optional and can be hydrated from triage when off-page.
     const productGuid = searchParams.get('product') ?? '';
+
+    // Product mode remains the default when no focus is supplied.
+    const requestedFocus = searchParams.get('focus') ?? 'product';
 
     // The requested view is validated so stale URLs cannot select unknown tabs.
     const requestedView = searchParams.get('view') ?? 'triage';
@@ -152,21 +242,50 @@ function readDashboardUrlState() {
     const fragile = (searchParams.get('fragile') ?? 'true') !== 'false';
 
     return {
+        focus: DASHBOARD_FOCUSES.has(requestedFocus) ? requestedFocus : 'product',
         productGuid,
         view: DASHBOARD_VIEWS.has(requestedView) ? requestedView : 'triage',
         comparator: COMPARATOR_FILTERS.has(requestedComparator) ? requestedComparator : 'all',
         fragile,
+        classCode: searchParams.get('class') ?? '',
+        classView: readEnumQuery(searchParams, 'classView', CLASS_DASHBOARD_VIEWS, 'map'),
+        classComparator: readEnumQuery(searchParams, 'classComparator', CLASS_COMPARATORS, 'Placebo'),
+        includeNonSignificant: readBooleanQuery(searchParams, 'includeNonSignificant', true),
+        excludeFragile: readBooleanQuery(searchParams, 'excludeFragile', true),
+        minDrugsPerCell: readIntegerQuery(searchParams, 'minDrugsPerCell', 4, 3),
+        method: readEnumQuery(searchParams, 'method', CLASS_CORRELATION_METHODS, 'Spearman'),
+        aggregation: readEnumQuery(searchParams, 'aggregation', CLASS_CORRELATION_AGGREGATIONS, 'MedianLogRr'),
+        seriousSocOnly: readBooleanQuery(searchParams, 'seriousSocOnly', false),
+        excludeCombos: readBooleanQuery(searchParams, 'excludeCombos', false),
+        minEvents: readIntegerQuery(searchParams, 'minEvents', 0, 0),
     };
 }
 
 /**************************************************************/
 /**
- * Writes the selected product and filter state to the URL.
+ * Writes focus-aware dashboard state to the URL.
  *
  * @param {object} args - URL state to write.
  * @param {boolean} shouldPush - Whether to push or replace browser history.
  */
-function writeDashboardUrlState({ productGuid, view, comparator, fragile }, shouldPush) {
+function writeDashboardUrlState({
+    focus,
+    productGuid,
+    view,
+    comparator,
+    fragile,
+    classCode,
+    classView,
+    classComparator,
+    includeNonSignificant,
+    excludeFragile,
+    minDrugsPerCell,
+    method,
+    aggregation,
+    seriousSocOnly,
+    excludeCombos,
+    minEvents,
+}, shouldPush) {
     // URL state is browser-only.
     if (!globalThis.window?.history) {
         return;
@@ -174,17 +293,53 @@ function writeDashboardUrlState({ productGuid, view, comparator, fragile }, shou
 
     // The current URL provides path and any unknown query values.
     const nextUrl = new URL(globalThis.window.location.href);
+    const currentState = readDashboardUrlState();
+    const resolvedFocus = focus ?? currentState.focus;
+    const resolvedProductGuid = productGuid ?? currentState.productGuid;
+    const resolvedView = view ?? currentState.view;
+    const resolvedComparator = comparator ?? currentState.comparator;
+    const resolvedFragile = fragile ?? currentState.fragile;
+    const resolvedClassCode = classCode ?? currentState.classCode;
+    const resolvedClassView = classView ?? currentState.classView;
+    const resolvedClassComparator = classComparator ?? currentState.classComparator;
+    const resolvedIncludeNonSignificant = includeNonSignificant ?? currentState.includeNonSignificant;
+    const resolvedExcludeFragile = excludeFragile ?? currentState.excludeFragile;
+    const resolvedMinDrugsPerCell = minDrugsPerCell ?? currentState.minDrugsPerCell;
+    const resolvedMethod = method ?? currentState.method;
+    const resolvedAggregation = aggregation ?? currentState.aggregation;
+    const resolvedSeriousSocOnly = seriousSocOnly ?? currentState.seriousSocOnly;
+    const resolvedExcludeCombos = excludeCombos ?? currentState.excludeCombos;
+    const resolvedMinEvents = minEvents ?? currentState.minEvents;
+
+    nextUrl.searchParams.set('focus', resolvedFocus);
 
     // Product GUID is removed when no product is selected.
-    if (productGuid) {
-        nextUrl.searchParams.set('product', productGuid);
+    if (resolvedProductGuid) {
+        nextUrl.searchParams.set('product', resolvedProductGuid);
     } else {
         nextUrl.searchParams.delete('product');
     }
 
-    nextUrl.searchParams.set('view', view);
-    nextUrl.searchParams.set('comparator', comparator);
-    nextUrl.searchParams.set('fragile', String(fragile));
+    nextUrl.searchParams.set('view', resolvedView);
+    nextUrl.searchParams.set('comparator', resolvedComparator);
+    nextUrl.searchParams.set('fragile', String(resolvedFragile));
+
+    if (resolvedClassCode) {
+        nextUrl.searchParams.set('class', resolvedClassCode);
+    } else {
+        nextUrl.searchParams.delete('class');
+    }
+
+    nextUrl.searchParams.set('classView', resolvedClassView);
+    nextUrl.searchParams.set('classComparator', resolvedClassComparator);
+    nextUrl.searchParams.set('includeNonSignificant', String(resolvedIncludeNonSignificant));
+    nextUrl.searchParams.set('excludeFragile', String(resolvedExcludeFragile));
+    nextUrl.searchParams.set('minDrugsPerCell', String(resolvedMinDrugsPerCell));
+    nextUrl.searchParams.set('method', resolvedMethod);
+    nextUrl.searchParams.set('aggregation', resolvedAggregation);
+    nextUrl.searchParams.set('seriousSocOnly', String(resolvedSeriousSocOnly));
+    nextUrl.searchParams.set('excludeCombos', String(resolvedExcludeCombos));
+    nextUrl.searchParams.set('minEvents', String(resolvedMinEvents));
 
     // Product selection should be bookmarkable as a navigation event.
     if (shouldPush) {
@@ -1805,8 +1960,21 @@ function App() {
     // Product search text is controlled here and debounced in the products hook.
     const [productSearch, setProductSearch] = useState('');
 
+    // The dashboard starts in product focus unless a class URL explicitly opts in.
+    const [dashboardFocus, setDashboardFocus] = useState(initialUrlState.focus);
+
+    // Class picker search is debounced before it reaches the class endpoint.
+    const [classSearch, setClassSearch] = useState('');
+    const debouncedClassSearch = useDebouncedValue(classSearch, 250);
+
     // Selected product drives the header and KPI strip.
     const [selectedProduct, setSelectedProduct] = useState(null);
+
+    // Selected class drives the class header and correlation surface.
+    const [selectedClass, setSelectedClass] = useState(null);
+
+    // URL-selected class codes are resolved through the class picker endpoint.
+    const [pendingClassCode, setPendingClassCode] = useState(initialUrlState.classCode);
 
     // Hydration errors are specific to off-page URL-selected products.
     const [hydrationError, setHydrationError] = useState(null);
@@ -1819,6 +1987,39 @@ function App() {
 
     // Fragile-row visibility starts from URL state.
     const [showFragile, setShowFragile] = useState(initialUrlState.fragile);
+
+    // Class-mode view and filters start from URL state.
+    const [classView, setClassView] = useState(initialUrlState.classView);
+    const [classComparator, setClassComparator] = useState(initialUrlState.classComparator);
+    const [includeNonSignificant, setIncludeNonSignificant] = useState(initialUrlState.includeNonSignificant);
+    const [excludeFragileRows, setExcludeFragileRows] = useState(initialUrlState.excludeFragile);
+    const [minDrugsPerCell, setMinDrugsPerCell] = useState(initialUrlState.minDrugsPerCell);
+    const [correlationMethod, setCorrelationMethod] = useState(initialUrlState.method);
+    const [correlationAggregation, setCorrelationAggregation] = useState(initialUrlState.aggregation);
+    const [seriousSocOnly, setSeriousSocOnly] = useState(initialUrlState.seriousSocOnly);
+    const [excludeCombos, setExcludeCombos] = useState(initialUrlState.excludeCombos);
+    const [minEvents, setMinEvents] = useState(initialUrlState.minEvents);
+
+    // Class picker payload is independent from the product catalog.
+    const [correlationClasses, setCorrelationClasses] = useState([]);
+    const [isClassPickerLoading, setIsClassPickerLoading] = useState(false);
+    const [classPickerError, setClassPickerError] = useState(null);
+    const [classPickerReloadToken, setClassPickerReloadToken] = useState(0);
+
+    // Class correlation payloads are loaded separately so map and heatmap errors stay local.
+    const [classMap, setClassMap] = useState(null);
+    const [isClassMapLoading, setIsClassMapLoading] = useState(false);
+    const [classMapError, setClassMapError] = useState(null);
+    const [classMapReloadToken, setClassMapReloadToken] = useState(0);
+    const [classHeatmap, setClassHeatmap] = useState(null);
+    const [isClassHeatmapLoading, setIsClassHeatmapLoading] = useState(false);
+    const [classHeatmapError, setClassHeatmapError] = useState(null);
+    const [classHeatmapReloadToken, setClassHeatmapReloadToken] = useState(0);
+    const [selectedCorrelationCell, setSelectedCorrelationCell] = useState(null);
+    const [classCellDetail, setClassCellDetail] = useState(null);
+    const [isClassCellLoading, setIsClassCellLoading] = useState(false);
+    const [classCellError, setClassCellError] = useState(null);
+    const [classCellReloadToken, setClassCellReloadToken] = useState(0);
 
     // Triage payload stores the tiered flagship view.
     const [triageView, setTriageView] = useState({ product: null, tiers: [] });
@@ -1927,8 +2128,13 @@ function App() {
         applyFavoriteLookup(product, favoriteGuids),
     );
 
-    // A 503 from the catalog means the whole dashboard should render the disabled state.
-    const isFeatureDisabled = productError instanceof ApiError && productError.isFeatureDisabled;
+    // A 503 from any AE dashboard endpoint means the whole dashboard should render the disabled state.
+    const isFeatureDisabled =
+        (productError instanceof ApiError && productError.isFeatureDisabled)
+        || (classPickerError instanceof ApiError && classPickerError.isFeatureDisabled)
+        || (classMapError instanceof ApiError && classMapError.isFeatureDisabled)
+        || (classHeatmapError instanceof ApiError && classHeatmapError.isFeatureDisabled)
+        || (classCellError instanceof ApiError && classCellError.isFeatureDisabled);
 
     // Favorite state is overlaid at render time so async favorite hydration updates the header.
     const selectedProductWithFavoriteState = selectedProduct
@@ -1937,6 +2143,40 @@ function App() {
 
     // The selected document GUID is the shared key for visualization requests.
     const selectedDocumentGuid = selectedProductWithFavoriteState?.documentGuid ?? '';
+
+    // The selected class code is the shared key for class-mode requests.
+    const selectedClassCode = selectedClass?.pharmClassCode ?? '';
+
+    // Class filters are grouped so requests, URL state, and export stay aligned.
+    const classFilters = useMemo(
+        () => ({
+            comparator: classComparator,
+            includeNonSignificant,
+            excludeFragile: excludeFragileRows,
+            minDrugsPerCell,
+            method: correlationMethod,
+            aggregation: correlationAggregation,
+            seriousSocOnly,
+            excludeCombos,
+            minEvents,
+        }),
+        [
+            classComparator,
+            correlationAggregation,
+            correlationMethod,
+            excludeCombos,
+            excludeFragileRows,
+            includeNonSignificant,
+            minDrugsPerCell,
+            minEvents,
+            seriousSocOnly,
+        ],
+    );
+
+    // Class picker searches use an initial URL code until that code is resolved.
+    const effectiveClassSearch = pendingClassCode && !selectedClassCode
+        ? pendingClassCode
+        : debouncedClassSearch;
 
     // Product A follows the selected dashboard product so the comparison stays contextual.
     const interchangeProductA = selectedProductWithFavoriteState;
@@ -2008,6 +2248,50 @@ function App() {
     const filteredTiers = useMemo(
         () => filterTriageTiers(triageView.tiers, comparatorFilter, showFragile),
         [comparatorFilter, showFragile, triageView.tiers],
+    );
+
+    /**************************************************************/
+    /**
+     * Writes the current product and class state to the URL with targeted overrides.
+     *
+     * @param {object} overrides - State values to override.
+     * @param {boolean} shouldPush - Whether to push a history entry.
+     */
+    const writeCurrentDashboardUrlState = useCallback(
+        (overrides = {}, shouldPush = false) => {
+            writeDashboardUrlState(
+                {
+                    focus: dashboardFocus,
+                    productGuid: selectedDocumentGuid,
+                    view: activeView,
+                    comparator: comparatorFilter,
+                    fragile: showFragile,
+                    classCode: selectedClassCode,
+                    classView,
+                    classComparator: classFilters.comparator,
+                    includeNonSignificant: classFilters.includeNonSignificant,
+                    excludeFragile: classFilters.excludeFragile,
+                    minDrugsPerCell: classFilters.minDrugsPerCell,
+                    method: classFilters.method,
+                    aggregation: classFilters.aggregation,
+                    seriousSocOnly: classFilters.seriousSocOnly,
+                    excludeCombos: classFilters.excludeCombos,
+                    minEvents: classFilters.minEvents,
+                    ...overrides,
+                },
+                shouldPush,
+            );
+        },
+        [
+            activeView,
+            classFilters,
+            classView,
+            comparatorFilter,
+            dashboardFocus,
+            selectedClassCode,
+            selectedDocumentGuid,
+            showFragile,
+        ],
     );
 
     useEffect(() => {
@@ -2126,6 +2410,236 @@ function App() {
         recordRecentProduct,
         updateProduct,
         visibleProducts,
+    ]);
+
+    useEffect(() => {
+        // Class data is quiet until class focus is visible or a class deep link needs hydration.
+        if (dashboardFocus !== 'class' && !pendingClassCode) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads class picker rows from the live correlation endpoint.
+         */
+        async function loadCorrelationClasses() {
+            setIsClassPickerLoading(true);
+            setClassPickerError(null);
+
+            try {
+                const payload = await AdverseEventClient.getCorrelationClasses({
+                    classSearch: effectiveClassSearch,
+                    pageNumber: 1,
+                    pageSize: 50,
+                    signal: abortController.signal,
+                });
+                const normalizedClasses = normalizeCorrelationClasses(payload);
+
+                setCorrelationClasses(normalizedClasses);
+
+                if (!selectedClassCode && normalizedClasses.length > 0) {
+                    const pendingLookupKey = pendingClassCode.trim().toLowerCase();
+                    const exactClass = pendingLookupKey
+                        ? normalizedClasses.find((item) => item.pharmClassCode.toLowerCase() === pendingLookupKey)
+                        : null;
+                    const fallbackClass = normalizedClasses.find((item) => item.isCorrelatable)
+                        ?? normalizedClasses[0];
+                    const nextClass = exactClass ?? fallbackClass;
+
+                    if (nextClass) {
+                        setSelectedClass(nextClass);
+                        setPendingClassCode('');
+                        setSelectedCorrelationCell(null);
+                        setClassCellDetail(null);
+                        writeDashboardUrlState(
+                            {
+                                focus: dashboardFocus,
+                                classCode: nextClass.pharmClassCode,
+                            },
+                            false,
+                        );
+                    }
+                }
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setCorrelationClasses([]);
+                setClassPickerError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsClassPickerLoading(false);
+                }
+            }
+        }
+
+        loadCorrelationClasses();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [
+        classPickerReloadToken,
+        dashboardFocus,
+        effectiveClassSearch,
+        pendingClassCode,
+        selectedClassCode,
+    ]);
+
+    useEffect(() => {
+        if (dashboardFocus !== 'class' || !selectedClassCode) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads the class-scoped SOC by SOC correlation map.
+         */
+        async function loadClassMap() {
+            setIsClassMapLoading(true);
+            setClassMapError(null);
+
+            try {
+                const payload = await AdverseEventClient.getCorrelationMap({
+                    pharmClassCode: selectedClassCode,
+                    ...classFilters,
+                    signal: abortController.signal,
+                });
+
+                setClassMap(normalizeCorrelationMap(payload));
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setClassMap(null);
+                setClassMapError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsClassMapLoading(false);
+                }
+            }
+        }
+
+        loadClassMap();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [classFilters, classMapReloadToken, dashboardFocus, selectedClassCode]);
+
+    useEffect(() => {
+        if (dashboardFocus !== 'class' || classView !== 'heatmap' || !selectedClassCode) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads the class-scoped SOC by drug heatmap.
+         */
+        async function loadClassHeatmap() {
+            setIsClassHeatmapLoading(true);
+            setClassHeatmapError(null);
+
+            try {
+                const payload = await AdverseEventClient.getCorrelationHeatmap({
+                    pharmClassCode: selectedClassCode,
+                    comparator: classFilters.comparator,
+                    includeNonSignificant: classFilters.includeNonSignificant,
+                    excludeFragile: classFilters.excludeFragile,
+                    aggregation: classFilters.aggregation,
+                    seriousSocOnly: classFilters.seriousSocOnly,
+                    excludeCombos: classFilters.excludeCombos,
+                    minEvents: classFilters.minEvents,
+                    signal: abortController.signal,
+                });
+
+                setClassHeatmap(normalizeCorrelationHeatmap(payload));
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setClassHeatmap(null);
+                setClassHeatmapError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsClassHeatmapLoading(false);
+                }
+            }
+        }
+
+        loadClassHeatmap();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [classFilters, classHeatmapReloadToken, classView, dashboardFocus, selectedClassCode]);
+
+    useEffect(() => {
+        if (
+            dashboardFocus !== 'class'
+            || classView !== 'map'
+            || !selectedClassCode
+            || !selectedCorrelationCell
+            || selectedCorrelationCell.isDiagonal
+        ) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads per-drug detail for the selected correlation map cell.
+         */
+        async function loadClassCellDetail() {
+            setIsClassCellLoading(true);
+            setClassCellError(null);
+
+            try {
+                const payload = await AdverseEventClient.getCorrelationCell({
+                    pharmClassCode: selectedClassCode,
+                    socX: selectedCorrelationCell.rowSoc,
+                    socY: selectedCorrelationCell.columnSoc,
+                    ...classFilters,
+                    signal: abortController.signal,
+                });
+
+                setClassCellDetail(normalizeCorrelationCellDetail(payload));
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setClassCellDetail(null);
+                setClassCellError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsClassCellLoading(false);
+                }
+            }
+        }
+
+        loadClassCellDetail();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [
+        classCellReloadToken,
+        classFilters,
+        classView,
+        dashboardFocus,
+        selectedClassCode,
+        selectedCorrelationCell,
     ]);
 
     useEffect(() => {
@@ -2385,6 +2899,186 @@ function App() {
         },
         [activeView, comparatorFilter, favoriteGuids, recordRecentProduct, showFragile],
     );
+
+    /**************************************************************/
+    /**
+     * Changes the dashboard focus while preserving the other focus state.
+     *
+     * @param {'product' | 'class'} nextFocus - Next dashboard focus.
+     */
+    const handleChangeDashboardFocus = useCallback(
+        (nextFocus) => {
+            if (!DASHBOARD_FOCUSES.has(nextFocus)) {
+                return;
+            }
+
+            setDashboardFocus(nextFocus);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: nextFocus,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Selects a pharmacologic class for class correlation views.
+     *
+     * @param {object} item - Class picker row.
+     */
+    const handleSelectClass = useCallback(
+        (item) => {
+            if (!item?.pharmClassCode) {
+                return;
+            }
+
+            setSelectedClass(item);
+            setPendingClassCode('');
+            setClassMap(null);
+            setClassHeatmap(null);
+            setSelectedCorrelationCell(null);
+            setClassCellDetail(null);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'class',
+                    classCode: item.pharmClassCode,
+                },
+                true,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the active class view and persists URL state.
+     *
+     * @param {'map' | 'heatmap'} nextView - Next class view.
+     */
+    const handleChangeClassView = useCallback(
+        (nextView) => {
+            if (!CLASS_DASHBOARD_VIEWS.has(nextView)) {
+                return;
+            }
+
+            setClassView(nextView);
+            if (nextView !== 'map') {
+                setSelectedCorrelationCell(null);
+                setClassCellDetail(null);
+            }
+
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'class',
+                    classView: nextView,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes one class correlation filter.
+     *
+     * @param {string} name - Filter name.
+     * @param {unknown} value - Next filter value.
+     */
+    const handleChangeClassFilter = useCallback(
+        (name, value) => {
+            const nextOverrides = { focus: 'class' };
+
+            if (name === 'comparator' && CLASS_COMPARATORS.has(value)) {
+                setClassComparator(value);
+                nextOverrides.classComparator = value;
+            } else if (name === 'includeNonSignificant') {
+                setIncludeNonSignificant(Boolean(value));
+                nextOverrides.includeNonSignificant = Boolean(value);
+            } else if (name === 'excludeFragile') {
+                setExcludeFragileRows(Boolean(value));
+                nextOverrides.excludeFragile = Boolean(value);
+            } else if (name === 'minDrugsPerCell') {
+                const nextValue = Math.max(3, Number(value) || 3);
+                setMinDrugsPerCell(nextValue);
+                nextOverrides.minDrugsPerCell = nextValue;
+            } else if (name === 'method' && CLASS_CORRELATION_METHODS.has(value)) {
+                setCorrelationMethod(value);
+                nextOverrides.method = value;
+            } else if (name === 'aggregation' && CLASS_CORRELATION_AGGREGATIONS.has(value)) {
+                setCorrelationAggregation(value);
+                nextOverrides.aggregation = value;
+            } else if (name === 'seriousSocOnly') {
+                setSeriousSocOnly(Boolean(value));
+                nextOverrides.seriousSocOnly = Boolean(value);
+            } else if (name === 'excludeCombos') {
+                setExcludeCombos(Boolean(value));
+                nextOverrides.excludeCombos = Boolean(value);
+            } else if (name === 'minEvents') {
+                const nextValue = Math.max(0, Number(value) || 0);
+                setMinEvents(nextValue);
+                nextOverrides.minEvents = nextValue;
+            } else {
+                return;
+            }
+
+            setSelectedCorrelationCell(null);
+            setClassCellDetail(null);
+            writeCurrentDashboardUrlState(nextOverrides, false);
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Selects an off-diagonal correlation map cell.
+     *
+     * @param {object} cell - Map cell.
+     */
+    const handleSelectCorrelationCell = useCallback((cell) => {
+        if (!cell || cell.isDiagonal) {
+            return;
+        }
+
+        setSelectedCorrelationCell(cell);
+        setClassCellDetail(null);
+        setClassCellError(null);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Retries the class picker request.
+     */
+    const retryClassPicker = useCallback(() => {
+        setClassPickerReloadToken((currentToken) => currentToken + 1);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Retries the class map request.
+     */
+    const retryClassMap = useCallback(() => {
+        setClassMapReloadToken((currentToken) => currentToken + 1);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Retries the class heatmap request.
+     */
+    const retryClassHeatmap = useCallback(() => {
+        setClassHeatmapReloadToken((currentToken) => currentToken + 1);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Retries the selected cell-detail request.
+     */
+    const retryClassCell = useCallback(() => {
+        setClassCellReloadToken((currentToken) => currentToken + 1);
+    }, []);
 
     /**************************************************************/
     /**
@@ -2737,25 +3431,53 @@ function App() {
      * Exports the current dashboard view as a JSON file.
      */
     const handleExportDashboard = useCallback(() => {
-        // Export requires a selected product.
-        if (!selectedProductWithFavoriteState) {
-            return;
-        }
+        let exportPayload;
+        let exportName;
 
-        // The payload intentionally includes only client-safe API view models.
-        const exportPayload = {
-            product: selectedProductWithFavoriteState,
-            state: {
-                view: activeView,
-                comparator: comparatorFilter,
-                showFragile,
-            },
-            triage: filteredTiers,
-            forest: forestView,
-            quadrant: quadrantView,
-            reverseLookup: reverseLookupResult,
-            interchange: interchangeComparison,
-        };
+        if (dashboardFocus === 'class') {
+            if (!selectedClass) {
+                return;
+            }
+
+            exportPayload = {
+                focus: 'class',
+                selectedClass,
+                state: {
+                    classView,
+                    ...classFilters,
+                },
+                map: classMap,
+                heatmap: classHeatmap,
+                cellDetail: classCellDetail,
+                warnings: [
+                    ...(classMap?.warnings ?? []),
+                    ...(classHeatmap?.warnings ?? []),
+                    ...(classCellDetail?.warnings ?? []),
+                ],
+            };
+            exportName = `${selectedClass.pharmClassName}-ae-class-dashboard.json`;
+        } else {
+            // Export requires a selected product.
+            if (!selectedProductWithFavoriteState) {
+                return;
+            }
+
+            // The product payload intentionally preserves the existing product-mode shape.
+            exportPayload = {
+                product: selectedProductWithFavoriteState,
+                state: {
+                    view: activeView,
+                    comparator: comparatorFilter,
+                    showFragile,
+                },
+                triage: filteredTiers,
+                forest: forestView,
+                quadrant: quadrantView,
+                reverseLookup: reverseLookupResult,
+                interchange: interchangeComparison,
+            };
+            exportName = `${selectedProductWithFavoriteState.name}-ae-dashboard.json`;
+        }
 
         // Blob URLs avoid server round trips for a client-side export.
         const exportBlob = new Blob([JSON.stringify(exportPayload, null, 2)], {
@@ -2769,17 +3491,24 @@ function App() {
         const exportLink = document.createElement('a');
 
         exportLink.href = exportUrl;
-        exportLink.download = `${selectedProductWithFavoriteState.name}-ae-dashboard.json`.replace(/[^a-z0-9._-]+/gi, '-');
+        exportLink.download = exportName.replace(/[^a-z0-9._-]+/gi, '-');
         exportLink.click();
         URL.revokeObjectURL(exportUrl);
     }, [
         activeView,
+        classCellDetail,
+        classFilters,
+        classHeatmap,
+        classMap,
+        classView,
         comparatorFilter,
+        dashboardFocus,
         filteredTiers,
         forestView,
         interchangeComparison,
         quadrantView,
         reverseLookupResult,
+        selectedClass,
         selectedProductWithFavoriteState,
         showFragile,
     ]);
@@ -2804,9 +3533,15 @@ function App() {
             return undefined;
         }
 
-        // Mirror the disabled rules the in-React top bar previously owned.
-        saveButton.disabled = !selectedProductWithFavoriteState || selectedProductWithFavoriteState.isFavorite;
-        exportButton.disabled = !selectedProductWithFavoriteState;
+        // Save is product-scoped; export follows the active focus.
+        saveButton.disabled =
+            dashboardFocus !== 'product'
+            || !selectedProductWithFavoriteState
+            || selectedProductWithFavoriteState.isFavorite;
+        exportButton.disabled =
+            dashboardFocus === 'class'
+                ? !selectedClass
+                : !selectedProductWithFavoriteState;
 
         saveButton.addEventListener('click', handleSaveProduct);
         exportButton.addEventListener('click', handleExportDashboard);
@@ -2814,7 +3549,13 @@ function App() {
             saveButton.removeEventListener('click', handleSaveProduct);
             exportButton.removeEventListener('click', handleExportDashboard);
         };
-    }, [selectedProductWithFavoriteState, handleSaveProduct, handleExportDashboard]);
+    }, [
+        dashboardFocus,
+        handleExportDashboard,
+        handleSaveProduct,
+        selectedClass,
+        selectedProductWithFavoriteState,
+    ]);
 
     // Feature-disabled state owns the entire page.
     if (isFeatureDisabled) {
@@ -2824,96 +3565,151 @@ function App() {
     return (
         <main className="ae-dashboard-page">
             <div className="app" data-screen-label="AE Dashboard">
-                <PageHeader
-                    product={selectedProductWithFavoriteState}
-                    hydrationError={hydrationError}
-                    picker={(
-                        <ProductPicker
-                            products={visibleProducts}
+                <FocusSwitch
+                    activeFocus={dashboardFocus}
+                    onChangeFocus={handleChangeDashboardFocus}
+                />
+
+                {dashboardFocus === 'product' ? (
+                    <>
+                        <PageHeader
+                            product={selectedProductWithFavoriteState}
+                            hydrationError={hydrationError}
+                            picker={(
+                                <ProductPicker
+                                    products={visibleProducts}
+                                    favoriteProducts={visibleFavoriteProducts}
+                                    recentProducts={visibleRecentProducts}
+                                    totalProductCount={totalProductCount}
+                                    selectedProduct={selectedProductWithFavoriteState}
+                                    searchTerm={productSearch}
+                                    onSearchTermChange={setProductSearch}
+                                    onSelectProduct={handleSelectProduct}
+                                    onToggleFavorite={handleToggleFavorite}
+                                    favoriteBusyGuids={busyDocumentGuids}
+                                    favoriteNotice={favoriteNotice}
+                                    isLoading={isProductLoading}
+                                    error={productError}
+                                    onRetry={refreshProducts}
+                                />
+                            )}
+                        />
+
+                        {!isProductLoading && !productError && visibleProducts.length === 0 ? (
+                            <EmptyState title="No dashboard-ready products found." />
+                        ) : null}
+
+                        {productError && !(productError instanceof ApiError && productError.isFeatureDisabled) ? (
+                            <InlineError error={productError} onRetry={refreshProducts} />
+                        ) : null}
+
+                        <DashboardPanel
+                            activeView={activeView}
+                            comparatorFilter={comparatorFilter}
+                            showFragile={showFragile}
+                            signalCounts={signalCounts}
+                            filteredTiers={filteredTiers}
+                            forestView={forestView}
+                            quadrantView={quadrantView}
+                            isTriageLoading={isTriageLoading}
+                            triageError={triageError}
+                            onRetryTriage={() => retryView('triage')}
+                            isForestLoading={isForestLoading}
+                            forestError={forestError}
+                            onRetryForest={() => retryView('forest')}
+                            isQuadrantLoading={isQuadrantLoading}
+                            quadrantError={quadrantError}
+                            onRetryQuadrant={() => retryView('quadrant')}
+                            onChangeView={handleChangeView}
+                            onChangeComparator={handleChangeComparator}
+                            onToggleFragile={handleToggleFragile}
+                        />
+
+                        <CrossProductTools
+                            reverseLookupTerm={reverseLookupTerm}
+                            selectedReverseLookupTerms={selectedReverseLookupTerms}
+                            reverseLookupSuggestions={reverseLookupSuggestions}
+                            reverseLookupScopeProducts={reverseLookupScopeProducts}
+                            reverseLookupResult={reverseLookupResult}
+                            isReverseLookupLoading={isReverseLookupLoading}
+                            reverseLookupError={reverseLookupError}
+                            onReverseLookupTermChange={setReverseLookupTerm}
+                            onRunReverseLookup={handleRunReverseLookup}
+                            onPickReverseLookupSuggestion={handlePickReverseLookupSuggestion}
+                            onRemoveReverseLookupTerm={handleRemoveReverseLookupTerm}
+                            productA={interchangeProductA}
+                            productB={effectiveInterchangeProductB}
+                            interchangeProducts={interchangeProducts}
                             favoriteProducts={visibleFavoriteProducts}
                             recentProducts={visibleRecentProducts}
                             totalProductCount={totalProductCount}
-                            selectedProduct={selectedProductWithFavoriteState}
-                            searchTerm={productSearch}
-                            onSearchTermChange={setProductSearch}
-                            onSelectProduct={handleSelectProduct}
+                            productSearch={productSearch}
+                            onProductSearchChange={setProductSearch}
                             onToggleFavorite={handleToggleFavorite}
                             favoriteBusyGuids={busyDocumentGuids}
                             favoriteNotice={favoriteNotice}
-                            isLoading={isProductLoading}
-                            error={productError}
-                            onRetry={refreshProducts}
+                            isProductLoading={isProductLoading}
+                            productError={productError}
+                            onRetryProducts={refreshProducts}
+                            sharedSignalsOnly={sharedSignalsOnly}
+                            differencesOnly={differencesOnly}
+                            interchangeComparison={interchangeComparison}
+                            isInterchangeLoading={isInterchangeLoading}
+                            interchangeError={interchangeError}
+                            onChangeInterchangeProductA={handleChangeInterchangeProductA}
+                            onChangeInterchangeProductB={handleChangeInterchangeProductB}
+                            onToggleSharedSignalsOnly={handleToggleSharedSignalsOnly}
+                            onToggleDifferencesOnly={handleToggleDifferencesOnly}
+                            onRetryInterchange={retryInterchange}
                         />
-                    )}
-                />
+                    </>
+                ) : (
+                    <>
+                        <ClassPageHeader
+                            selectedClass={selectedClass}
+                            map={classMap}
+                            filters={classFilters}
+                            picker={(
+                                <ClassPicker
+                                    classes={correlationClasses}
+                                    selectedClass={selectedClass}
+                                    searchTerm={classSearch}
+                                    onSearchTermChange={setClassSearch}
+                                    onSelectClass={handleSelectClass}
+                                    isLoading={isClassPickerLoading}
+                                    error={classPickerError}
+                                    onRetry={retryClassPicker}
+                                />
+                            )}
+                        />
 
-                {!isProductLoading && !productError && visibleProducts.length === 0 ? (
-                    <EmptyState title="No dashboard-ready products found." />
-                ) : null}
+                        {classPickerError && !(classPickerError instanceof ApiError && classPickerError.isFeatureDisabled) ? (
+                            <InlineError error={classPickerError} onRetry={retryClassPicker} />
+                        ) : null}
 
-                {productError && !(productError instanceof ApiError && productError.isFeatureDisabled) ? (
-                    <InlineError error={productError} onRetry={refreshProducts} />
-                ) : null}
-
-                <DashboardPanel
-                    activeView={activeView}
-                    comparatorFilter={comparatorFilter}
-                    showFragile={showFragile}
-                    signalCounts={signalCounts}
-                    filteredTiers={filteredTiers}
-                    forestView={forestView}
-                    quadrantView={quadrantView}
-                    isTriageLoading={isTriageLoading}
-                    triageError={triageError}
-                    onRetryTriage={() => retryView('triage')}
-                    isForestLoading={isForestLoading}
-                    forestError={forestError}
-                    onRetryForest={() => retryView('forest')}
-                    isQuadrantLoading={isQuadrantLoading}
-                    quadrantError={quadrantError}
-                    onRetryQuadrant={() => retryView('quadrant')}
-                    onChangeView={handleChangeView}
-                    onChangeComparator={handleChangeComparator}
-                    onToggleFragile={handleToggleFragile}
-                />
-
-                <CrossProductTools
-                    reverseLookupTerm={reverseLookupTerm}
-                    selectedReverseLookupTerms={selectedReverseLookupTerms}
-                    reverseLookupSuggestions={reverseLookupSuggestions}
-                    reverseLookupScopeProducts={reverseLookupScopeProducts}
-                    reverseLookupResult={reverseLookupResult}
-                    isReverseLookupLoading={isReverseLookupLoading}
-                    reverseLookupError={reverseLookupError}
-                    onReverseLookupTermChange={setReverseLookupTerm}
-                    onRunReverseLookup={handleRunReverseLookup}
-                    onPickReverseLookupSuggestion={handlePickReverseLookupSuggestion}
-                    onRemoveReverseLookupTerm={handleRemoveReverseLookupTerm}
-                    productA={interchangeProductA}
-                    productB={effectiveInterchangeProductB}
-                    interchangeProducts={interchangeProducts}
-                    favoriteProducts={visibleFavoriteProducts}
-                    recentProducts={visibleRecentProducts}
-                    totalProductCount={totalProductCount}
-                    productSearch={productSearch}
-                    onProductSearchChange={setProductSearch}
-                    onToggleFavorite={handleToggleFavorite}
-                    favoriteBusyGuids={busyDocumentGuids}
-                    favoriteNotice={favoriteNotice}
-                    isProductLoading={isProductLoading}
-                    productError={productError}
-                    onRetryProducts={refreshProducts}
-                    sharedSignalsOnly={sharedSignalsOnly}
-                    differencesOnly={differencesOnly}
-                    interchangeComparison={interchangeComparison}
-                    isInterchangeLoading={isInterchangeLoading}
-                    interchangeError={interchangeError}
-                    onChangeInterchangeProductA={handleChangeInterchangeProductA}
-                    onChangeInterchangeProductB={handleChangeInterchangeProductB}
-                    onToggleSharedSignalsOnly={handleToggleSharedSignalsOnly}
-                    onToggleDifferencesOnly={handleToggleDifferencesOnly}
-                    onRetryInterchange={retryInterchange}
-                />
+                        <ClassCorrelationSurface
+                            selectedClass={selectedClass}
+                            classView={classView}
+                            filters={classFilters}
+                            classMap={classMap}
+                            classHeatmap={classHeatmap}
+                            classCellDetail={classCellDetail}
+                            selectedCell={selectedCorrelationCell}
+                            isClassMapLoading={isClassMapLoading}
+                            classMapError={classMapError}
+                            onRetryClassMap={retryClassMap}
+                            isClassHeatmapLoading={isClassHeatmapLoading}
+                            classHeatmapError={classHeatmapError}
+                            onRetryClassHeatmap={retryClassHeatmap}
+                            isClassCellLoading={isClassCellLoading}
+                            classCellError={classCellError}
+                            onRetryClassCell={retryClassCell}
+                            onChangeClassView={handleChangeClassView}
+                            onChangeClassFilter={handleChangeClassFilter}
+                            onSelectCell={handleSelectCorrelationCell}
+                        />
+                    </>
+                )}
 
                 <div className="foot-note">
                     <p>
@@ -2932,8 +3728,8 @@ function App() {
                         tooltip lists the top contributors and limiters for the selected product.
                     </p>
                     <p>
-                        Data shown: <code>Database</code> projection for the selected product.
-                        Fragile rows render desaturated and can be hidden from the visualization controls.
+                        Data shown: <code>Database</code> projection for the selected {dashboardFocus}.
+                        Fragile rows can be hidden from the visualization controls where the active view supports them.
                     </p>
                 </div>
             </div>

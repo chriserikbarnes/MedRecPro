@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeReverseLookupResults,
+  normalizeCorrelationCellDetail,
+  normalizeCorrelationClasses,
+  normalizeCorrelationHeatmap,
+  normalizeCorrelationMap,
   normalizeInterchange,
   normalizeProduct,
   normalizeReverseLookup,
@@ -219,5 +223,159 @@ describe('normalizers', () => {
     });
     expect(comparison.aWorseCount).toBe(2);
     expect(comparison.classMismatchWarning).toBe('Different EPC classes.');
+  });
+
+  it('normalizes correlation class picker rows from casing variants', () => {
+    const classes = normalizeCorrelationClasses([
+      {
+        pharmClassCode: 'N0000000001',
+        pharmClassName: 'Small class',
+        encryptedPharmacologicClassId: 'enc-small',
+        drugCount: '1',
+        socCount: '4',
+        isCorrelatable: false,
+      },
+      {
+        PharmClassCode: 'N0000000002',
+        PharmClassName: 'Kinase Inhibitor [EPC]',
+        EncryptedPharmacologicClassID: 'enc-ready',
+        DrugCount: 12,
+        SocCount: 9,
+        IsCorrelatable: true,
+      },
+    ]);
+
+    expect(classes[0]).toMatchObject({
+      pharmClassCode: 'N0000000002',
+      pharmClassName: 'Kinase Inhibitor [EPC]',
+      encryptedPharmacologicClassId: 'enc-ready',
+      drugCount: 12,
+      socCount: 9,
+      isCorrelatable: true,
+    });
+    expect(classes[1].isCorrelatable).toBe(false);
+  });
+
+  it('normalizes correlation map cells without fabricating null coefficients', () => {
+    const map = normalizeCorrelationMap({
+      PharmClassCode: 'N0000175076',
+      PharmClassName: 'Antiplatelet [EPC]',
+      AppliedFilters: {
+        Comparator: 2,
+        IncludeNonSignificant: true,
+        ExcludeFragile: true,
+        MinDrugsPerCell: 4,
+        Method: 'Spearman',
+        Aggregation: 'MedianLogRr',
+      },
+      DrugCount: 8,
+      Soc: ['Cardiac Disorders', 'Vascular Disorders'],
+      Cells: [
+        {
+          RowIndex: 0,
+          ColumnIndex: 0,
+          RowSoc: 'Cardiac Disorders',
+          ColumnSoc: 'Cardiac Disorders',
+          Coefficient: 1,
+          PairCount: 8,
+          IsDiagonal: true,
+        },
+        {
+          RowIndex: 0,
+          ColumnIndex: 1,
+          RowSoc: 'Cardiac Disorders',
+          ColumnSoc: 'Vascular Disorders',
+          Coefficient: null,
+          PairCount: 2,
+          InsufficientN: true,
+          PValue: null,
+        },
+      ],
+      Warnings: ['Below the minimum floor.'],
+    });
+
+    expect(map.appliedFilters.comparator).toBe('Both');
+    expect(map.cells[1]).toMatchObject({
+      coefficient: null,
+      pairCount: 2,
+      insufficientN: true,
+    });
+    expect(map.warnings).toEqual(['Below the minimum floor.']);
+  });
+
+  it('normalizes sparse heatmap cells and enum-ish precision values', () => {
+    const heatmap = normalizeCorrelationHeatmap({
+      pharmClassCode: 'N0000175076',
+      pharmClassName: 'Antiplatelet [EPC]',
+      appliedFilters: { comparator: 'Active', aggregation: 1 },
+      drugCount: 2,
+      soc: ['Cardiac Disorders', 'Vascular Disorders'],
+      drugs: [
+        { encryptedActiveMoietyId: 'enc-a', drugDisplayName: 'Drug A', documentGuid: documentGuidA },
+        { encryptedActiveMoietyId: 'enc-b', drugDisplayName: 'Drug B', documentGuid: documentGuidB },
+      ],
+      cells: [
+        {
+          socIndex: 0,
+          drugIndex: 1,
+          logRr: '0.75',
+          rr: '2.12',
+          precision: 2,
+          significance: 1,
+          termCount: 3,
+        },
+      ],
+    });
+
+    expect(heatmap.appliedFilters.aggregation).toBe('MeanLogRr');
+    expect(heatmap.cells).toHaveLength(1);
+    expect(heatmap.cells[0]).toMatchObject({
+      socIndex: 0,
+      drugIndex: 1,
+      logRr: 0.75,
+      precision: 'fragile',
+      significance: 'elevated',
+    });
+  });
+
+  it('normalizes cell detail map-safe and raw diagnostic coefficients separately', () => {
+    const detail = normalizeCorrelationCellDetail({
+      PharmClassCode: 'N0000175076',
+      PharmClassName: 'Antiplatelet [EPC]',
+      SocX: 'Cardiac Disorders',
+      SocY: 'Vascular Disorders',
+      Coefficient: null,
+      RawCoefficient: 0.91,
+      PValue: null,
+      RawPValue: 0.04,
+      InsufficientN: true,
+      MinDrugsPerCell: 4,
+      PairCount: 3,
+      DrugPairs: [
+        {
+          DrugDisplayName: 'Drug A',
+          EncryptedActiveMoietyID: 'enc-a',
+          LogRrX: 0.4,
+          LogRrY: 0.8,
+          RrX: 1.49,
+          RrY: 2.22,
+          PrecisionX: 'Tight',
+          PrecisionY: 'Wide',
+          TermCountX: 2,
+          TermCountY: 4,
+        },
+      ],
+      Warnings: ['Raw value shown for diagnostics only.'],
+    });
+
+    expect(detail.coefficient).toBeNull();
+    expect(detail.rawCoefficient).toBe(0.91);
+    expect(detail.drugPairs[0]).toMatchObject({
+      drugDisplayName: 'Drug A',
+      precisionX: 'tight',
+      precisionY: 'wide',
+      termCountY: 4,
+    });
+    expect(detail.warnings).toEqual(['Raw value shown for diagnostics only.']);
   });
 });

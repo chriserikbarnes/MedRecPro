@@ -4987,3 +4987,23 @@ Implemented all seven phases of the backend hardening plan for the SOC correlati
 **Verification.** `dotnet build MedRecPro` clean (0 errors); focused `AeDashboardDataAccessTests` + `AdverseEventControllerTests` run passed 54/54; the full `MedRecProTest` suite passed 2,231 with 0 failures (1 pre-existing unrelated skip); `git diff --check` clean.
 
 ---
+
+### 2026-06-15 11:27 AM EST — AE Dashboard React Class Correlation UI Plan
+Created a pending implementation handoff for expanding the React AE dashboard with the prototype's product/class focus switch, class picker, class KPI strip, SOC correlation map, SOC x drug heatmap, tooltips, and cell drill-down.
+
+**Plan.** Added [Plans/(pending) AE Dashboard React Class Correlation UI Expansion Plan.md](Plans/(pending) AE Dashboard React Class Correlation UI Expansion Plan.md), grounded in the live React app structure, the standalone prototype bundle, and the implemented correlation endpoints in [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs). The plan keeps the work frontend-focused over the existing `GetCorrelationClasses`, `GetCorrelationMap`, `GetCorrelationHeatmap`, and `GetCorrelationCell` API surface, preserving sparse-cell honesty, warning display, raw-vs-map-safe cell detail, and product-mode compatibility.
+
+**Verification.** Verified the plan by direct `Get-Item` and `Select-String` reads under ignored `Plans/`. No build or test commands were run because this session created a plan artifact only and did not implement React or backend code.
+
+---
+
+### 2026-06-15 12:01 PM EST — AE Dashboard React Class Correlation UI Implementation
+Implemented the React class-correlation dashboard described in the pending UI expansion plan while preserving the existing product dashboard.
+
+**Implementation.** Added a product/class focus switch, class picker, class header/KPI strip, class-mode URL state, class filters, masthead Save/Export behavior, SOC correlation map, SOC x drug heatmap, tooltip rendering, and selected-cell drill-down under [MedRecProReact/src/App.jsx](MedRecProReact/src/App.jsx) and new class/correlation components in [MedRecProReact/src/components](MedRecProReact/src/components). Extended [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js) with the four correlation endpoints and [normalizers.js](MedRecProReact/src/lib/normalizers.js) with class picker, map, heatmap, and cell-detail DTO normalization that preserves warnings, sparse cells, null coefficients, and raw-vs-map-safe detail. Added the shared diverging scale utility in [correlationScales.js](MedRecProReact/src/lib/correlationScales.js), class-mode styling in [index.css](MedRecProReact/src/index.css), and refreshed the committed static bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Tests.** Added Vitest coverage for correlation client URL serialization, Pascal/camel DTO casing, null/suppressed map coefficients, sparse heatmap cells, cell-detail raw diagnostic coefficients, and the diverging correlation/LogRR color scales.
+
+**Verification.** `npm.cmd run lint` clean; `npm.cmd test` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore -p:UseAppHost=false -p:OutDir=C:\Users\chris\OneDrive\Documents\Repos\.codex-build\MedRecProStatic\` succeeded with one pre-existing nullable warning in `Views\Home\Index.cshtml`; `git diff --check -- MedRecProReact MedRecProStatic\wwwroot\ae-dashboard` clean. A foreground Vite diagnostic reached the ready state for `http://127.0.0.1:50346/ae-dashboard/`; detached background launch was blocked by the local process/sandbox environment.
+
+---

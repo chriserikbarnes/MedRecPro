@@ -135,6 +135,29 @@ const REVERSE_LOOKUP_VERDICT_TOKENS = {
   lowconfidence: 'lowconfidence',
 };
 
+const CORRELATION_COMPARATOR_TOKENS = {
+  0: 'Placebo',
+  1: 'Active',
+  2: 'Both',
+  placebo: 'Placebo',
+  active: 'Active',
+  both: 'Both',
+};
+
+const CORRELATION_METHOD_TOKENS = {
+  0: 'Spearman',
+  1: 'Pearson',
+  spearman: 'Spearman',
+  pearson: 'Pearson',
+};
+
+const CORRELATION_AGGREGATION_TOKENS = {
+  0: 'MedianLogRr',
+  1: 'MeanLogRr',
+  medianlogrr: 'MedianLogRr',
+  meanlogrr: 'MeanLogRr',
+};
+
 /**************************************************************/
 /**
  * Normalizes interchange enum values to UI grouping tokens.
@@ -299,6 +322,416 @@ function normalizeDirection(value) {
 
   // All other values render as neutral/not-significant.
   return 'ns';
+}
+
+/**************************************************************/
+/**
+ * Normalizes class-correlation comparator values to server enum names.
+ *
+ * @param {unknown} value - API enum value, numeric or string.
+ * @returns {'Placebo' | 'Active' | 'Both'} Stable comparator value.
+ */
+function normalizeCorrelationComparator(value) {
+  const token = toToken(value, 'placebo').replace(/[\s_-]/g, '');
+
+  return CORRELATION_COMPARATOR_TOKENS[token] ?? 'Placebo';
+}
+
+/**************************************************************/
+/**
+ * Normalizes correlation-method values to server enum names.
+ *
+ * @param {unknown} value - API enum value, numeric or string.
+ * @returns {'Spearman' | 'Pearson'} Stable method value.
+ */
+function normalizeCorrelationMethod(value) {
+  const token = toToken(value, 'spearman').replace(/[\s_-]/g, '');
+
+  return CORRELATION_METHOD_TOKENS[token] ?? 'Spearman';
+}
+
+/**************************************************************/
+/**
+ * Normalizes correlation aggregation values to server enum names.
+ *
+ * @param {unknown} value - API enum value, numeric or string.
+ * @returns {'MedianLogRr' | 'MeanLogRr'} Stable aggregation value.
+ */
+function normalizeCorrelationAggregation(value) {
+  const token = toToken(value, 'medianlogrr').replace(/[\s_-]/g, '');
+
+  return CORRELATION_AGGREGATION_TOKENS[token] ?? 'MedianLogRr';
+}
+
+/**************************************************************/
+/**
+ * Normalizes the shared correlation filter echo.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API filter DTO.
+ * @returns {object} Filter view model.
+ */
+function normalizeCorrelationFilters(dto) {
+  const includeNonSignificant = readFirst(dto, ['IncludeNonSignificant', 'includeNonSignificant']);
+  const excludeFragile = readFirst(dto, ['ExcludeFragile', 'excludeFragile']);
+
+  return {
+    comparator: normalizeCorrelationComparator(readFirst(dto, ['Comparator', 'comparator'])),
+    includeNonSignificant: includeNonSignificant === undefined ? true : toBoolean(includeNonSignificant),
+    excludeFragile: excludeFragile === undefined ? true : toBoolean(excludeFragile),
+    minDrugsPerCell: toNullableNumber(readFirst(dto, ['MinDrugsPerCell', 'minDrugsPerCell'])) ?? 4,
+    method: normalizeCorrelationMethod(readFirst(dto, ['Method', 'method'])),
+    aggregation: normalizeCorrelationAggregation(readFirst(dto, ['Aggregation', 'aggregation'])),
+    seriousSocOnly: toBoolean(readFirst(dto, ['SeriousSocOnly', 'seriousSocOnly'])),
+    excludeCombos: toBoolean(readFirst(dto, ['ExcludeCombos', 'excludeCombos'])),
+    minEvents: toNullableNumber(readFirst(dto, ['MinEvents', 'minEvents'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes warning text arrays without dropping backend guidance.
+ *
+ * @param {unknown} warnings - API warning payload.
+ * @returns {string[]} Warning strings.
+ */
+function normalizeWarnings(warnings) {
+  if (!Array.isArray(warnings)) {
+    return [];
+  }
+
+  return warnings.map((warning) => toDisplayString(warning)).filter(Boolean);
+}
+
+/**************************************************************/
+/**
+ * Normalizes a pharmacologic class picker row.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API picker DTO.
+ * @returns {object | null} Class picker view model or null.
+ */
+export function normalizeCorrelationClass(dto) {
+  const pharmClassCode = toDisplayString(readFirst(dto, ['PharmClassCode', 'pharmClassCode']));
+
+  if (!pharmClassCode) {
+    return null;
+  }
+
+  return {
+    id: pharmClassCode,
+    pharmClassCode,
+    pharmClassName: toDisplayString(readFirst(dto, ['PharmClassName', 'pharmClassName']), pharmClassCode),
+    encryptedPharmacologicClassId: toDisplayString(
+      readFirst(dto, [
+        'EncryptedPharmacologicClassID',
+        'EncryptedPharmacologicClassId',
+        'encryptedPharmacologicClassID',
+        'encryptedPharmacologicClassId',
+      ]),
+    ),
+    drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
+    socCount: toNullableNumber(readFirst(dto, ['SocCount', 'socCount'])) ?? 0,
+    isCorrelatable: toBoolean(readFirst(dto, ['IsCorrelatable', 'isCorrelatable'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes class picker payloads and keeps correlatable rows first.
+ *
+ * @param {unknown} payload - API picker payload.
+ * @returns {object[]} Class picker rows.
+ */
+export function normalizeCorrelationClasses(payload) {
+  const items = Array.isArray(payload) ? payload : [];
+
+  return items
+    .map((item) => normalizeCorrelationClass(item))
+    .filter(Boolean)
+    .sort((left, right) => Number(right.isCorrelatable) - Number(left.isCorrelatable));
+}
+
+/**************************************************************/
+/**
+ * Normalizes one SOC by SOC correlation map cell.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API cell DTO.
+ * @returns {object | null} Cell view model or null.
+ */
+function normalizeCorrelationMapCell(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const rowIndex = toNullableNumber(readFirst(dto, ['RowIndex', 'rowIndex']));
+  const columnIndex = toNullableNumber(readFirst(dto, ['ColumnIndex', 'columnIndex']));
+
+  if (rowIndex === null || columnIndex === null) {
+    return null;
+  }
+
+  return {
+    id: `${rowIndex}:${columnIndex}`,
+    rowIndex,
+    columnIndex,
+    rowSoc: toDisplayString(readFirst(dto, ['RowSoc', 'rowSoc'])),
+    columnSoc: toDisplayString(readFirst(dto, ['ColumnSoc', 'columnSoc'])),
+    coefficient: toNullableNumber(readFirst(dto, ['Coefficient', 'coefficient'])),
+    pairCount: toNullableNumber(readFirst(dto, ['PairCount', 'pairCount'])) ?? 0,
+    pValue: toNullableNumber(readFirst(dto, ['PValue', 'pValue'])),
+    isSignificant: toBoolean(readFirst(dto, ['IsSignificant', 'isSignificant'])),
+    isFragile: toBoolean(readFirst(dto, ['IsFragile', 'isFragile'])),
+    insufficientN: toBoolean(readFirst(dto, ['InsufficientN', 'insufficientN'])),
+    isDiagonal: toBoolean(readFirst(dto, ['IsDiagonal', 'isDiagonal'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one per-SOC correlation summary.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API summary DTO.
+ * @returns {object | null} Summary view model or null.
+ */
+function normalizeCorrelationSocSummary(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const index = toNullableNumber(readFirst(dto, ['Index', 'index']));
+  const soc = toDisplayString(readFirst(dto, ['Soc', 'soc']));
+
+  if (index === null || !soc) {
+    return null;
+  }
+
+  return {
+    index,
+    soc,
+    drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
+    fragileDrugCount: toNullableNumber(readFirst(dto, ['FragileDrugCount', 'fragileDrugCount'])) ?? 0,
+    medianLogRr: toNullableNumber(readFirst(dto, ['MedianLogRr', 'medianLogRr'])),
+    medianRr: toNullableNumber(readFirst(dto, ['MedianRr', 'medianRr'])),
+    elevatedShare: toNullableNumber(readFirst(dto, ['ElevatedShare', 'elevatedShare'])) ?? 0,
+    protectiveShare: toNullableNumber(readFirst(dto, ['ProtectiveShare', 'protectiveShare'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes a SOC by SOC class-correlation map.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API map DTO.
+ * @returns {object | null} Map view model or null.
+ */
+export function normalizeCorrelationMap(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const socPayload = readFirst(payload, ['Soc', 'soc']);
+  const cellPayloads = readFirst(payload, ['Cells', 'cells']);
+  const summaryPayloads = readFirst(payload, ['SocSummaries', 'socSummaries']);
+
+  return {
+    pharmClassCode: toDisplayString(readFirst(payload, ['PharmClassCode', 'pharmClassCode'])),
+    pharmClassName: toDisplayString(readFirst(payload, ['PharmClassName', 'pharmClassName'])),
+    encryptedPharmacologicClassId: toDisplayString(
+      readFirst(payload, [
+        'EncryptedPharmacologicClassID',
+        'EncryptedPharmacologicClassId',
+        'encryptedPharmacologicClassID',
+        'encryptedPharmacologicClassId',
+      ]),
+    ),
+    appliedFilters: normalizeCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
+    drugCount: toNullableNumber(readFirst(payload, ['DrugCount', 'drugCount'])) ?? 0,
+    soc: Array.isArray(socPayload) ? socPayload.map((soc) => toDisplayString(soc)).filter(Boolean) : [],
+    cells: Array.isArray(cellPayloads)
+      ? cellPayloads.map((cell) => normalizeCorrelationMapCell(cell)).filter(Boolean)
+      : [],
+    socSummaries: Array.isArray(summaryPayloads)
+      ? summaryPayloads.map((summary) => normalizeCorrelationSocSummary(summary)).filter(Boolean)
+      : [],
+    warnings: normalizeWarnings(readFirst(payload, ['Warnings', 'warnings'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one heatmap drug column.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API drug DTO.
+ * @returns {object | null} Drug view model or null.
+ */
+function normalizeCorrelationHeatmapDrug(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const drugDisplayName = toDisplayString(readFirst(dto, ['DrugDisplayName', 'drugDisplayName']));
+
+  if (!drugDisplayName) {
+    return null;
+  }
+
+  return {
+    encryptedActiveMoietyId: toDisplayString(
+      readFirst(dto, [
+        'EncryptedActiveMoietyID',
+        'EncryptedActiveMoietyId',
+        'encryptedActiveMoietyID',
+        'encryptedActiveMoietyId',
+      ]),
+    ),
+    drugDisplayName,
+    documentGuid: toDisplayString(readFirst(dto, ['DocumentGUID', 'DocumentGuid', 'documentGUID', 'documentGuid'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one populated SOC by drug heatmap cell.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API heatmap cell DTO.
+ * @returns {object | null} Heatmap cell view model or null.
+ */
+function normalizeCorrelationHeatmapCell(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const socIndex = toNullableNumber(readFirst(dto, ['SocIndex', 'socIndex']));
+  const drugIndex = toNullableNumber(readFirst(dto, ['DrugIndex', 'drugIndex']));
+
+  if (socIndex === null || drugIndex === null) {
+    return null;
+  }
+
+  return {
+    id: `${socIndex}:${drugIndex}`,
+    socIndex,
+    drugIndex,
+    logRr: toNullableNumber(readFirst(dto, ['LogRr', 'logRr'])),
+    rr: toNullableNumber(readFirst(dto, ['Rr', 'RR', 'rr'])),
+    precision: normalizePrecisionClass(readFirst(dto, ['Precision', 'precision'])),
+    significance: normalizeDirection(readFirst(dto, ['Significance', 'significance'])),
+    termCount: toNullableNumber(readFirst(dto, ['TermCount', 'termCount'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes a sparse SOC by drug heatmap.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API heatmap DTO.
+ * @returns {object | null} Heatmap view model or null.
+ */
+export function normalizeCorrelationHeatmap(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const socPayload = readFirst(payload, ['Soc', 'soc']);
+  const drugPayloads = readFirst(payload, ['Drugs', 'drugs']);
+  const cellPayloads = readFirst(payload, ['Cells', 'cells']);
+
+  return {
+    pharmClassCode: toDisplayString(readFirst(payload, ['PharmClassCode', 'pharmClassCode'])),
+    pharmClassName: toDisplayString(readFirst(payload, ['PharmClassName', 'pharmClassName'])),
+    encryptedPharmacologicClassId: toDisplayString(
+      readFirst(payload, [
+        'EncryptedPharmacologicClassID',
+        'EncryptedPharmacologicClassId',
+        'encryptedPharmacologicClassID',
+        'encryptedPharmacologicClassId',
+      ]),
+    ),
+    appliedFilters: normalizeCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
+    drugCount: toNullableNumber(readFirst(payload, ['DrugCount', 'drugCount'])) ?? 0,
+    soc: Array.isArray(socPayload) ? socPayload.map((soc) => toDisplayString(soc)).filter(Boolean) : [],
+    drugs: Array.isArray(drugPayloads)
+      ? drugPayloads.map((drug) => normalizeCorrelationHeatmapDrug(drug)).filter(Boolean)
+      : [],
+    cells: Array.isArray(cellPayloads)
+      ? cellPayloads.map((cell) => normalizeCorrelationHeatmapCell(cell)).filter(Boolean)
+      : [],
+    warnings: normalizeWarnings(readFirst(payload, ['Warnings', 'warnings'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one per-drug pair behind a correlation cell.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API pair DTO.
+ * @returns {object | null} Pair view model or null.
+ */
+function normalizeCorrelationDrugPair(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const drugDisplayName = toDisplayString(readFirst(dto, ['DrugDisplayName', 'drugDisplayName']));
+
+  if (!drugDisplayName) {
+    return null;
+  }
+
+  return {
+    drugDisplayName,
+    encryptedActiveMoietyId: toDisplayString(
+      readFirst(dto, [
+        'EncryptedActiveMoietyID',
+        'EncryptedActiveMoietyId',
+        'encryptedActiveMoietyID',
+        'encryptedActiveMoietyId',
+      ]),
+    ),
+    logRrX: toNullableNumber(readFirst(dto, ['LogRrX', 'logRrX'])),
+    logRrY: toNullableNumber(readFirst(dto, ['LogRrY', 'logRrY'])),
+    rrX: toNullableNumber(readFirst(dto, ['RrX', 'RRX', 'rrX'])),
+    rrY: toNullableNumber(readFirst(dto, ['RrY', 'RRY', 'rrY'])),
+    precisionX: normalizePrecisionClass(readFirst(dto, ['PrecisionX', 'precisionX'])),
+    precisionY: normalizePrecisionClass(readFirst(dto, ['PrecisionY', 'precisionY'])),
+    termCountX: toNullableNumber(readFirst(dto, ['TermCountX', 'termCountX'])) ?? 0,
+    termCountY: toNullableNumber(readFirst(dto, ['TermCountY', 'termCountY'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes the per-drug drill-down behind one correlation map cell.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API cell-detail DTO.
+ * @returns {object | null} Cell-detail view model or null.
+ */
+export function normalizeCorrelationCellDetail(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const pairPayloads = readFirst(payload, ['DrugPairs', 'drugPairs']);
+
+  return {
+    pharmClassCode: toDisplayString(readFirst(payload, ['PharmClassCode', 'pharmClassCode'])),
+    pharmClassName: toDisplayString(readFirst(payload, ['PharmClassName', 'pharmClassName'])),
+    socX: toDisplayString(readFirst(payload, ['SocX', 'socX'])),
+    socY: toDisplayString(readFirst(payload, ['SocY', 'socY'])),
+    appliedFilters: normalizeCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
+    coefficient: toNullableNumber(readFirst(payload, ['Coefficient', 'coefficient'])),
+    rawCoefficient: toNullableNumber(readFirst(payload, ['RawCoefficient', 'rawCoefficient'])),
+    pValue: toNullableNumber(readFirst(payload, ['PValue', 'pValue'])),
+    rawPValue: toNullableNumber(readFirst(payload, ['RawPValue', 'rawPValue'])),
+    isSignificant: toBoolean(readFirst(payload, ['IsSignificant', 'isSignificant'])),
+    insufficientN: toBoolean(readFirst(payload, ['InsufficientN', 'insufficientN'])),
+    isDiagonal: toBoolean(readFirst(payload, ['IsDiagonal', 'isDiagonal'])),
+    minDrugsPerCell: toNullableNumber(readFirst(payload, ['MinDrugsPerCell', 'minDrugsPerCell'])) ?? 4,
+    pairCount: toNullableNumber(readFirst(payload, ['PairCount', 'pairCount'])) ?? 0,
+    drugPairs: Array.isArray(pairPayloads)
+      ? pairPayloads.map((pair) => normalizeCorrelationDrugPair(pair)).filter(Boolean)
+      : [],
+    warnings: normalizeWarnings(readFirst(payload, ['Warnings', 'warnings'])),
+  };
 }
 
 /**************************************************************/
