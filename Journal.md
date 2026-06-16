@@ -5043,3 +5043,12 @@ Scaled the class-correlation map and heatmap grids so they fit inside the panel 
 **Verification.** `npm.cmd run lint` passed clean; `npm.cmd test -- --run` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `git diff --check` passed after normalizing the generated `index.html` line endings. Verified the live ASP.NET-hosted class map and heatmap at `http://localhost:5001/adverse-events?focus=class` with browser-side measurements: map wrapper `scrollWidth` equals `clientWidth` with 84x84 cells, heatmap wrapper `scrollWidth` equals `clientWidth` with scaled 49x49 cells, both grids fit within the wrapper, and the document has no horizontal scroll.
 
 ---
+
+### 2026-06-16 12:37 PM EST — AE Dashboard Drug Pair Scrollbar Styling
+Refined the selected-cell drug pair table scrollbar so it visually matches the dashboard instead of using the default system scrollbar chrome.
+
+**Implementation.** Updated [index.css](MedRecProReact/src/index.css) for `.cell-pair-list`, adding Firefox `scrollbar-width: thin` / `scrollbar-color` rules and Chromium/WebKit scrollbar pseudo-element styling. The drug-pair list now uses a 6px transparent-track scrollbar with a rounded warm-brown thumb, a darker hover state, hidden scrollbar buttons, and a transparent scrollbar corner. Rebuilt the committed dashboard bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** `npm.cmd run lint` passed clean; `npm.cmd test -- --run` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `git diff --check` passed. Verified the live ASP.NET-hosted class detail at `http://localhost:5001/adverse-events?focus=class` with browser-side computed-style checks: `.cell-pair-list` remains scrollable, uses `scrollbar-width: thin`, reports a 6px WebKit scrollbar, has a rounded thumb, and `::-webkit-scrollbar-button` is hidden with zero width.
+
+---
