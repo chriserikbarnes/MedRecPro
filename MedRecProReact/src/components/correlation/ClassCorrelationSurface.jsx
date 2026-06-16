@@ -1,4 +1,3 @@
-import { formatInteger } from '../../lib/formatters';
 import { EmptyState } from '../common/EmptyState';
 import { InlineError } from '../common/InlineError';
 import { Loading } from '../common/Loading';
@@ -40,12 +39,38 @@ function FilterToggle({ isOn, onClick, children }) {
 
 /**************************************************************/
 /**
+ * Renders the prototype-style view selector for the class panel.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element} View toggle.
+ */
+function ClassViewToggle({ classView, onChangeView }) {
+  return (
+    <div className="tabs class-view-tabs" role="tablist" aria-label="Class correlation views">
+      {CLASS_VIEWS.map((view) => (
+        <button
+          type="button"
+          key={view}
+          className={`tab${classView === view ? ' active' : ''}`}
+          role="tab"
+          aria-selected={classView === view}
+          onClick={() => onChangeView(view)}
+        >
+          {view === 'map' ? 'Correlation map' : 'Heatmap'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**************************************************************/
+/**
  * Class filter controls shared by map and heatmap.
  *
  * @param {object} props - Component props.
  * @returns {JSX.Element} Filter UI.
  */
-function ClassFilterControls({ classView, filters, onChangeView, onChangeFilter }) {
+function ClassFilterControls({ filters, onChangeFilter }) {
   return (
     <>
       <div className="filter-row class-filter-row primary">
@@ -61,28 +86,29 @@ function ClassFilterControls({ classView, filters, onChangeView, onChangeFilter 
           </button>
         ))}
 
-        <span className="filter-label">View</span>
-        <div className="tabs class-view-tabs" role="tablist" aria-label="Class correlation views">
-          {CLASS_VIEWS.map((view) => (
-            <button
-              type="button"
-              key={view}
-              className={`tab${classView === view ? ' active' : ''}`}
-              role="tab"
-              aria-selected={classView === view}
-              onClick={() => onChangeView(view)}
-            >
-              {view === 'map' ? 'Map' : 'Heatmap'}
-            </button>
-          ))}
-        </div>
+        <span className="filter-label">Method</span>
+        {CORRELATION_METHODS.map((method) => (
+          <button
+            type="button"
+            key={method}
+            className={`chip${filters.method === method ? ' active' : ''}`}
+            onClick={() => onChangeFilter('method', method)}
+          >
+            {method}
+          </button>
+        ))}
 
-        <FilterToggle
-          isOn={filters.seriousSocOnly}
-          onClick={() => onChangeFilter('seriousSocOnly', !filters.seriousSocOnly)}
-        >
-          Serious SOCs only
-        </FilterToggle>
+        <span className="filter-label">Aggregation</span>
+        {CORRELATION_AGGREGATIONS.map((aggregation) => (
+          <button
+            type="button"
+            key={aggregation}
+            className={`chip${filters.aggregation === aggregation ? ' active' : ''}`}
+            onClick={() => onChangeFilter('aggregation', aggregation)}
+          >
+            {formatAggregation(aggregation)}
+          </button>
+        ))}
       </div>
 
       <div className="filter-row class-filter-row advanced">
@@ -132,30 +158,6 @@ function ClassFilterControls({ classView, filters, onChangeView, onChangeFilter 
             }}
           />
         </label>
-
-        <span className="filter-label">Method</span>
-        {CORRELATION_METHODS.map((method) => (
-          <button
-            type="button"
-            key={method}
-            className={`chip${filters.method === method ? ' active' : ''}`}
-            onClick={() => onChangeFilter('method', method)}
-          >
-            {method}
-          </button>
-        ))}
-
-        <span className="filter-label">Aggregation</span>
-        {CORRELATION_AGGREGATIONS.map((aggregation) => (
-          <button
-            type="button"
-            key={aggregation}
-            className={`chip${filters.aggregation === aggregation ? ' active' : ''}`}
-            onClick={() => onChangeFilter('aggregation', aggregation)}
-          >
-            {formatAggregation(aggregation)}
-          </button>
-        ))}
       </div>
     </>
   );
@@ -211,16 +213,13 @@ export function ClassCorrelationSurface({
             <div className="panel-title">{activeTitle}</div>
             <div className="panel-sub">{activeSub}</div>
           </div>
-          <div className="panel-actions class-context">
-            <span className="ae-tag">{formatInteger(selectedClass.drugCount)} drugs</span>
-            <span className="ae-tag">{formatInteger(selectedClass.socCount)} SOCs</span>
+          <div className="panel-actions class-view-actions">
+            <ClassViewToggle classView={classView} onChangeView={onChangeClassView} />
           </div>
         </div>
 
         <ClassFilterControls
-          classView={classView}
           filters={filters}
-          onChangeView={onChangeClassView}
           onChangeFilter={onChangeClassFilter}
         />
 

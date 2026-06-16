@@ -217,7 +217,6 @@ function readDashboardUrlState() {
             minDrugsPerCell: 4,
             method: 'Spearman',
             aggregation: 'MedianLogRr',
-            seriousSocOnly: false,
             excludeCombos: false,
             minEvents: 0,
         };
@@ -255,7 +254,6 @@ function readDashboardUrlState() {
         minDrugsPerCell: readIntegerQuery(searchParams, 'minDrugsPerCell', 4, 3),
         method: readEnumQuery(searchParams, 'method', CLASS_CORRELATION_METHODS, 'Spearman'),
         aggregation: readEnumQuery(searchParams, 'aggregation', CLASS_CORRELATION_AGGREGATIONS, 'MedianLogRr'),
-        seriousSocOnly: readBooleanQuery(searchParams, 'seriousSocOnly', false),
         excludeCombos: readBooleanQuery(searchParams, 'excludeCombos', false),
         minEvents: readIntegerQuery(searchParams, 'minEvents', 0, 0),
     };
@@ -282,7 +280,6 @@ function writeDashboardUrlState({
     minDrugsPerCell,
     method,
     aggregation,
-    seriousSocOnly,
     excludeCombos,
     minEvents,
 }, shouldPush) {
@@ -307,7 +304,6 @@ function writeDashboardUrlState({
     const resolvedMinDrugsPerCell = minDrugsPerCell ?? currentState.minDrugsPerCell;
     const resolvedMethod = method ?? currentState.method;
     const resolvedAggregation = aggregation ?? currentState.aggregation;
-    const resolvedSeriousSocOnly = seriousSocOnly ?? currentState.seriousSocOnly;
     const resolvedExcludeCombos = excludeCombos ?? currentState.excludeCombos;
     const resolvedMinEvents = minEvents ?? currentState.minEvents;
 
@@ -337,7 +333,7 @@ function writeDashboardUrlState({
     nextUrl.searchParams.set('minDrugsPerCell', String(resolvedMinDrugsPerCell));
     nextUrl.searchParams.set('method', resolvedMethod);
     nextUrl.searchParams.set('aggregation', resolvedAggregation);
-    nextUrl.searchParams.set('seriousSocOnly', String(resolvedSeriousSocOnly));
+    nextUrl.searchParams.delete('seriousSocOnly');
     nextUrl.searchParams.set('excludeCombos', String(resolvedExcludeCombos));
     nextUrl.searchParams.set('minEvents', String(resolvedMinEvents));
 
@@ -1996,7 +1992,6 @@ function App() {
     const [minDrugsPerCell, setMinDrugsPerCell] = useState(initialUrlState.minDrugsPerCell);
     const [correlationMethod, setCorrelationMethod] = useState(initialUrlState.method);
     const [correlationAggregation, setCorrelationAggregation] = useState(initialUrlState.aggregation);
-    const [seriousSocOnly, setSeriousSocOnly] = useState(initialUrlState.seriousSocOnly);
     const [excludeCombos, setExcludeCombos] = useState(initialUrlState.excludeCombos);
     const [minEvents, setMinEvents] = useState(initialUrlState.minEvents);
 
@@ -2156,7 +2151,6 @@ function App() {
             minDrugsPerCell,
             method: correlationMethod,
             aggregation: correlationAggregation,
-            seriousSocOnly,
             excludeCombos,
             minEvents,
         }),
@@ -2169,7 +2163,6 @@ function App() {
             includeNonSignificant,
             minDrugsPerCell,
             minEvents,
-            seriousSocOnly,
         ],
     );
 
@@ -2274,7 +2267,6 @@ function App() {
                     minDrugsPerCell: classFilters.minDrugsPerCell,
                     method: classFilters.method,
                     aggregation: classFilters.aggregation,
-                    seriousSocOnly: classFilters.seriousSocOnly,
                     excludeCombos: classFilters.excludeCombos,
                     minEvents: classFilters.minEvents,
                     ...overrides,
@@ -2555,7 +2547,6 @@ function App() {
                     includeNonSignificant: classFilters.includeNonSignificant,
                     excludeFragile: classFilters.excludeFragile,
                     aggregation: classFilters.aggregation,
-                    seriousSocOnly: classFilters.seriousSocOnly,
                     excludeCombos: classFilters.excludeCombos,
                     minEvents: classFilters.minEvents,
                     signal: abortController.signal,
@@ -3011,9 +3002,6 @@ function App() {
             } else if (name === 'aggregation' && CLASS_CORRELATION_AGGREGATIONS.has(value)) {
                 setCorrelationAggregation(value);
                 nextOverrides.aggregation = value;
-            } else if (name === 'seriousSocOnly') {
-                setSeriousSocOnly(Boolean(value));
-                nextOverrides.seriousSocOnly = Boolean(value);
             } else if (name === 'excludeCombos') {
                 setExcludeCombos(Boolean(value));
                 nextOverrides.excludeCombos = Boolean(value);
@@ -3731,6 +3719,14 @@ function App() {
                         Data shown: <code>Database</code> projection for the selected {dashboardFocus}.
                         Fragile rows can be hidden from the visualization controls where the active view supports them.
                     </p>
+                    {dashboardFocus === 'class' ? (
+                        <p>
+                            <strong>Correlation methods:</strong> Spearman compares the rank order of per-drug
+                            SOC values and is less sensitive to outliers or uneven spacing. Pearson compares the
+                            linear relationship between the per-drug SOC values. Both methods use the currently
+                            selected class, comparator, aggregation, and filter settings.
+                        </p>
+                    ) : null}
                 </div>
             </div>
         </main>

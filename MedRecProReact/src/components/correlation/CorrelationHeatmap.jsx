@@ -2,6 +2,7 @@ import { formatDecimal, formatInteger } from '../../lib/formatters';
 import { getLogRrColor, getScaleTextColor } from '../../lib/correlationScales';
 import { EmptyState } from '../common/EmptyState';
 import { CorrelationTooltip } from './CorrelationTooltip';
+import { formatSocAxisLabel } from './socLabels';
 
 /**************************************************************/
 /**
@@ -18,6 +19,50 @@ function buildHeatmapCellLookup(cells) {
   }
 
   return lookup;
+}
+
+/**************************************************************/
+/**
+ * Removes leading/trailing empty SOC rows and drug columns when sparse data allows.
+ *
+ * @param {string[]} soc - SOC names from the API axis.
+ * @param {object[]} drugs - Drug axis entries.
+ * @param {object[]} cells - Normalized heatmap cells.
+ * @returns {{ soc: { name: string, index: number }[], drugs: { drug: object, index: number }[] }} Display axes.
+ */
+function getDisplayHeatmapAxes(soc, drugs, cells) {
+  const activeSocIndexes = new Set();
+  const activeDrugIndexes = new Set();
+
+  for (const cell of cells) {
+    if (cell && cell.logRr !== null && cell.logRr !== undefined) {
+      activeSocIndexes.add(cell.socIndex);
+      activeDrugIndexes.add(cell.drugIndex);
+    }
+  }
+
+  const socEntries = soc.map((name, index) => ({ name, index }));
+  const drugEntries = drugs.map((drug, index) => ({ drug, index }));
+
+  return {
+    soc: activeSocIndexes.size > 0
+      ? socEntries.filter((entry) => activeSocIndexes.has(entry.index))
+      : socEntries,
+    drugs: activeDrugIndexes.size > 0
+      ? drugEntries.filter((entry) => activeDrugIndexes.has(entry.index))
+      : drugEntries,
+  };
+}
+
+/**************************************************************/
+/**
+ * Formats the LogRR aggregation echoed by the backend.
+ *
+ * @param {string | undefined} aggregation - Applied aggregation token.
+ * @returns {string} Human-readable aggregation name.
+ */
+function formatAggregation(aggregation) {
+  return aggregation === 'MeanLogRr' ? 'mean LogRR' : 'median LogRR';
 }
 
 /**************************************************************/
@@ -52,9 +97,13 @@ export function CorrelationHeatmap({ heatmap }) {
   const soc = Array.isArray(heatmap?.soc) ? heatmap.soc : [];
   const drugs = Array.isArray(heatmap?.drugs) ? heatmap.drugs : [];
   const cells = Array.isArray(heatmap?.cells) ? heatmap.cells : [];
+  const displayAxes = getDisplayHeatmapAxes(soc, drugs, cells);
   const cellLookup = buildHeatmapCellLookup(cells);
+  const aggregationText = formatAggregation(heatmap?.appliedFilters?.aggregation);
+  const totalDrugCount = heatmap?.drugCount || drugs.length;
+  const maxGridWidth = 220 + (displayAxes.drugs.length * 64) + (displayAxes.drugs.length * 2);
 
-  if (soc.length === 0 || drugs.length === 0) {
+  if (displayAxes.soc.length === 0 || displayAxes.drugs.length === 0) {
     return (
       <>
         <EmptyState
@@ -68,46 +117,52 @@ export function CorrelationHeatmap({ heatmap }) {
 
   return (
     <div className="corr-panel">
-      <div className="heatmap-wrap" role="region" aria-label="SOC by drug LogRR heatmap" tabIndex={0}>
+      <div className="corr-wrap" role="region" aria-label="SOC by drug LogRR heatmap" tabIndex={0}>
         <div
-          className="heatmap-grid"
-          style={{ gridTemplateColumns: `minmax(160px, 220px) repeat(${drugs.length}, 52px)` }}
+          className="corr-grid heat"
+          style={{
+            '--corr-grid-max': `${maxGridWidth}px`,
+            gridTemplateColumns: `minmax(120px, 220px) repeat(${displayAxes.drugs.length}, minmax(0, 64px))`,
+          }}
           role="grid"
-          aria-rowcount={soc.length + 1}
-          aria-colcount={drugs.length + 1}
+          aria-rowcount={displayAxes.soc.length + 1}
+          aria-colcount={displayAxes.drugs.length + 1}
         >
-          <div className="heatmap-axis-cell heatmap-corner" role="columnheader">SOC</div>
-          {drugs.map((drug) => (
-            <div className="heatmap-axis-cell heatmap-col-head" key={drug.drugDisplayName} role="columnheader">
+          <div className="corr-corner" role="columnheader" aria-label="SOC" />
+          {displayAxes.drugs.map(({ drug }) => (
+            <div className="corr-colhead drug" key={drug.drugDisplayName} role="columnheader">
               <span title={drug.drugDisplayName}>{drug.drugDisplayName}</span>
             </div>
           ))}
 
-          {soc.map((rowSoc, socIndex) => (
-            <div className="heatmap-row-fragment" key={rowSoc} role="row">
-              <div className="heatmap-axis-cell heatmap-row-head" role="rowheader">
-                <span title={rowSoc}>{rowSoc}</span>
+          {displayAxes.soc.map((rowSoc) => (
+            <div className="heatmap-row-fragment" key={rowSoc.name} role="row">
+              <div className="corr-rowhead" role="rowheader">
+                <span className="corr-rowhead-name" title={rowSoc.name}>{formatSocAxisLabel(rowSoc.name)}</span>
               </div>
-              {drugs.map((drug, drugIndex) => {
-                const cell = cellLookup.get(`${socIndex}:${drugIndex}`) ?? null;
+              {displayAxes.drugs.map(({ drug, index: drugIndex }) => {
+                const cell = cellLookup.get(`${rowSoc.index}:${drugIndex}`) ?? null;
                 const backgroundColor = getLogRrColor(cell?.logRr);
+                const className = [
+                  'corr-cell',
+                  !backgroundColor ? 'empty' : '',
+                ].filter(Boolean).join(' ');
 
                 return (
                   <div
-                    key={`${rowSoc}-${drug.drugDisplayName}`}
-                    className={`heatmap-cell${cell ? '' : ' is-empty'}`}
+                    key={`${rowSoc.name}-${drug.drugDisplayName}`}
+                    className={className}
                     role="gridcell"
                     tabIndex={0}
-                    aria-label={`${rowSoc} by ${drug.drugDisplayName}: LogRR ${formatDecimal(cell?.logRr, 2)}`}
+                    aria-label={`${rowSoc.name} by ${drug.drugDisplayName}: LogRR ${cell ? formatDecimal(cell.logRr, 2) : 'blank'}`}
                     style={{
                       backgroundColor: backgroundColor ?? undefined,
                       color: getScaleTextColor(cell?.logRr),
                     }}
                   >
-                    <span className="heatmap-cell-value">{cell ? formatDecimal(cell.logRr, 2) : ''}</span>
                     {cell ? (
                       <CorrelationTooltip>
-                        <strong>{rowSoc} x {drug.drugDisplayName}</strong>
+                        <strong>{rowSoc.name} x {drug.drugDisplayName}</strong>
                         <span>LogRR: {formatDecimal(cell.logRr, 2)}</span>
                         <span>RR: {formatDecimal(cell.rr, 2)}</span>
                         <span>Significance: {cell.significance}</span>
@@ -124,12 +179,13 @@ export function CorrelationHeatmap({ heatmap }) {
       </div>
 
       <div className="corr-legend" aria-label="Heatmap color legend">
-        <span className="corr-legend-swatch negative" />
-        <span>Lower LogRR</span>
-        <span className="corr-legend-line" />
-        <span>Neutral</span>
-        <span className="corr-legend-swatch positive" />
-        <span>Higher LogRR</span>
+        <span className="corr-legend-label">protective</span>
+        <span className="corr-legend-ramp" />
+        <span className="corr-legend-label">elevated</span>
+        <span>Cell = per-drug {aggregationText} in that SOC - blank = no AE rows</span>
+        <span className="corr-legend-muted">
+          Showing densest {displayAxes.drugs.length} of {totalDrugCount} drugs
+        </span>
       </div>
 
       <HeatmapWarnings warnings={heatmap?.warnings} />

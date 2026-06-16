@@ -5007,3 +5007,39 @@ Implemented the React class-correlation dashboard described in the pending UI ex
 **Verification.** `npm.cmd run lint` clean; `npm.cmd test` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore -p:UseAppHost=false -p:OutDir=C:\Users\chris\OneDrive\Documents\Repos\.codex-build\MedRecProStatic\` succeeded with one pre-existing nullable warning in `Views\Home\Index.cshtml`; `git diff --check -- MedRecProReact MedRecProStatic\wwwroot\ae-dashboard` clean. A foreground Vite diagnostic reached the ready state for `http://127.0.0.1:50346/ae-dashboard/`; detached background launch was blocked by the local process/sandbox environment.
 
 ---
+
+### 2026-06-15 12:46 PM EST — AE Dashboard Class Correlation UI Revisions
+Revised the React class-correlation dashboard against the prototype screenshot, tightening the control layout and chart rendering while preserving the implemented API-backed class views.
+
+**Implementation.** Updated [App.jsx](MedRecProReact/src/App.jsx), [FocusSwitch.jsx](MedRecProReact/src/components/FocusSwitch.jsx), [ClassCorrelationSurface.jsx](MedRecProReact/src/components/correlation/ClassCorrelationSurface.jsx), [CorrelationMap.jsx](MedRecProReact/src/components/correlation/CorrelationMap.jsx), [CorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/CorrelationHeatmap.jsx), and [index.css](MedRecProReact/src/index.css). Added the bottom methods footnote for Spearman and Pearson, restored the prototype-style `Per-product` / `By class` focus strip and panel-header `Correlation map` / `Heatmap` toggle, promoted Method and Aggregation into the Comparator row, removed the subjective Serious SOCs-only UI state, hid native number-input spin buttons, angled top-axis labels, trimmed all-empty map/heatmap axes where data allows, and changed correlation diagonals back to the prototype's dark filled `1` cells. Rebuilt the committed dashboard bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** `npm.cmd run lint` passed clean; `npm.cmd test` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `git diff --check -- MedRecProReact MedRecProStatic\wwwroot\ae-dashboard` passed after normalizing the generated `index.html` line endings. Verified the live ASP.NET-hosted page at `http://localhost:5001/adverse-events?focus=class` with browser-side DOM/CSS checks: active focus `By class`, no `Serious SOCs only` text, primary row includes Comparator/Method/Aggregation, number inputs use `textfield` appearance, column headers are rotated, and diagonal cells compute as dark background with white text. In-app screenshot capture timed out twice, but browser console warnings/errors were empty.
+
+---
+
+### 2026-06-15 1:08 PM EST — AE Dashboard Selector Spacing and Header Visibility
+Tightened the class-correlation filter spacing and chart header layout after screenshot review.
+
+**Implementation.** Updated [index.css](MedRecProReact/src/index.css) so `.filter-label` carries a 40px left margin, `.class-filter-row.advanced` has 10px top padding, and the correlation/heatmap grid uses auto row sizing with explicit data-cell heights. The column-header band now gives rotated labels enough vertical room, visible overflow, and wider text spans so SOC and drug labels remain readable. Rebuilt the committed dashboard bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** `npm.cmd run lint` passed clean; `npm.cmd test` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `git diff --check -- MedRecProReact MedRecProStatic\wwwroot\ae-dashboard Journal.md` passed after normalizing the generated `index.html` line endings. Verified the live ASP.NET-hosted page at `http://localhost:5001/adverse-events?focus=class` with browser-side computed-style checks: `.filter-label` margin-left `40px`, `.class-filter-row.advanced` padding-top `10px`, grid auto rows, data-cell min-height `42px`, column-header height `152px`, visible rotated label overflow, and rendered label text.
+
+---
+
+### 2026-06-15 1:23 PM EST — AE Dashboard Prototype-Style Class Charts
+Refined the React class-correlation charts to follow the standalone prototype more faithfully, replacing the remaining table-like presentation with open, square-tile chart surfaces.
+
+**Implementation.** Updated [CorrelationMap.jsx](MedRecProReact/src/components/correlation/CorrelationMap.jsx), [CorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/CorrelationHeatmap.jsx), and [index.css](MedRecProReact/src/index.css) so class map and heatmap views share prototype-style `.corr-wrap` / `.corr-grid` primitives, visible rotated headers, plain row labels, square cells, dark filled correlation diagonals, hatched blanks, and compact ramp legends. Added [socLabels.js](MedRecProReact/src/components/correlation/socLabels.js) to display compact SOC axis labels such as `Gastrointestinal`, `General Disorders`, and `Skin & Subcutaneous` while preserving full SOC names in tooltips/titles. Heatmap cells now render as color-only tiles, matching the prototype's cleaner sparse-grid look. Rebuilt the committed dashboard bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** `npm.cmd run lint` passed clean; `npm.cmd test -- --run` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `git diff --check` passed after normalizing the generated `index.html` line endings. Verified the live ASP.NET-hosted class map and heatmap at `http://localhost:5001/adverse-events?focus=class` with browser-side DOM/CSS checks: map tiles are 84x84 squares, heatmap tiles are 64x64 squares, headers rotate at `-45deg`, old table selectors are absent, compact SOC labels render, heatmap tile text is blank, and both chart legends use the 120px prototype ramp.
+
+---
+
+### 2026-06-15 1:30 PM EST — AE Dashboard Class Chart Fit Scaling
+Scaled the class-correlation map and heatmap grids so they fit inside the panel instead of forcing horizontal scrolling.
+
+**Implementation.** Updated [CorrelationMap.jsx](MedRecProReact/src/components/correlation/CorrelationMap.jsx) and [CorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/CorrelationHeatmap.jsx) to provide per-chart max grid widths based on the active SOC/drug column count while keeping the prototype max tile sizes. Updated [index.css](MedRecProReact/src/index.css) so `.corr-grid` uses `width: 100%` with a chart-specific max width and shrinkable tile tracks, and `.corr-wrap` hides horizontal overflow while preserving the existing rotated-header styling, including the current `.corr-colhead` margin adjustment. Rebuilt the committed dashboard bundle in [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Verification.** `npm.cmd run lint` passed clean; `npm.cmd test -- --run` passed 5 test files and 26 tests; `npm.cmd run build` succeeded and emitted `ae-dashboard.js`/`ae-dashboard.css`; `git diff --check` passed after normalizing the generated `index.html` line endings. Verified the live ASP.NET-hosted class map and heatmap at `http://localhost:5001/adverse-events?focus=class` with browser-side measurements: map wrapper `scrollWidth` equals `clientWidth` with 84x84 cells, heatmap wrapper `scrollWidth` equals `clientWidth` with scaled 49x49 cells, both grids fit within the wrapper, and the document has no horizontal scroll.
+
+---
