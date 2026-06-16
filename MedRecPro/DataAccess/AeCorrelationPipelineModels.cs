@@ -98,4 +98,20 @@ namespace MedRecPro.DataAccess
         int Count,
         AePrecisionClass Precision,
         AeRiskSignificance Significance);
+
+    /**************************************************************/
+    /// <summary>
+    /// One in-memory page of class-picker rows plus matching class-count metadata.
+    /// </summary>
+    /// <remarks>
+    /// This is a data-access transport record for controller pagination headers. It is not
+    /// serialized directly; the public endpoint still returns the existing picker-item array.
+    /// <paramref name="ChartableCount"/> counts the matching classes that can render at least
+    /// one off-diagonal SOC map cell under the active filters.
+    /// </remarks>
+    /// <seealso cref="AePharmClassPickerItemDto"/>
+    public sealed record AeCorrelationClassPickerPage(
+        List<AePharmClassPickerItemDto> Items,
+        int TotalCount,
+        int ChartableCount);
 }

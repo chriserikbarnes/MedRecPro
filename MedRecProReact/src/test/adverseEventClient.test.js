@@ -18,10 +18,12 @@ afterEach(() => {
 /**
  * Captures the next URL requested through the API client.
  *
+ * @param {{ body?: unknown, headers?: Record<string, string> }} response - Mock response data.
  * @returns {{ urls: string[] }} Captured request data.
  */
-function mockFetchUrls() {
+function mockFetchUrls(response = {}) {
   const urls = [];
+  const { body = {}, headers = {} } = response;
 
   globalThis.fetch = async (url) => {
     urls.push(url);
@@ -30,11 +32,11 @@ function mockFetchUrls() {
       ok: true,
       status: 200,
       headers: {
-        get() {
-          return null;
+        get(name) {
+          return headers[name] ?? null;
         },
       },
-      json: async () => ({}),
+      json: async () => body,
     };
   };
 
@@ -92,6 +94,37 @@ describe('buildAdverseEventUrl', () => {
     });
 
     expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/classes?classSearch=kinase&pageNumber=2&pageSize=10');
+  });
+
+  it('returns correlation class pagination metadata from response headers', async () => {
+    const capture = mockFetchUrls({
+      body: [{ pharmClassCode: 'N0000000001' }],
+      headers: {
+        'X-Total-Count': '87',
+        'X-Chartable-Count': '42',
+        'X-Page-Number': '2',
+        'X-Page-Size': '10',
+      },
+    });
+
+    const page = await AdverseEventClient.getCorrelationClasses({
+      classSearch: 'kinase',
+      pageNumber: 2,
+      pageSize: 10,
+      comparator: 'Both',
+      includeNonSignificant: false,
+      excludeFragile: true,
+      excludeCombos: true,
+      minEvents: 3,
+      minDrugsPerCell: 5,
+    });
+
+    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/classes?classSearch=kinase&pageNumber=2&pageSize=10&comparator=Both&includeNonSignificant=false&excludeFragile=true&excludeCombos=true&minEvents=3&minDrugsPerCell=5');
+    expect(page.items).toEqual([{ pharmClassCode: 'N0000000001' }]);
+    expect(page.totalCount).toBe(87);
+    expect(page.chartableCount).toBe(42);
+    expect(page.pageNumber).toBe(2);
+    expect(page.pageSize).toBe(10);
   });
 
   it('serializes every correlation-map filter through the API client', async () => {

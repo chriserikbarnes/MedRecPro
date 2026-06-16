@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   mergeReverseLookupResults,
   normalizeCorrelationCellDetail,
+  normalizeCorrelationClassPage,
   normalizeCorrelationClasses,
   normalizeCorrelationHeatmap,
   normalizeCorrelationMap,
@@ -229,11 +230,15 @@ describe('normalizers', () => {
     const classes = normalizeCorrelationClasses([
       {
         pharmClassCode: 'N0000000001',
-        pharmClassName: 'Small class',
+        pharmClassName: 'No map class',
         encryptedPharmacologicClassId: 'enc-small',
-        drugCount: '1',
+        drugCount: '20',
         socCount: '4',
-        isCorrelatable: false,
+        totalOffDiagonalCellCount: 6,
+        usableMapCellCount: 0,
+        maxPairCount: 3,
+        hasRenderableMap: false,
+        renderabilityReason: 'No SOC pair meets the 4-drug floor.',
       },
       {
         PharmClassCode: 'N0000000002',
@@ -241,6 +246,16 @@ describe('normalizers', () => {
         EncryptedPharmacologicClassID: 'enc-ready',
         DrugCount: 12,
         SocCount: 9,
+        TotalOffDiagonalCellCount: 36,
+        UsableMapCellCount: 4,
+        MaxPairCount: 8,
+        HasRenderableMap: true,
+      },
+      {
+        PharmClassCode: 'N0000000003',
+        PharmClassName: 'Alias Ready [EPC]',
+        DrugCount: 30,
+        SocCount: 3,
         IsCorrelatable: true,
       },
     ]);
@@ -251,9 +266,42 @@ describe('normalizers', () => {
       encryptedPharmacologicClassId: 'enc-ready',
       drugCount: 12,
       socCount: 9,
+      totalOffDiagonalCellCount: 36,
+      usableMapCellCount: 4,
+      maxPairCount: 8,
+      hasRenderableMap: true,
       isCorrelatable: true,
     });
-    expect(classes[1].isCorrelatable).toBe(false);
+    expect(classes[1].pharmClassCode).toBe('N0000000003');
+    expect(classes[1].hasRenderableMap).toBe(true);
+    expect(classes[2]).toMatchObject({
+      pharmClassCode: 'N0000000001',
+      hasRenderableMap: false,
+      isCorrelatable: false,
+      renderabilityReason: 'No SOC pair meets the 4-drug floor.',
+    });
+  });
+
+  it('normalizes correlation class pages with total counts', () => {
+    const page = normalizeCorrelationClassPage({
+      items: [
+        {
+          pharmClassCode: 'N0000000001',
+          pharmClassName: 'No map class',
+          hasRenderableMap: false,
+        },
+      ],
+      totalCount: '123',
+      chartableCount: '47',
+      pageNumber: '1',
+      pageSize: '50',
+    });
+
+    expect(page.items).toHaveLength(1);
+    expect(page.totalCount).toBe(123);
+    expect(page.chartableCount).toBe(47);
+    expect(page.pageNumber).toBe(1);
+    expect(page.pageSize).toBe(50);
   });
 
   it('normalizes correlation map cells without fabricating null coefficients', () => {

@@ -1028,17 +1028,26 @@ namespace MedRecPro.Api.Controllers
         /// <param name="classSearch">Optional class code or name search text.</param>
         /// <param name="pageNumber">Optional 1-based page number.</param>
         /// <param name="pageSize">Optional page size.</param>
-        /// <returns>Pharmacologic class picker items ordered correlatable-first.</returns>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept before class renderability checks.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before class renderability checks.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped before class renderability checks.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="minDrugsPerCell">Minimum drugs an off-diagonal SOC pair needs to render (server floor 3).</param>
+        /// <returns>Pharmacologic class picker items ordered map-ready-first.</returns>
         /// <remarks>
         /// ## Dashboard Usage
         /// Backs the correlation class picker. Scoped to classes that actually have AE risk rows
-        /// and flags which classes have enough drugs and SOCs to be worth correlating.
+        /// and flags which classes have at least one off-diagonal SOC pair that can render at the
+        /// active/default map floor.
+        /// The <c>X-Chartable-Count</c> response header reports matching classes with at least one
+        /// renderable map cell under the active filters.
         ///
         /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
         /// </remarks>
         /// <example>
         /// <code>
-        /// GET /api/AdverseEvent/correlation/classes?classSearch=kinase&amp;pageNumber=1&amp;pageSize=25
+        /// GET /api/AdverseEvent/correlation/classes?classSearch=kinase&amp;pageNumber=1&amp;pageSize=25&amp;minDrugsPerCell=4
         /// </code>
         /// </example>
         /// <response code="200">Returns the pharmacologic class picker items.</response>
@@ -1058,7 +1067,13 @@ namespace MedRecPro.Api.Controllers
         public async Task<ActionResult<List<AePharmClassPickerItemDto>>> GetCorrelationClasses(
             [FromQuery] string? classSearch,
             [FromQuery] int? pageNumber,
-            [FromQuery] int? pageSize)
+            [FromQuery] int? pageSize,
+            [FromQuery] AeComparatorMix? comparator = null,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0,
+            [FromQuery] int minDrugsPerCell = 4)
         {
             #region implementation
 
@@ -1073,6 +1088,15 @@ namespace MedRecPro.Api.Controllers
                 return pagingValidation;
             }
 
+            var filterValidation = validateCorrelationFilters(
+                comparator,
+                AeCorrelationAggregation.MedianLogRr,
+                minEvents);
+            if (filterValidation != null)
+            {
+                return filterValidation;
+            }
+
             try
             {
                 var results = await DtoLabelAccess.GetAeCorrelationClassesAsync(
@@ -1081,10 +1105,17 @@ namespace MedRecPro.Api.Controllers
                     _logger,
                     classSearch,
                     pageNumber,
-                    pageSize);
+                    pageSize,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    excludeCombos,
+                    minEvents,
+                    minDrugsPerCell);
 
-                addPaginationHeaders(pageNumber, pageSize, results.Count);
-                return Ok(results);
+                addPaginationHeaders(pageNumber, pageSize, results.TotalCount);
+                Response.Headers.Append("X-Chartable-Count", results.ChartableCount.ToString());
+                return Ok(results.Items);
             }
             catch (Exception ex)
             {

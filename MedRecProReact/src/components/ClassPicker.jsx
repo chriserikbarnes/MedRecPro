@@ -3,29 +3,12 @@ import { formatInteger } from '../lib/formatters';
 import { EmptyState } from './common/EmptyState';
 import { InlineError } from './common/InlineError';
 import { Loading } from './common/Loading';
-
-/**************************************************************/
-/**
- * Builds picker sections for pharmacologic classes.
- *
- * @param {object[]} classes - Class rows.
- * @returns {object[]} Picker sections.
- */
-function buildClassSections(classes) {
-  const correlatableRows = classes.filter((item) => item.isCorrelatable);
-  const smallRows = classes.filter((item) => !item.isCorrelatable);
-  const sections = [];
-
-  if (correlatableRows.length > 0) {
-    sections.push({ id: 'correlatable', label: 'Correlatable classes', rows: correlatableRows });
-  }
-
-  if (smallRows.length > 0) {
-    sections.push({ id: 'small', label: 'Too small for map', rows: smallRows });
-  }
-
-  return sections;
-}
+import {
+  buildClassSections,
+  formatMapCellBadge,
+  getClassPickerChartableCount,
+  getClassPickerDisplayCount,
+} from './classPickerHelpers';
 
 /**************************************************************/
 /**
@@ -41,6 +24,7 @@ function ClassPickerRow({ item, optionId, isActive, isSelected, onSelect }) {
       className={`picker-item class-picker-item${isActive ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}`}
       role="option"
       aria-selected={isSelected}
+      title={!item.hasRenderableMap ? item.renderabilityReason : undefined}
       onMouseDown={(event) => {
         event.preventDefault();
       }}
@@ -56,8 +40,8 @@ function ClassPickerRow({ item, optionId, isActive, isSelected, onSelect }) {
       <div className="pi-right class-picker-meta">
         <span className="pi-score">{formatInteger(item.drugCount)} drugs</span>
         <span className="pi-score">{formatInteger(item.socCount)} SOCs</span>
-        <span className={`ae-tag class-status${item.isCorrelatable ? ' is-ready' : ' is-small'}`}>
-          {item.isCorrelatable ? 'correlatable' : 'too small'}
+        <span className={`ae-tag class-status${item.hasRenderableMap ? ' is-ready' : ' is-small'}`}>
+          {formatMapCellBadge(item)}
         </span>
       </div>
     </div>
@@ -80,6 +64,8 @@ export function ClassPicker({
   isLoading,
   error,
   onRetry,
+  totalClassCount = 0,
+  chartableClassCount = 0,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -91,6 +77,8 @@ export function ClassPicker({
   const activeDescendant = flattenedRows[boundedActiveIndex]
     ? `dashboard-class-option-${flattenedRows[boundedActiveIndex].pharmClassCode}`
     : undefined;
+  const displayCount = getClassPickerDisplayCount(totalClassCount, flattenedRows.length);
+  const displayChartableCount = getClassPickerChartableCount(chartableClassCount, flattenedRows);
 
   useEffect(() => {
     /**************************************************************/
@@ -232,7 +220,10 @@ export function ClassPicker({
               }}
               onKeyDown={handleInputKeyDown}
             />
-            <span className="picker-count">{formatInteger(flattenedRows.length)} classes</span>
+            <span className="picker-count">
+              <span className="picker-count-primary">{formatInteger(displayCount)} classes</span>
+              <span className="picker-count-secondary">{formatInteger(displayChartableCount)} chartable</span>
+            </span>
           </div>
 
           <div className="picker-body" id="class-picker-listbox" role="listbox">

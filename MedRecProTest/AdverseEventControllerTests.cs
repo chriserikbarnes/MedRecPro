@@ -595,6 +595,7 @@ namespace MedRecProTest
 
             // Undefined numeric enum and negative minEvents -> 400.
             assertStatus((await controller.GetCorrelationMap(code, (AeComparatorMix)99)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetCorrelationClasses(null, null, null, (AeComparatorMix)99)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetCorrelationMap(code, null, minEvents: -1)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetCorrelationCell(code, socA, socB, (AeComparatorMix)99)).Result!, StatusCodes.Status400BadRequest);
 
@@ -615,8 +616,39 @@ namespace MedRecProTest
             Assert.AreEqual(3, cell.AppliedFilters.MinDrugsPerCell);
 
             // The class picker surfaces the seeded correlatable class.
-            var classes = getOkValue<List<AePharmClassPickerItemDto>>(await controller.GetCorrelationClasses(null, null, null));
-            Assert.IsTrue(classes.Any(item => item.PharmClassCode == code && item.IsCorrelatable));
+            var classes = getOkValue<List<AePharmClassPickerItemDto>>(await controller.GetCorrelationClasses(null, null, null, minDrugsPerCell: 3));
+            Assert.IsTrue(classes.Any(item => item.PharmClassCode == code && item.HasRenderableMap && item.IsCorrelatable));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the class-picker endpoint returns one page while reporting the total matching classes.
+        /// </summary>
+        /// <seealso cref="AdverseEventController.GetCorrelationClasses"/>
+        [TestMethod]
+        public async Task GetCorrelationClasses_Paged_ReturnsTotalMatchingCountHeader()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var controller = createController(context, createConfiguration());
+
+            const string socA = "Skin and Subcutaneous Tissue Disorders";
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: "CTRL-A", parameterCategory: socA, rr: 2.0);
+            seedCorrelationRow(connection, drugDoc(2), riskId: 2, activeMoietyId: 102, pharmClassCode: "CTRL-B", parameterCategory: socA, rr: 4.0);
+
+            var classes = getOkValue<List<AePharmClassPickerItemDto>>(await controller.GetCorrelationClasses(null, 1, 1));
+
+            Assert.AreEqual(1, classes.Count);
+            Assert.AreEqual("1", controller.Response.Headers["X-Page-Number"].ToString());
+            Assert.AreEqual("1", controller.Response.Headers["X-Page-Size"].ToString());
+            Assert.AreEqual("2", controller.Response.Headers["X-Total-Count"].ToString());
+            Assert.AreEqual("0", controller.Response.Headers["X-Chartable-Count"].ToString());
 
             #endregion
         }

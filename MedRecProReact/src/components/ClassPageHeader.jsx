@@ -51,8 +51,8 @@ export function ClassPageHeader({ selectedClass, picker, map, filters }) {
             isOn={Boolean(selectedClass && (map?.soc?.length ?? selectedClass.socCount) > 0)}
           />
           <ClassBadge
-            label={selectedClass?.isCorrelatable ? 'Correlatable' : 'Too small'}
-            isOn={Boolean(selectedClass?.isCorrelatable)}
+            label={selectedClass?.hasRenderableMap ? 'Map ready' : 'Heatmap only'}
+            isOn={Boolean(selectedClass?.hasRenderableMap)}
           />
         </div>
       </div>

@@ -32,7 +32,7 @@ import { formatDecimal, formatDose, formatInteger } from './lib/formatters';
 import {
     mergeReverseLookupResults,
     normalizeCorrelationCellDetail,
-    normalizeCorrelationClasses,
+    normalizeCorrelationClassPage,
     normalizeCorrelationHeatmap,
     normalizeCorrelationMap,
     normalizeForest,
@@ -1997,6 +1997,8 @@ function App() {
 
     // Class picker payload is independent from the product catalog.
     const [correlationClasses, setCorrelationClasses] = useState([]);
+    const [correlationClassTotalCount, setCorrelationClassTotalCount] = useState(0);
+    const [correlationClassChartableCount, setCorrelationClassChartableCount] = useState(0);
     const [isClassPickerLoading, setIsClassPickerLoading] = useState(false);
     const [classPickerError, setClassPickerError] = useState(null);
     const [classPickerReloadToken, setClassPickerReloadToken] = useState(0);
@@ -2425,18 +2427,27 @@ function App() {
                     classSearch: effectiveClassSearch,
                     pageNumber: 1,
                     pageSize: 50,
+                    comparator: classFilters.comparator,
+                    includeNonSignificant: classFilters.includeNonSignificant,
+                    excludeFragile: classFilters.excludeFragile,
+                    excludeCombos: classFilters.excludeCombos,
+                    minEvents: classFilters.minEvents,
+                    minDrugsPerCell: classFilters.minDrugsPerCell,
                     signal: abortController.signal,
                 });
-                const normalizedClasses = normalizeCorrelationClasses(payload);
+                const normalizedPage = normalizeCorrelationClassPage(payload);
+                const normalizedClasses = normalizedPage.items;
 
                 setCorrelationClasses(normalizedClasses);
+                setCorrelationClassTotalCount(normalizedPage.totalCount);
+                setCorrelationClassChartableCount(normalizedPage.chartableCount);
 
                 if (!selectedClassCode && normalizedClasses.length > 0) {
                     const pendingLookupKey = pendingClassCode.trim().toLowerCase();
                     const exactClass = pendingLookupKey
                         ? normalizedClasses.find((item) => item.pharmClassCode.toLowerCase() === pendingLookupKey)
                         : null;
-                    const fallbackClass = normalizedClasses.find((item) => item.isCorrelatable)
+                    const fallbackClass = normalizedClasses.find((item) => item.hasRenderableMap)
                         ?? normalizedClasses[0];
                     const nextClass = exactClass ?? fallbackClass;
 
@@ -2460,6 +2471,8 @@ function App() {
                 }
 
                 setCorrelationClasses([]);
+                setCorrelationClassTotalCount(0);
+                setCorrelationClassChartableCount(0);
                 setClassPickerError(requestError);
             } finally {
                 if (!abortController.signal.aborted) {
@@ -2475,6 +2488,7 @@ function App() {
         };
     }, [
         classPickerReloadToken,
+        classFilters,
         dashboardFocus,
         effectiveClassSearch,
         pendingClassCode,
@@ -3664,6 +3678,8 @@ function App() {
                                     searchTerm={classSearch}
                                     onSearchTermChange={setClassSearch}
                                     onSelectClass={handleSelectClass}
+                                    totalClassCount={correlationClassTotalCount}
+                                    chartableClassCount={correlationClassChartableCount}
                                     isLoading={isClassPickerLoading}
                                     error={classPickerError}
                                     onRetry={retryClassPicker}

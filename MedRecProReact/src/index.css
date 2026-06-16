@@ -913,12 +913,24 @@ a { color: var(--color-primary); text-decoration: none; }
   color: var(--color-text-tertiary);
 }
 .picker-count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-text-tertiary);
+  line-height: 1.1;
   white-space: nowrap;
   padding-left: 6px;
   border-left: 1px solid var(--color-border-light);
+}
+.picker-count-primary {
+  color: var(--color-text-tertiary);
+}
+.picker-count-secondary {
+  color: var(--color-teal-deep);
+  font-size: 10px;
 }
 .picker-body {
   flex: 1;
@@ -2014,14 +2026,14 @@ button.corr-cell {
 }
 .corr-cell:hover {
   outline-color: var(--color-secondary);
-  z-index: 2;
+  z-index: 12;
 }
 .corr-grid.heat .corr-cell:hover {
   outline-color: var(--color-border);
 }
 .corr-cell:focus-visible {
   outline-color: var(--color-secondary);
-  z-index: 5;
+  z-index: 12;
 }
 .corr-cell.selected {
   outline-color: var(--color-secondary);
@@ -2059,7 +2071,7 @@ button.corr-cell {
   position: absolute;
   left: 50%;
   bottom: calc(100% + 8px);
-  z-index: 20;
+  z-index: 30;
   display: none;
   min-width: 210px;
   max-width: min(280px, 88vw);

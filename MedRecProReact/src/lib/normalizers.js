@@ -416,6 +416,11 @@ export function normalizeCorrelationClass(dto) {
     return null;
   }
 
+  const explicitRenderableMap = readFirst(dto, ['HasRenderableMap', 'hasRenderableMap']);
+  const hasRenderableMap = explicitRenderableMap !== undefined
+    ? toBoolean(explicitRenderableMap)
+    : toBoolean(readFirst(dto, ['IsCorrelatable', 'isCorrelatable']));
+
   return {
     id: pharmClassCode,
     pharmClassCode,
@@ -430,24 +435,78 @@ export function normalizeCorrelationClass(dto) {
     ),
     drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
     socCount: toNullableNumber(readFirst(dto, ['SocCount', 'socCount'])) ?? 0,
-    isCorrelatable: toBoolean(readFirst(dto, ['IsCorrelatable', 'isCorrelatable'])),
+    totalOffDiagonalCellCount: toNullableNumber(
+      readFirst(dto, ['TotalOffDiagonalCellCount', 'totalOffDiagonalCellCount']),
+    ) ?? 0,
+    usableMapCellCount: toNullableNumber(readFirst(dto, ['UsableMapCellCount', 'usableMapCellCount'])) ?? 0,
+    maxPairCount: toNullableNumber(readFirst(dto, ['MaxPairCount', 'maxPairCount'])) ?? 0,
+    hasRenderableMap,
+    renderabilityReason: toDisplayString(readFirst(dto, ['RenderabilityReason', 'renderabilityReason'])),
+    isCorrelatable: hasRenderableMap,
   };
 }
 
 /**************************************************************/
 /**
- * Normalizes class picker payloads and keeps correlatable rows first.
+ * Compares class picker rows by renderability and population.
+ *
+ * @param {object} left - Left class row.
+ * @param {object} right - Right class row.
+ * @returns {number} Sort comparison result.
+ */
+function compareCorrelationClasses(left, right) {
+  const leftName = (left.pharmClassName || left.pharmClassCode || '').toLowerCase();
+  const rightName = (right.pharmClassName || right.pharmClassCode || '').toLowerCase();
+
+  return Number(right.hasRenderableMap) - Number(left.hasRenderableMap)
+    || right.usableMapCellCount - left.usableMapCellCount
+    || right.maxPairCount - left.maxPairCount
+    || right.drugCount - left.drugCount
+    || right.socCount - left.socCount
+    || leftName.localeCompare(rightName)
+    || left.pharmClassCode.localeCompare(right.pharmClassCode);
+}
+
+/**************************************************************/
+/**
+ * Normalizes class picker payloads and keeps map-ready rows first.
  *
  * @param {unknown} payload - API picker payload.
  * @returns {object[]} Class picker rows.
  */
 export function normalizeCorrelationClasses(payload) {
-  const items = Array.isArray(payload) ? payload : [];
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : [];
 
   return items
     .map((item) => normalizeCorrelationClass(item))
     .filter(Boolean)
-    .sort((left, right) => Number(right.isCorrelatable) - Number(left.isCorrelatable));
+    .sort(compareCorrelationClasses);
+}
+
+/**************************************************************/
+/**
+ * Normalizes a class-picker page with items and pagination metadata.
+ *
+ * @param {unknown} payload - API class-picker page payload.
+ * @returns {{ items: object[], totalCount: number, chartableCount: number, pageNumber: number | null, pageSize: number | null }} Normalized page.
+ */
+export function normalizeCorrelationClassPage(payload) {
+  const items = normalizeCorrelationClasses(payload);
+  const totalCount = toNullableNumber(readFirst(payload, ['TotalCount', 'totalCount'])) ?? items.length;
+  const chartableCount = toNullableNumber(readFirst(payload, ['ChartableCount', 'chartableCount']))
+    ?? items.filter((item) => item.hasRenderableMap).length;
+
+  return {
+    items,
+    totalCount,
+    chartableCount,
+    pageNumber: toNullableNumber(readFirst(payload, ['PageNumber', 'pageNumber'])),
+    pageSize: toNullableNumber(readFirst(payload, ['PageSize', 'pageSize'])),
+  };
 }
 
 /**************************************************************/

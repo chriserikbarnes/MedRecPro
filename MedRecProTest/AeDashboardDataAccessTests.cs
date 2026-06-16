@@ -1355,11 +1355,11 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that the class picker scopes to AE classes and flags which are correlatable.
+        /// Verifies that the class picker scopes to AE classes and flags which can render map cells.
         /// </summary>
         /// <seealso cref="DtoLabelAccess.GetAeCorrelationClassesAsync"/>
         [TestMethod]
-        public async Task GetAeCorrelationClassesAsync_ScopesToAeClasses_AndFlagsCorrelatable()
+        public async Task GetAeCorrelationClassesAsync_ScopesToAeClasses_AndFlagsRenderableMap()
         {
             #region implementation
 
@@ -1372,23 +1372,45 @@ namespace MedRecProTest
             const string socA = "Skin and Subcutaneous Tissue Disorders";
             const string socB = "Gastrointestinal Disorders";
 
-            // A correlatable class: two drugs across two SOCs.
-            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmacologicClassId: 500, pharmClassCode: "CORRCLASS", parameterCategory: socA, rr: 2.0);
-            seedCorrelationRow(connection, drugDoc(2), riskId: 2, activeMoietyId: 102, pharmacologicClassId: 500, pharmClassCode: "CORRCLASS", parameterCategory: socB, rr: 4.0);
+            // A map-ready class: four drugs each have both SOCs, meeting the default four-drug floor.
+            for (var i = 0; i < 4; i++)
+            {
+                var moiety = 101 + i;
+                seedCorrelationRow(connection, drugDoc(i + 1), riskId: i * 2 + 1, activeMoietyId: moiety, pharmacologicClassId: 500, pharmClassCode: "READYCLASS", parameterCategory: socA, rr: 2.0 + i);
+                seedCorrelationRow(connection, drugDoc(i + 1), riskId: i * 2 + 2, activeMoietyId: moiety, pharmacologicClassId: 500, pharmClassCode: "READYCLASS", parameterCategory: socB, rr: 3.0 + i);
+            }
+
+            // A broad but not map-ready class: drugs and SOCs exist, but no drug has both SOCs.
+            seedCorrelationRow(connection, drugDoc(10), riskId: 101, activeMoietyId: 201, pharmacologicClassId: 600, pharmClassCode: "NOMAPCLASS", parameterCategory: socA, rr: 3.0);
+            seedCorrelationRow(connection, drugDoc(11), riskId: 102, activeMoietyId: 202, pharmacologicClassId: 600, pharmClassCode: "NOMAPCLASS", parameterCategory: socB, rr: 4.0);
             // A single-drug, single-SOC class.
-            seedCorrelationRow(connection, drugDoc(3), riskId: 3, activeMoietyId: 201, pharmacologicClassId: 600, pharmClassCode: "SINGLECLASS", parameterCategory: socA, rr: 3.0);
+            seedCorrelationRow(connection, drugDoc(12), riskId: 103, activeMoietyId: 301, pharmacologicClassId: 700, pharmClassCode: "SINGLECLASS", parameterCategory: socA, rr: 3.0);
 
-            var classes = await DtoLabelAccess.GetAeCorrelationClassesAsync(context, PkSecret, logger);
+            var page = await DtoLabelAccess.GetAeCorrelationClassesAsync(context, PkSecret, logger);
+            var classes = page.Items;
 
-            Assert.AreEqual(2, classes.Count);
-            Assert.AreEqual("CORRCLASS", classes[0].PharmClassCode);
-            var correlatable = classes.Single(item => item.PharmClassCode == "CORRCLASS");
+            Assert.AreEqual(3, page.TotalCount);
+            Assert.AreEqual(1, page.ChartableCount);
+            Assert.AreEqual("READYCLASS", classes[0].PharmClassCode);
+            var renderable = classes.Single(item => item.PharmClassCode == "READYCLASS");
+            var noMap = classes.Single(item => item.PharmClassCode == "NOMAPCLASS");
             var single = classes.Single(item => item.PharmClassCode == "SINGLECLASS");
-            Assert.IsTrue(correlatable.IsCorrelatable);
-            Assert.AreEqual(2, correlatable.DrugCount);
-            Assert.AreEqual(2, correlatable.SocCount);
+            Assert.IsTrue(renderable.HasRenderableMap);
+            Assert.IsTrue(renderable.IsCorrelatable);
+            Assert.AreEqual(4, renderable.DrugCount);
+            Assert.AreEqual(2, renderable.SocCount);
+            Assert.AreEqual(1, renderable.TotalOffDiagonalCellCount);
+            Assert.AreEqual(1, renderable.UsableMapCellCount);
+            Assert.AreEqual(4, renderable.MaxPairCount);
+            Assert.IsNull(renderable.RenderabilityReason);
+            Assert.IsFalse(noMap.HasRenderableMap);
+            Assert.IsFalse(noMap.IsCorrelatable);
+            Assert.AreEqual(1, noMap.TotalOffDiagonalCellCount);
+            Assert.AreEqual(0, noMap.UsableMapCellCount);
+            Assert.IsTrue(noMap.RenderabilityReason!.Contains("4-drug floor"));
+            Assert.AreEqual(0, single.TotalOffDiagonalCellCount);
             Assert.IsFalse(single.IsCorrelatable);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(correlatable.EncryptedPharmacologicClassID));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(renderable.EncryptedPharmacologicClassID));
 
             #endregion
         }
@@ -1780,11 +1802,11 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that the class picker honors the search filter and in-memory paging.
+        /// Verifies that the class picker honors the search filter and returns total count before paging.
         /// </summary>
         /// <seealso cref="DtoLabelAccess.GetAeCorrelationClassesAsync"/>
         [TestMethod]
-        public async Task GetAeCorrelationClassesAsync_SearchAndPaging_ReturnsExpectedSlice()
+        public async Task GetAeCorrelationClassesAsync_SearchAndPaging_ReturnsExpectedSliceAndTotalCount()
         {
             #region implementation
 
@@ -1797,7 +1819,7 @@ namespace MedRecProTest
             const string socA = "Skin and Subcutaneous Tissue Disorders";
             const string socB = "Gastrointestinal Disorders";
 
-            // Two searchable, correlatable kinase classes plus one non-matching class.
+            // Two searchable kinase classes plus one non-matching class.
             seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmacologicClassId: 701, pharmClassCode: "KINASE-A", pharmClassName: "Alpha Kinase Inhibitors", parameterCategory: socA, rr: 2.0);
             seedCorrelationRow(connection, drugDoc(2), riskId: 2, activeMoietyId: 102, pharmacologicClassId: 701, pharmClassCode: "KINASE-A", pharmClassName: "Alpha Kinase Inhibitors", parameterCategory: socB, rr: 4.0);
             seedCorrelationRow(connection, drugDoc(3), riskId: 3, activeMoietyId: 201, pharmacologicClassId: 702, pharmClassCode: "KINASE-B", pharmClassName: "Beta Kinase Inhibitors", parameterCategory: socA, rr: 3.0);
@@ -1807,12 +1829,16 @@ namespace MedRecProTest
             var firstPage = await DtoLabelAccess.GetAeCorrelationClassesAsync(context, PkSecret, logger, classSearch: "Kinase", page: 1, size: 1);
             var secondPage = await DtoLabelAccess.GetAeCorrelationClassesAsync(context, PkSecret, logger, classSearch: "Kinase", page: 2, size: 1);
 
-            // Search restricts to the two kinase classes; correlatable-then-name ordering yields Alpha first.
-            Assert.AreEqual(1, firstPage.Count);
-            Assert.AreEqual("KINASE-A", firstPage[0].PharmClassCode);
-            Assert.IsTrue(firstPage[0].IsCorrelatable);
-            Assert.AreEqual(1, secondPage.Count);
-            Assert.AreEqual("KINASE-B", secondPage[0].PharmClassCode);
+            // Search restricts to the two kinase classes; name ordering breaks the equal non-renderable tie.
+            Assert.AreEqual(2, firstPage.TotalCount);
+            Assert.AreEqual(2, secondPage.TotalCount);
+            Assert.AreEqual(0, firstPage.ChartableCount);
+            Assert.AreEqual(0, secondPage.ChartableCount);
+            Assert.AreEqual(1, firstPage.Items.Count);
+            Assert.AreEqual("KINASE-A", firstPage.Items[0].PharmClassCode);
+            Assert.IsFalse(firstPage.Items[0].HasRenderableMap);
+            Assert.AreEqual(1, secondPage.Items.Count);
+            Assert.AreEqual("KINASE-B", secondPage.Items[0].PharmClassCode);
 
             #endregion
         }

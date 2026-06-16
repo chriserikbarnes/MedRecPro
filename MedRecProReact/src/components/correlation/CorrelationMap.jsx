@@ -2,6 +2,7 @@ import { formatDecimal, formatInteger } from '../../lib/formatters';
 import { getCorrelationColor, getScaleTextColor } from '../../lib/correlationScales';
 import { EmptyState } from '../common/EmptyState';
 import { CorrelationTooltip } from './CorrelationTooltip';
+import { getMapCell } from './correlationMapCells';
 import { formatSocAxisLabel } from './socLabels';
 
 /**************************************************************/
@@ -176,7 +177,7 @@ export function CorrelationMap({ map, selectedCell, onSelectCell }) {
                 <span className="corr-rowhead-name" title={rowSoc.name}>{formatSocAxisLabel(rowSoc.name)}</span>
               </div>
               {displaySoc.map((columnSoc) => {
-                const cell = cellLookup.get(`${rowSoc.index}:${columnSoc.index}`) ?? null;
+                const cell = getMapCell(cellLookup, rowSoc, columnSoc);
                 const backgroundColor = getCorrelationColor(cell?.coefficient);
                 const isSelected =
                   selectedKey === `${cell?.rowSoc}|${cell?.columnSoc}`

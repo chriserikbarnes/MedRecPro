@@ -1436,11 +1436,13 @@ namespace MedRecPro.Models
     /// One pharmacologic class option for the correlation-map class picker.
     /// </summary>
     /// <remarks>
-    /// Scoped to classes that actually have AE risk rows. <see cref="IsCorrelatable"/> is a
-    /// hint that the class has enough drugs and SOCs (at least two of each) for a correlation
-    /// map to mean anything; the companion heatmap stays meaningful below that.
+    /// Scoped to classes that actually have AE risk rows after the active class-picker filters.
+    /// <see cref="HasRenderableMap"/> means at least one off-diagonal SOC pair meets the active
+    /// drugs-per-cell floor; <see cref="IsCorrelatable"/> is retained as a compatibility alias.
+    /// The companion heatmap can still be useful when no SOC-pair map cells are renderable.
     /// </remarks>
     /// <seealso cref="AeCorrelationMapDto"/>
+    /// <seealso cref="AeCorrelationCellDto"/>
     public class AePharmClassPickerItemDto
     {
         #region Picker Properties
@@ -1474,7 +1476,57 @@ namespace MedRecPro.Models
         public int SocCount { get; set; }
 
         /**************************************************************/
-        /// <summary>Whether the class has at least two drugs and two SOCs.</summary>
+        /// <summary>Total possible off-diagonal SOC-pair cells for this class.</summary>
+        /// <remarks>
+        /// Counts the upper-triangle SOC pairs excluding the diagonal after class-picker
+        /// filters. This is the denominator for map renderability, not a count of emitted DTO cells.
+        /// </remarks>
+        /// <seealso cref="AeCorrelationCellDto"/>
+        public int TotalOffDiagonalCellCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Off-diagonal SOC-pair cells that meet the active drugs-per-cell floor.</summary>
+        /// <remarks>
+        /// A positive value means the SOC correlation map can display at least one usable,
+        /// actionable off-diagonal cell for the current/default map floor.
+        /// </remarks>
+        /// <seealso cref="AeCorrelationMapDto"/>
+        public int UsableMapCellCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Largest pairwise-complete drug count found across SOC pairs.</summary>
+        /// <remarks>
+        /// Helps clients explain classes that have SOC breadth but still fail the selected
+        /// map floor, because the maximum pair count can be shown beside a no-map-cell badge.
+        /// </remarks>
+        /// <seealso cref="AeCorrelationCellDto"/>
+        public int MaxPairCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether at least one off-diagonal SOC-pair cell can render on the map.</summary>
+        /// <remarks>
+        /// This is the preferred renderability flag for class-picker clients. It is based on
+        /// pairwise-complete drug counts, not merely distinct drug and SOC totals.
+        /// </remarks>
+        /// <seealso cref="AeCorrelationMapDto"/>
+        public bool HasRenderableMap { get; set; }
+
+        /**************************************************************/
+        /// <summary>Human-readable reason a class cannot render an off-diagonal map cell.</summary>
+        /// <remarks>
+        /// Null when <see cref="HasRenderableMap"/> is true. Intended for tooltip or title
+        /// text so clients can label heatmap-only classes honestly.
+        /// </remarks>
+        /// <seealso cref="HasRenderableMap"/>
+        public string? RenderabilityReason { get; set; }
+
+        /**************************************************************/
+        /// <summary>Compatibility alias for <see cref="HasRenderableMap"/>.</summary>
+        /// <remarks>
+        /// Older clients used this field when a two-drug/two-SOC heuristic was sufficient.
+        /// New clients should read <see cref="HasRenderableMap"/> for SOC-pair map readiness.
+        /// </remarks>
+        /// <seealso cref="HasRenderableMap"/>
         public bool IsCorrelatable { get; set; }
 
         #endregion Picker Properties

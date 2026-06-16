@@ -93,16 +93,16 @@ namespace MedRecPro.Controllers
         /// </summary>
         /// <param name="pageNumber">The current page number.</param>
         /// <param name="pageSize">The page size.</param>
-        /// <param name="totalCount">The total count of records in the current response.</param>
+        /// <param name="totalCount">The total count of matching records across all pages after filters.</param>
         /// <remarks>
         /// Adds the following headers when pagination is applied:
         /// - X-Page-Number: The current page number
         /// - X-Page-Size: The number of records per page
-        /// - X-Total-Count: The total count of records returned
+        /// - X-Total-Count: The total count of matching records across all pages after filters
         /// </remarks>
         /// <example>
         /// <code>
-        /// addPaginationHeaders(pageNumber, pageSize, results.Count);
+        /// addPaginationHeaders(pageNumber, pageSize, totalMatchingCount);
         /// </code>
         /// </example>
         protected void addPaginationHeaders(int? pageNumber, int? pageSize, int totalCount)

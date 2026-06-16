@@ -146,6 +146,58 @@ async function requestJson(url, options = {}) {
 
 /**************************************************************/
 /**
+ * Reads a positive integer response header when the server provides one.
+ *
+ * @param {Headers} headers - Fetch response headers.
+ * @param {string} name - Header name.
+ * @returns {number | null} Parsed header value or null.
+ */
+function readIntegerHeader(headers, name) {
+  const rawValue = headers.get(name);
+  const parsedValue = Number.parseInt(rawValue ?? '', 10);
+
+  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : null;
+}
+
+/**************************************************************/
+/**
+ * Executes a paged JSON request and preserves pagination headers.
+ *
+ * @param {string} url - URL to request.
+ * @param {RequestInit} options - Fetch options.
+ * @param {{ pageNumber?: number, pageSize?: number }} fallback - Fallback paging values.
+ * @returns {Promise<{ items: unknown[], totalCount: number, chartableCount: number, pageNumber: number, pageSize: number }>} Paged payload.
+ */
+async function requestJsonPage(url, options = {}, fallback = {}) {
+  // Class picker pagination needs headers, so this mirrors requestJson without changing other callers.
+  const response = await fetch(url, options);
+
+  if (!response.ok) {
+    const { message, details } = await readErrorPayload(response);
+    throw new ApiError(message, response, details);
+  }
+
+  const body = response.status === 204 || response.headers.get('content-length') === '0'
+    ? []
+    : await response.json();
+  const items = Array.isArray(body) ? body : [];
+  const pageNumber = readIntegerHeader(response.headers, 'X-Page-Number') ?? fallback.pageNumber ?? 1;
+  const pageSize = readIntegerHeader(response.headers, 'X-Page-Size') ?? fallback.pageSize ?? items.length;
+  const totalCount = readIntegerHeader(response.headers, 'X-Total-Count') ?? items.length;
+  const chartableCount = readIntegerHeader(response.headers, 'X-Chartable-Count')
+    ?? items.filter((item) => item?.HasRenderableMap === true || item?.hasRenderableMap === true).length;
+
+  return {
+    items,
+    totalCount,
+    chartableCount,
+    pageNumber,
+    pageSize,
+  };
+}
+
+/**************************************************************/
+/**
  * API client for the live AdverseEventController dashboard surface.
  */
 export const AdverseEventClient = {
@@ -360,17 +412,34 @@ export const AdverseEventClient = {
   /**
    * Gets pharmacologic classes that have AE rows for correlation views.
    *
-   * @param {{ classSearch?: string, pageNumber?: number, pageSize?: number, signal?: AbortSignal }} args - Request options.
-   * @returns {Promise<unknown>} API class-picker payload.
+   * @param {{ classSearch?: string, pageNumber?: number, pageSize?: number, comparator?: string, includeNonSignificant?: boolean, excludeFragile?: boolean, excludeCombos?: boolean, minEvents?: number, minDrugsPerCell?: number, signal?: AbortSignal }} args - Request options.
+   * @returns {Promise<{ items: unknown[], totalCount: number, chartableCount: number, pageNumber: number, pageSize: number }>} API class-picker page.
    */
-  getCorrelationClasses({ classSearch = '', pageNumber = 1, pageSize = 50, signal = null } = {}) {
+  getCorrelationClasses({
+    classSearch = '',
+    pageNumber = 1,
+    pageSize = 50,
+    comparator = undefined,
+    includeNonSignificant = undefined,
+    excludeFragile = undefined,
+    excludeCombos = undefined,
+    minEvents = undefined,
+    minDrugsPerCell = undefined,
+    signal = null,
+  } = {}) {
     const url = buildAdverseEventUrl('correlation/classes', {
       classSearch,
       pageNumber,
       pageSize,
+      comparator: comparator === undefined ? undefined : normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      excludeCombos,
+      minEvents,
+      minDrugsPerCell,
     });
 
-    return requestJson(url, getFetchOptions(signal));
+    return requestJsonPage(url, getFetchOptions(signal), { pageNumber, pageSize });
   },
 
   /**************************************************************/

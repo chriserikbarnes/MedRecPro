@@ -794,11 +794,20 @@ namespace MedRecPro.DataAccess
         /// <param name="classSearch">Optional class code or name search text.</param>
         /// <param name="page">Optional 1-based page number.</param>
         /// <param name="size">Optional page size.</param>
-        /// <returns>Pharmacologic class picker items ordered correlatable-first.</returns>
+        /// <param name="comparator">Comparator mix used to scope input rows; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained before map renderability checks.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before map renderability checks.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped before map renderability checks.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="minDrugsPerCell">Minimum drugs an off-diagonal SOC pair needs to render (server floor 3).</param>
+        /// <param name="seriousSocOnly">Whether the SOC axis is restricted to serious organ systems.</param>
+        /// <returns>Pharmacologic class picker page ordered by map renderability and population, with total and chartable counts.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">When enum or numeric filters are invalid.</exception>
         /// <remarks>
         /// Scoped to classes that actually have AE risk rows (the generic pharm-class summary
-        /// is not AE-scoped). <see cref="AePharmClassPickerItemDto.IsCorrelatable"/> flags classes
-        /// with at least two drugs and two SOCs. Grouping and paging run in memory.
+        /// is not AE-scoped). <see cref="AePharmClassPickerItemDto.HasRenderableMap"/> flags
+        /// classes with at least one off-diagonal SOC pair meeting the current drugs-per-cell
+        /// floor. Grouping and paging run in memory after filter-sensitive derivation.
         /// </remarks>
         /// <example>
         /// <code>
@@ -806,23 +815,42 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="AePharmClassPickerItemDto"/>
-        public static async Task<List<AePharmClassPickerItemDto>> GetAeCorrelationClassesAsync(
+        /// <seealso cref="AeCorrelationClassPickerPage"/>
+        public static async Task<AeCorrelationClassPickerPage> GetAeCorrelationClassesAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
             string? classSearch = null,
             int? page = null,
-            int? size = null)
+            int? size = null,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            bool excludeCombos = false,
+            int minEvents = 0,
+            int minDrugsPerCell = 4,
+            bool seriousSocOnly = false)
         {
             #region implementation
 
             // Lightweight observability for the in-memory grouping fan-out.
             var stopwatch = Stopwatch.StartNew();
 
-            // Only classed, document-backed AE rows can seed a correlation class.
+            validateCorrelationEnums(comparator, AeCorrelationAggregation.MedianLogRr);
+            if (minEvents < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(minEvents), minEvents, "Minimum events cannot be negative.");
+            }
+
+            // Only classed, categorized, document-backed AE rows can seed a correlation class.
             var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
                 .AsNoTracking()
-                .Where(signal => signal.PharmClassCode != null && signal.DocumentGUID.HasValue);
+                .Where(signal => signal.PharmClassCode != null
+                    && signal.ParameterCategory != null
+                    && signal.DocumentGUID.HasValue);
+
+            // Comparator scoping must match the map endpoint before rows are materialized.
+            query = applyComparatorFilter(query, comparator);
 
             // Optional provider-side search on class code or display name.
             if (!string.IsNullOrWhiteSpace(classSearch))
@@ -833,43 +861,120 @@ namespace MedRecPro.DataAccess
                     || EF.Functions.Like(signal.PharmClassName ?? string.Empty, pattern));
             }
 
-            // Project the minimal columns the picker grouping needs, then collapse provider-side
-            // duplicates: a drug with many AE terms in one SOC repeats the same tuple, and the
-            // distinct drug/SOC counts below are unaffected by those repeats, so Distinct() only
-            // reduces the rows materialized into memory.
-            var rows = await query
-                .Select(signal => new
-                {
-                    signal.PharmClassCode,
-                    signal.PharmClassName,
-                    signal.PharmacologicClassID,
-                    signal.ActiveMoietyID,
-                    signal.DocumentGUID,
-                    signal.ParameterCategory
-                })
-                .Distinct()
+            // Materialize the rows needed for the same derived filters used by the map pipeline.
+            var entities = await query
+                .OrderBy(signal => signal.PharmClassCode)
+                .ThenBy(signal => signal.ParameterName)
+                .ThenByDescending(signal => signal.RR)
                 .ToListAsync();
 
-            // Group by class code in memory to count distinct drugs and SOCs per class.
-            var items = rows
-                .GroupBy(row => row.PharmClassCode!)
+            // Collapse multi-arm/duplicate strata without erasing pharmacologic-class fan-out.
+            var collapsed = collapseToMostPoweredClassStratum(entities);
+            var floor = Math.Max(minDrugsPerCell, 3);
+            var pickerRows = new List<(string ClassCode, string? ClassName, int? ClassId, string DrugKey, string Soc)>();
+
+            foreach (var entity in collapsed)
+            {
+                if (string.IsNullOrWhiteSpace(entity.PharmClassCode)
+                    || string.IsNullOrWhiteSpace(entity.ParameterCategory)
+                    || entity.RR is not double rr
+                    || rr <= 0.0
+                    || double.IsNaN(rr)
+                    || double.IsInfinity(rr))
+                {
+                    continue;
+                }
+
+                var signal = AeDashboardDerivation.DeriveSignal(buildAeRiskSignalDto(entity, pkSecret, logger));
+                var precision = signal.PrecisionClass ?? AePrecisionClass.Fragile;
+                var riskSignificance = signal.RiskSignificance ?? AeRiskSignificance.NotSignificant;
+                var events = (entity.EventsTreatment ?? 0.0) + (entity.EventsComparator ?? 0.0);
+
+                if (excludeFragile && precision == AePrecisionClass.Fragile)
+                {
+                    continue;
+                }
+
+                if (!includeNonSignificant && riskSignificance == AeRiskSignificance.NotSignificant)
+                {
+                    continue;
+                }
+
+                if (excludeCombos && entity.IsCombo)
+                {
+                    continue;
+                }
+
+                if (minEvents > 0 && events < minEvents)
+                {
+                    continue;
+                }
+
+                if (seriousSocOnly && !isSeriousCorrelationSoc(entity.ParameterCategory))
+                {
+                    continue;
+                }
+
+                pickerRows.Add((
+                    entity.PharmClassCode!,
+                    entity.PharmClassName,
+                    entity.PharmacologicClassID,
+                    correlationDrugKey(entity.ActiveMoietyID, entity.DocumentGUID),
+                    entity.ParameterCategory!));
+            }
+
+            // Group by class code in memory to count distinct drugs, SOCs, and usable SOC pairs.
+            var items = pickerRows
+                .GroupBy(row => row.ClassCode)
                 .Select(group =>
                 {
-                    var drugCount = group
-                        .Select(row => correlationDrugKey(row.ActiveMoietyID, row.DocumentGUID))
-                        .Distinct()
-                        .Count();
-                    var socCount = group
-                        .Select(row => row.ParameterCategory)
-                        .Where(category => !string.IsNullOrWhiteSpace(category))
+                    var drugSocLookup = group
+                        .GroupBy(row => row.DrugKey, StringComparer.Ordinal)
+                        .ToDictionary(
+                            drugGroup => drugGroup.Key,
+                            drugGroup => drugGroup
+                                .Select(row => row.Soc)
+                                .Where(soc => !string.IsNullOrWhiteSpace(soc))
+                                .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                            StringComparer.Ordinal);
+                    var socs = group
+                        .Select(row => row.Soc)
+                        .Where(soc => !string.IsNullOrWhiteSpace(soc))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Count();
+                        .ToList();
+                    var totalOffDiagonalCellCount = socs.Count * (socs.Count - 1) / 2;
+                    var usableMapCellCount = 0;
+                    var maxPairCount = 0;
+
+                    for (var i = 0; i < socs.Count; i++)
+                    {
+                        for (var j = i + 1; j < socs.Count; j++)
+                        {
+                            var leftSoc = socs[i];
+                            var rightSoc = socs[j];
+                            var pairCount = drugSocLookup.Values.Count(socSet =>
+                                socSet.Contains(leftSoc) && socSet.Contains(rightSoc));
+
+                            maxPairCount = Math.Max(maxPairCount, pairCount);
+                            if (pairCount >= floor)
+                            {
+                                usableMapCellCount++;
+                            }
+                        }
+                    }
+
+                    var hasRenderableMap = usableMapCellCount > 0;
+                    var renderabilityReason = hasRenderableMap
+                        ? null
+                        : totalOffDiagonalCellCount == 0
+                            ? "Fewer than two SOCs remain under the active filters."
+                            : $"No SOC pair meets the {floor}-drug floor.";
                     var className = group
-                        .Select(row => row.PharmClassName)
+                        .Select(row => row.ClassName)
                         .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
                     var classId = group
-                        .Where(row => row.PharmacologicClassID.HasValue)
-                        .Select(row => row.PharmacologicClassID)
+                        .Where(row => row.ClassId.HasValue)
+                        .Select(row => row.ClassId)
                         .FirstOrDefault();
 
                     return new AePharmClassPickerItemDto
@@ -877,34 +982,51 @@ namespace MedRecPro.DataAccess
                         PharmClassCode = group.Key,
                         PharmClassName = className,
                         EncryptedPharmacologicClassID = encryptNullableInt(classId, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.PharmacologicClassID)),
-                        DrugCount = drugCount,
-                        SocCount = socCount,
-                        IsCorrelatable = drugCount >= 2 && socCount >= 2
+                        DrugCount = drugSocLookup.Count,
+                        SocCount = socs.Count,
+                        TotalOffDiagonalCellCount = totalOffDiagonalCellCount,
+                        UsableMapCellCount = usableMapCellCount,
+                        MaxPairCount = maxPairCount,
+                        HasRenderableMap = hasRenderableMap,
+                        RenderabilityReason = renderabilityReason,
+                        IsCorrelatable = hasRenderableMap
                     };
                 })
-                .OrderByDescending(item => item.IsCorrelatable)
+                .OrderByDescending(item => item.HasRenderableMap)
+                .ThenByDescending(item => item.UsableMapCellCount)
+                .ThenByDescending(item => item.MaxPairCount)
                 .ThenByDescending(item => item.DrugCount)
-                .ThenBy(item => item.PharmClassName, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(item => item.SocCount)
+                .ThenBy(item => item.PharmClassName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.PharmClassCode ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             stopwatch.Stop();
             logger.LogDebug(
-                "AE correlation class picker: {RowCount} distinct rows grouped into {ClassCount} classes (search: {HasSearch}) in {ElapsedMs} ms.",
-                rows.Count,
+                "AE correlation class picker: {RowCount} rows collapsed to {CollapsedCount} strata and grouped into {ClassCount} classes (search: {HasSearch}, floor: {Floor}) in {ElapsedMs} ms.",
+                entities.Count,
+                collapsed.Count,
                 items.Count,
                 !string.IsNullOrWhiteSpace(classSearch),
+                floor,
                 stopwatch.ElapsedMilliseconds);
+
+            var totalCount = items.Count;
+            var chartableCount = items.Count(item => item.HasRenderableMap);
 
             // In-memory paging mirrors applyProductSummaryPagination.
             if (page.HasValue && size.HasValue && page.Value > 0 && size.Value > 0)
             {
-                return items
+                return new AeCorrelationClassPickerPage(
+                    items
                     .Skip((page.Value - 1) * size.Value)
                     .Take(size.Value)
-                    .ToList();
+                    .ToList(),
+                    totalCount,
+                    chartableCount);
             }
 
-            return items;
+            return new AeCorrelationClassPickerPage(items, totalCount, chartableCount);
 
             #endregion
         }
@@ -2664,6 +2786,52 @@ namespace MedRecPro.DataAccess
                 })
                 // Keep the most statistically powered arm as the stratum representative so the
                 // pooled, tighter-CI estimate wins over a small unlabeled subgroup.
+                .Select(group => group
+                    .OrderByDescending(entity => entity.ArmN ?? 0)
+                    .ThenByDescending(entity => entity.ComparatorN ?? 0)
+                    .ThenBy(entity => string.Equals(entity.Significance, "not significant", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                    .ThenBy(entity => (entity.RRUpperBound ?? double.MaxValue) - (entity.RRLowerBound ?? 0.0))
+                    .ThenBy(entity => entity.FlattenedAdverseEventTableId)
+                    .First())
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Collapses duplicate AE strata while preserving pharmacologic-class fan-out.
+        /// </summary>
+        /// <param name="entities">Materialized AE risk rows for one or more pharmacologic classes.</param>
+        /// <returns>Representative rows with one most-powered row per visible class/clinical stratum.</returns>
+        /// <remarks>
+        /// The all-class picker needs the same multi-arm de-duplication as the map pipeline, but
+        /// it must not use <see cref="collapseToMostPoweredStratum"/> because that helper
+        /// deliberately merges identical rows across class fan-out. Including
+        /// <see cref="LabelView.FlattenedAdverseEventRiskTable.PharmClassCode"/> keeps each class
+        /// eligible for renderability calculations.
+        /// </remarks>
+        /// <seealso cref="collapseToMostPoweredStratum"/>
+        /// <seealso cref="GetAeCorrelationClassesAsync"/>
+        private static List<LabelView.FlattenedAdverseEventRiskTable> collapseToMostPoweredClassStratum(
+            IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities)
+        {
+            #region implementation
+
+            return entities
+                .GroupBy(entity => new
+                {
+                    entity.PharmClassCode,
+                    entity.DocumentGUID,
+                    entity.ParameterName,
+                    entity.ParameterCategory,
+                    entity.Dose,
+                    entity.DoseUnit,
+                    entity.IsPlaceboControlled,
+                    entity.StudyContext,
+                    entity.Population,
+                    entity.Subpopulation
+                })
                 .Select(group => group
                     .OrderByDescending(entity => entity.ArmN ?? 0)
                     .ThenByDescending(entity => entity.ComparatorN ?? 0)

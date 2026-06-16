@@ -389,6 +389,11 @@ builder.Services.AddCors(options =>
         )
         .AllowAnyMethod()        // Allow GET, POST, PUT, DELETE, etc.
         .AllowAnyHeader()        // Allow Content-Type, Authorization, etc.
+        .WithExposedHeaders(
+            "X-Page-Number",
+            "X-Page-Size",
+            "X-Total-Count",
+            "X-Chartable-Count")
         .AllowCredentials();     // Allow cookies/auth headers if needed
     });
 
@@ -410,6 +415,11 @@ builder.Services.AddCors(options =>
         )
         .AllowAnyMethod()
         .AllowAnyHeader()
+        .WithExposedHeaders(
+            "X-Page-Number",
+            "X-Page-Size",
+            "X-Total-Count",
+            "X-Chartable-Count")
         .AllowCredentials();
     });
 
@@ -1332,6 +1342,11 @@ else
         })
         .AllowAnyMethod()
         .AllowAnyHeader()
+        .WithExposedHeaders(
+            "X-Page-Number",
+            "X-Page-Size",
+            "X-Total-Count",
+            "X-Chartable-Count")
         .AllowCredentials()
     );
 }
