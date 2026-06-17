@@ -1806,8 +1806,38 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Map internal comparison classes to concise display labels; signal
-            // parameters are retained in the signature for future label expansion.
+            // Map internal comparison classes to concise display labels while
+            // accounting for whether below-one ratios represent protective evidence.
+            if ((classification == AeInterchangeClass.AWorse || classification == AeInterchangeClass.BWorse)
+                && hasPositiveValue(signalA?.RR)
+                && hasPositiveValue(signalB?.RR))
+            {
+                var aRatio = signalA!.RR!.Value;
+                var bRatio = signalB!.RR!.Value;
+                var bothElevated = aRatio > 1.0 && bRatio > 1.0;
+                var bothProtective = aRatio < 1.0 && bRatio < 1.0;
+                var mixedDirection = (aRatio > 1.0 && bRatio < 1.0) || (aRatio < 1.0 && bRatio > 1.0);
+
+                if (bothElevated)
+                {
+                    return classification == AeInterchangeClass.AWorse
+                        ? "Higher elevated RR on product A"
+                        : "Higher elevated RR on product B";
+                }
+
+                if (bothProtective)
+                {
+                    return classification == AeInterchangeClass.AWorse
+                        ? "More protective on product B"
+                        : "More protective on product A";
+                }
+
+                if (mixedDirection)
+                {
+                    return "Mixed direction";
+                }
+            }
+
             return classification switch
             {
                 AeInterchangeClass.OnlyA => "Only product A has this signal",

@@ -73,6 +73,24 @@ describe('buildAdverseEventUrl', () => {
     expect(url).toBe('http://localhost:5093/api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&documentGuidB=22222222-2222-2222-2222-222222222222&differencesOnly=true&sharedSignalsOnly=true');
   });
 
+  it('serializes interchange comparator scopes through the API client', async () => {
+    const capture = mockFetchUrls();
+    const args = {
+      documentGuidA: '11111111-1111-1111-1111-111111111111',
+      documentGuidB: '22222222-2222-2222-2222-222222222222',
+      differencesOnly: true,
+      sharedSignalsOnly: true,
+    };
+
+    await AdverseEventClient.getInterchange({ ...args, comparator: 'placebo' });
+    await AdverseEventClient.getInterchange({ ...args, comparator: 'active' });
+    await AdverseEventClient.getInterchange({ ...args, comparator: 'all' });
+
+    expect(capture.urls[0]).toBe('/api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&documentGuidB=22222222-2222-2222-2222-222222222222&differencesOnly=true&sharedSignalsOnly=true&comparator=Placebo');
+    expect(capture.urls[1]).toBe('/api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&documentGuidB=22222222-2222-2222-2222-222222222222&differencesOnly=true&sharedSignalsOnly=true&comparator=Active');
+    expect(capture.urls[2]).toBe('/api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&documentGuidB=22222222-2222-2222-2222-222222222222&differencesOnly=true&sharedSignalsOnly=true');
+  });
+
   it('omits null, undefined, and empty-string query values', () => {
     const url = buildAdverseEventUrl('products/abc/forest', {
       comparator: null,

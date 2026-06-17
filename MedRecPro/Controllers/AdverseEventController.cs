@@ -817,16 +817,20 @@ namespace MedRecPro.Api.Controllers
         /// <param name="documentGuidB">SPL document identifier for product B.</param>
         /// <param name="differencesOnly">Whether rows classified as similar should be removed.</param>
         /// <param name="sharedSignalsOnly">Whether rows without signals on both products should be removed.</param>
+        /// <param name="comparator">Optional comparator filter. Omit or use <see cref="AeComparatorMix.Both"/> to include all comparator strata.</param>
         /// <returns>An interchange comparison between two dashboard products.</returns>
         /// <remarks>
         /// ## Dashboard Usage
         /// Replaces the prototype cross-product therapeutic interchange panel and compares AE signals across two dashboard-ready products.
+        /// Comparator scoping matches the forest and quadrant endpoints so the
+        /// dashboard can compare products against the same placebo, active-comparator,
+        /// or mixed-strata evidence view selected elsewhere.
         ///
         /// The endpoint is disabled when <c>FeatureFlags:AeDashboard:Enabled</c> is false.
         /// </remarks>
         /// <example>
         /// <code>
-        /// GET /api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&amp;documentGuidB=22222222-2222-2222-2222-222222222222&amp;differencesOnly=true&amp;sharedSignalsOnly=true
+        /// GET /api/AdverseEvent/interchange?documentGuidA=11111111-1111-1111-1111-111111111111&amp;documentGuidB=22222222-2222-2222-2222-222222222222&amp;differencesOnly=true&amp;sharedSignalsOnly=true&amp;comparator=Placebo
         /// </code>
         /// </example>
         /// <response code="200">Returns an interchange comparison.</response>
@@ -849,7 +853,8 @@ namespace MedRecPro.Api.Controllers
             [FromQuery] Guid documentGuidA,
             [FromQuery] Guid documentGuidB,
             [FromQuery] bool differencesOnly = false,
-            [FromQuery] bool sharedSignalsOnly = false)
+            [FromQuery] bool sharedSignalsOnly = false,
+            [FromQuery] AeComparatorMix? comparator = null)
         {
             #region implementation
 
@@ -877,7 +882,8 @@ namespace MedRecPro.Api.Controllers
                     _pkSecret,
                     _logger,
                     differencesOnly,
-                    sharedSignalsOnly);
+                    sharedSignalsOnly,
+                    comparator);
 
                 if (result == null)
                 {

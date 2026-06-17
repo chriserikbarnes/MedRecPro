@@ -5133,3 +5133,29 @@ Saved a pending implementation handoff to reconcile the AE dashboard visual para
 **Verification.** Verified the saved plan by exact `Get-Item` path and `Select-String` markers for `Target Behavior`, `Phase 1`, `Phase 3`, `Acceptance Criteria`, and the SUTENT/CABOMETYX evidence. No build or tests were run because this session created a planning artifact only.
 
 ---
+
+### 2026-06-17 11:59 AM EST — AE Dashboard Interchange Comparator Context
+
+Implemented the comparator-aware therapeutic interchange workflow so the comparison panel now follows the selected forest comparator scope by default and exposes the evidence context behind plotted interchange points.
+
+**Implementation.** Updated [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs) and [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs) to accept and pass through an optional interchange `comparator` query parameter while preserving the unfiltered default for direct callers. Updated [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs) so shared below-1 rows are labeled as more protective on the lower-RR product, above-1 rows say "Higher elevated RR", and above-vs-below rows say "Mixed direction".
+
+**Dashboard UI.** Updated [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js) and [App.jsx](MedRecProReact/src/App.jsx) so interchange requests serialize the active comparator filter, reload when the comparator changes, render compact Placebo/Active badges plus study-context metadata under each plotted point, and show an All-strata warning when mixed comparator evidence is intentionally selected. Updated [index.css](MedRecProReact/src/index.css) for the metadata line and rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard).
+
+**Tests and plan.** Added focused coverage in [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs), [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs), [AeDashboardDerivationTests.cs](MedRecProTest/AeDashboardDerivationTests.cs), and [adverseEventClient.test.js](MedRecProReact/src/test/adverseEventClient.test.js). Updated and renamed the handoff artifact to [Plans/(done) AE Dashboard Interchange Comparator Context Plan.md](Plans/(done) AE Dashboard Interchange Comparator Context Plan.md), noting that localhost API smoke could not run because no server was listening on port 5093.
+
+**Verification.** `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEvent"` passed 62/62 after an approved rerun outside the sandbox for NuGet config access, with existing repo warning noise. `dotnet build .\MedRecPro\MedRecPro.csproj --no-restore -p:UseAppHost=false -p:OutDir=C:\Users\chris\OneDrive\Documents\Repos\MedRecPro\bin\codex-build\` succeeded with 0 warnings and 0 errors. `npm.cmd run lint` passed, `npm.cmd test` passed 7 files and 35 tests, `npm.cmd run build` succeeded, and `git diff --check` passed with line-ending warnings only. The two plan smoke URLs for SUTENT/CABOMETYX with `comparator=Placebo` and `comparator=Active` were attempted, but both failed to connect because the local API server was not running.
+
+---
+
+### 2026-06-17 12:25 PM EST — AE Dashboard Interchange Tooltip Styling
+
+Updated the comparison forest plot tooltips so the interchange points use the same dark dashboard tooltip treatment as the quadrant plot instead of the browser-native title bubble.
+
+**Implementation.** Updated [App.jsx](MedRecProReact/src/App.jsx) to replace the pipe-delimited native title text with a rendered tooltip payload: heading, comparator, study/population context, RR interval, event counts, NNH/NNT, and significance direction now render as separate lines. The plotted interchange halves also expose equivalent `aria-label` text for keyboard and assistive technology users.
+
+**Styling.** Updated [index.css](MedRecProReact/src/index.css) with `.ic-tooltip` styling that matches the existing dark `.q-tooltip` visual language, including rounded corners, shadow, white heading text, muted mono detail lines, hover/focus visibility, and edge-aware left/right placement. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted bundle carries the revision.
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 7 files and 35 tests. `npm.cmd run build` succeeded and refreshed `ae-dashboard.css` / `ae-dashboard.js`. `git diff --check` passed with line-ending warnings only.
+
+---

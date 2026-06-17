@@ -949,6 +949,73 @@ namespace MedRecProTest
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that interchange signal loading applies optional comparator scoping to both products.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeInterchangeAsync(ApplicationDbContext, Guid, Guid, string, ILogger, bool, bool, AeComparatorMix?)"/>
+        [TestMethod]
+        public async Task GetAeInterchangeAsync_WithComparatorScope_FiltersBothProductSignals()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, DtoLabelAccessTestHelper.TestDocumentGuid, "ASPIRIN");
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, "IBUPROFEN");
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid, riskId: 10, adverseEventId: 10, parameterName: "Headache", rr: 4.0, isPlaceboControlled: true);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, riskId: 11, adverseEventId: 11, parameterName: "Headache", rr: 1.5, isPlaceboControlled: true);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid, riskId: 20, adverseEventId: 20, parameterName: "Dizziness", rr: 5.0, isPlaceboControlled: false);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, riskId: 21, adverseEventId: 21, parameterName: "Dizziness", rr: 2.0, isPlaceboControlled: false);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, riskId: 22, adverseEventId: 22, parameterName: "Cough", rr: 2.4, isPlaceboControlled: false);
+
+            var placeboComparison = await DtoLabelAccess.GetAeInterchangeAsync(
+                context,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                PkSecret,
+                logger,
+                comparator: AeComparatorMix.Placebo);
+            var activeComparison = await DtoLabelAccess.GetAeInterchangeAsync(
+                context,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                PkSecret,
+                logger,
+                comparator: AeComparatorMix.Active);
+            var bothComparison = await DtoLabelAccess.GetAeInterchangeAsync(
+                context,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                PkSecret,
+                logger,
+                comparator: AeComparatorMix.Both);
+            var unfilteredComparison = await DtoLabelAccess.GetAeInterchangeAsync(
+                context,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                PkSecret,
+                logger);
+
+            Assert.IsNotNull(placeboComparison);
+            Assert.IsNotNull(activeComparison);
+            Assert.IsNotNull(bothComparison);
+            Assert.IsNotNull(unfilteredComparison);
+            Assert.AreEqual(1, placeboComparison.Rows.Count);
+            Assert.AreEqual("Headache", placeboComparison.Rows.Single().ParameterName);
+            Assert.IsTrue(placeboComparison.Rows.SelectMany(row => new[] { row.SignalA, row.SignalB }).Where(signal => signal != null).All(signal => signal!.IsPlaceboControlled));
+            Assert.AreEqual(2, activeComparison.Rows.Count);
+            Assert.IsFalse(activeComparison.Rows.SelectMany(row => new[] { row.SignalA, row.SignalB }).Where(signal => signal != null).Any(signal => signal!.IsPlaceboControlled));
+            Assert.AreEqual(3, bothComparison.Rows.Count);
+            Assert.AreEqual(bothComparison.Rows.Count, unfilteredComparison.Rows.Count);
+
+            #endregion
+        }
+
         #endregion signal and view tests
 
         #region correlation map tests

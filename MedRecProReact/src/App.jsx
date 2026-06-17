@@ -746,6 +746,116 @@ function getInterchangeDeltaClass(classification) {
 
 /**************************************************************/
 /**
+ * Gets the compact comparator label for an interchange signal.
+ *
+ * @param {object | null} signal - Normalized AE signal.
+ * @param {boolean} compact - Whether to abbreviate active-comparator text.
+ * @returns {string} Comparator label.
+ */
+function getSignalComparatorLabel(signal, compact = false) {
+    if (!signal) {
+        return 'No signal';
+    }
+
+    if (signal.isPlac) {
+        return 'Placebo';
+    }
+
+    return compact ? 'Active' : 'Active comparator';
+}
+
+/**************************************************************/
+/**
+ * Builds tooltip content for an interchange signal point.
+ *
+ * @param {object | null} signal - Normalized AE signal.
+ * @param {string} productLabel - Product display label.
+ * @returns {{ heading: string, lines: string[] } | null} Tooltip content.
+ */
+function getInterchangeSignalTooltipContent(signal, productLabel) {
+    if (!signal) {
+        return null;
+    }
+
+    const direction = signal.sig
+        ? (signal.prot ? 'Significant protective' : 'Significant elevated')
+        : 'Not significant';
+    const numberNeeded = signal.nnh ?? signal.nnt;
+    const numberNeededLabel = signal.nnt !== null && signal.nnt !== undefined ? 'NNT' : 'NNH';
+    const hasNumberNeeded = numberNeeded !== null
+        && numberNeeded !== undefined
+        && Number.isFinite(Number(numberNeeded));
+
+    return {
+        heading: `${productLabel}: ${signal.name}`,
+        lines: [
+            getSignalComparatorLabel(signal),
+            signal.studyContext ? `Study: ${signal.studyContext}` : null,
+            signal.population ? `Population: ${signal.population}` : null,
+            signal.subpopulation ? `Subpopulation: ${signal.subpopulation}` : null,
+            `RR ${formatDecimal(signal.rr, 2)} [${formatDecimal(signal.rrL, 2)}-${formatDecimal(signal.rrH, 2)}]`,
+            `${formatEvents(signal.eT, signal.armN)} vs ${formatEvents(signal.eC, signal.comparatorN)}`,
+            hasNumberNeeded ? `${numberNeededLabel} ${formatNumberNeededValue(numberNeeded)}` : null,
+            direction,
+        ].filter(Boolean),
+    };
+}
+
+/**************************************************************/
+/**
+ * Builds accessible text for an interchange signal point.
+ *
+ * @param {object | null} signal - Normalized AE signal.
+ * @param {string} productLabel - Product display label.
+ * @returns {string} Accessible label.
+ */
+function getInterchangeSignalAriaLabel(signal, productLabel) {
+    const content = getInterchangeSignalTooltipContent(signal, productLabel);
+
+    if (!content) {
+        return `${productLabel}: no signal`;
+    }
+
+    return [content.heading, ...content.lines].join('. ');
+}
+
+/**************************************************************/
+/**
+ * Renders the styled interchange signal tooltip.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element | null} Tooltip element.
+ */
+function InterchangeSignalTooltip({ signal, productLabel, className = '', style = null }) {
+    const content = getInterchangeSignalTooltipContent(signal, productLabel);
+
+    if (!content) {
+        return null;
+    }
+
+    return (
+        <div className={`ic-tooltip${className}`} style={style} aria-hidden="true">
+            <strong>{content.heading}</strong>
+            {content.lines.map((line) => (
+                <div key={line} className="small">{line}</div>
+            ))}
+        </div>
+    );
+}
+
+/**************************************************************/
+/**
+ * Gets short context text for the metadata line under an interchange track.
+ *
+ * @param {object} signal - Normalized AE signal.
+ * @returns {string} Context text.
+ */
+function getInterchangeContextText(signal) {
+    return signal.studyContext || signal.population || signal.subpopulation || 'Study context not listed';
+}
+
+/**************************************************************/
+/**
  * Gets the display label for a reverse-lookup verdict.
  *
  * @param {string} verdict - Server verdict token.
@@ -1504,9 +1614,12 @@ function ProductInterchangeSelect({
  * @param {object} props - Component props.
  * @returns {JSX.Element} Track half.
  */
-function InterchangeTrackHalf({ signal, side, scaleDomain }) {
+function InterchangeTrackHalf({ signal, side, scaleDomain, productLabel }) {
     const direction = signal ? getSignalDirection(signal) : 'ns';
     const pointLeft = getForestXPercent(signal?.rr, scaleDomain);
+    const tooltipLeft = pointLeft ?? 50;
+    const tooltipSideClass = tooltipLeft > 68 ? ' is-left' : ' is-right';
+    const ariaLabel = getInterchangeSignalAriaLabel(signal, productLabel);
 
     const lowerBoundValue = Number(signal?.rrL);
     const upperBoundValue = Number(signal?.rrH);
@@ -1523,7 +1636,12 @@ function InterchangeTrackHalf({ signal, side, scaleDomain }) {
         : 0;
 
     return (
-        <div className={`ic-track-half ${side}${direction === 'ns' ? ' ns' : ''}`}>
+        <div
+            className={`ic-track-half ${side}${direction === 'ns' ? ' ns' : ''}${signal ? ' has-context' : ''}`}
+            role={signal ? 'img' : undefined}
+            tabIndex={signal ? 0 : undefined}
+            aria-label={ariaLabel}
+        >
             {lowerLeft !== null && upperLeft !== null ? (
                 <>
                     <div className="ic-ci" style={{ left: `${lowerLeft}%`, width: `${intervalWidth}%` }} />
@@ -1532,6 +1650,56 @@ function InterchangeTrackHalf({ signal, side, scaleDomain }) {
                 </>
             ) : null}
             {pointLeft !== null ? <div className="ic-pt" style={{ left: `${pointLeft}%` }} /> : null}
+            {signal ? (
+                <InterchangeSignalTooltip
+                    signal={signal}
+                    productLabel={productLabel}
+                    className={tooltipSideClass}
+                    style={{ left: `${tooltipLeft}%` }}
+                />
+            ) : null}
+        </div>
+    );
+}
+
+/**************************************************************/
+/**
+ * Renders compact provenance metadata for one product's interchange signal.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element | null} Context item.
+ */
+function InterchangeSignalContext({ signal, side, label, productLabel }) {
+    if (!signal) {
+        return null;
+    }
+
+    return (
+        <span className={`ic-context-item ${side}`} aria-label={getInterchangeSignalAriaLabel(signal, productLabel)}>
+            <span className={`ic-comparator-badge ${side}`}>
+                {label}: {getSignalComparatorLabel(signal, true)}
+            </span>
+            <span className="ic-context-text">{getInterchangeContextText(signal)}</span>
+        </span>
+    );
+}
+
+/**************************************************************/
+/**
+ * Renders the interchange row metadata line under the mini forest track.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element | null} Context line.
+ */
+function InterchangeContextLine({ row, productALabel, productBLabel }) {
+    if (!row.signalA && !row.signalB) {
+        return null;
+    }
+
+    return (
+        <div className="ic-context-line">
+            <InterchangeSignalContext signal={row.signalA} side="a" label="A" productLabel={productALabel} />
+            <InterchangeSignalContext signal={row.signalB} side="b" label="B" productLabel={productBLabel} />
         </div>
     );
 }
@@ -1543,14 +1711,24 @@ function InterchangeTrackHalf({ signal, side, scaleDomain }) {
  * @param {object} props - Component props.
  * @returns {JSX.Element} Mini forest track.
  */
-function InterchangeTrack({ row, scaleDomain }) {
+function InterchangeTrack({ row, scaleDomain, productALabel, productBLabel }) {
     const referenceLeft = getForestXPercent(1, scaleDomain);
 
     return (
-        <div className="ic-track" aria-hidden="true">
+        <div className="ic-track">
             <div className="ic-refline" style={{ left: `${referenceLeft}%` }} />
-            <InterchangeTrackHalf signal={row.signalA} side="a" scaleDomain={scaleDomain} />
-            <InterchangeTrackHalf signal={row.signalB} side="b" scaleDomain={scaleDomain} />
+            <InterchangeTrackHalf
+                signal={row.signalA}
+                side="a"
+                scaleDomain={scaleDomain}
+                productLabel={productALabel}
+            />
+            <InterchangeTrackHalf
+                signal={row.signalB}
+                side="b"
+                scaleDomain={scaleDomain}
+                productLabel={productBLabel}
+            />
         </div>
     );
 }
@@ -1562,7 +1740,7 @@ function InterchangeTrack({ row, scaleDomain }) {
  * @param {object} props - Component props.
  * @returns {JSX.Element} Interchange row.
  */
-function InterchangeRow({ row, scaleDomain }) {
+function InterchangeRow({ row, scaleDomain, productALabel, productBLabel }) {
     const deltaClass = getInterchangeDeltaClass(row.classification);
 
     return (
@@ -1571,7 +1749,19 @@ function InterchangeRow({ row, scaleDomain }) {
                 {row.parameterName}
                 <span className="sub">{row.parameterCategory || 'SOC not listed'}</span>
             </div>
-            <InterchangeTrack row={row} scaleDomain={scaleDomain} />
+            <div className="ic-plot">
+                <InterchangeTrack
+                    row={row}
+                    scaleDomain={scaleDomain}
+                    productALabel={productALabel}
+                    productBLabel={productBLabel}
+                />
+                <InterchangeContextLine
+                    row={row}
+                    productALabel={productALabel}
+                    productBLabel={productBLabel}
+                />
+            </div>
             <div className={`ic-delta ${deltaClass}`}>
                 {row.deltaLabel}
             </div>
@@ -1611,6 +1801,7 @@ function InterchangePanel({
     onToggleSharedSignalsOnly,
     onToggleDifferencesOnly,
     onRetry,
+    comparatorFilter,
 }) {
     const comparisonSignals = useMemo(() => getInterchangeSignals(comparison), [comparison]);
     const scaleDomain = useMemo(() => getForestScaleDomain(comparisonSignals), [comparisonSignals]);
@@ -1619,6 +1810,9 @@ function InterchangePanel({
         && productA.documentGuid.toLowerCase() !== productB.documentGuid.toLowerCase();
     const aConcernCount = comparison.aWorseCount + comparison.onlyACount;
     const bConcernCount = comparison.bWorseCount + comparison.onlyBCount;
+    const isAllComparatorScope = comparatorFilter === 'all';
+    const productALabel = productA?.name || 'Product A';
+    const productBLabel = productB?.name || 'Product B';
 
     return (
         <section className="panel" aria-labelledby="interchange-title">
@@ -1706,11 +1900,16 @@ function InterchangePanel({
                     {comparison.comparatorMismatchWarning ? (
                         <div className="ic-warn">{comparison.comparatorMismatchWarning}</div>
                     ) : null}
+                    {isAllComparatorScope ? (
+                        <div className="ic-warn">
+                            All comparator strata are included. Rows may summarize placebo and active-comparator evidence from different studies.
+                        </div>
+                    ) : null}
 
                     <div className="ic-summary">
                         <div className="ic-summary-cell">
                             <div className="ic-summary-num a">{formatInteger(aConcernCount)}</div>
-                            <div className="ic-summary-lbl">Higher or unique on product A</div>
+                            <div className="ic-summary-lbl">Less favorable or unique on product A</div>
                         </div>
                         <div className="ic-summary-cell">
                             <div className="ic-summary-num">{formatInteger(comparison.similarCount)}</div>
@@ -1718,7 +1917,7 @@ function InterchangePanel({
                         </div>
                         <div className="ic-summary-cell">
                             <div className="ic-summary-num b">{formatInteger(bConcernCount)}</div>
-                            <div className="ic-summary-lbl">Higher or unique on product B</div>
+                            <div className="ic-summary-lbl">Less favorable or unique on product B</div>
                         </div>
                     </div>
 
@@ -1760,6 +1959,8 @@ function InterchangePanel({
                                         key={`${group.id}-${row.id}`}
                                         row={row}
                                         scaleDomain={scaleDomain}
+                                        productALabel={productALabel}
+                                        productBLabel={productBLabel}
                                     />
                                 ))}
                             </div>
@@ -1827,6 +2028,7 @@ function CrossProductTools(props) {
                 onToggleSharedSignalsOnly={props.onToggleSharedSignalsOnly}
                 onToggleDifferencesOnly={props.onToggleDifferencesOnly}
                 onRetry={props.onRetryInterchange}
+                comparatorFilter={props.comparatorFilter}
             />
         </>
     );
@@ -2840,6 +3042,7 @@ function App() {
                     documentGuidB: interchangeDocumentGuidB,
                     differencesOnly,
                     sharedSignalsOnly,
+                    comparator: comparatorFilter,
                     signal: abortController.signal,
                 });
 
@@ -2867,6 +3070,7 @@ function App() {
         };
     }, [
         differencesOnly,
+        comparatorFilter,
         interchangeDocumentGuidA,
         interchangeDocumentGuidB,
         interchangeReloadToken,
@@ -3663,6 +3867,7 @@ function App() {
                             onToggleSharedSignalsOnly={handleToggleSharedSignalsOnly}
                             onToggleDifferencesOnly={handleToggleDifferencesOnly}
                             onRetryInterchange={retryInterchange}
+                            comparatorFilter={comparatorFilter}
                         />
                     </>
                 ) : (

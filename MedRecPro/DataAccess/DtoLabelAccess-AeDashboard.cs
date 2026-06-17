@@ -633,14 +633,16 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <param name="differencesOnly">Whether rows classified as similar should be removed.</param>
         /// <param name="sharedSignalsOnly">Whether rows without signals on both products should be removed.</param>
+        /// <param name="comparator">Optional comparator filter. Omit or use <see cref="AeComparatorMix.Both"/> to include all comparator strata.</param>
         /// <returns>An interchange comparison DTO, or null when either product is missing.</returns>
         /// <remarks>
         /// The comparison unions adverse-event terms across both products and delegates
-        /// row-level classification to <see cref="AeDashboardDerivation"/>.
+        /// row-level classification to <see cref="AeDashboardDerivation"/> after
+        /// applying the same comparator scope used by forest and quadrant views.
         /// </remarks>
         /// <example>
         /// <code>
-        /// var comparison = await DtoLabelAccess.GetAeInterchangeAsync(db, a, b, secret, logger, true, true);
+        /// var comparison = await DtoLabelAccess.GetAeInterchangeAsync(db, a, b, secret, logger, true, true, AeComparatorMix.Placebo);
         /// </code>
         /// </example>
         /// <seealso cref="AeInterchangeComparisonDto"/>
@@ -651,7 +653,8 @@ namespace MedRecPro.DataAccess
             string pkSecret,
             ILogger logger,
             bool differencesOnly = false,
-            bool sharedSignalsOnly = false)
+            bool sharedSignalsOnly = false,
+            AeComparatorMix? comparator = null)
         {
             #region implementation
 
@@ -679,11 +682,11 @@ namespace MedRecPro.DataAccess
             }
 
             // Load each side's complete signal set before row-level comparison.
-            var signalsA = await GetAeRiskSignalsByDocumentAsync(db, documentGuidA, pkSecret, logger);
+            var signalsA = await GetAeRiskSignalsByDocumentAsync(db, documentGuidA, pkSecret, logger, comparator);
 
             // Product B gets its own signal list so duplicate terms can be collapsed
             // separately by the interchange derivation helper.
-            var signalsB = await GetAeRiskSignalsByDocumentAsync(db, documentGuidB, pkSecret, logger);
+            var signalsB = await GetAeRiskSignalsByDocumentAsync(db, documentGuidB, pkSecret, logger, comparator);
 
             // The derivation helper unions terms, classifies rows, and counts the
             // rendered comparison classes.

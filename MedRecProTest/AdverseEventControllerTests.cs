@@ -414,7 +414,7 @@ namespace MedRecProTest
         /// <summary>
         /// Verifies interchange comparison validates GUIDs, reports missing products, and returns a comparison for seeded products.
         /// </summary>
-        /// <seealso cref="AdverseEventController.GetInterchange(Guid, Guid, bool, bool)"/>
+        /// <seealso cref="AdverseEventController.GetInterchange(Guid, Guid, bool, bool, AeComparatorMix?)"/>
         [TestMethod]
         public async Task GetInterchange_ValidatesGuidsAndReturnsComparisonOrNotFound()
         {
@@ -459,6 +459,46 @@ namespace MedRecProTest
             Assert.AreEqual(1, comparison.OnlyACount);
             Assert.AreEqual(0, sharedComparison.OnlyACount);
             Assert.IsTrue(sharedComparison.Rows.All(row => row.SignalA != null && row.SignalB != null));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that the interchange endpoint passes comparator scope through to the comparison payload.
+        /// </summary>
+        /// <seealso cref="AdverseEventController.GetInterchange(Guid, Guid, bool, bool, AeComparatorMix?)"/>
+        [TestMethod]
+        public async Task GetInterchange_WithComparatorScope_ReturnsScopedComparison()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var controller = createController(context, createConfiguration());
+
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, DtoLabelAccessTestHelper.TestDocumentGuid, "ASPIRIN");
+            DtoLabelAccessTestHelper.SeedAeDrugSummaryView(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, "IBUPROFEN");
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid, riskId: 1, adverseEventId: 1, parameterName: "Headache", rr: 4.0, isPlaceboControlled: true);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, riskId: 2, adverseEventId: 2, parameterName: "Headache", rr: 1.5, isPlaceboControlled: true);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid, riskId: 3, adverseEventId: 3, parameterName: "Dizziness", rr: 5.0, isPlaceboControlled: false);
+            DtoLabelAccessTestHelper.SeedAeRiskSignalTable(connection, DtoLabelAccessTestHelper.TestDocumentGuid2, riskId: 4, adverseEventId: 4, parameterName: "Dizziness", rr: 2.0, isPlaceboControlled: false);
+
+            var placeboComparison = getOkValue<AeInterchangeComparisonDto>(await controller.GetInterchange(
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                comparator: AeComparatorMix.Placebo));
+            var activeComparison = getOkValue<AeInterchangeComparisonDto>(await controller.GetInterchange(
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestDocumentGuid2,
+                comparator: AeComparatorMix.Active));
+
+            Assert.AreEqual("Headache", placeboComparison.Rows.Single().ParameterName);
+            Assert.IsTrue(placeboComparison.Rows.SelectMany(row => new[] { row.SignalA, row.SignalB }).Where(signal => signal != null).All(signal => signal!.IsPlaceboControlled));
+            Assert.AreEqual("Dizziness", activeComparison.Rows.Single().ParameterName);
+            Assert.IsFalse(activeComparison.Rows.SelectMany(row => new[] { row.SignalA, row.SignalB }).Where(signal => signal != null).Any(signal => signal!.IsPlaceboControlled));
 
             #endregion
         }

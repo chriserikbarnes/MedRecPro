@@ -387,7 +387,7 @@ export const AdverseEventClient = {
   /**
    * Gets a therapeutic-interchange comparison for two dashboard products.
    *
-   * @param {{ documentGuidA: string, documentGuidB: string, differencesOnly?: boolean, sharedSignalsOnly?: boolean, signal?: AbortSignal }} args - Request options.
+   * @param {{ documentGuidA: string, documentGuidB: string, differencesOnly?: boolean, sharedSignalsOnly?: boolean, comparator?: string, signal?: AbortSignal }} args - Request options.
    * @returns {Promise<unknown>} API interchange payload.
    */
   getInterchange({
@@ -395,14 +395,19 @@ export const AdverseEventClient = {
     documentGuidB,
     differencesOnly = false,
     sharedSignalsOnly = false,
+    comparator = 'all',
     signal = null,
   } = {}) {
+    // Client tokens are converted into server enum names before serialization.
+    const comparatorValue = normalizeComparatorParameter(comparator);
+
     // The controller rejects missing or identical GUIDs; the UI blocks those first.
     const url = buildAdverseEventUrl('interchange', {
       documentGuidA,
       documentGuidB,
       differencesOnly,
       sharedSignalsOnly,
+      comparator: comparatorValue,
     });
 
     return requestJson(url, getFetchOptions(signal));

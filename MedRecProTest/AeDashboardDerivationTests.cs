@@ -291,6 +291,41 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that interchange delta labels distinguish elevated, protective, and mixed-direction rows.
+        /// </summary>
+        /// <seealso cref="AeDashboardDerivation.BuildInterchangeComparison(AeDrugSummaryDto, AeDrugSummaryDto, IEnumerable{AeRiskSignalDto}, IEnumerable{AeRiskSignalDto}, bool, bool, AeDashboardDerivationSettings?)"/>
+        [TestMethod]
+        public void BuildInterchangeComparison_DeltaLabelsDescribeProtectiveAndMixedDirections()
+        {
+            #region implementation
+
+            var productA = newProduct(productName: "A");
+            var productB = newProduct(productName: "B");
+            var signalsA = new[]
+            {
+                newSignal(parameterName: "Elevated Headache", significance: "elevated", rr: 3.0, rrLower: 2.0, rrUpper: 4.0),
+                newSignal(parameterName: "Protective Arthralgia", significance: "protective", rr: 0.63, rrLower: 0.4, rrUpper: 0.8),
+                newSignal(parameterName: "Mixed Diarrhea", significance: "elevated", rr: 1.8, rrLower: 1.2, rrUpper: 2.4)
+            };
+            var signalsB = new[]
+            {
+                newSignal(parameterName: "Elevated Headache", significance: "elevated", rr: 1.4, rrLower: 1.1, rrUpper: 1.9),
+                newSignal(parameterName: "Protective Arthralgia", significance: "protective", rr: 0.02, rrLower: 0.01, rrUpper: 0.04),
+                newSignal(parameterName: "Mixed Diarrhea", significance: "protective", rr: 0.4, rrLower: 0.2, rrUpper: 0.7)
+            };
+
+            var comparison = AeDashboardDerivation.BuildInterchangeComparison(productA, productB, signalsA, signalsB);
+            var rowsByName = comparison.Rows.ToDictionary(row => row.ParameterName!);
+
+            Assert.AreEqual("Higher elevated RR on product A", rowsByName["Elevated Headache"].DeltaLabel);
+            Assert.AreEqual("More protective on product B", rowsByName["Protective Arthralgia"].DeltaLabel);
+            Assert.AreEqual("Mixed direction", rowsByName["Mixed Diarrhea"].DeltaLabel);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Creates a default product summary for derivation tests.
         /// </summary>
         private static AeDrugSummaryDto newProduct(
