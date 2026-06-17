@@ -5121,3 +5121,15 @@ Brought the repository READMEs up to date against the actual repo state, git his
 **Verification.** Confirmed no remaining stale `698` / `38 columns` / `five projects` strings in the root README via grep, and verified the architecture diagram and tables render cleanly. No build or test commands were run because this session changed Markdown documentation only.
 
 ---
+
+### 2026-06-17 11:28 AM EST — AE Dashboard Interchange Comparator Context Plan
+
+Saved a pending implementation handoff to reconcile the AE dashboard visual paradox where the single-product forest plot can show placebo-scoped elevated SUTENT risk while the therapeutic interchange chart silently chooses active-comparator protective representatives for the same adverse-event terms.
+
+**Plan artifact.** Added [Plans/(pending) AE Dashboard Interchange Comparator Context Plan.md](Plans/(pending) AE Dashboard Interchange Comparator Context Plan.md). The plan anchors the work in `AdverseEventController.GetInterchange`, `DtoLabelAccess.GetAeInterchangeAsync`, `AeDashboardDerivation.BuildInterchangeComparison`, `AdverseEventClient.getInterchange`, `InterchangePanel`, and `normalizeSignal`. It recommends adding an optional interchange `comparator` query parameter, wiring React interchange requests to the current forest comparator filter, adding Placebo / Active comparator badges, surfacing study context in tooltip or detail UI, improving below-1 delta wording, and warning when All/Both intentionally mixes strata.
+
+**Evidence.** Rechecked the live local API on port 5093 for SUTENT `21cadbc0-3f0e-4789-80ee-bf1e3982d85f` and CABOMETYX `5eb29a87-b2b6-4e42-8d01-cd1d71484e2c`: SUTENT placebo forest returned 55/55 rows above RR=1, SUTENT active forest returned 40 below RR=1, and default interchange matched the screenshot summary counts at 55 higher/unique on product A, 2 similar, and 66 higher/unique on product B.
+
+**Verification.** Verified the saved plan by exact `Get-Item` path and `Select-String` markers for `Target Behavior`, `Phase 1`, `Phase 3`, `Acceptance Criteria`, and the SUTENT/CABOMETYX evidence. No build or tests were run because this session created a planning artifact only.
+
+---
