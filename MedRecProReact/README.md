@@ -32,14 +32,14 @@ small in-house scale helpers rather than a charting library.
 
 ```
   MedRecProReact (source)                 MedRecProStatic (host)
-  ┌─────────────────────┐    npm run     ┌──────────────────────────────┐
-  │ src/  index.html     │ ─── build ───► │ wwwroot/ae-dashboard/         │
-  │ vite.config.js       │                │   ae-dashboard.js             │
-  └─────────────────────┘                │   ae-dashboard.css            │
-                                          │   index.html / favicon.svg ...│
-                                          │ Views/AdverseEventDashboard/  │
-                                          │   Index.cshtml  → /adverse-events
-                                          └──────────────────────────────┘
+  ┌──────────────────────┐    npm run     ┌──────────────────────────────────┐
+  │ src/  index.html     │ ─── build ───► │ wwwroot/ae-dashboard/            │
+  │ vite.config.js       │                │   ae-dashboard.js                │
+  └──────────────────────┘                │   ae-dashboard.css               │
+                                          │   index.html / favicon.svg ...   │
+                                          │ Views/AdverseEventDashboard/     │
+                                          │   Index.cshtml  → /adverse-events│
+                                          └──────────────────────────────────┘
 ```
 
 `vite.config.js` pins three deployment facts:
