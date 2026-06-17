@@ -5094,3 +5094,12 @@ Adjusted the class-correlation chart tooltip stacking so hover/focus overlays ap
 **Verification.** `npm.cmd run build` succeeded and emitted refreshed `ae-dashboard.js`/`ae-dashboard.css`. `git diff --check -- MedRecProReact\src\index.css MedRecProStatic\wwwroot\ae-dashboard\ae-dashboard.css` passed with line-ending warnings only. Browser smoke was skipped to avoid disturbing the user's IIS/static processes that were already occupying the local dashboard ports.
 
 ---
+
+### 2026-06-16 3:36 PM EST — AE Dashboard Drug Class Plan Completion
+Marked the drug class dashboard refinement plan complete after confirming its acceptance criteria were implemented and manually accepted.
+
+**Plan status.** Renamed `Plans/(pending) AE Dashboard Drug Class Dashboard Refinements Plan.md` to [Plans/(done) AE Dashboard Drug Class Dashboard Refinements Plan.md](Plans/(done) AE Dashboard Drug Class Dashboard Refinements Plan.md). The completed work covers backend class renderability metadata, correct total-count headers, chartable-class count reporting, renderable-first dropdown sorting, honest picker labels, diagonal map fallback, tooltip layering, focused tests, and refreshed static dashboard assets.
+
+**Verification.** Verified the `(done)` file exists by exact path, the old `(pending)` path is gone, and the renamed plan still contains the acceptance criteria and key count/diagonal requirements. No build was needed for this filename-only plan status update.
+
+---
