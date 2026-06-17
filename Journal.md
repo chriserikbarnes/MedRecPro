@@ -5103,3 +5103,21 @@ Marked the drug class dashboard refinement plan complete after confirming its ac
 **Verification.** Verified the `(done)` file exists by exact path, the old `(pending)` path is gone, and the renamed plan still contains the acceptance criteria and key count/diagonal requirements. No build was needed for this filename-only plan status update.
 
 ---
+
+### 2026-06-17 9:09 AM EST — README Refresh Across the Repository
+
+Brought the repository READMEs up to date against the actual repo state, git history, and `Journal.md`, grounding every change in current files rather than duplicating existing documentation.
+
+**Method.** Mapped all journal entry headers, ran per-folder `git log` since each README's last-update date, and inspected the live source (React project, `AdverseEventController`, AE data-access, SQL DDL, `config.json`). Found the dominant post-04/10 change to be the Adverse Event Risk Dashboard (new `MedRecProReact` project + `AdverseEventController` + Stage 5 `tmp_FlattenedAdverseEvent*` tables + SOC/class correlation).
+
+**MedRecProReact/README.md — full rewrite.** Replaced the default Vite boilerplate with documentation of the AE dashboard island: React 19 / Vite 8 / Vitest 4 / ESLint 10 stack, the `base: /ae-dashboard/` build-into-`MedRecProStatic/wwwroot/ae-dashboard` workflow (and the "dotnet build does not run Vite — rebuild and commit" rule), product vs. class focus, triage/forest/quadrant/reverse-lookup/interchange and correlation map/heatmap/cell views, the `/api/AdverseEvent` contract with dev/prod base resolution and pagination headers, server-rendered masthead handling, project structure, scripts, and honesty-first data caveats.
+
+**README.md (root) — significant additions.** Added `MedRecProReact` and `MedRecProPrototypes` to the architecture diagram and projects table, the `/adverse-events` route, a "How the Projects Relate" paragraph for the React island, the `AdverseEventController` + AE data-access files, the four AE `tmp_` SQL scripts + BCP script + `vw_Ae*` views, AE dashboard tests, a new `/api/AdverseEvent` endpoint table, a new "Adverse Event Risk Dashboard" section describing the three-project data flow, the Vite dev-server run step, and corrected the `AeParameterCategoryDictionaryService` count (698 → 1,189) and a stale "five projects" claim. Kept depth references pointing to the sub-project READMEs to avoid duplication.
+
+**MedRecProStatic/README.md — targeted updates.** Bumped the version to 1.1.0 (matching `Content/config.json`), updated the footer date, documented the shared `_Masthead.cshtml` / `masthead.css` and the new "Insight" → `/adverse-events` nav item, added `MedRecProReact` to related projects, and fixed the `cd MedRecPro.Static` path to `MedRecProStatic`.
+
+**No changes — already current.** `MedRecProConsole/README.md` and `MedRecProImportClass/README.md` (both dated 06/08) had no git commits to their folders since that date; all later work lives in the API/React/Static projects, so both remain accurate.
+
+**Verification.** Confirmed no remaining stale `698` / `38 columns` / `five projects` strings in the root README via grep, and verified the architecture diagram and tables render cleanly. No build or test commands were run because this session changed Markdown documentation only.
+
+---

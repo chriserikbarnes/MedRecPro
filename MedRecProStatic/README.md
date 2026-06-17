@@ -2,7 +2,7 @@
 
 Static marketing, documentation, and AI chat site for MedRecPro - Pharmaceutical Labeling Management System. Also serves OAuth/MCP discovery metadata for the MedRecPro MCP Server.
 
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Runtime:** ASP.NET Core 8.0
 **Production URL:** https://www.medrecpro.com
 
@@ -120,8 +120,11 @@ MedRecProStatic/
       Chat.cshtml                     # AI chat interface
     Shared/
       _Layout.cshtml                  # Master layout template
+      _Masthead.cshtml                # Shared masthead partial (logo, nav, hamburger, Save/Export slots)
   wwwroot/
     ae-dashboard/                     # Committed Vite build output from MedRecProReact
+    css/
+      masthead.css                    # Shared masthead styles (single source of truth)
   Content/
     config.json                       # Site config (URLs, branding, version)
     pages.json                        # Page content (home, terms, privacy)
@@ -184,6 +187,21 @@ npm.cmd --prefix ..\MedRecProReact run build
 The Vite config writes deterministic bundle files directly into
 `MedRecProStatic/wwwroot/ae-dashboard`; commit those built assets together with
 the React source because normal .NET builds do not run the Vite build script.
+
+## Shared Masthead
+
+The site masthead (logo, primary navigation, subtitle, mobile hamburger toggle,
+and the page action slots) is rendered once by `Views/Shared/_Masthead.cshtml`
+and styled by `wwwroot/css/masthead.css` — a single source of truth shared by
+every server-rendered page **and** the React dashboard island. Server pages
+render the partial directly; the layout-free `/adverse-events` host view renders
+the same partial and injects the dashboard's Save/Export buttons via
+`ViewData["MastheadActions"]`, with the React island wiring only their behavior
+(`#aeSaveBtn` / `#aeExportBtn`). The hamburger toggle is handled by the partial's
+own inline script.
+
+The masthead navigation includes an **Insight** item (lightbulb icon) linking to
+`/adverse-events`, sitting between the `AI` and `MCP` items.
 
 ## Tarpit Middleware (Rate Limiting)
 
@@ -256,7 +274,7 @@ Page content for home, terms, and privacy pages. Supports:
 ### Running Locally
 
 ```bash
-cd MedRecPro.Static
+cd MedRecProStatic
 dotnet restore
 dotnet run
 ```
@@ -289,10 +307,11 @@ The site runs behind Cloudflare for CDN, WAF, and DNS. No special Cloudflare con
 
 ## Related Projects
 
-- **[MedRecPro](../MedRecPro)** — Main API with SPL processing, authentication, and AI endpoints
+- **[MedRecPro](../MedRecPro)** — Main API with SPL processing, authentication, AI endpoints, and the `/api/AdverseEvent` dashboard data
 - **[MedRecProMCP](../MedRecProMCP)** — MCP server for Claude.ai integration (OAuth 2.1 gateway)
+- **[MedRecProReact](../MedRecProReact)** — React + Vite source for the `/adverse-events` dashboard island; builds into `wwwroot/ae-dashboard`
 
 ---
 
-**Last Updated:** February 2026
+**Last Updated:** June 2026
 **Status:** production

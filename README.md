@@ -1,6 +1,6 @@
 # MedRecPro
 
-MedRecPro is a pharmaceutical structured product label (SPL) management platform built with ASP.NET Core. It provides secure access to FDA drug label data through a RESTful API, an AI-powered chat interface, and a Model Context Protocol (MCP) server for integration with AI assistants like Claude.
+MedRecPro is a pharmaceutical structured product label (SPL) management platform built with ASP.NET Core. It provides secure access to FDA drug label data through a RESTful API, an AI-powered chat interface, a Model Context Protocol (MCP) server for integration with AI assistants like Claude, and an interactive **adverse-event risk dashboard** built on a multi-stage table-standardization and risk-statistics pipeline.
 
 ## Specifications
 
@@ -23,7 +23,7 @@ MedRecPro is a pharmaceutical structured product label (SPL) management platform
 
 ## Solution Architecture
 
-The solution consists of five projects deployed to a single Azure App Service using IIS virtual applications:
+The solution's three web projects are deployed to a single Azure App Service using IIS virtual applications (the console, library, React SPA source, prototypes, and test projects are not deployed as separate apps):
 
 ```
                         Cloudflare (CDN/WAF/DNS)
@@ -32,9 +32,10 @@ The solution consists of five projects deployed to a single Azure App Service us
     Azure App Service: "MedRecPro" (Windows, IIS)
    +--------------------------------------------------------+
    |                                                        |
-   |  /          site\wwwroot       MedRecProStatic         |
-   |  /api       site\wwwroot\api   MedRecPro API           |
-   |  /mcp       site\wwwroot\mcp   MedRecProMCP            |
+   |  /                site\wwwroot       MedRecProStatic   |
+   |  /adverse-events  (MedRecProStatic, React island)     |
+   |  /api             site\wwwroot\api   MedRecPro API     |
+   |  /mcp             site\wwwroot\mcp   MedRecProMCP      |
    |                                                        |
    +--------------------------------------------------------+
                         |
@@ -45,11 +46,14 @@ The solution consists of five projects deployed to a single Azure App Service us
 
 | Virtual Path | Project | Purpose |
 |---|---|---|
-| `/` | **MedRecProStatic** | Static site, marketing pages, AI chat UI, OAuth/MCP discovery metadata |
-| `/api` | **MedRecPro** | REST API: SPL parsing, label CRUD, authentication, AI interpret/synthesize |
+| `/` | **MedRecProStatic** | Static site, marketing pages, AI chat UI, OAuth/MCP discovery metadata, adverse-event dashboard host |
+| `/adverse-events` | **MedRecProReact** (hosted by MedRecProStatic) | Adverse-event risk dashboard React island |
+| `/api` | **MedRecPro** | REST API: SPL parsing, label CRUD, authentication, AI interpret/synthesize, adverse-event dashboard data |
 | `/mcp` | **MedRecProMCP** | MCP server: OAuth 2.1 gateway for Claude.ai integration |
-| _(CLI)_ | **MedRecProConsole** | Standalone bulk import utility (SPL labels and FDA Orange Book) |
-| _(library)_ | **MedRecProImportClass** | Shared class library: entity models, parsing services, and EF Core context for SPL and Orange Book import |
+| _(CLI)_ | **MedRecProConsole** | Standalone bulk import utility (SPL labels, FDA Orange Book, and table standardization) |
+| _(library)_ | **MedRecProImportClass** | Shared class library: entity models, parsing services, table-standardization pipeline, and EF Core context for SPL and Orange Book import |
+| _(SPA source)_ | **MedRecProReact** | React + Vite source for the adverse-event dashboard; builds into MedRecProStatic's web root |
+| _(prototypes)_ | **MedRecProPrototypes** | Standalone HTML/JS prototypes (e.g. the AE dashboard) that seed production UI work |
 | _(test)_ | **MedRecProTest** | Unit and integration tests |
 
 ### How the Projects Relate
@@ -59,6 +63,8 @@ The solution consists of five projects deployed to a single Azure App Service us
 **MedRecPro (API)** is the core backend. It handles SPL XML parsing and import, label data CRUD, user authentication, AI query interpretation via Claude, database views for navigation, and SPL document rendering via RazorLight templates.
 
 **MedRecProMCP** is an OAuth 2.1 gateway that exposes MedRecPro API capabilities as MCP tools. When Claude.ai connects, it authenticates users through Google/Microsoft OAuth, resolves upstream identity provider identities to numeric database user IDs (auto-provisioning new users if needed), then forwards authenticated MCP JWTs to the MedRecPro API. It uses JWT tokens, PKCE (S256), Dynamic Client Registration (RFC 7591), and a shared PKSecret for encrypted user ID exchange with the API.
+
+**MedRecProReact** is the source for the adverse-event risk dashboard — a React + Vite single-page "island". Its Vite build emits a deterministic bundle directly into `MedRecProStatic/wwwroot/ae-dashboard`, which MedRecProStatic serves at `/adverse-events`. The dashboard reads only from the API's `/api/AdverseEvent` surface (`AdverseEventController`), which in turn queries the materialized AE risk tables produced by the table-standardization pipeline (Stage 5). See the [MedRecProReact README](MedRecProReact/README.md) for the dashboard, and the [MedRecProImportClass README](MedRecProImportClass/README.md) for the risk-statistics contract.
 
 ## Repository File Structure
 
@@ -83,6 +89,9 @@ MedRecPro/                          # Root repository
       LabelController.cs            # Label CRUD, views, search, import, AI endpoints
       AiController.cs               # AI interpret/synthesize, conversations, context
       SettingsController.cs         # App info, feature flags, metrics, logs, cache
+      AdverseEventController.cs     # Adverse-event dashboard data: products, favorites,
+                                      #   triage/forest/quadrant, reverse-lookup, interchange,
+                                      #   SOC correlation map/heatmap/cell (gated by AeDashboard flag)
     Service/
       SplImportService.cs           # SPL ZIP file import and parsing orchestration
       SplParsingService.cs          # Core SPL XML parsing
@@ -121,6 +130,10 @@ MedRecPro/                          # Root repository
       DtoLabelAccess-ProductHierarchy.cs
       DtoLabelAccess-ContentHierarchy.cs
       DtoLabelAccess-BatchLoaders.cs
+      DtoLabelAccess-AeDashboard.cs # Adverse-event dashboard queries and derivations
+      AeDashboardDerivation.cs      # Pure signal/triage/interchange/correlation math
+      AeDashboardFavoriteAccess.cs  # User favorite product persistence
+      AeCorrelationPipelineModels.cs # Internal (non-response) correlation pipeline records
       ... (and more)
     Middleware/
       TarpitMiddleware.cs           # Progressive delay for 404 abuse and endpoint rate limiting
@@ -200,6 +213,11 @@ MedRecPro/                          # Root repository
       MedRecPro-TableMissingIndexes.sql
       MedRecPro-TableCreate-OrangeBook.sql  # Orange Book table definitions (7 tables)
       MedRecPro-AzureOrangeBookNuke.sql     # Orange Book targeted truncation
+      MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql  # Stage 5 AE source-row coverage audit
+      MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql          # Stage 5 RR-ready AE stats (RR/DNRR/CI + PERSISTED log columns)
+      MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql      # Materialized dbo.vw_AeRisk for the dashboard
+      MedRecPro-Table-tmp_AeDashboardProductCatalog.sql           # Materialized dbo.vw_AeDashboardProductCatalog (picker)
+      MedRecPro-AdverseEvent-Export-Import.ps1  # BCP full-refresh of the AE tables (local -> Azure SQL)
 
   MedRecProStatic/                  # Static site and AI chat interface
     Program.cs                      # Startup, middleware, OAuth discovery endpoints
@@ -209,6 +227,7 @@ MedRecPro/                          # Root repository
     appsettings.Development.json
     Controllers/
       HomeController.cs             # Index, Terms, Privacy, Chat pages
+      AdverseEventDashboardController.cs  # /adverse-events React island host
     Middleware/
       TarpitMiddleware.cs           # Progressive delay for 404 abuse and endpoint rate limiting
     Models/
@@ -223,13 +242,17 @@ MedRecPro/                          # Root repository
         Terms.cshtml                # Terms of Service
         Privacy.cshtml              # Privacy Policy
         Chat.cshtml                 # AI chat interface
+      AdverseEventDashboard/
+        Index.cshtml                # Layout-free React dashboard host (mounts ae-dashboard bundle)
       Shared/
         _Layout.cshtml              # Master layout
+        _Masthead.cshtml            # Shared masthead partial (logo, nav incl. "Insight" -> /adverse-events)
     Content/
       config.json                   # Site config (URLs, branding, version)
       pages.json                    # Page content (home, terms, privacy)
     wwwroot/
-      css/                          # Stylesheets
+      ae-dashboard/                 # Committed Vite build output from MedRecProReact
+      css/                          # Stylesheets (incl. masthead.css)
       js/
         site.js                     # Global scripts
         chat/                       # AI chat modules (18 files)
@@ -307,16 +330,29 @@ MedRecPro/                          # Root repository
       ParsingServices/
         OrangeBookProductParsingService.cs  # Orange Book products.txt parsing, batch upserts, entity matching
         ... (20+ SPL parsers)
-      TransformationServices/
-        ColumnStandardizationService.cs     # Stage 3.25 column standardization (SOC normalization, Phase 2 content)
-        AeParameterCategoryDictionaryService.cs  # Static dictionary (698 entries) resolving NULL ParameterCategory → canonical SOC
+      TransformationServices/             # SPL table-standardization pipeline (Stage 0 -> Stage 5)
+        TableStandardizationServiceCollectionExtensions.cs  # AddTableStandardization(...) DI graph
+        ColumnStandardizationService.cs   # Stage 3.25 column standardization (SOC normalization, Phase 2 content)
+        AeParameterCategoryDictionaryService.cs  # Scoped service (1,189 entries) resolving NULL ParameterCategory → canonical SOC
         IAeParameterCategoryDictionaryService.cs # Interface for AE ParameterCategory dictionary lookup
+        AdverseEventTableFlattening/      # Stage 5 AE denormalization (RR/DNRR/CI) + RelativeRiskCalculator
+        ... (parsers, validators, dictionaries — see MedRecProImportClass/README.md)
     TableStandards/                 # Normalization rules, column contracts, and table-type definitions
       normalization-rules.md        # Deterministic Tier 1 rules + ML.NET Tier 2 guidance
-      column-contracts.md           # Per-TableCategory column contracts (38 columns)
+      column-contracts.md           # Per-TableCategory column contracts
       table-types.md                # TableCategory classification decision tree
     Context/
       ApplicationDbContext.cs       # EF Core context (auto-registers OrangeBook entities via reflection)
+
+  MedRecProReact/                   # React + Vite source for the adverse-event dashboard
+    index.html                      # Vite entry (mounts #aeDashboardApp / #root)
+    vite.config.js                  # base /ae-dashboard/, builds into MedRecProStatic/wwwroot/ae-dashboard
+    package.json                    # React 19, Vite 8, Vitest 4, ESLint 10
+    src/
+      App.jsx                       # Dashboard shell (product + class focus, all panels)
+      api/                          # /api/AdverseEvent client + dev/prod base resolution
+      lib/ hooks/ components/       # Normalizers, scales, hooks, charts (forest/quadrant/correlation)
+      test/                         # Vitest specs (see MedRecProReact/README.md)
 
   MedRecProTest/                    # Unit and integration tests
     SplImportServiceTests.cs
@@ -330,6 +366,9 @@ MedRecPro/                          # Root repository
     ResolveMcpUserTests.cs          # MCP user resolution and auto-provisioning tests
     TarpitServiceTests.cs           # Tarpit service unit tests (404 tracking + endpoint abuse)
     TarpitMiddlewareTests.cs        # Tarpit middleware integration tests
+    AdverseEventControllerTests.cs  # AE dashboard controller routing, auth, validation, feature gating
+    AeDashboardDataAccessTests.cs   # AE dashboard query + correlation data-access tests
+    AeDashboardDerivationTests.cs   # AE signal/triage/interchange/correlation derivation math tests
 ```
 
 ## API Endpoints Summary
@@ -486,6 +525,28 @@ The main data controller with 40+ endpoints covering navigation views, search, C
 | GET | `test/app-credential` | Test Azure credentials |
 | GET | `test/app-metrics-pipeline` | Test metrics pipeline |
 
+### Adverse Event Dashboard (`/api/AdverseEvent`)
+
+Backs the React adverse-event risk dashboard. The whole controller is gated by the `FeatureFlags:AeDashboard:Enabled` flag (returns 503 when disabled). Reads are anonymous (favorite state is enriched for authenticated users); favorite writes require `ApiAccess`. Class-picker responses expose pagination/aggregate totals via the `X-Page-Number`, `X-Page-Size`, `X-Total-Count`, and `X-Chartable-Count` headers.
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `products` | Dashboard product list with KPI/coverage data (paged) |
+| GET | `products/catalog` | Slim cached product catalog for the picker |
+| GET | `products/count` | Distinct product inventory count |
+| GET | `products/favorites` | Authenticated user's favorite products |
+| PUT | `products/{documentGuid}/favorite` | Add a favorite (idempotent, 204) |
+| DELETE | `products/{documentGuid}/favorite` | Remove a favorite (idempotent, 204) |
+| GET | `products/{documentGuid}/triage` | Tiered triage signals for one product |
+| GET | `products/{documentGuid}/forest` | Forest-plot payload for one product |
+| GET | `products/{documentGuid}/quadrant` | Risk-vs-precision quadrant payload |
+| GET | `reverse-lookup` | Products reporting one or more exact AE terms |
+| GET | `interchange` | Two-product therapeutic interchange comparison |
+| GET | `correlation/classes` | Pharmacologic classes with AE data (class picker) |
+| GET | `correlation` | SOC × SOC correlation map for one class |
+| GET | `correlation/heatmap` | Sparse SOC × drug RR heatmap for one class |
+| GET | `correlation/cell` | Per-drug drill-down for one correlation cell |
+
 ### MCP Server (`/mcp`)
 
 The MCP server exposes its own endpoints. See the [MedRecProMCP README](MedRecProMCP/README.md) for full details.
@@ -533,8 +594,13 @@ Database schema definitions and maintenance scripts are maintained in `MedRecPro
 | `MedRecPro-TableMissingIndexes.sql` | Identify missing indexes |
 | `MedRecPro-TableCreate-OrangeBook.sql` | Orange Book table definitions (7 tables, indexes, extended properties) |
 | `MedRecPro-AzureOrangeBookNuke.sql` | Targeted Orange Book truncation with safety preview mode |
+| `MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql` | Stage 5 AE source-row coverage / non-RR audit table |
+| `MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql` | Stage 5 RR-ready AE statistics (RR/DNRR/CI + PERSISTED log columns) |
+| `MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql` | Materialization of `dbo.vw_AeRisk` for the dashboard |
+| `MedRecPro-Table-tmp_AeDashboardProductCatalog.sql` | Materialization of `dbo.vw_AeDashboardProductCatalog` (picker) |
+| `MedRecPro-AdverseEvent-Export-Import.ps1` | BCP full-refresh of the AE tables (local SQL Server → Azure SQL, truncate-then-import) |
 
-When updating database schemas or views, modify the scripts in `MedRecPro/SQL/` and run them against the target database. The `MedRecPro_Views.sql` file is particularly important as the navigation view queries (ingredient search, labeler search, pharmacologic class hierarchy, etc.) are defined there and power many of the API search endpoints.
+When updating database schemas or views, modify the scripts in `MedRecPro/SQL/` and run them against the target database. The `MedRecPro_Views.sql` file is particularly important as the navigation view queries (ingredient search, labeler search, pharmacologic class hierarchy, etc.) are defined there and power many of the API search endpoints. The adverse-event dashboard is backed by the `dbo.vw_AeRisk`, `dbo.vw_AeDrugSummary`, and `dbo.vw_AeDashboardProductCatalog` views (also in `MedRecPro_Views.sql`), the last two materialized into `tmp_` tables by the Stage 5 pipeline so the dashboard reads without runtime statistics.
 
 ## AI Skills System
 
@@ -553,6 +619,18 @@ AI skills are defined as markdown prompt files in `MedRecPro/Skills/`. Key skill
 - **Pharmacologic Class Matching** - Map drugs to pharmacologic classifications
 - **Label Content** - Retrieve and synthesize label sections
 - **Data Rescue** - Fallback strategies for missing or incomplete data
+
+## Adverse Event Risk Dashboard
+
+The platform turns the free-text adverse-event tables buried in SPL labels into comparable risk statistics and exposes them as an interactive dashboard at `/adverse-events`.
+
+The data flow spans three projects:
+
+1. **MedRecProImportClass / MedRecProConsole** — the SPL table-standardization pipeline parses heterogeneous label tables into a uniform analytical schema and, in Stage 5, pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), and 95% confidence intervals per adverse-event row. Results are materialized into the `tmp_FlattenedAdverseEvent*` tables. See the [MedRecProImportClass README](MedRecProImportClass/README.md) for the full pipeline and the statistical contract.
+2. **MedRecPro (API)** — `AdverseEventController` (`/api/AdverseEvent`) serves dashboard-ready, encrypted-ID payloads from the materialized risk views: per-product triage/forest/quadrant, symptom reverse lookup, two-product therapeutic interchange, and pharmacologic-class SOC × SOC correlation maps, heatmaps, and per-cell drill-downs. The feature is gated by `FeatureFlags:AeDashboard:Enabled`.
+3. **MedRecProReact** — a React + Vite single-page island that renders the dashboard. Its build output is committed into `MedRecProStatic/wwwroot/ae-dashboard` and served by MedRecProStatic. See the [MedRecProReact README](MedRecProReact/README.md).
+
+Because the observation unit for class correlations is a single drug within a class, sample sizes are small and the dashboard is deliberately honesty-first: cells below a minimum-drug floor are suppressed rather than fabricated, and every payload carries explicit data-quality warnings. The displayed figures are bounded by what each label discloses and what the parser can extract — absence of a signal is not evidence of its absence in practice.
 
 ## FDA Orange Book Integration
 
@@ -680,7 +758,14 @@ dotnet run
 # Terminal 3: MCP server (port 5233, optional)
 cd MedRecProMCP
 dotnet run
+
+# Terminal 4: Adverse-event dashboard (Vite dev server, port 50346, optional)
+cd MedRecProReact
+npm install
+npm run dev
 ```
+
+The MVC-hosted dashboard at `http://localhost:5001/adverse-events` is served from the committed Vite bundle; the Vite dev server above is only for iterating on the React source. After changing React source, run `npm run build` and commit the regenerated `MedRecProStatic/wwwroot/ae-dashboard` assets (the .NET build does not run Vite).
 
 ### 5. Import data
 
