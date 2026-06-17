@@ -33,7 +33,7 @@ The solution's three web projects are deployed to a single Azure App Service usi
    +--------------------------------------------------------+
    |                                                        |
    |  /                site\wwwroot       MedRecProStatic   |
-   |  /adverse-events  (MedRecProStatic, React island)     |
+   |  /adverse-events  (MedRecProStatic, React island)      |
    |  /api             site\wwwroot\api   MedRecPro API     |
    |  /mcp             site\wwwroot\mcp   MedRecProMCP      |
    |                                                        |
