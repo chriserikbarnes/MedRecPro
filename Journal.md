@@ -5159,3 +5159,13 @@ Updated the comparison forest plot tooltips so the interchange points use the sa
 **Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 7 files and 35 tests. `npm.cmd run build` succeeded and refreshed `ae-dashboard.css` / `ae-dashboard.js`. `git diff --check` passed with line-ending warnings only.
 
 ---
+
+### 2026-06-18 9:13 AM EST — AE Dashboard MedDRA System Class Correlation API Plan
+
+Saved an API-only implementation handoff for the MedDRA-system-first inverse correlation workflow, keeping the scope to controller, DTO, data-access, derivation, paging, and test coverage with no frontend or database changes.
+
+**Plan artifact.** Added [Plans/(pending) AE Dashboard MedDRA System Class Correlation API Plan.md](Plans/(pending) AE Dashboard MedDRA System Class Correlation API Plan.md). The plan mirrors the existing class-first correlation lane, proposes `correlation/systems` picker, map, heatmap, and cell-detail endpoints, defines class x class term-profile correlation semantics, carries forward encrypted-ID and warning contracts, and lays out DRY reuse points across `AdverseEventController`, `DtoLabelAccess-AeDashboard`, `AeDashboardDerivation`, `AeCorrelationPipelineModels`, and `AeDashboardDto`.
+
+**Verification.** Verified the plan by exact `Get-Item`, first-page `Get-Content`, and `Select-String` markers for API-only scope, no database changes, `GetSystemCorrelationMap`, test coverage, and no-regression guardrails. No build or tests were run because this session created a planning artifact only.
+
+---
