@@ -1845,4 +1845,652 @@ namespace MedRecPro.Models
 
         #endregion Pair Properties
     }
+
+    /**************************************************************/
+    /// <summary>
+    /// Applied-filter echo for MedDRA-system-scoped class correlation payloads.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <see cref="AeCorrelationFilters"/> while naming the floor by the
+    /// observation unit used in this inverse lane: shared selected-SOC terms.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var filters = new AeSystemCorrelationFilters { MinTermsPerCell = 4 };
+    /// </code>
+    /// </example>
+    /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+    /// <seealso cref="AeSystemClassCorrelationCellDetailDto"/>
+    public sealed class AeSystemCorrelationFilters
+    {
+        #region Filter Properties
+
+        /**************************************************************/
+        /// <summary>Comparator mix used to scope input rows; defaults to placebo-controlled only.</summary>
+        public AeComparatorMix Comparator { get; set; } = AeComparatorMix.Placebo;
+
+        /**************************************************************/
+        /// <summary>Whether RR-non-significant input rows are retained before aggregation.</summary>
+        public bool IncludeNonSignificant { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>Whether fragile/wide-CI input rows are dropped before aggregation.</summary>
+        public bool ExcludeFragile { get; set; } = true;
+
+        /**************************************************************/
+        /// <summary>Minimum shared selected-SOC terms a class-pair cell needs for a map-safe coefficient.</summary>
+        public int MinTermsPerCell { get; set; } = 4;
+
+        /**************************************************************/
+        /// <summary>Correlation coefficient method.</summary>
+        public AeCorrelationMethod Method { get; set; } = AeCorrelationMethod.Spearman;
+
+        /**************************************************************/
+        /// <summary>Within-class aggregation method for LogRR values.</summary>
+        public AeCorrelationAggregation Aggregation { get; set; } = AeCorrelationAggregation.MedianLogRr;
+
+        /**************************************************************/
+        /// <summary>Whether combination-product input rows are dropped before aggregation.</summary>
+        public bool ExcludeCombos { get; set; } = false;
+
+        /**************************************************************/
+        /// <summary>Minimum total treatment plus comparator events an input row needs to count.</summary>
+        public int MinEvents { get; set; } = 0;
+
+        #endregion Filter Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Page metadata for paged correlation axes and detail rows.
+    /// </summary>
+    /// <remarks>
+    /// Used in response bodies where headers cannot describe more than one independent
+    /// axis, such as class-row and drug-column windows on a heatmap.
+    /// </remarks>
+    /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+    /// <seealso cref="AeSystemClassHeatmapDto"/>
+    public class AeCorrelationAxisPageDto
+    {
+        #region Page Properties
+
+        /**************************************************************/
+        /// <summary>Current 1-based page number.</summary>
+        public int PageNumber { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of items requested per page.</summary>
+        public int PageSize { get; set; }
+
+        /**************************************************************/
+        /// <summary>Total items available before paging.</summary>
+        public int TotalCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Total page count based on <see cref="TotalCount"/> and <see cref="PageSize"/>.</summary>
+        public int TotalPages { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether a prior page exists.</summary>
+        public bool HasPreviousPage { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether a later page exists.</summary>
+        public bool HasNextPage { get; set; }
+
+        #endregion Page Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One MedDRA System Organ Class option for the inverse correlation picker.
+    /// </summary>
+    /// <remarks>
+    /// The key is the canonical <see cref="AeRiskSignalDto.ParameterCategory"/> value already
+    /// present in dashboard risk rows. Renderability is based on whether any class-pair
+    /// term-profile cell can meet the active terms-per-cell floor.
+    /// </remarks>
+    /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+    public class AeMeddraSystemPickerItemDto
+    {
+        #region Picker Properties
+
+        /**************************************************************/
+        /// <summary>Canonical MedDRA System Organ Class display name.</summary>
+        public string? SystemOrganClass { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct pharmacologic classes with usable rows in this system.</summary>
+        public int ClassCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct drugs with usable rows in this system.</summary>
+        public int DrugCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct adverse-event terms with usable rows in this system.</summary>
+        public int TermCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Total possible off-diagonal class-pair cells for this system.</summary>
+        public int TotalOffDiagonalCellCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Off-diagonal class-pair cells meeting the active terms-per-cell floor.</summary>
+        public int UsableMapCellCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Largest shared-term count found across class pairs in this system.</summary>
+        public int MaxPairCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether at least one off-diagonal class-pair cell can render on the map.</summary>
+        public bool HasRenderableMap { get; set; }
+
+        /**************************************************************/
+        /// <summary>Human-readable reason the system cannot render an off-diagonal map cell.</summary>
+        public string? RenderabilityReason { get; set; }
+
+        #endregion Picker Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One pharmacologic class axis item in a MedDRA-system-scoped response.
+    /// </summary>
+    /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+    /// <seealso cref="AeSystemClassHeatmapDto"/>
+    public class AeSystemClassAxisItemDto
+    {
+        #region Axis Properties
+
+        /**************************************************************/
+        /// <summary>Index of this class within the returned page window.</summary>
+        public int Index { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code used by cell-detail requests.</summary>
+        public string? PharmClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class display name.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Encrypted pharmacologic class identifier for client-safe navigation.</summary>
+        public string? EncryptedPharmacologicClassID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class identifier for server-side navigation.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? PharmacologicClassID =>
+            !string.IsNullOrWhiteSpace(EncryptedPharmacologicClassID)
+                ? Util.DecryptAndParseInt(EncryptedPharmacologicClassID)
+                : null;
+
+        /**************************************************************/
+        /// <summary>Distinct selected-SOC terms contributing to this class axis item.</summary>
+        public int TermCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct drugs contributing to this class axis item.</summary>
+        public int DrugCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether this class has at least one renderable off-diagonal class-pair cell.</summary>
+        public bool HasRenderableMap { get; set; }
+
+        #endregion Axis Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One class-pair cell in the system-scoped class correlation matrix.
+    /// </summary>
+    /// <remarks>
+    /// Off-diagonal coefficients correlate selected-SOC adverse-event term profiles across
+    /// pharmacologic classes. Diagonal cells are non-informative and forced to 1.0.
+    /// </remarks>
+    /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+    public class AeSystemClassCorrelationCellDto
+    {
+        #region Cell Properties
+
+        /**************************************************************/
+        /// <summary>Row index into the returned class axis window.</summary>
+        public int RowIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column index into the returned class axis window.</summary>
+        public int ColumnIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Row pharmacologic class code.</summary>
+        public string? RowClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column pharmacologic class code.</summary>
+        public string? ColumnClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Map-safe correlation coefficient, or null below the floor or when undefined.</summary>
+        public double? Coefficient { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of shared selected-SOC terms behind the cell.</summary>
+        public int PairCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Two-sided p-value, when computable and not suppressed by the floor.</summary>
+        public double? PValue { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the map-safe coefficient is significant at p &lt; 0.05.</summary>
+        public bool IsSignificant { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether any contributing aggregate included fragile rows.</summary>
+        public bool IsFragile { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the cell fell below the minimum terms-per-cell floor.</summary>
+        public bool InsufficientN { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the cell is on the non-informative diagonal.</summary>
+        public bool IsDiagonal { get; set; }
+
+        #endregion Cell Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Per-class marginal summary aligned to a system-scoped class axis.
+    /// </summary>
+    /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+    public class AeSystemClassSummaryDto
+    {
+        #region Summary Properties
+
+        /**************************************************************/
+        /// <summary>Index into the returned class axis window.</summary>
+        public int Index { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code.</summary>
+        public string? PharmClassCode { get; set; }
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class display name.</summary>
+        public string? PharmClassName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct drugs represented by this class under the selected systems.</summary>
+        public int DrugCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct selected-SOC terms represented by this class.</summary>
+        public int TermCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Median class-term LogRR across selected systems.</summary>
+        public double? MedianLogRr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Median class-term RR across selected systems.</summary>
+        public double? MedianRr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Share of contributing rows classified elevated.</summary>
+        public double ElevatedShare { get; set; }
+
+        /**************************************************************/
+        /// <summary>Share of contributing rows classified protective.</summary>
+        public double ProtectiveShare { get; set; }
+
+        #endregion Summary Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Pharmacologic-class x pharmacologic-class correlation map scoped to selected MedDRA systems.
+    /// </summary>
+    /// <remarks>
+    /// Cells correlate selected-SOC term profiles across classes, not shared drugs. The class
+    /// axis is paged symmetrically unless <see cref="IncludesFullMatrix"/> is true, and
+    /// <see cref="Warnings"/> explains pairwise deletion, mixed comparator requests, fragile
+    /// inclusion, and below-floor cells.
+    /// </remarks>
+    /// <seealso cref="AeSystemClassCorrelationCellDto"/>
+    /// <seealso cref="AeSystemClassSummaryDto"/>
+    public class AeSystemClassCorrelationMapDto
+    {
+        #region Context Properties
+
+        /**************************************************************/
+        /// <summary>Canonical selected MedDRA System Organ Classes echoed from the data.</summary>
+        public List<string> SelectedSystems { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Applied filters echoed for reproducibility.</summary>
+        public AeSystemCorrelationFilters AppliedFilters { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Total selected-SOC classes after filters and before axis paging.</summary>
+        public int ClassCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Whether the returned class axis and cells cover every filtered class instead of a paged matrix window.
+        /// </summary>
+        public bool IncludesFullMatrix { get; set; }
+
+        /**************************************************************/
+        /// <summary>Page metadata for the returned class axis window.</summary>
+        public AeCorrelationAxisPageDto ClassPage { get; set; } = new();
+
+        #endregion Context Properties
+
+        #region Matrix Properties
+
+        /**************************************************************/
+        /// <summary>Returned pharmacologic class axis window.</summary>
+        public List<AeSystemClassAxisItemDto> Classes { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Upper-triangle-including-diagonal class-pair cells for the returned class window.</summary>
+        public List<AeSystemClassCorrelationCellDto> Cells { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Per-class marginal summaries aligned to <see cref="Classes"/>.</summary>
+        public List<AeSystemClassSummaryDto> ClassSummaries { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Honesty warnings for clients to surface.</summary>
+        public List<string> Warnings { get; set; } = new();
+
+        #endregion Matrix Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One drug column in a system-scoped class x drug heatmap.
+    /// </summary>
+    /// <seealso cref="AeSystemClassHeatmapDto"/>
+    public class AeSystemClassHeatmapDrugDto
+    {
+        #region Drug Properties
+
+        /**************************************************************/
+        /// <summary>Index of this drug within the returned drug axis window.</summary>
+        public int Index { get; set; }
+
+        /**************************************************************/
+        /// <summary>Encrypted active moiety identifier for client-safe navigation.</summary>
+        public string? EncryptedActiveMoietyID { get; set; }
+
+        /**************************************************************/
+        /// <summary>Active moiety identifier for server-side navigation.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public int? ActiveMoietyID =>
+            !string.IsNullOrWhiteSpace(EncryptedActiveMoietyID)
+                ? Util.DecryptAndParseInt(EncryptedActiveMoietyID)
+                : null;
+
+        /**************************************************************/
+        /// <summary>Drug display name.</summary>
+        public string? DrugDisplayName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Source SPL document identifier for fallback provenance.</summary>
+        public Guid? DocumentGUID { get; set; }
+
+        #endregion Drug Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One populated cell of a system-scoped class x drug heatmap.
+    /// </summary>
+    /// <remarks>
+    /// Empty class/drug intersections are absent from <see cref="AeSystemClassHeatmapDto.Cells"/>.
+    /// </remarks>
+    /// <seealso cref="AeSystemClassHeatmapDto"/>
+    public class AeSystemClassHeatmapCellDto
+    {
+        #region Cell Properties
+
+        /**************************************************************/
+        /// <summary>Row index into the returned class axis window.</summary>
+        public int ClassIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column index into the returned drug axis window.</summary>
+        public int DrugIndex { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated LogRR for the selected systems, class, and drug.</summary>
+        public double? LogRr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated RR for display.</summary>
+        public double? Rr { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative precision class for the cell.</summary>
+        public AePrecisionClass? Precision { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative RR significance for the cell.</summary>
+        public AeRiskSignificance? Significance { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of selected-SOC terms aggregated into the cell.</summary>
+        public int TermCount { get; set; }
+
+        #endregion Cell Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Pharmacologic-class x drug relative-risk heatmap scoped to selected MedDRA systems.
+    /// </summary>
+    /// <seealso cref="AeSystemClassHeatmapCellDto"/>
+    /// <seealso cref="AeSystemClassHeatmapDrugDto"/>
+    public class AeSystemClassHeatmapDto
+    {
+        #region Context Properties
+
+        /**************************************************************/
+        /// <summary>Canonical selected MedDRA System Organ Classes echoed from the data.</summary>
+        public List<string> SelectedSystems { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Applied filters echoed for reproducibility.</summary>
+        public AeSystemCorrelationFilters AppliedFilters { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Page metadata for the returned class rows.</summary>
+        public AeCorrelationAxisPageDto ClassPage { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Page metadata for the returned drug columns.</summary>
+        public AeCorrelationAxisPageDto DrugPage { get; set; } = new();
+
+        #endregion Context Properties
+
+        #region Grid Properties
+
+        /**************************************************************/
+        /// <summary>Returned pharmacologic class rows.</summary>
+        public List<AeSystemClassAxisItemDto> Classes { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Returned drug columns.</summary>
+        public List<AeSystemClassHeatmapDrugDto> Drugs { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Populated class/drug cells only.</summary>
+        public List<AeSystemClassHeatmapCellDto> Cells { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Honesty warnings for clients to surface.</summary>
+        public List<string> Warnings { get; set; } = new();
+
+        #endregion Grid Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// One shared selected-SOC term pair behind a system-scoped class-pair cell.
+    /// </summary>
+    /// <seealso cref="AeSystemClassCorrelationCellDetailDto"/>
+    public class AeSystemClassTermPairDto
+    {
+        #region Pair Properties
+
+        /**************************************************************/
+        /// <summary>MedDRA System Organ Class for the shared term.</summary>
+        public string? SystemOrganClass { get; set; }
+
+        /**************************************************************/
+        /// <summary>Canonical adverse-event term name.</summary>
+        public string? ParameterName { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated LogRR for class X.</summary>
+        public double? LogRrX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated LogRR for class Y.</summary>
+        public double? LogRrY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated RR for class X.</summary>
+        public double? RrX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Aggregated RR for class Y.</summary>
+        public double? RrY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative precision for class X.</summary>
+        public AePrecisionClass? PrecisionX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative precision for class Y.</summary>
+        public AePrecisionClass? PrecisionY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative significance for class X.</summary>
+        public AeRiskSignificance? SignificanceX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Representative significance for class Y.</summary>
+        public AeRiskSignificance? SignificanceY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct drugs aggregated for class X on this term.</summary>
+        public int DrugCountX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Distinct drugs aggregated for class Y on this term.</summary>
+        public int DrugCountY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Term row count aggregated for class X.</summary>
+        public int TermCountX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Term row count aggregated for class Y.</summary>
+        public int TermCountY { get; set; }
+
+        #endregion Pair Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Drill-down detail behind one system-scoped class-pair correlation cell.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Coefficient"/> is the map-safe value suppressed below
+    /// <see cref="MinTermsPerCell"/>; <see cref="RawCoefficient"/> is diagnostic and
+    /// unsuppressed for transparency.
+    /// </remarks>
+    /// <seealso cref="AeSystemClassTermPairDto"/>
+    /// <seealso cref="AeSystemClassCorrelationCellDto"/>
+    public class AeSystemClassCorrelationCellDetailDto
+    {
+        #region Cell Context Properties
+
+        /**************************************************************/
+        /// <summary>Canonical selected MedDRA System Organ Classes echoed from the data.</summary>
+        public List<string> SelectedSystems { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Row pharmacologic class.</summary>
+        public AeSystemClassAxisItemDto? ClassX { get; set; }
+
+        /**************************************************************/
+        /// <summary>Column pharmacologic class.</summary>
+        public AeSystemClassAxisItemDto? ClassY { get; set; }
+
+        /**************************************************************/
+        /// <summary>Applied filters echoed for reproducibility.</summary>
+        public AeSystemCorrelationFilters AppliedFilters { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Map-safe correlation coefficient for the cell.</summary>
+        public double? Coefficient { get; set; }
+
+        /**************************************************************/
+        /// <summary>Unsuppressed diagnostic coefficient computed from shared terms.</summary>
+        public double? RawCoefficient { get; set; }
+
+        /**************************************************************/
+        /// <summary>Map-safe two-sided p-value, when computable.</summary>
+        public double? PValue { get; set; }
+
+        /**************************************************************/
+        /// <summary>Unsuppressed diagnostic two-sided p-value, when computable.</summary>
+        public double? RawPValue { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the map-safe coefficient is significant at p &lt; 0.05.</summary>
+        public bool IsSignificant { get; set; }
+
+        /**************************************************************/
+        /// <summary>Number of shared selected-SOC terms behind the cell.</summary>
+        public int PairCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Clamped terms-per-cell floor applied to <see cref="Coefficient"/>.</summary>
+        public int MinTermsPerCell { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the cell fell below <see cref="MinTermsPerCell"/>.</summary>
+        public bool InsufficientN { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether the requested classes are identical.</summary>
+        public bool IsDiagonal { get; set; }
+
+        /**************************************************************/
+        /// <summary>Page metadata for the returned term-pair rows.</summary>
+        public AeCorrelationAxisPageDto TermPairPage { get; set; } = new();
+
+        #endregion Cell Context Properties
+
+        #region Pair Properties
+
+        /**************************************************************/
+        /// <summary>Shared selected-SOC adverse-event terms behind the coefficient.</summary>
+        public List<AeSystemClassTermPairDto> TermPairs { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Honesty warnings for clients to surface.</summary>
+        public List<string> Warnings { get; set; } = new();
+
+        #endregion Pair Properties
+    }
 }

@@ -226,6 +226,10 @@ namespace MedRecProTest
                 false)).Result!, StatusCodes.Status503ServiceUnavailable);
             assertStatus((await controller.GetCorrelationMap("ANY", null)).Result!, StatusCodes.Status503ServiceUnavailable);
             assertStatus((await controller.GetCorrelationClasses(null, null, null)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetCorrelationSystems(null, null, null)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetSystemCorrelationMap(new List<string> { "A" }, null, null, null)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { "A" }, null, null, null, null, null, null)).Result!, StatusCodes.Status503ServiceUnavailable);
+            assertStatus((await controller.GetSystemCorrelationCell(new List<string> { "A" }, "X", "Y")).Result!, StatusCodes.Status503ServiceUnavailable);
             assertStatus((await controller.GetCorrelationHeatmap("ANY", null)).Result!, StatusCodes.Status503ServiceUnavailable);
             assertStatus((await controller.GetCorrelationCell("ANY", "A", "B", null)).Result!, StatusCodes.Status503ServiceUnavailable);
 
@@ -562,16 +566,24 @@ namespace MedRecProTest
 
             var map = getAction(nameof(AdverseEventController.GetCorrelationMap));
             var classes = getAction(nameof(AdverseEventController.GetCorrelationClasses));
+            var systems = getAction(nameof(AdverseEventController.GetCorrelationSystems));
+            var systemMap = getAction(nameof(AdverseEventController.GetSystemCorrelationMap));
+            var systemHeatmap = getAction(nameof(AdverseEventController.GetSystemCorrelationHeatmap));
+            var systemCell = getAction(nameof(AdverseEventController.GetSystemCorrelationCell));
             var heatmap = getAction(nameof(AdverseEventController.GetCorrelationHeatmap));
             var cell = getAction(nameof(AdverseEventController.GetCorrelationCell));
 
             Assert.AreEqual("correlation", map.GetCustomAttribute<HttpGetAttribute>()!.Template);
             Assert.AreEqual("correlation/classes", classes.GetCustomAttribute<HttpGetAttribute>()!.Template);
+            Assert.AreEqual("correlation/systems", systems.GetCustomAttribute<HttpGetAttribute>()!.Template);
+            Assert.AreEqual("correlation/systems/map", systemMap.GetCustomAttribute<HttpGetAttribute>()!.Template);
+            Assert.AreEqual("correlation/systems/heatmap", systemHeatmap.GetCustomAttribute<HttpGetAttribute>()!.Template);
+            Assert.AreEqual("correlation/systems/cell", systemCell.GetCustomAttribute<HttpGetAttribute>()!.Template);
             Assert.AreEqual("correlation/heatmap", heatmap.GetCustomAttribute<HttpGetAttribute>()!.Template);
             Assert.AreEqual("correlation/cell", cell.GetCustomAttribute<HttpGetAttribute>()!.Template);
 
             // Every correlation route is anonymous, database-governed, and reports 500/503.
-            foreach (var action in new[] { map, classes, heatmap, cell })
+            foreach (var action in new[] { map, classes, systems, systemMap, systemHeatmap, systemCell, heatmap, cell })
             {
                 Assert.IsNotNull(action.GetCustomAttribute<AllowAnonymousAttribute>(), $"{action.Name} should be anonymous.");
                 Assert.IsTrue(action.GetCustomAttributes<DatabaseLimitAttribute>().Any(), $"{action.Name} should declare DatabaseLimit.");
@@ -586,6 +598,17 @@ namespace MedRecProTest
             assertProduces(map, StatusCodes.Status404NotFound);
             assertProduces(classes, StatusCodes.Status200OK, typeof(List<AePharmClassPickerItemDto>));
             assertProduces(classes, StatusCodes.Status400BadRequest);
+            assertProduces(systems, StatusCodes.Status200OK, typeof(List<AeMeddraSystemPickerItemDto>));
+            assertProduces(systems, StatusCodes.Status400BadRequest);
+            assertProduces(systemMap, StatusCodes.Status200OK, typeof(AeSystemClassCorrelationMapDto));
+            assertProduces(systemMap, StatusCodes.Status400BadRequest);
+            assertProduces(systemMap, StatusCodes.Status404NotFound);
+            assertProduces(systemHeatmap, StatusCodes.Status200OK, typeof(AeSystemClassHeatmapDto));
+            assertProduces(systemHeatmap, StatusCodes.Status400BadRequest);
+            assertProduces(systemHeatmap, StatusCodes.Status404NotFound);
+            assertProduces(systemCell, StatusCodes.Status200OK, typeof(AeSystemClassCorrelationCellDetailDto));
+            assertProduces(systemCell, StatusCodes.Status400BadRequest);
+            assertProduces(systemCell, StatusCodes.Status404NotFound);
             assertProduces(heatmap, StatusCodes.Status200OK, typeof(AeCorrelationHeatmapDto));
             assertProduces(heatmap, StatusCodes.Status400BadRequest);
             assertProduces(heatmap, StatusCodes.Status404NotFound);
@@ -658,6 +681,44 @@ namespace MedRecProTest
             // The class picker surfaces the seeded correlatable class.
             var classes = getOkValue<List<AePharmClassPickerItemDto>>(await controller.GetCorrelationClasses(null, null, null, minDrugsPerCell: 3));
             Assert.IsTrue(classes.Any(item => item.PharmClassCode == code && item.HasRenderableMap && item.IsCorrelatable));
+
+            // System-first endpoints validate blank system lists, enum values, negative events, and bounded pages.
+            assertStatus((await controller.GetSystemCorrelationMap(new List<string> { " " }, null, null, null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { " " }, null, null, null, null, null, null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationCell(new List<string> { " " }, code, code)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationCell(new List<string> { socA }, " ", code)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationMap(new List<string> { socA }, null, null, null, (AeComparatorMix)99)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationMap(new List<string> { socA }, null, null, null, minEvents: -1)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationMap(new List<string> { socA }, null, 0, null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { socA }, null, null, null, null, null, 201)).Result!, StatusCodes.Status400BadRequest);
+
+            // Unknown selected systems -> 404 (controller maps null data-access result).
+            assertStatus((await controller.GetSystemCorrelationMap(new List<string> { "No Such SOC" }, null, null, null)).Result!, StatusCodes.Status404NotFound);
+            assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { "No Such SOC" }, null, null, null, null, null, null)).Result!, StatusCodes.Status404NotFound);
+            assertStatus((await controller.GetSystemCorrelationCell(new List<string> { "No Such SOC" }, code, code)).Result!, StatusCodes.Status404NotFound);
+
+            // Valid system-first responses echo canonical selected systems and body-level paging metadata.
+            var systems = getOkValue<List<AeMeddraSystemPickerItemDto>>(await controller.GetCorrelationSystems(null, 1, 1, minTermsPerCell: 3));
+            Assert.AreEqual(1, systems.Count);
+            StringAssert.Contains(controller.Response.Headers["X-Chartable-Count"].ToString(), "0");
+
+            var systemMap = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA.ToLowerInvariant() }, null, null, null, minTermsPerCell: 3));
+            Assert.AreEqual(socA, systemMap.SelectedSystems.Single());
+            Assert.IsFalse(systemMap.IncludesFullMatrix);
+            Assert.AreEqual(1, systemMap.ClassPage.PageNumber);
+            Assert.AreEqual(40, systemMap.ClassPage.PageSize);
+
+            var fullSystemMap = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA }, null, 1, 1, minTermsPerCell: 3, includeFullMatrix: true));
+            Assert.IsTrue(fullSystemMap.IncludesFullMatrix);
+            Assert.AreEqual(fullSystemMap.ClassCount, fullSystemMap.Classes.Count);
+
+            var systemHeatmap = getOkValue<AeSystemClassHeatmapDto>(await controller.GetSystemCorrelationHeatmap(new List<string> { socA }, null, null, null, null, null, null));
+            Assert.AreEqual(1, systemHeatmap.ClassPage.PageNumber);
+            Assert.AreEqual(50, systemHeatmap.DrugPage.PageSize);
+
+            var systemCell = getOkValue<AeSystemClassCorrelationCellDetailDto>(await controller.GetSystemCorrelationCell(new List<string> { socA }, code, code, minTermsPerCell: 3));
+            Assert.IsTrue(systemCell.IsDiagonal);
+            Assert.AreEqual(1.0, systemCell.Coefficient);
 
             #endregion
         }

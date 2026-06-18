@@ -5169,3 +5169,27 @@ Saved an API-only implementation handoff for the MedDRA-system-first inverse cor
 **Verification.** Verified the plan by exact `Get-Item`, first-page `Get-Content`, and `Select-String` markers for API-only scope, no database changes, `GetSystemCorrelationMap`, test coverage, and no-regression guardrails. No build or tests were run because this session created a planning artifact only.
 
 ---
+
+### 2026-06-18 10:12 AM EST — AE Dashboard MedDRA System Class Correlation API
+
+Implemented the MedDRA-system-first inverse correlation API lane, adding the system picker, system-scoped class map, class x drug heatmap, and class-pair cell detail endpoints with no frontend or database changes.
+
+**Implementation.** Updated [AeDashboardDto.cs](MedRecPro/Models/AeDashboardDto.cs) with system-first response DTOs, encrypted class/moiety identifiers, body-level page metadata, and system-specific filter echoes. Added pipeline-only records in [AeCorrelationPipelineModels.cs](MedRecPro/DataAccess/AeCorrelationPipelineModels.cs), pure class-term/class-drug aggregation and builders in [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs), EF-backed read methods plus canonical SOC handling in [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs), and four thin controller actions in [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs).
+
+**Tests and plan.** Added focused controller and SQLite data-access coverage in [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) and [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs), covering route metadata, feature-disabled behavior, validation, picker headers, canonical selected systems, class-axis and drug-axis paging, below-floor null coefficients, sparse heatmap cells, raw-vs-map-safe cell detail, diagonal handling, and missing-class warnings. Renamed the handoff artifact to [Plans/(done) AE Dashboard MedDRA System Class Correlation API Plan.md](Plans/(done) AE Dashboard MedDRA System Class Correlation API Plan.md).
+
+**Verification.** `dotnet build .\MedRecPro\MedRecPro.csproj -p:UseAppHost=false -p:OutDir=.\artifacts\build\MedRecPro\` passed after an approved rerun outside the sandbox for NuGet config access, with existing repo warning noise. `dotnet build .\MedRecProTest\MedRecProTest.csproj -p:UseAppHost=false -p:OutDir=.\artifacts\build\MedRecProTest\` passed with the same existing warnings. Focused `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` passed 62/62. Full `dotnet test .\MedRecProTest\MedRecProTest.csproj` passed 2241/2242 with 1 skipped test (`EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly`).
+
+---
+
+### 2026-06-18 10:46 AM EST — AE Dashboard Full System Matrix Toggle
+
+Added an opt-in full-matrix mode for the MedDRA-system-first class correlation map so clients can request either the existing page-local matrix or the complete filtered class-pair matrix from the same endpoint.
+
+**Implementation.** Added the `includeFullMatrix` query parameter to [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs) for `GET /api/AdverseEvent/correlation/systems/map`, defaulting to `false` to preserve page-window behavior. Threaded the flag through [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs) into [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs), where full-matrix mode ignores class-axis paging before cell generation. Added `IncludesFullMatrix` to [AeDashboardDto.cs](MedRecPro/Models/AeDashboardDto.cs) so responses explicitly describe the returned matrix scope.
+
+**Tests.** Updated [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) to verify the MVC action echoes the full-matrix flag and returns all filtered classes when requested. Added a SQLite data-access regression in [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs) showing `classPageSize=1` remains page-local by default but returns every class and all upper-triangle cells when `includeFullMatrix=true`.
+
+**Verification.** A sandboxed `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` failed because the sandbox could not read `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`. The approved rerun of the same command passed 63/63 focused tests with the repo's existing warning noise.
+
+---

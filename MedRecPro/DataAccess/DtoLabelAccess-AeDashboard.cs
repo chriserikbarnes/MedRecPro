@@ -1193,6 +1193,386 @@ namespace MedRecPro.DataAccess
             #endregion
         }
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets MedDRA System Organ Classes that have AE rows for system-first correlation.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="systemSearch">Optional SOC display-name search text.</param>
+        /// <param name="page">Optional 1-based page number.</param>
+        /// <param name="size">Optional page size.</param>
+        /// <param name="comparator">Comparator mix used to scope input rows.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained before renderability checks.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before renderability checks.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped before renderability checks.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="minTermsPerCell">Minimum shared terms a class-pair cell needs to render.</param>
+        /// <returns>MedDRA system picker page ordered map-ready-first, with total and chartable counts.</returns>
+        /// <remarks>
+        /// Groups existing <see cref="LabelView.FlattenedAdverseEventRiskTable.ParameterCategory"/>
+        /// values after the same derived filters used by the map and heatmap. No MedDRA schema
+        /// table is introduced.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var systems = await DtoLabelAccess.GetAeCorrelationSystemsAsync(db, secret, logger, "cardiac");
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeMeddraSystemPickerItemDto"/>
+        /// <seealso cref="AeSystemPickerPage"/>
+        public static async Task<AeSystemPickerPage> GetAeCorrelationSystemsAsync(
+            ApplicationDbContext db,
+            string pkSecret,
+            ILogger logger,
+            string? systemSearch = null,
+            int? page = null,
+            int? size = null,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            bool excludeCombos = false,
+            int minEvents = 0,
+            int minTermsPerCell = 4)
+        {
+            #region implementation
+
+            var filters = buildSystemCorrelationFilters(
+                comparator,
+                includeNonSignificant,
+                excludeFragile,
+                minTermsPerCell,
+                AeCorrelationMethod.Spearman,
+                AeCorrelationAggregation.MedianLogRr,
+                excludeCombos,
+                minEvents);
+            var context = await buildSystemCorrelationObservationsAsync(
+                db,
+                selectedSystems: null,
+                pkSecret,
+                logger,
+                filters,
+                classSearch: null,
+                drugSearch: null);
+            if (context == null)
+            {
+                return new AeSystemPickerPage(new List<AeMeddraSystemPickerItemDto>(), 0, 0);
+            }
+
+            var floor = Math.Max(filters.MinTermsPerCell, 3);
+            var items = context.Value.Observations
+                .GroupBy(observation => observation.SystemOrganClass, StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    var observations = group.ToList();
+                    var perClassTerm = observations
+                        .GroupBy(observation => observation.ClassCode, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(
+                            classGroup => classGroup.First().ClassCode,
+                            classGroup => classGroup
+                                .Select(observation => observation.TermKey)
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                            StringComparer.OrdinalIgnoreCase);
+                    var classCodes = perClassTerm.Keys.ToList();
+                    var totalOffDiagonalCellCount = classCodes.Count * (classCodes.Count - 1) / 2;
+                    var usableMapCellCount = 0;
+                    var maxPairCount = 0;
+
+                    for (var i = 0; i < classCodes.Count; i++)
+                    {
+                        for (var j = i + 1; j < classCodes.Count; j++)
+                        {
+                            var pairCount = perClassTerm[classCodes[i]]
+                                .Intersect(perClassTerm[classCodes[j]], StringComparer.OrdinalIgnoreCase)
+                                .Count();
+                            maxPairCount = Math.Max(maxPairCount, pairCount);
+                            if (pairCount >= floor)
+                            {
+                                usableMapCellCount++;
+                            }
+                        }
+                    }
+
+                    var hasRenderableMap = usableMapCellCount > 0;
+                    return new AeMeddraSystemPickerItemDto
+                    {
+                        SystemOrganClass = group.First().SystemOrganClass,
+                        ClassCount = classCodes.Count,
+                        DrugCount = observations.Select(observation => observation.DrugKey).Distinct(StringComparer.Ordinal).Count(),
+                        TermCount = observations.Select(observation => observation.TermKey).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                        TotalOffDiagonalCellCount = totalOffDiagonalCellCount,
+                        UsableMapCellCount = usableMapCellCount,
+                        MaxPairCount = maxPairCount,
+                        HasRenderableMap = hasRenderableMap,
+                        RenderabilityReason = hasRenderableMap
+                            ? null
+                            : totalOffDiagonalCellCount == 0
+                                ? "Fewer than two pharmacologic classes remain under the active filters."
+                                : $"No class pair meets the {floor}-term floor."
+                    };
+                })
+                .Where(item => string.IsNullOrWhiteSpace(systemSearch)
+                    || (item.SystemOrganClass?.Contains(systemSearch.Trim(), StringComparison.OrdinalIgnoreCase) ?? false))
+                .OrderByDescending(item => item.HasRenderableMap)
+                .ThenByDescending(item => item.UsableMapCellCount)
+                .ThenByDescending(item => item.MaxPairCount)
+                .ThenByDescending(item => item.ClassCount)
+                .ThenBy(item => item.SystemOrganClass ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var totalCount = items.Count;
+            var chartableCount = items.Count(item => item.HasRenderableMap);
+            if (page.HasValue && size.HasValue && page.Value > 0 && size.Value > 0)
+            {
+                items = items
+                    .Skip((page.Value - 1) * size.Value)
+                    .Take(size.Value)
+                    .ToList();
+            }
+
+            return new AeSystemPickerPage(items, totalCount, chartableCount);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the system-scoped pharmacologic-class correlation map.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class display names.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="classSearch">Optional class code or name search before axis paging.</param>
+        /// <param name="classPageNumber">1-based class-axis page number.</param>
+        /// <param name="classPageSize">Class-axis page size.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained before aggregation.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before aggregation.</param>
+        /// <param name="minTermsPerCell">Minimum shared selected-SOC terms a cell needs for a coefficient.</param>
+        /// <param name="method">Correlation method; Spearman by default.</param>
+        /// <param name="aggregation">Within-class aggregation; median LogRR by default.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return the complete filtered matrix.</param>
+        /// <returns>The system-scoped class correlation map, or null when selected systems have no usable rows.</returns>
+        /// <remarks>
+        /// Correlates pharmacologic classes over selected-SOC adverse-event term profiles.
+        /// </remarks>
+        /// <seealso cref="AeDashboardDerivation.BuildSystemClassCorrelationMap"/>
+        /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+        public static async Task<AeSystemClassCorrelationMapDto?> GetAeSystemCorrelationMapAsync(
+            ApplicationDbContext db,
+            IEnumerable<string> systems,
+            string pkSecret,
+            ILogger logger,
+            string? classSearch = null,
+            int classPageNumber = 1,
+            int classPageSize = 40,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            int minTermsPerCell = 4,
+            AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            bool excludeCombos = false,
+            int minEvents = 0,
+            bool includeFullMatrix = false)
+        {
+            #region implementation
+
+            var filters = buildSystemCorrelationFilters(
+                comparator,
+                includeNonSignificant,
+                excludeFragile,
+                minTermsPerCell,
+                method,
+                aggregation,
+                excludeCombos,
+                minEvents);
+            var context = await buildSystemCorrelationObservationsAsync(
+                db,
+                systems,
+                pkSecret,
+                logger,
+                filters,
+                classSearch,
+                drugSearch: null);
+            if (context == null)
+            {
+                return null;
+            }
+
+            return AeDashboardDerivation.BuildSystemClassCorrelationMap(
+                context.Value.SelectedSystems,
+                filters,
+                context.Value.Observations,
+                context.Value.Warnings,
+                classPageNumber,
+                classPageSize,
+                includeFullMatrix);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the system-scoped pharmacologic-class x drug heatmap.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class display names.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="classSearch">Optional class code or name search before class paging.</param>
+        /// <param name="drugSearch">Optional product or substance search before drug paging.</param>
+        /// <param name="classPageNumber">1-based class-row page number.</param>
+        /// <param name="classPageSize">Class-row page size.</param>
+        /// <param name="drugPageNumber">1-based drug-column page number.</param>
+        /// <param name="drugPageSize">Drug-column page size.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="aggregation">Within-class/drug aggregation; median LogRR by default.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The sparse heatmap, or null when selected systems have no usable rows.</returns>
+        /// <seealso cref="AeDashboardDerivation.BuildSystemClassHeatmap"/>
+        /// <seealso cref="AeSystemClassHeatmapDto"/>
+        public static async Task<AeSystemClassHeatmapDto?> GetAeSystemCorrelationHeatmapAsync(
+            ApplicationDbContext db,
+            IEnumerable<string> systems,
+            string pkSecret,
+            ILogger logger,
+            string? classSearch = null,
+            string? drugSearch = null,
+            int classPageNumber = 1,
+            int classPageSize = 40,
+            int drugPageNumber = 1,
+            int drugPageSize = 50,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            bool excludeCombos = false,
+            int minEvents = 0)
+        {
+            #region implementation
+
+            var filters = buildSystemCorrelationFilters(
+                comparator,
+                includeNonSignificant,
+                excludeFragile,
+                minTermsPerCell: 4,
+                AeCorrelationMethod.Spearman,
+                aggregation,
+                excludeCombos,
+                minEvents);
+            var context = await buildSystemCorrelationObservationsAsync(
+                db,
+                systems,
+                pkSecret,
+                logger,
+                filters,
+                classSearch,
+                drugSearch);
+            if (context == null)
+            {
+                return null;
+            }
+
+            return AeDashboardDerivation.BuildSystemClassHeatmap(
+                context.Value.SelectedSystems,
+                filters,
+                context.Value.Observations,
+                context.Value.Warnings,
+                classPageNumber,
+                classPageSize,
+                drugPageNumber,
+                drugPageSize);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the per-term drill-down behind one system-scoped class-pair cell.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class display names.</param>
+        /// <param name="classX">Row pharmacologic class code.</param>
+        /// <param name="classY">Column pharmacologic class code.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="minTermsPerCell">Minimum shared selected-SOC terms for the map-safe coefficient.</param>
+        /// <param name="method">Correlation method used for the recomputed coefficient.</param>
+        /// <param name="aggregation">Within-class/term aggregation; median LogRR by default.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="pageNumber">1-based term-pair page number.</param>
+        /// <param name="pageSize">Term-pair page size.</param>
+        /// <returns>The class-pair cell detail, or null when selected systems have no usable rows.</returns>
+        /// <seealso cref="AeDashboardDerivation.BuildSystemClassCellDetail"/>
+        /// <seealso cref="AeSystemClassCorrelationCellDetailDto"/>
+        public static async Task<AeSystemClassCorrelationCellDetailDto?> GetAeSystemCorrelationCellDetailAsync(
+            ApplicationDbContext db,
+            IEnumerable<string> systems,
+            string classX,
+            string classY,
+            string pkSecret,
+            ILogger logger,
+            AeComparatorMix comparator = AeComparatorMix.Placebo,
+            bool includeNonSignificant = true,
+            bool excludeFragile = true,
+            int minTermsPerCell = 4,
+            AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            bool excludeCombos = false,
+            int minEvents = 0,
+            int pageNumber = 1,
+            int pageSize = 100)
+        {
+            #region implementation
+
+            var filters = buildSystemCorrelationFilters(
+                comparator,
+                includeNonSignificant,
+                excludeFragile,
+                minTermsPerCell,
+                method,
+                aggregation,
+                excludeCombos,
+                minEvents);
+            var context = await buildSystemCorrelationObservationsAsync(
+                db,
+                systems,
+                pkSecret,
+                logger,
+                filters,
+                classSearch: null,
+                drugSearch: null);
+            if (context == null)
+            {
+                return null;
+            }
+
+            return AeDashboardDerivation.BuildSystemClassCellDetail(
+                context.Value.SelectedSystems,
+                classX,
+                classY,
+                filters,
+                context.Value.Observations,
+                context.Value.Warnings,
+                pageNumber,
+                pageSize);
+
+            #endregion
+        }
+
         #endregion AE Dashboard Public Read Methods
 
         #region AE Dashboard Private Query Helpers
@@ -2145,6 +2525,237 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Builds the applied filters object for MedDRA-system-scoped correlation methods.
+        /// </summary>
+        /// <param name="comparator">Comparator mix to validate and echo.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are retained.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="minTermsPerCell">Minimum shared terms a map-safe coefficient needs.</param>
+        /// <param name="method">Correlation method to validate and echo.</param>
+        /// <param name="aggregation">Aggregation method to validate and echo.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>A normalized <see cref="AeSystemCorrelationFilters"/> instance.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">When enum or numeric filters are invalid.</exception>
+        /// <seealso cref="validateCorrelationEnums"/>
+        private static AeSystemCorrelationFilters buildSystemCorrelationFilters(
+            AeComparatorMix comparator,
+            bool includeNonSignificant,
+            bool excludeFragile,
+            int minTermsPerCell,
+            AeCorrelationMethod method,
+            AeCorrelationAggregation aggregation,
+            bool excludeCombos,
+            int minEvents)
+        {
+            #region implementation
+
+            validateCorrelationEnums(comparator, aggregation, method);
+            if (minEvents < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(minEvents), minEvents, "Minimum events cannot be negative.");
+            }
+
+            return new AeSystemCorrelationFilters
+            {
+                Comparator = comparator,
+                IncludeNonSignificant = includeNonSignificant,
+                ExcludeFragile = excludeFragile,
+                MinTermsPerCell = Math.Max(minTermsPerCell, 3),
+                Method = method,
+                Aggregation = aggregation,
+                ExcludeCombos = excludeCombos,
+                MinEvents = minEvents
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds class-within-system observations for the inverse correlation endpoints.
+        /// </summary>
+        /// <param name="db">The application database context.</param>
+        /// <param name="selectedSystems">Optional selected MedDRA System Organ Classes.</param>
+        /// <param name="pkSecret">Secret used for integer ID encryption.</param>
+        /// <param name="logger">Logger instance for diagnostics.</param>
+        /// <param name="filters">Applied filters used both to scope SQL and drop input rows.</param>
+        /// <param name="classSearch">Optional pharmacologic class search.</param>
+        /// <param name="drugSearch">Optional product or substance search.</param>
+        /// <returns>Surviving observations, canonical selected systems, and warnings; null when nothing survives.</returns>
+        /// <remarks>
+        /// This builder preserves pharmacologic-class fan-out with
+        /// <see cref="collapseToMostPoweredClassStratum"/> because class x class and class x
+        /// drug outputs need every eligible class. It also computes LogRR in memory for seeded
+        /// rows where the materialized log columns are null.
+        /// </remarks>
+        /// <seealso cref="AeSystemCorrelationObservation"/>
+        /// <seealso cref="AeDashboardDerivation.BuildSystemClassCorrelationMap"/>
+        private static async Task<(List<AeSystemCorrelationObservation> Observations, List<string> SelectedSystems, List<string> Warnings)?> buildSystemCorrelationObservationsAsync(
+            ApplicationDbContext db,
+            IEnumerable<string>? selectedSystems,
+            string pkSecret,
+            ILogger logger,
+            AeSystemCorrelationFilters filters,
+            string? classSearch,
+            string? drugSearch)
+        {
+            #region implementation
+
+            var stopwatch = Stopwatch.StartNew();
+            var selectedSystemList = normalizeSystemInputs(selectedSystems);
+            var selectedSystemKeys = selectedSystemList
+                .Select(system => system.ToLowerInvariant())
+                .ToList();
+
+            var query = db.Set<LabelView.FlattenedAdverseEventRiskTable>()
+                .AsNoTracking()
+                .Where(signal => signal.PharmClassCode != null
+                    && signal.ParameterCategory != null
+                    && signal.ParameterName != null
+                    && signal.DocumentGUID.HasValue);
+
+            if (selectedSystemKeys.Count > 0)
+            {
+                query = query.Where(signal => signal.ParameterCategory != null
+                    && selectedSystemKeys.Contains(signal.ParameterCategory.ToLower()));
+            }
+
+            query = applyComparatorFilter(query, filters.Comparator);
+
+            if (!string.IsNullOrWhiteSpace(classSearch))
+            {
+                var pattern = $"%{classSearch.Trim()}%";
+                query = query.Where(signal =>
+                    EF.Functions.Like(signal.PharmClassCode!, pattern)
+                    || EF.Functions.Like(signal.PharmClassName ?? string.Empty, pattern));
+            }
+
+            if (!string.IsNullOrWhiteSpace(drugSearch))
+            {
+                var pattern = $"%{drugSearch.Trim()}%";
+                query = query.Where(signal =>
+                    EF.Functions.Like(signal.SubstanceName ?? string.Empty, pattern)
+                    || EF.Functions.Like(signal.ProductName ?? string.Empty, pattern));
+            }
+
+            var entities = await query
+                .OrderBy(signal => signal.ParameterCategory)
+                .ThenBy(signal => signal.PharmClassCode)
+                .ThenBy(signal => signal.ParameterName)
+                .ThenByDescending(signal => signal.RR)
+                .ToListAsync();
+            if (entities.Count == 0)
+            {
+                return null;
+            }
+
+            var collapsed = collapseToMostPoweredClassStratum(entities);
+            var observations = new List<AeSystemCorrelationObservation>();
+            foreach (var entity in collapsed)
+            {
+                if (string.IsNullOrWhiteSpace(entity.PharmClassCode)
+                    || string.IsNullOrWhiteSpace(entity.ParameterCategory)
+                    || string.IsNullOrWhiteSpace(entity.ParameterName)
+                    || entity.RR is not double rr
+                    || rr <= 0.0
+                    || double.IsNaN(rr)
+                    || double.IsInfinity(rr))
+                {
+                    continue;
+                }
+
+                var logRr = entity.LogRR ?? Math.Log(rr);
+                if (double.IsNaN(logRr) || double.IsInfinity(logRr))
+                {
+                    continue;
+                }
+
+                var signal = AeDashboardDerivation.DeriveSignal(buildAeRiskSignalDto(entity, pkSecret, logger));
+                var precision = signal.PrecisionClass ?? AePrecisionClass.Fragile;
+                var riskSignificance = signal.RiskSignificance ?? AeRiskSignificance.NotSignificant;
+                var events = (entity.EventsTreatment ?? 0.0) + (entity.EventsComparator ?? 0.0);
+
+                if (filters.ExcludeFragile && precision == AePrecisionClass.Fragile)
+                {
+                    continue;
+                }
+
+                if (!filters.IncludeNonSignificant && riskSignificance == AeRiskSignificance.NotSignificant)
+                {
+                    continue;
+                }
+
+                if (filters.ExcludeCombos && entity.IsCombo)
+                {
+                    continue;
+                }
+
+                if (filters.MinEvents > 0 && events < filters.MinEvents)
+                {
+                    continue;
+                }
+
+                observations.Add(new AeSystemCorrelationObservation
+                {
+                    ClassCode = entity.PharmClassCode!,
+                    ClassName = entity.PharmClassName,
+                    EncryptedPharmacologicClassID = encryptNullableInt(entity.PharmacologicClassID, pkSecret, logger, nameof(entity.PharmacologicClassID)),
+                    SystemOrganClass = entity.ParameterCategory!,
+                    TermKey = systemTermKey(entity.ParameterCategory!, entity.ParameterName!),
+                    ParameterName = entity.ParameterName!,
+                    DrugKey = correlationDrugKey(entity.ActiveMoietyID, entity.DocumentGUID),
+                    EncryptedActiveMoietyID = encryptNullableInt(entity.ActiveMoietyID, pkSecret, logger, nameof(entity.ActiveMoietyID)),
+                    DrugDisplayName = !string.IsNullOrWhiteSpace(entity.SubstanceName) ? entity.SubstanceName : entity.ProductName,
+                    DocumentGUID = entity.DocumentGUID,
+                    LogRr = logRr,
+                    Rr = rr,
+                    Precision = precision,
+                    RiskSignificance = riskSignificance,
+                    IsCombo = entity.IsCombo,
+                    Events = events
+                });
+            }
+
+            if (observations.Count == 0)
+            {
+                return null;
+            }
+
+            var canonicalSystems = canonicalizeSelectedSystems(selectedSystemList, observations);
+            if (selectedSystemList.Count > 0 && canonicalSystems.Count == 0)
+            {
+                return null;
+            }
+
+            var warnings = new List<string>();
+            if (filters.Comparator == AeComparatorMix.Both)
+            {
+                warnings.Add("Cells may mix placebo-controlled and active-controlled estimates.");
+            }
+
+            if (!filters.ExcludeFragile && observations.Any(observation => observation.Precision == AePrecisionClass.Fragile))
+            {
+                warnings.Add("Fragile or wide-confidence-interval rows are included; interpret affected cells with care.");
+            }
+
+            stopwatch.Stop();
+            logger.LogDebug(
+                "AE system correlation observations for {SystemCount} selected systems (comparator {Comparator}): {RowCount} rows before collapse, {SurvivorCount} survivors across {ClassCount} classes in {ElapsedMs} ms.",
+                canonicalSystems.Count,
+                filters.Comparator,
+                entities.Count,
+                observations.Count,
+                observations.Select(observation => observation.ClassCode).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                stopwatch.ElapsedMilliseconds);
+
+            return (observations, canonicalSystems, warnings);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds drug-within-class correlation observations for one pharmacologic class.
         /// </summary>
         /// <param name="db">The application database context.</param>
@@ -2342,6 +2953,87 @@ namespace MedRecPro.DataAccess
             return documentGuid.HasValue
                 ? AeDashboardDerivation.StableDrugKey(documentGuid.Value)
                 : "unknown";
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes selected-system input strings, accepting repeated values or comma-separated values.
+        /// </summary>
+        /// <param name="systems">Raw selected-system query values.</param>
+        /// <returns>Trimmed, de-duplicated selected systems in caller order.</returns>
+        /// <remarks>
+        /// ASP.NET Core binds repeated query keys naturally, but accepting comma-separated values
+        /// makes direct callers and ad hoc API probes less brittle.
+        /// </remarks>
+        private static List<string> normalizeSystemInputs(IEnumerable<string>? systems)
+        {
+            #region implementation
+
+            if (systems == null)
+            {
+                return new List<string>();
+            }
+
+            return systems
+                .SelectMany(system => (system ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Where(system => !string.IsNullOrWhiteSpace(system))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Resolves selected systems to canonical casing from surviving observations.
+        /// </summary>
+        /// <param name="requestedSystems">Normalized caller-provided systems, or empty for all systems.</param>
+        /// <param name="observations">Surviving system correlation observations.</param>
+        /// <returns>Canonical system names ordered by request order or display name.</returns>
+        private static List<string> canonicalizeSelectedSystems(
+            IReadOnlyList<string> requestedSystems,
+            IReadOnlyList<AeSystemCorrelationObservation> observations)
+        {
+            #region implementation
+
+            var canonicalByKey = observations
+                .GroupBy(observation => observation.SystemOrganClass, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key.ToLowerInvariant(),
+                    group => group.First().SystemOrganClass,
+                    StringComparer.OrdinalIgnoreCase);
+
+            if (requestedSystems.Count == 0)
+            {
+                return canonicalByKey.Values
+                    .OrderBy(system => system, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            return requestedSystems
+                .Select(system => canonicalByKey.TryGetValue(system.ToLowerInvariant(), out var canonical) ? canonical : null)
+                .Where(system => !string.IsNullOrWhiteSpace(system))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Cast<string>()
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a stable selected-SOC term key for system-first class correlation.
+        /// </summary>
+        /// <param name="systemOrganClass">Canonical MedDRA System Organ Class.</param>
+        /// <param name="parameterName">Canonical adverse-event term.</param>
+        /// <returns>A lowercased key that keeps same-named terms in different systems distinct.</returns>
+        private static string systemTermKey(string systemOrganClass, string parameterName)
+        {
+            #region implementation
+
+            return $"{systemOrganClass.Trim().ToLowerInvariant()}|{parameterName.Trim().ToLowerInvariant()}";
 
             #endregion
         }

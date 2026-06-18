@@ -1352,6 +1352,365 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Builds the class x class correlation map scoped to selected MedDRA systems.
+        /// </summary>
+        /// <param name="selectedSystems">Canonical selected System Organ Classes.</param>
+        /// <param name="filters">Applied system-correlation filters.</param>
+        /// <param name="observations">Class-within-system observations to correlate.</param>
+        /// <param name="warnings">Base honesty warnings collected during observation assembly.</param>
+        /// <param name="classPageNumber">1-based class-axis page number.</param>
+        /// <param name="classPageSize">Class-axis page size.</param>
+        /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return all filtered classes.</param>
+        /// <returns>A class-correlation map with page metadata and upper-triangle cells.</returns>
+        /// <remarks>
+        /// Each off-diagonal cell correlates selected-SOC adverse-event term profiles between
+        /// two pharmacologic classes. The observation unit is a shared term key, not a shared
+        /// drug, so classes can correlate even when they do not share identical products.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var map = AeDashboardDerivation.BuildSystemClassCorrelationMap(systems, filters, observations, warnings, 1, 40, includeFullMatrix: false);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+        /// <seealso cref="AggregatePerClassTerm"/>
+        public static AeSystemClassCorrelationMapDto BuildSystemClassCorrelationMap(
+            IReadOnlyList<string> selectedSystems,
+            AeSystemCorrelationFilters filters,
+            IReadOnlyList<AeSystemCorrelationObservation> observations,
+            IReadOnlyList<string> warnings,
+            int classPageNumber = 1,
+            int classPageSize = 40,
+            bool includeFullMatrix = false)
+        {
+            #region implementation
+
+            var floor = Math.Max(filters.MinTermsPerCell, 3);
+            var termAggregates = AggregatePerClassTerm(observations, filters.Aggregation);
+            var perClassTerm = pivotSystemByClass(termAggregates);
+            var allClasses = buildSystemClassAxis(observations, perClassTerm, floor);
+            var classPage = includeFullMatrix
+                ? buildAxisPage(1, Math.Max(allClasses.Count, 1), allClasses.Count)
+                : buildAxisPage(classPageNumber, classPageSize, allClasses.Count);
+            var classes = pageAxis(allClasses, classPage)
+                .Select((axis, index) => copyClassAxisItem(axis, index))
+                .ToList();
+            var classIndex = classes
+                .Where(axis => !string.IsNullOrWhiteSpace(axis.PharmClassCode))
+                .ToDictionary(axis => axis.PharmClassCode!, axis => axis.Index, StringComparer.OrdinalIgnoreCase);
+
+            var cells = new List<AeSystemClassCorrelationCellDto>();
+            for (var i = 0; i < classes.Count; i++)
+            {
+                for (var j = i; j < classes.Count; j++)
+                {
+                    cells.Add(i == j
+                        ? buildSystemClassDiagonalCell(i, classes[i], perClassTerm)
+                        : buildSystemClassOffDiagonalCell(i, j, classes, perClassTerm, filters.Method, floor));
+                }
+            }
+
+            var classSummaries = classes
+                .Select(axis => buildSystemClassSummary(axis, observations, perClassTerm))
+                .ToList();
+            var mapWarnings = new List<string>(warnings)
+            {
+                "Cells use pairwise-complete selected-SOC terms; the matrix is not guaranteed positive semi-definite, so do not cluster or run PCA on it without repair."
+            };
+
+            if (cells.Any(cell => !cell.IsDiagonal && cell.InsufficientN))
+            {
+                mapWarnings.Add($"Some cells fall below the minimum of {floor} selected-SOC terms and are returned as null.");
+            }
+
+            if (!includeFullMatrix && classPage.TotalCount > classes.Count)
+            {
+                mapWarnings.Add("Class-axis paging can hide classes outside the returned matrix window.");
+            }
+
+            return new AeSystemClassCorrelationMapDto
+            {
+                SelectedSystems = selectedSystems.ToList(),
+                AppliedFilters = filters,
+                ClassCount = allClasses.Count,
+                IncludesFullMatrix = includeFullMatrix,
+                ClassPage = classPage,
+                Classes = classes,
+                Cells = cells
+                    .Where(cell => classIndex.ContainsKey(cell.RowClassCode ?? string.Empty)
+                        && classIndex.ContainsKey(cell.ColumnClassCode ?? string.Empty))
+                    .ToList(),
+                ClassSummaries = classSummaries,
+                Warnings = mapWarnings
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a sparse class x drug heatmap scoped to selected MedDRA systems.
+        /// </summary>
+        /// <param name="selectedSystems">Canonical selected System Organ Classes.</param>
+        /// <param name="filters">Applied system-correlation filters.</param>
+        /// <param name="observations">Class-within-system observations to aggregate.</param>
+        /// <param name="warnings">Base honesty warnings collected during observation assembly.</param>
+        /// <param name="classPageNumber">1-based class-axis page number.</param>
+        /// <param name="classPageSize">Class-axis page size.</param>
+        /// <param name="drugPageNumber">1-based drug-axis page number.</param>
+        /// <param name="drugPageSize">Drug-axis page size.</param>
+        /// <returns>A sparse heatmap with independent class and drug page metadata.</returns>
+        /// <remarks>
+        /// Only populated class/drug intersections are emitted; clients fill missing grid cells
+        /// as empty. This remains useful when the class-pair map has too few shared terms.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var heatmap = AeDashboardDerivation.BuildSystemClassHeatmap(systems, filters, observations, warnings, 1, 40, 1, 50);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeSystemClassHeatmapDto"/>
+        /// <seealso cref="AggregatePerClassDrug"/>
+        public static AeSystemClassHeatmapDto BuildSystemClassHeatmap(
+            IReadOnlyList<string> selectedSystems,
+            AeSystemCorrelationFilters filters,
+            IReadOnlyList<AeSystemCorrelationObservation> observations,
+            IReadOnlyList<string> warnings,
+            int classPageNumber = 1,
+            int classPageSize = 40,
+            int drugPageNumber = 1,
+            int drugPageSize = 50)
+        {
+            #region implementation
+
+            var termAggregates = AggregatePerClassTerm(observations, filters.Aggregation);
+            var perClassTerm = pivotSystemByClass(termAggregates);
+            var allClasses = buildSystemClassAxis(observations, perClassTerm, Math.Max(filters.MinTermsPerCell, 3));
+            var classPage = buildAxisPage(classPageNumber, classPageSize, allClasses.Count);
+            var classes = pageAxis(allClasses, classPage)
+                .Select((axis, index) => copyClassAxisItem(axis, index))
+                .ToList();
+            var classIndex = classes
+                .Where(axis => !string.IsNullOrWhiteSpace(axis.PharmClassCode))
+                .ToDictionary(axis => axis.PharmClassCode!, axis => axis.Index, StringComparer.OrdinalIgnoreCase);
+
+            var allDrugs = observations
+                .GroupBy(observation => observation.DrugKey, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderBy(observation => observation.DrugDisplayName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(observation => observation.DrugKey, StringComparer.Ordinal)
+                .ToList();
+            var drugPage = buildAxisPage(drugPageNumber, drugPageSize, allDrugs.Count);
+            var drugs = pageAxis(allDrugs, drugPage)
+                .Select((observation, index) => new AeSystemClassHeatmapDrugDto
+                {
+                    Index = index,
+                    EncryptedActiveMoietyID = observation.EncryptedActiveMoietyID,
+                    DrugDisplayName = observation.DrugDisplayName,
+                    DocumentGUID = observation.DocumentGUID
+                })
+                .ToList();
+            var drugIndex = pageAxis(allDrugs, drugPage)
+                .Select((observation, index) => (observation.DrugKey, index))
+                .ToDictionary(entry => entry.DrugKey, entry => entry.index, StringComparer.Ordinal);
+
+            var classDrugAggregates = AggregatePerClassDrug(observations, filters.Aggregation);
+            var cells = new List<AeSystemClassHeatmapCellDto>();
+            foreach (var aggregate in classDrugAggregates)
+            {
+                if (!classIndex.TryGetValue(aggregate.Key.ClassCode, out var rowIndex)
+                    || !drugIndex.TryGetValue(aggregate.Key.DrugKey, out var columnIndex))
+                {
+                    continue;
+                }
+
+                cells.Add(new AeSystemClassHeatmapCellDto
+                {
+                    ClassIndex = rowIndex,
+                    DrugIndex = columnIndex,
+                    LogRr = aggregate.Value.Value,
+                    Rr = Math.Exp(aggregate.Value.Value),
+                    Precision = aggregate.Value.Precision,
+                    Significance = aggregate.Value.Significance,
+                    TermCount = aggregate.Value.TermCount
+                });
+            }
+
+            var heatmapWarnings = new List<string>(warnings);
+            if (classPage.TotalCount > classes.Count)
+            {
+                heatmapWarnings.Add("Class-row paging can hide classes outside the returned heatmap window.");
+            }
+
+            if (drugPage.TotalCount > drugs.Count)
+            {
+                heatmapWarnings.Add("Drug-column paging can hide drugs outside the returned heatmap window.");
+            }
+
+            return new AeSystemClassHeatmapDto
+            {
+                SelectedSystems = selectedSystems.ToList(),
+                AppliedFilters = filters,
+                ClassPage = classPage,
+                DrugPage = drugPage,
+                Classes = classes,
+                Drugs = drugs,
+                Cells = cells
+                    .OrderBy(cell => cell.ClassIndex)
+                    .ThenBy(cell => cell.DrugIndex)
+                    .ToList(),
+                Warnings = heatmapWarnings
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the per-term drill-down behind one system-scoped class-pair cell.
+        /// </summary>
+        /// <param name="selectedSystems">Canonical selected System Organ Classes.</param>
+        /// <param name="classX">Requested row pharmacologic class code.</param>
+        /// <param name="classY">Requested column pharmacologic class code.</param>
+        /// <param name="filters">Applied system-correlation filters.</param>
+        /// <param name="observations">Class-within-system observations to pair.</param>
+        /// <param name="warnings">Base honesty warnings collected during observation assembly.</param>
+        /// <param name="pageNumber">1-based detail-row page number.</param>
+        /// <param name="pageSize">Detail-row page size.</param>
+        /// <returns>A cell-detail DTO with shared selected-SOC term pairs.</returns>
+        /// <remarks>
+        /// Returns empty term pairs with warnings when a requested class or overlap is missing,
+        /// instead of throwing. The map-safe coefficient applies the same clamped terms-per-cell
+        /// floor as the map, while the raw coefficient remains available for diagnosis.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var detail = AeDashboardDerivation.BuildSystemClassCellDetail(systems, "A", "B", filters, observations, warnings, 1, 100);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeSystemClassCorrelationCellDetailDto"/>
+        public static AeSystemClassCorrelationCellDetailDto BuildSystemClassCellDetail(
+            IReadOnlyList<string> selectedSystems,
+            string classX,
+            string classY,
+            AeSystemCorrelationFilters filters,
+            IReadOnlyList<AeSystemCorrelationObservation> observations,
+            IReadOnlyList<string> warnings,
+            int pageNumber = 1,
+            int pageSize = 100)
+        {
+            #region implementation
+
+            var floor = Math.Max(filters.MinTermsPerCell, 3);
+            var detailWarnings = new List<string>(warnings);
+            var termAggregates = AggregatePerClassTerm(observations, filters.Aggregation);
+            var perClassTerm = pivotSystemByClass(termAggregates);
+            var allClasses = buildSystemClassAxis(observations, perClassTerm, floor);
+            var canonicalX = allClasses.FirstOrDefault(axis => string.Equals(axis.PharmClassCode, classX, StringComparison.OrdinalIgnoreCase));
+            var canonicalY = allClasses.FirstOrDefault(axis => string.Equals(axis.PharmClassCode, classY, StringComparison.OrdinalIgnoreCase));
+            var isDiagonal = string.Equals(classX, classY, StringComparison.OrdinalIgnoreCase);
+
+            var detail = new AeSystemClassCorrelationCellDetailDto
+            {
+                SelectedSystems = selectedSystems.ToList(),
+                ClassX = canonicalX != null ? copyClassAxisItem(canonicalX, 0) : new AeSystemClassAxisItemDto { Index = 0, PharmClassCode = classX },
+                ClassY = canonicalY != null ? copyClassAxisItem(canonicalY, isDiagonal ? 0 : 1) : new AeSystemClassAxisItemDto { Index = isDiagonal ? 0 : 1, PharmClassCode = classY },
+                AppliedFilters = filters,
+                MinTermsPerCell = floor,
+                IsDiagonal = isDiagonal,
+                Warnings = detailWarnings
+            };
+
+            if (canonicalX == null || canonicalY == null)
+            {
+                detail.TermPairPage = buildAxisPage(pageNumber, pageSize, 0);
+                detailWarnings.Add("One or both requested pharmacologic classes have no rows in the selected systems after filtering.");
+                return detail;
+            }
+
+            var termPairs = new List<AeSystemClassTermPairDto>();
+            var xs = new List<double>();
+            var ys = new List<double>();
+            if (perClassTerm.TryGetValue(canonicalX.PharmClassCode!, out var termsX)
+                && perClassTerm.TryGetValue(canonicalY.PharmClassCode!, out var termsY))
+            {
+                var sharedTerms = termsX.Keys
+                    .Where(termsY.ContainsKey)
+                    .OrderBy(termKey => termsX[termKey].SystemOrganClass, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(termKey => termsX[termKey].ParameterName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var termKey in sharedTerms)
+                {
+                    var aggregateX = termsX[termKey];
+                    var aggregateY = termsY[termKey];
+                    xs.Add(aggregateX.Value);
+                    ys.Add(aggregateY.Value);
+                    termPairs.Add(new AeSystemClassTermPairDto
+                    {
+                        SystemOrganClass = aggregateX.SystemOrganClass,
+                        ParameterName = aggregateX.ParameterName,
+                        LogRrX = aggregateX.Value,
+                        LogRrY = aggregateY.Value,
+                        RrX = Math.Exp(aggregateX.Value),
+                        RrY = Math.Exp(aggregateY.Value),
+                        PrecisionX = aggregateX.Precision,
+                        PrecisionY = aggregateY.Precision,
+                        SignificanceX = aggregateX.Significance,
+                        SignificanceY = aggregateY.Significance,
+                        DrugCountX = aggregateX.DrugCount,
+                        DrugCountY = aggregateY.DrugCount,
+                        TermCountX = aggregateX.TermCount,
+                        TermCountY = aggregateY.TermCount
+                    });
+                }
+            }
+
+            var (rawCoefficient, pairCount, rawPValue) = ComputeCorrelation(xs, ys, filters.Method);
+            detail.PairCount = pairCount;
+            detail.RawCoefficient = rawCoefficient;
+            detail.RawPValue = rawPValue;
+
+            if (isDiagonal)
+            {
+                detail.Coefficient = 1.0;
+                detail.RawCoefficient = 1.0;
+                detail.PValue = null;
+                detail.RawPValue = null;
+                detail.IsSignificant = false;
+                detail.InsufficientN = false;
+                detailWarnings.Add("This is a diagonal cell (a pharmacologic class correlated with itself); the 1.0 coefficient is non-informative.");
+            }
+            else
+            {
+                var insufficient = pairCount < floor;
+                detail.InsufficientN = insufficient;
+                detail.Coefficient = insufficient ? null : rawCoefficient;
+                detail.PValue = insufficient ? null : rawPValue;
+                detail.IsSignificant = detail.Coefficient.HasValue
+                    && detail.PValue.HasValue
+                    && detail.PValue.Value < 0.05;
+
+                if (termPairs.Count == 0)
+                {
+                    detailWarnings.Add("The requested classes have no shared selected-SOC terms after filtering.");
+                }
+
+                if (insufficient && rawCoefficient.HasValue)
+                {
+                    detailWarnings.Add($"Map-safe coefficient suppressed: only {pairCount} shared selected-SOC term(s), below the minimum of {floor}. RawCoefficient is shown for diagnosis only.");
+                }
+            }
+
+            detail.TermPairPage = buildAxisPage(pageNumber, pageSize, termPairs.Count);
+            detail.TermPairs = pageAxis(termPairs, detail.TermPairPage);
+            return detail;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Aggregates each drug's adverse-event terms to one value per SOC.
         /// </summary>
         /// <param name="observations">Drug-within-class observations.</param>
@@ -1409,6 +1768,88 @@ namespace MedRecPro.DataAccess
                             representative.Precision,
                             representative.RiskSignificance);
                     });
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Aggregates selected-SOC observations to one value per pharmacologic class and term.
+        /// </summary>
+        /// <param name="observations">Class-within-system observations.</param>
+        /// <param name="aggregation">Median (default) or mean of the observations' LogRR values.</param>
+        /// <returns>A map from class code and selected-SOC term key to the aggregated value.</returns>
+        /// <remarks>
+        /// Class-pair map cells use these aggregates as their paired vectors. The term key
+        /// includes the SOC so same-named adverse events in different systems remain distinct.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var aggregates = AeDashboardDerivation.AggregatePerClassTerm(observations, AeCorrelationAggregation.MedianLogRr);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeSystemCorrelationAggregate"/>
+        public static Dictionary<(string ClassCode, string TermKey), AeSystemCorrelationAggregate> AggregatePerClassTerm(
+            IReadOnlyList<AeSystemCorrelationObservation> observations,
+            AeCorrelationAggregation aggregation)
+        {
+            #region implementation
+
+            var canonicalClasses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var canonicalTerms = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var observation in observations)
+            {
+                canonicalClasses.TryAdd(observation.ClassCode, observation.ClassCode);
+                canonicalTerms.TryAdd(observation.TermKey, observation.TermKey);
+            }
+
+            return observations
+                .GroupBy(observation => (
+                    ClassCode: canonicalClasses[observation.ClassCode],
+                    TermKey: canonicalTerms[observation.TermKey]))
+                .ToDictionary(
+                    group => group.Key,
+                    group => buildSystemAggregate(group, aggregation));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Aggregates selected-SOC observations to one value per pharmacologic class and drug.
+        /// </summary>
+        /// <param name="observations">Class-within-system observations.</param>
+        /// <param name="aggregation">Median (default) or mean of the observations' LogRR values.</param>
+        /// <returns>A map from class code and drug key to the aggregated heatmap value.</returns>
+        /// <remarks>
+        /// The class x drug heatmap uses this sparse aggregate so each class/drug cell is
+        /// emitted only when the selected systems have actual rows for that intersection.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var aggregates = AeDashboardDerivation.AggregatePerClassDrug(observations, AeCorrelationAggregation.MedianLogRr);
+        /// </code>
+        /// </example>
+        /// <seealso cref="AeSystemCorrelationAggregate"/>
+        public static Dictionary<(string ClassCode, string DrugKey), AeSystemCorrelationAggregate> AggregatePerClassDrug(
+            IReadOnlyList<AeSystemCorrelationObservation> observations,
+            AeCorrelationAggregation aggregation)
+        {
+            #region implementation
+
+            var canonicalClasses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var observation in observations)
+            {
+                canonicalClasses.TryAdd(observation.ClassCode, observation.ClassCode);
+            }
+
+            return observations
+                .GroupBy(observation => (
+                    ClassCode: canonicalClasses[observation.ClassCode],
+                    observation.DrugKey))
+                .ToDictionary(
+                    group => group.Key,
+                    group => buildSystemAggregate(group, aggregation));
 
             #endregion
         }
@@ -2022,6 +2463,337 @@ namespace MedRecPro.DataAccess
 
             // Clamp by applying the lower bound first and then the upper bound.
             return Math.Min(Math.Max(value, min), max);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one aggregate for the system-first class/term or class/drug dictionaries.
+        /// </summary>
+        private static AeSystemCorrelationAggregate buildSystemAggregate(
+            IEnumerable<AeSystemCorrelationObservation> source,
+            AeCorrelationAggregation aggregation)
+        {
+            #region implementation
+
+            var observations = source.ToList();
+            var logs = observations.Select(observation => observation.LogRr).ToList();
+            var value = aggregation == AeCorrelationAggregation.MeanLogRr
+                ? logs.Average()
+                : median(logs);
+            var representative = observations
+                .OrderByDescending(observation => Math.Abs(observation.LogRr))
+                .ThenByDescending(observation => observation.Events)
+                .First();
+
+            return new AeSystemCorrelationAggregate(
+                value,
+                observations.Any(observation => observation.Precision == AePrecisionClass.Fragile),
+                observations.Count,
+                observations.Select(observation => observation.DrugKey).Distinct(StringComparer.Ordinal).Count(),
+                observations.Select(observation => observation.TermKey).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                representative.Precision,
+                representative.RiskSignificance,
+                representative.SystemOrganClass,
+                representative.ParameterName,
+                representative.DrugDisplayName,
+                representative.EncryptedActiveMoietyID,
+                representative.DocumentGUID);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Pivots system-first aggregates into class -> key -> aggregate lookup.
+        /// </summary>
+        private static Dictionary<string, Dictionary<string, AeSystemCorrelationAggregate>> pivotSystemByClass(
+            IReadOnlyDictionary<(string ClassCode, string Key), AeSystemCorrelationAggregate> aggregates)
+        {
+            #region implementation
+
+            var perClass = new Dictionary<string, Dictionary<string, AeSystemCorrelationAggregate>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var aggregate in aggregates)
+            {
+                if (!perClass.TryGetValue(aggregate.Key.ClassCode, out var perKey))
+                {
+                    perKey = new Dictionary<string, AeSystemCorrelationAggregate>(StringComparer.OrdinalIgnoreCase);
+                    perClass[aggregate.Key.ClassCode] = perKey;
+                }
+
+                perKey[aggregate.Key.Key] = aggregate.Value;
+            }
+
+            return perClass;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a sorted pharmacologic class axis for selected-system payloads.
+        /// </summary>
+        private static List<AeSystemClassAxisItemDto> buildSystemClassAxis(
+            IReadOnlyList<AeSystemCorrelationObservation> observations,
+            IReadOnlyDictionary<string, Dictionary<string, AeSystemCorrelationAggregate>> perClassTerm,
+            int floor)
+        {
+            #region implementation
+
+            var classRenderability = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var left in perClassTerm)
+            {
+                var hasRenderable = perClassTerm
+                    .Where(right => !string.Equals(right.Key, left.Key, StringComparison.OrdinalIgnoreCase))
+                    .Any(right => left.Value.Keys.Intersect(right.Value.Keys, StringComparer.OrdinalIgnoreCase).Count() >= floor);
+                classRenderability[left.Key] = hasRenderable;
+            }
+
+            var classes = observations
+                .GroupBy(observation => observation.ClassCode, StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    var code = group.First().ClassCode;
+                    var className = group
+                        .Select(observation => observation.ClassName)
+                        .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+                    var encryptedClassId = group
+                        .Select(observation => observation.EncryptedPharmacologicClassID)
+                        .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+                    var termCount = perClassTerm.TryGetValue(code, out var terms)
+                        ? terms.Count
+                        : group.Select(observation => observation.TermKey).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+                    return new AeSystemClassAxisItemDto
+                    {
+                        PharmClassCode = code,
+                        PharmClassName = className,
+                        EncryptedPharmacologicClassID = encryptedClassId,
+                        TermCount = termCount,
+                        DrugCount = group.Select(observation => observation.DrugKey).Distinct(StringComparer.Ordinal).Count(),
+                        HasRenderableMap = classRenderability.TryGetValue(code, out var renderable) && renderable
+                    };
+                })
+                .OrderByDescending(axis => axis.HasRenderableMap)
+                .ThenByDescending(axis => axis.TermCount)
+                .ThenByDescending(axis => axis.DrugCount)
+                .ThenBy(axis => axis.PharmClassName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(axis => axis.PharmClassCode ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            for (var i = 0; i < classes.Count; i++)
+            {
+                classes[i].Index = i;
+            }
+
+            return classes;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds page metadata for an in-memory axis or detail-row collection.
+        /// </summary>
+        private static AeCorrelationAxisPageDto buildAxisPage(int pageNumber, int pageSize, int totalCount)
+        {
+            #region implementation
+
+            var safePageNumber = Math.Max(pageNumber, 1);
+            var safePageSize = Math.Max(pageSize, 1);
+            var totalPages = totalCount == 0
+                ? 0
+                : (int)Math.Ceiling(totalCount / (double)safePageSize);
+
+            return new AeCorrelationAxisPageDto
+            {
+                PageNumber = safePageNumber,
+                PageSize = safePageSize,
+                TotalCount = totalCount,
+                TotalPages = totalPages,
+                HasPreviousPage = safePageNumber > 1 && totalPages > 0,
+                HasNextPage = totalPages > 0 && safePageNumber < totalPages
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies in-memory page metadata to a collection.
+        /// </summary>
+        private static List<T> pageAxis<T>(IReadOnlyList<T> axis, AeCorrelationAxisPageDto page)
+        {
+            #region implementation
+
+            if (axis.Count == 0)
+            {
+                return new List<T>();
+            }
+
+            return axis
+                .Skip((page.PageNumber - 1) * page.PageSize)
+                .Take(page.PageSize)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Copies a class-axis item while assigning the returned page-window index.
+        /// </summary>
+        private static AeSystemClassAxisItemDto copyClassAxisItem(
+            AeSystemClassAxisItemDto source,
+            int index)
+        {
+            #region implementation
+
+            return new AeSystemClassAxisItemDto
+            {
+                Index = index,
+                PharmClassCode = source.PharmClassCode,
+                PharmClassName = source.PharmClassName,
+                EncryptedPharmacologicClassID = source.EncryptedPharmacologicClassID,
+                TermCount = source.TermCount,
+                DrugCount = source.DrugCount,
+                HasRenderableMap = source.HasRenderableMap
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds a non-informative system-scoped class diagonal cell.
+        /// </summary>
+        private static AeSystemClassCorrelationCellDto buildSystemClassDiagonalCell(
+            int index,
+            AeSystemClassAxisItemDto axis,
+            IReadOnlyDictionary<string, Dictionary<string, AeSystemCorrelationAggregate>> perClassTerm)
+        {
+            #region implementation
+
+            var classCode = axis.PharmClassCode ?? string.Empty;
+            var terms = perClassTerm.TryGetValue(classCode, out var classTerms)
+                ? classTerms.Values.ToList()
+                : new List<AeSystemCorrelationAggregate>();
+
+            return new AeSystemClassCorrelationCellDto
+            {
+                RowIndex = index,
+                ColumnIndex = index,
+                RowClassCode = axis.PharmClassCode,
+                ColumnClassCode = axis.PharmClassCode,
+                Coefficient = 1.0,
+                PairCount = terms.Count,
+                PValue = null,
+                IsSignificant = false,
+                IsFragile = terms.Any(term => term.AnyFragile),
+                InsufficientN = false,
+                IsDiagonal = true
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one off-diagonal class-pair cell from shared selected-SOC terms.
+        /// </summary>
+        private static AeSystemClassCorrelationCellDto buildSystemClassOffDiagonalCell(
+            int rowIndex,
+            int columnIndex,
+            IReadOnlyList<AeSystemClassAxisItemDto> classAxis,
+            IReadOnlyDictionary<string, Dictionary<string, AeSystemCorrelationAggregate>> perClassTerm,
+            AeCorrelationMethod method,
+            int floor)
+        {
+            #region implementation
+
+            var rowClass = classAxis[rowIndex];
+            var columnClass = classAxis[columnIndex];
+            var rowTerms = rowClass.PharmClassCode != null && perClassTerm.TryGetValue(rowClass.PharmClassCode, out var rt)
+                ? rt
+                : new Dictionary<string, AeSystemCorrelationAggregate>(StringComparer.OrdinalIgnoreCase);
+            var columnTerms = columnClass.PharmClassCode != null && perClassTerm.TryGetValue(columnClass.PharmClassCode, out var ct)
+                ? ct
+                : new Dictionary<string, AeSystemCorrelationAggregate>(StringComparer.OrdinalIgnoreCase);
+
+            var xs = new List<double>();
+            var ys = new List<double>();
+            var anyFragile = false;
+            foreach (var termKey in rowTerms.Keys.Where(columnTerms.ContainsKey))
+            {
+                var rowAggregate = rowTerms[termKey];
+                var columnAggregate = columnTerms[termKey];
+                xs.Add(rowAggregate.Value);
+                ys.Add(columnAggregate.Value);
+                anyFragile |= rowAggregate.AnyFragile || columnAggregate.AnyFragile;
+            }
+
+            var (coefficient, pairCount, pValue) = ComputeCorrelation(xs, ys, method);
+            var insufficient = pairCount < floor;
+            var cellCoefficient = insufficient ? null : coefficient;
+            var cellPValue = insufficient ? null : pValue;
+
+            return new AeSystemClassCorrelationCellDto
+            {
+                RowIndex = rowIndex,
+                ColumnIndex = columnIndex,
+                RowClassCode = rowClass.PharmClassCode,
+                ColumnClassCode = columnClass.PharmClassCode,
+                Coefficient = cellCoefficient,
+                PairCount = pairCount,
+                PValue = cellPValue,
+                IsSignificant = cellCoefficient.HasValue && cellPValue.HasValue && cellPValue.Value < 0.05,
+                IsFragile = anyFragile,
+                InsufficientN = insufficient,
+                IsDiagonal = false
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds the per-class marginal summary for a selected-system class axis item.
+        /// </summary>
+        private static AeSystemClassSummaryDto buildSystemClassSummary(
+            AeSystemClassAxisItemDto axis,
+            IReadOnlyList<AeSystemCorrelationObservation> observations,
+            IReadOnlyDictionary<string, Dictionary<string, AeSystemCorrelationAggregate>> perClassTerm)
+        {
+            #region implementation
+
+            var classCode = axis.PharmClassCode ?? string.Empty;
+            var classAggregates = perClassTerm.TryGetValue(classCode, out var terms)
+                ? terms.Values.ToList()
+                : new List<AeSystemCorrelationAggregate>();
+            var medianLogRr = classAggregates.Count > 0
+                ? median(classAggregates.Select(aggregate => aggregate.Value))
+                : (double?)null;
+            var classObservations = observations
+                .Where(observation => string.Equals(observation.ClassCode, classCode, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            return new AeSystemClassSummaryDto
+            {
+                Index = axis.Index,
+                PharmClassCode = axis.PharmClassCode,
+                PharmClassName = axis.PharmClassName,
+                DrugCount = axis.DrugCount,
+                TermCount = axis.TermCount,
+                MedianLogRr = medianLogRr,
+                MedianRr = medianLogRr.HasValue ? Math.Exp(medianLogRr.Value) : null,
+                ElevatedShare = classObservations.Count > 0
+                    ? classObservations.Count(observation => observation.RiskSignificance == AeRiskSignificance.Elevated) / (double)classObservations.Count
+                    : 0.0,
+                ProtectiveShare = classObservations.Count > 0
+                    ? classObservations.Count(observation => observation.RiskSignificance == AeRiskSignificance.Protective) / (double)classObservations.Count
+                    : 0.0
+            };
 
             #endregion
         }

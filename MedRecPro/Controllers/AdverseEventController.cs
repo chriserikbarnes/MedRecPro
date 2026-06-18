@@ -1136,6 +1136,503 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
+        /// Gets MedDRA System Organ Classes available for system-scoped class correlation.
+        /// </summary>
+        /// <param name="systemSearch">Optional SOC display-name search text.</param>
+        /// <param name="pageNumber">Optional 1-based page number.</param>
+        /// <param name="pageSize">Optional page size.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept before renderability checks.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before renderability checks.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped before renderability checks.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="minTermsPerCell">Minimum shared selected-SOC terms a class-pair cell needs to render.</param>
+        /// <returns>MedDRA system picker items ordered map-ready-first.</returns>
+        /// <remarks>
+        /// Backs the inverse correlation picker. The system key is the canonical
+        /// <c>ParameterCategory</c> value already present in AE risk rows. The
+        /// <c>X-Chartable-Count</c> response header reports matching systems with at least one
+        /// renderable class-pair map cell under the active filters.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation/systems?systemSearch=cardiac&amp;pageNumber=1&amp;pageSize=25
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the MedDRA system picker items.</response>
+        /// <response code="400">If pagination or filter values are invalid.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeCorrelationSystemsAsync"/>
+        /// <seealso cref="AeMeddraSystemPickerItemDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation/systems")]
+        [ProducesResponseType(typeof(List<AeMeddraSystemPickerItemDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<List<AeMeddraSystemPickerItemDto>>> GetCorrelationSystems(
+            [FromQuery] string? systemSearch,
+            [FromQuery] int? pageNumber,
+            [FromQuery] int? pageSize,
+            [FromQuery] AeComparatorMix? comparator = null,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0,
+            [FromQuery] int minTermsPerCell = 4)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            var pagingValidation = validatePagingParameters(ref pageNumber, ref pageSize);
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            var filterValidation = validateSystemCorrelationFilters(comparator, AeCorrelationAggregation.MedianLogRr, minEvents);
+            if (filterValidation != null)
+            {
+                return filterValidation;
+            }
+
+            try
+            {
+                var results = await DtoLabelAccess.GetAeCorrelationSystemsAsync(
+                    _dbContext,
+                    _pkSecret,
+                    _logger,
+                    systemSearch,
+                    pageNumber,
+                    pageSize,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    excludeCombos,
+                    minEvents,
+                    minTermsPerCell);
+
+                addPaginationHeaders(pageNumber, pageSize, results.TotalCount);
+                Response.Headers.Append("X-Chartable-Count", results.ChartableCount.ToString());
+                return Ok(results.Items);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard correlation systems.");
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving AE dashboard correlation systems.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets a system-scoped pharmacologic-class correlation map.
+        /// </summary>
+        /// <param name="systems">Selected MedDRA System Organ Classes. Repeated query keys and comma-separated values are accepted.</param>
+        /// <param name="classSearch">Optional class code or name search before axis paging.</param>
+        /// <param name="classPageNumber">Optional 1-based class-axis page number.</param>
+        /// <param name="classPageSize">Optional class-axis page size.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept before aggregation.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped before aggregation.</param>
+        /// <param name="minTermsPerCell">Minimum shared selected-SOC terms a cell needs for a coefficient.</param>
+        /// <param name="method">Correlation method; Spearman by default.</param>
+        /// <param name="aggregation">Within-class term aggregation; median LogRR by default.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return every filtered class-pair cell.</param>
+        /// <returns>The system-scoped class correlation map.</returns>
+        /// <remarks>
+        /// For selected MedDRA systems (<c>ParameterCategory</c> values), correlates
+        /// pharmacologic classes over selected-SOC adverse-event term profiles, not shared
+        /// drugs. By default the returned matrix is symmetric and page-windowed on one class
+        /// axis. Set <c>includeFullMatrix=true</c> to ignore class-axis paging and return the
+        /// complete filtered square matrix. <c>comparator=Both</c> mixes estimands and is
+        /// warned; pairwise deletion means the matrix is not guaranteed positive semi-definite;
+        /// <c>includeNonSignificant=false</c> drops rows before aggregation.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;classPageSize=40
+        /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;includeFullMatrix=true
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the system-scoped class correlation map.</response>
+        /// <response code="400">If selected systems, paging, or filters are invalid.</response>
+        /// <response code="404">If the selected systems have no usable AE dashboard rows.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationMapAsync"/>
+        /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation/systems/map")]
+        [ProducesResponseType(typeof(AeSystemClassCorrelationMapDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<AeSystemClassCorrelationMapDto>> GetSystemCorrelationMap(
+            [FromQuery] List<string>? systems,
+            [FromQuery] string? classSearch,
+            [FromQuery] int? classPageNumber,
+            [FromQuery] int? classPageSize,
+            [FromQuery] AeComparatorMix? comparator = null,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] int minTermsPerCell = 4,
+            [FromQuery] AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0,
+            [FromQuery] bool includeFullMatrix = false)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            var selectedSystems = normalizeSystemQueryValues(systems);
+            if (selectedSystems.Count == 0)
+            {
+                return BadRequest("At least one selected MedDRA system is required.");
+            }
+
+            if (includeFullMatrix)
+            {
+                classPageNumber = 1;
+                classPageSize = 40;
+            }
+            else
+            {
+                var pagingValidation = validateBoundedPagingParameters(ref classPageNumber, ref classPageSize, 40, 100, "class");
+                if (pagingValidation != null)
+                {
+                    return pagingValidation;
+                }
+            }
+
+            var filterValidation = validateSystemCorrelationFilters(comparator, aggregation, minEvents, method);
+            if (filterValidation != null)
+            {
+                return filterValidation;
+            }
+
+            try
+            {
+                var result = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(
+                    _dbContext,
+                    selectedSystems,
+                    _pkSecret,
+                    _logger,
+                    classSearch,
+                    classPageNumber!.Value,
+                    classPageSize!.Value,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    minTermsPerCell,
+                    method,
+                    aggregation,
+                    excludeCombos,
+                    minEvents,
+                    includeFullMatrix);
+
+                if (result == null)
+                {
+                    return NotFound("The selected MedDRA systems are not available in the AE dashboard.");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard system correlation map for {Systems}.", string.Join(", ", selectedSystems));
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard system correlation map.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets a sparse system-scoped pharmacologic-class x drug heatmap.
+        /// </summary>
+        /// <param name="systems">Selected MedDRA System Organ Classes. Repeated query keys and comma-separated values are accepted.</param>
+        /// <param name="classSearch">Optional class code or name search.</param>
+        /// <param name="drugSearch">Optional product or substance search.</param>
+        /// <param name="classPageNumber">Optional 1-based class-row page number.</param>
+        /// <param name="classPageSize">Optional class-row page size.</param>
+        /// <param name="drugPageNumber">Optional 1-based drug-column page number.</param>
+        /// <param name="drugPageSize">Optional drug-column page size.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="aggregation">Within-class/drug aggregation; median LogRR by default.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <returns>The sparse system-scoped class x drug heatmap.</returns>
+        /// <remarks>
+        /// Rows are pharmacologic classes and columns are drugs, both independently paged in the
+        /// response body. Cells are sparse: absent class/drug intersections are omitted rather
+        /// than serialized as null placeholders. Paging can hide classes or drugs outside the
+        /// returned window.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation/systems/heatmap?systems=Cardiac%20Disorders&amp;drugPageSize=50
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the sparse heatmap.</response>
+        /// <response code="400">If selected systems, paging, or filters are invalid.</response>
+        /// <response code="404">If the selected systems have no usable AE dashboard rows.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationHeatmapAsync"/>
+        /// <seealso cref="AeSystemClassHeatmapDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation/systems/heatmap")]
+        [ProducesResponseType(typeof(AeSystemClassHeatmapDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<AeSystemClassHeatmapDto>> GetSystemCorrelationHeatmap(
+            [FromQuery] List<string>? systems,
+            [FromQuery] string? classSearch,
+            [FromQuery] string? drugSearch,
+            [FromQuery] int? classPageNumber,
+            [FromQuery] int? classPageSize,
+            [FromQuery] int? drugPageNumber,
+            [FromQuery] int? drugPageSize,
+            [FromQuery] AeComparatorMix? comparator = null,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            var selectedSystems = normalizeSystemQueryValues(systems);
+            if (selectedSystems.Count == 0)
+            {
+                return BadRequest("At least one selected MedDRA system is required.");
+            }
+
+            var classPagingValidation = validateBoundedPagingParameters(ref classPageNumber, ref classPageSize, 40, 100, "class");
+            if (classPagingValidation != null)
+            {
+                return classPagingValidation;
+            }
+
+            var drugPagingValidation = validateBoundedPagingParameters(ref drugPageNumber, ref drugPageSize, 50, 200, "drug");
+            if (drugPagingValidation != null)
+            {
+                return drugPagingValidation;
+            }
+
+            var filterValidation = validateSystemCorrelationFilters(comparator, aggregation, minEvents);
+            if (filterValidation != null)
+            {
+                return filterValidation;
+            }
+
+            try
+            {
+                var result = await DtoLabelAccess.GetAeSystemCorrelationHeatmapAsync(
+                    _dbContext,
+                    selectedSystems,
+                    _pkSecret,
+                    _logger,
+                    classSearch,
+                    drugSearch,
+                    classPageNumber!.Value,
+                    classPageSize!.Value,
+                    drugPageNumber!.Value,
+                    drugPageSize!.Value,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    aggregation,
+                    excludeCombos,
+                    minEvents);
+
+                if (result == null)
+                {
+                    return NotFound("The selected MedDRA systems are not available in the AE dashboard.");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving AE dashboard system heatmap for {Systems}.", string.Join(", ", selectedSystems));
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard system heatmap.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the per-term detail behind one system-scoped class-pair cell.
+        /// </summary>
+        /// <param name="systems">Selected MedDRA System Organ Classes. Repeated query keys and comma-separated values are accepted.</param>
+        /// <param name="classX">Row pharmacologic class code.</param>
+        /// <param name="classY">Column pharmacologic class code.</param>
+        /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
+        /// <param name="includeNonSignificant">Whether RR-non-significant rows are kept.</param>
+        /// <param name="excludeFragile">Whether fragile/wide-CI rows are dropped.</param>
+        /// <param name="minTermsPerCell">Minimum shared terms for the map-safe coefficient.</param>
+        /// <param name="method">Correlation method used for the recomputed coefficient.</param>
+        /// <param name="aggregation">Within-class/term aggregation; median LogRR by default.</param>
+        /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
+        /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="pageNumber">Optional 1-based term-pair page number.</param>
+        /// <param name="pageSize">Optional term-pair page size.</param>
+        /// <returns>The class-pair cell detail with shared selected-SOC term pairs.</returns>
+        /// <remarks>
+        /// Mirrors the map's honesty contract. <c>Coefficient</c> is map-safe and suppressed
+        /// below <c>minTermsPerCell</c>; <c>RawCoefficient</c> remains available for diagnostics.
+        /// Diagonal cells are non-informative and forced to 1.0. Missing shared terms return
+        /// warnings and empty <c>TermPairs</c> rather than a server error.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// GET /api/AdverseEvent/correlation/systems/cell?systems=Cardiac%20Disorders&amp;classX=A&amp;classY=B
+        /// </code>
+        /// </example>
+        /// <response code="200">Returns the class-pair cell detail.</response>
+        /// <response code="400">If selected systems, class codes, paging, or filters are invalid.</response>
+        /// <response code="404">If the selected systems have no usable AE dashboard rows.</response>
+        /// <response code="500">If an unexpected error occurs.</response>
+        /// <response code="503">If the AE dashboard feature is disabled.</response>
+        /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationCellDetailAsync"/>
+        /// <seealso cref="AeSystemClassCorrelationCellDetailDto"/>
+        [AllowAnonymous]
+        [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
+        [DatabaseIntensive(OperationCriticality.Critical)]
+        [HttpGet("correlation/systems/cell")]
+        [ProducesResponseType(typeof(AeSystemClassCorrelationCellDetailDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<ActionResult<AeSystemClassCorrelationCellDetailDto>> GetSystemCorrelationCell(
+            [FromQuery] List<string>? systems,
+            [FromQuery] string? classX,
+            [FromQuery] string? classY,
+            [FromQuery] AeComparatorMix? comparator = null,
+            [FromQuery] bool includeNonSignificant = true,
+            [FromQuery] bool excludeFragile = true,
+            [FromQuery] int minTermsPerCell = 4,
+            [FromQuery] AeCorrelationMethod method = AeCorrelationMethod.Spearman,
+            [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
+            [FromQuery] bool excludeCombos = false,
+            [FromQuery] int minEvents = 0,
+            [FromQuery] int? pageNumber = null,
+            [FromQuery] int? pageSize = null)
+        {
+            #region implementation
+
+            if (!isAeDashboardEnabled())
+            {
+                return disabledResult();
+            }
+
+            var selectedSystems = normalizeSystemQueryValues(systems);
+            if (selectedSystems.Count == 0)
+            {
+                return BadRequest("At least one selected MedDRA system is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(classX) || string.IsNullOrWhiteSpace(classY))
+            {
+                return BadRequest("Both classX and classY are required.");
+            }
+
+            var pagingValidation = validateBoundedPagingParameters(ref pageNumber, ref pageSize, 100, 500, "term pair");
+            if (pagingValidation != null)
+            {
+                return pagingValidation;
+            }
+
+            var filterValidation = validateSystemCorrelationFilters(comparator, aggregation, minEvents, method);
+            if (filterValidation != null)
+            {
+                return filterValidation;
+            }
+
+            try
+            {
+                var result = await DtoLabelAccess.GetAeSystemCorrelationCellDetailAsync(
+                    _dbContext,
+                    selectedSystems,
+                    classX.Trim(),
+                    classY.Trim(),
+                    _pkSecret,
+                    _logger,
+                    comparator ?? AeComparatorMix.Placebo,
+                    includeNonSignificant,
+                    excludeFragile,
+                    minTermsPerCell,
+                    method,
+                    aggregation,
+                    excludeCombos,
+                    minEvents,
+                    pageNumber!.Value,
+                    pageSize!.Value);
+
+                if (result == null)
+                {
+                    return NotFound("The selected MedDRA systems are not available in the AE dashboard.");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error retrieving AE dashboard system cell for {Systems}, {ClassX}, {ClassY}.",
+                    string.Join(", ", selectedSystems),
+                    classX,
+                    classY);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "An error occurred while retrieving the AE dashboard system correlation cell detail.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Gets the SOC × drug relative-risk heatmap for one pharmacologic class.
         /// </summary>
         /// <param name="pharmClassCode">Pharmacologic class code (the public dashboard text form).</param>
@@ -1458,6 +1955,108 @@ namespace MedRecPro.Api.Controllers
             }
 
             return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates the shared system-correlation filter inputs, returning a 400 response when invalid.
+        /// </summary>
+        /// <param name="comparator">Optional comparator mix; null means the placebo default.</param>
+        /// <param name="aggregation">Within-class aggregation enum.</param>
+        /// <param name="minEvents">Minimum total events filter; must be non-negative.</param>
+        /// <param name="method">Optional correlation method enum (the heatmap omits it).</param>
+        /// <returns>A <see cref="BadRequestObjectResult"/> when a value is invalid; otherwise null.</returns>
+        /// <remarks>
+        /// Uses the same enum and minimum-event semantics as the class-first correlation lane,
+        /// while leaving <c>minTermsPerCell</c> to the server floor clamp.
+        /// </remarks>
+        /// <seealso cref="validateCorrelationFilters"/>
+        /// <seealso cref="AeSystemCorrelationFilters"/>
+        private ActionResult? validateSystemCorrelationFilters(
+            AeComparatorMix? comparator,
+            AeCorrelationAggregation aggregation,
+            int minEvents,
+            AeCorrelationMethod? method = null)
+        {
+            #region implementation
+
+            return validateCorrelationFilters(comparator, aggregation, minEvents, method);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates and defaults a bounded page/page-size pair for body-level correlation axes.
+        /// </summary>
+        /// <param name="pageNumber">Optional page number, defaulted to 1.</param>
+        /// <param name="pageSize">Optional page size, defaulted per axis.</param>
+        /// <param name="defaultPageSize">Default page size for the axis.</param>
+        /// <param name="maxPageSize">Maximum accepted page size for the axis.</param>
+        /// <param name="axisName">Human-readable axis name used in validation errors.</param>
+        /// <returns>A <see cref="BadRequestObjectResult"/> when invalid; otherwise null.</returns>
+        /// <remarks>
+        /// Dual-axis responses cannot rely on the base header paginator, so their page metadata
+        /// is emitted in the response body and defaults are applied before data access.
+        /// </remarks>
+        /// <seealso cref="AeCorrelationAxisPageDto"/>
+        private BadRequestObjectResult? validateBoundedPagingParameters(
+            ref int? pageNumber,
+            ref int? pageSize,
+            int defaultPageSize,
+            int maxPageSize,
+            string axisName)
+        {
+            #region implementation
+
+            if (pageNumber.HasValue && pageNumber.Value <= 0)
+            {
+                return BadRequest($"Invalid {axisName} page number: {pageNumber.Value}. Page number must be greater than 0 if provided.");
+            }
+
+            if (pageSize.HasValue && pageSize.Value <= 0)
+            {
+                return BadRequest($"Invalid {axisName} page size: {pageSize.Value}. Page size must be greater than 0 if provided.");
+            }
+
+            if (pageSize.HasValue && pageSize.Value > maxPageSize)
+            {
+                return BadRequest($"Invalid {axisName} page size: {pageSize.Value}. Page size cannot exceed {maxPageSize}.");
+            }
+
+            pageNumber ??= 1;
+            pageSize ??= defaultPageSize;
+            return null;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes selected-system query values, accepting repeated keys or comma-separated values.
+        /// </summary>
+        /// <param name="systems">Raw selected-system query values.</param>
+        /// <returns>Trimmed, de-duplicated selected systems in caller order.</returns>
+        /// <remarks>
+        /// ASP.NET Core binds repeated query parameters naturally; comma splitting keeps direct
+        /// controller calls and ad hoc URL probes consistent with that model.
+        /// </remarks>
+        private static List<string> normalizeSystemQueryValues(IEnumerable<string>? systems)
+        {
+            #region implementation
+
+            if (systems == null)
+            {
+                return new List<string>();
+            }
+
+            return systems
+                .SelectMany(system => (system ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Where(system => !string.IsNullOrWhiteSpace(system))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             #endregion
         }

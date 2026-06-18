@@ -114,4 +114,126 @@ namespace MedRecPro.DataAccess
         List<AePharmClassPickerItemDto> Items,
         int TotalCount,
         int ChartableCount);
+
+    /**************************************************************/
+    /// <summary>
+    /// One class-within-system observation feeding the inverse correlation pipeline.
+    /// </summary>
+    /// <remarks>
+    /// ## Pipeline-only model - not a client contract
+    /// This record is backend derivation plumbing for the MedDRA-system-first lane. It is
+    /// produced by <see cref="DtoLabelAccess"/> from materialized risk rows and consumed by
+    /// <see cref="AeDashboardDerivation"/>. It is public for pure tests only and must not be
+    /// serialized directly by controllers.
+    /// </remarks>
+    /// <seealso cref="AeDashboardDerivation.BuildSystemClassCorrelationMap"/>
+    /// <seealso cref="AeSystemCorrelationAggregate"/>
+    public sealed record AeSystemCorrelationObservation
+    {
+        #region Observation Properties
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class code used as the class axis key.</summary>
+        public string ClassCode { get; init; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>Pharmacologic class display name.</summary>
+        public string? ClassName { get; init; }
+
+        /**************************************************************/
+        /// <summary>Encrypted pharmacologic class identifier for client-safe navigation.</summary>
+        public string? EncryptedPharmacologicClassID { get; init; }
+
+        /**************************************************************/
+        /// <summary>Canonical MedDRA System Organ Class (ParameterCategory).</summary>
+        public string SystemOrganClass { get; init; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>Stable key combining SOC and adverse-event term.</summary>
+        public string TermKey { get; init; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>Canonical adverse-event term display name.</summary>
+        public string ParameterName { get; init; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>Stable per-drug key shared with the class-first correlation lane.</summary>
+        public string DrugKey { get; init; } = string.Empty;
+
+        /**************************************************************/
+        /// <summary>Encrypted active moiety identifier for client-safe drill-down provenance.</summary>
+        public string? EncryptedActiveMoietyID { get; init; }
+
+        /**************************************************************/
+        /// <summary>Drug display name (substance, falling back to product).</summary>
+        public string? DrugDisplayName { get; init; }
+
+        /**************************************************************/
+        /// <summary>Source SPL document identifier for fallback provenance.</summary>
+        public Guid? DocumentGUID { get; init; }
+
+        /**************************************************************/
+        /// <summary>Natural-log relative risk for the observation.</summary>
+        public double LogRr { get; init; }
+
+        /**************************************************************/
+        /// <summary>Raw relative risk for display.</summary>
+        public double? Rr { get; init; }
+
+        /**************************************************************/
+        /// <summary>Derived precision class for the observation.</summary>
+        public AePrecisionClass Precision { get; init; }
+
+        /**************************************************************/
+        /// <summary>Derived RR significance for the observation.</summary>
+        public AeRiskSignificance RiskSignificance { get; init; }
+
+        /**************************************************************/
+        /// <summary>Whether the observation came from a combination-product row.</summary>
+        public bool IsCombo { get; init; }
+
+        /**************************************************************/
+        /// <summary>Total treatment plus comparator event count for the observation.</summary>
+        public double Events { get; init; }
+
+        #endregion Observation Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Aggregated class/term or class/drug value used by the system-first derivation lane.
+    /// </summary>
+    /// <remarks>
+    /// The key lives in the dictionaries that hold this record, while the record carries the
+    /// display and honesty metadata needed by map, heatmap, and cell-detail assembly.
+    /// </remarks>
+    /// <seealso cref="AeSystemCorrelationObservation"/>
+    public sealed record AeSystemCorrelationAggregate(
+        double Value,
+        bool AnyFragile,
+        int Count,
+        int DrugCount,
+        int TermCount,
+        AePrecisionClass Precision,
+        AeRiskSignificance Significance,
+        string SystemOrganClass,
+        string ParameterName,
+        string? DrugDisplayName,
+        string? EncryptedActiveMoietyID,
+        Guid? DocumentGUID);
+
+    /**************************************************************/
+    /// <summary>
+    /// One in-memory page of MedDRA-system picker rows plus matching renderability metadata.
+    /// </summary>
+    /// <remarks>
+    /// This is a data-access transport record for controller pagination headers. It is not
+    /// serialized directly; the public endpoint returns <see cref="AeMeddraSystemPickerItemDto"/>
+    /// items and emits <paramref name="ChartableCount"/> through <c>X-Chartable-Count</c>.
+    /// </remarks>
+    /// <seealso cref="AeMeddraSystemPickerItemDto"/>
+    public sealed record AeSystemPickerPage(
+        List<AeMeddraSystemPickerItemDto> Items,
+        int TotalCount,
+        int ChartableCount);
 }
