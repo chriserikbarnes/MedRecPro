@@ -389,6 +389,29 @@ function normalizeCorrelationFilters(dto) {
 
 /**************************************************************/
 /**
+ * Normalizes the MedDRA-system correlation filter echo.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API system filter DTO.
+ * @returns {object} Filter view model.
+ */
+export function normalizeSystemCorrelationFilters(dto) {
+  const includeNonSignificant = readFirst(dto, ['IncludeNonSignificant', 'includeNonSignificant']);
+  const excludeFragile = readFirst(dto, ['ExcludeFragile', 'excludeFragile']);
+
+  return {
+    comparator: normalizeCorrelationComparator(readFirst(dto, ['Comparator', 'comparator'])),
+    includeNonSignificant: includeNonSignificant === undefined ? true : toBoolean(includeNonSignificant),
+    excludeFragile: excludeFragile === undefined ? true : toBoolean(excludeFragile),
+    minTermsPerCell: toNullableNumber(readFirst(dto, ['MinTermsPerCell', 'minTermsPerCell'])) ?? 4,
+    method: normalizeCorrelationMethod(readFirst(dto, ['Method', 'method'])),
+    aggregation: normalizeCorrelationAggregation(readFirst(dto, ['Aggregation', 'aggregation'])),
+    excludeCombos: toBoolean(readFirst(dto, ['ExcludeCombos', 'excludeCombos'])),
+    minEvents: toNullableNumber(readFirst(dto, ['MinEvents', 'minEvents'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
  * Normalizes warning text arrays without dropping backend guidance.
  *
  * @param {unknown} warnings - API warning payload.
@@ -506,6 +529,446 @@ export function normalizeCorrelationClassPage(payload) {
     chartableCount,
     pageNumber: toNullableNumber(readFirst(payload, ['PageNumber', 'pageNumber'])),
     pageSize: toNullableNumber(readFirst(payload, ['PageSize', 'pageSize'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes page metadata embedded in correlation response bodies.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API page DTO.
+ * @param {{ pageNumber?: number, pageSize?: number }} fallback - Fallback values.
+ * @returns {{ pageNumber: number, pageSize: number, totalCount: number, totalPages: number, hasPreviousPage: boolean, hasNextPage: boolean }} Page view model.
+ */
+export function normalizeAxisPage(dto, fallback = {}) {
+  const pageNumber = toNullableNumber(readFirst(dto, ['PageNumber', 'pageNumber'])) ?? fallback.pageNumber ?? 1;
+  const pageSize = toNullableNumber(readFirst(dto, ['PageSize', 'pageSize'])) ?? fallback.pageSize ?? 0;
+  const totalCount = toNullableNumber(readFirst(dto, ['TotalCount', 'totalCount'])) ?? 0;
+  const totalPages = toNullableNumber(readFirst(dto, ['TotalPages', 'totalPages']))
+    ?? (pageSize > 0 ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1);
+
+  return {
+    pageNumber,
+    pageSize,
+    totalCount,
+    totalPages,
+    hasPreviousPage: toBoolean(readFirst(dto, ['HasPreviousPage', 'hasPreviousPage'])),
+    hasNextPage: toBoolean(readFirst(dto, ['HasNextPage', 'hasNextPage'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one MedDRA system picker row.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API picker DTO.
+ * @returns {object | null} System picker view model or null.
+ */
+export function normalizeCorrelationSystem(dto) {
+  const systemOrganClass = toDisplayString(readFirst(dto, ['SystemOrganClass', 'systemOrganClass']));
+
+  if (!systemOrganClass) {
+    return null;
+  }
+
+  return {
+    id: systemOrganClass,
+    systemOrganClass,
+    classCount: toNullableNumber(readFirst(dto, ['ClassCount', 'classCount'])) ?? 0,
+    drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
+    termCount: toNullableNumber(readFirst(dto, ['TermCount', 'termCount'])) ?? 0,
+    totalOffDiagonalCellCount: toNullableNumber(
+      readFirst(dto, ['TotalOffDiagonalCellCount', 'totalOffDiagonalCellCount']),
+    ) ?? 0,
+    usableMapCellCount: toNullableNumber(readFirst(dto, ['UsableMapCellCount', 'usableMapCellCount'])) ?? 0,
+    maxPairCount: toNullableNumber(readFirst(dto, ['MaxPairCount', 'maxPairCount'])) ?? 0,
+    hasRenderableMap: toBoolean(readFirst(dto, ['HasRenderableMap', 'hasRenderableMap'])),
+    renderabilityReason: toDisplayString(readFirst(dto, ['RenderabilityReason', 'renderabilityReason'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Compares system picker rows by renderability and population.
+ *
+ * @param {object} left - Left system row.
+ * @param {object} right - Right system row.
+ * @returns {number} Sort comparison result.
+ */
+function compareCorrelationSystems(left, right) {
+  return Number(right.hasRenderableMap) - Number(left.hasRenderableMap)
+    || right.usableMapCellCount - left.usableMapCellCount
+    || right.maxPairCount - left.maxPairCount
+    || right.classCount - left.classCount
+    || right.drugCount - left.drugCount
+    || right.termCount - left.termCount
+    || left.systemOrganClass.localeCompare(right.systemOrganClass);
+}
+
+/**************************************************************/
+/**
+ * Normalizes MedDRA system picker payloads and keeps map-ready rows first.
+ *
+ * @param {unknown} payload - API picker payload.
+ * @returns {object[]} System picker rows.
+ */
+export function normalizeCorrelationSystems(payload) {
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : [];
+
+  return items
+    .map((item) => normalizeCorrelationSystem(item))
+    .filter(Boolean)
+    .sort(compareCorrelationSystems);
+}
+
+/**************************************************************/
+/**
+ * Normalizes a system-picker page with items and pagination metadata.
+ *
+ * @param {unknown} payload - API system-picker page payload.
+ * @returns {{ items: object[], totalCount: number, chartableCount: number, pageNumber: number | null, pageSize: number | null }} Normalized page.
+ */
+export function normalizeCorrelationSystemPage(payload) {
+  const items = normalizeCorrelationSystems(payload);
+  const totalCount = toNullableNumber(readFirst(payload, ['TotalCount', 'totalCount'])) ?? items.length;
+  const chartableCount = toNullableNumber(readFirst(payload, ['ChartableCount', 'chartableCount']))
+    ?? items.filter((item) => item.hasRenderableMap).length;
+
+  return {
+    items,
+    totalCount,
+    chartableCount,
+    pageNumber: toNullableNumber(readFirst(payload, ['PageNumber', 'pageNumber'])),
+    pageSize: toNullableNumber(readFirst(payload, ['PageSize', 'pageSize'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one class axis item in a system-scoped response.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API axis DTO.
+ * @returns {object | null} Axis item view model or null.
+ */
+export function normalizeSystemClassAxisItem(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const index = toNullableNumber(readFirst(dto, ['Index', 'index']));
+  const pharmClassCode = toDisplayString(readFirst(dto, ['PharmClassCode', 'pharmClassCode']));
+
+  if (index === null || !pharmClassCode) {
+    return null;
+  }
+
+  return {
+    index,
+    id: pharmClassCode,
+    pharmClassCode,
+    pharmClassName: toDisplayString(readFirst(dto, ['PharmClassName', 'pharmClassName']), pharmClassCode),
+    encryptedPharmacologicClassId: toDisplayString(
+      readFirst(dto, [
+        'EncryptedPharmacologicClassID',
+        'EncryptedPharmacologicClassId',
+        'encryptedPharmacologicClassID',
+        'encryptedPharmacologicClassId',
+      ]),
+    ),
+    termCount: toNullableNumber(readFirst(dto, ['TermCount', 'termCount'])) ?? 0,
+    drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
+    hasRenderableMap: toBoolean(readFirst(dto, ['HasRenderableMap', 'hasRenderableMap'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one class-pair cell in a system-scoped map.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API cell DTO.
+ * @returns {object | null} Cell view model or null.
+ */
+function normalizeSystemCorrelationMapCell(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const rowIndex = toNullableNumber(readFirst(dto, ['RowIndex', 'rowIndex']));
+  const columnIndex = toNullableNumber(readFirst(dto, ['ColumnIndex', 'columnIndex']));
+
+  if (rowIndex === null || columnIndex === null) {
+    return null;
+  }
+
+  return {
+    id: `${rowIndex}:${columnIndex}`,
+    rowIndex,
+    columnIndex,
+    rowClassCode: toDisplayString(readFirst(dto, ['RowClassCode', 'rowClassCode'])),
+    columnClassCode: toDisplayString(readFirst(dto, ['ColumnClassCode', 'columnClassCode'])),
+    coefficient: toNullableNumber(readFirst(dto, ['Coefficient', 'coefficient'])),
+    pairCount: toNullableNumber(readFirst(dto, ['PairCount', 'pairCount'])) ?? 0,
+    pValue: toNullableNumber(readFirst(dto, ['PValue', 'pValue'])),
+    isSignificant: toBoolean(readFirst(dto, ['IsSignificant', 'isSignificant'])),
+    isFragile: toBoolean(readFirst(dto, ['IsFragile', 'isFragile'])),
+    insufficientN: toBoolean(readFirst(dto, ['InsufficientN', 'insufficientN'])),
+    isDiagonal: toBoolean(readFirst(dto, ['IsDiagonal', 'isDiagonal'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one system-scoped class marginal summary.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API summary DTO.
+ * @returns {object | null} Summary view model or null.
+ */
+function normalizeSystemClassSummary(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const index = toNullableNumber(readFirst(dto, ['Index', 'index']));
+  const pharmClassCode = toDisplayString(readFirst(dto, ['PharmClassCode', 'pharmClassCode']));
+
+  if (index === null || !pharmClassCode) {
+    return null;
+  }
+
+  return {
+    index,
+    pharmClassCode,
+    pharmClassName: toDisplayString(readFirst(dto, ['PharmClassName', 'pharmClassName']), pharmClassCode),
+    drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
+    termCount: toNullableNumber(readFirst(dto, ['TermCount', 'termCount'])) ?? 0,
+    medianLogRr: toNullableNumber(readFirst(dto, ['MedianLogRr', 'medianLogRr'])),
+    medianRr: toNullableNumber(readFirst(dto, ['MedianRr', 'medianRr'])),
+    elevatedShare: toNullableNumber(readFirst(dto, ['ElevatedShare', 'elevatedShare'])) ?? 0,
+    protectiveShare: toNullableNumber(readFirst(dto, ['ProtectiveShare', 'protectiveShare'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes a system-scoped class by class correlation map.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API map DTO.
+ * @returns {object | null} Map view model or null.
+ */
+export function normalizeSystemCorrelationMap(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const selectedSystems = readFirst(payload, ['SelectedSystems', 'selectedSystems']);
+  const classPayloads = readFirst(payload, ['Classes', 'classes']);
+  const cellPayloads = readFirst(payload, ['Cells', 'cells']);
+  const summaryPayloads = readFirst(payload, ['ClassSummaries', 'classSummaries']);
+
+  return {
+    selectedSystems: Array.isArray(selectedSystems)
+      ? selectedSystems.map((system) => toDisplayString(system)).filter(Boolean)
+      : [],
+    appliedFilters: normalizeSystemCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
+    classCount: toNullableNumber(readFirst(payload, ['ClassCount', 'classCount'])) ?? 0,
+    includesFullMatrix: toBoolean(readFirst(payload, ['IncludesFullMatrix', 'includesFullMatrix'])),
+    classPage: normalizeAxisPage(readFirst(payload, ['ClassPage', 'classPage']), { pageNumber: 1, pageSize: 40 }),
+    classes: Array.isArray(classPayloads)
+      ? classPayloads.map((item) => normalizeSystemClassAxisItem(item)).filter(Boolean)
+      : [],
+    cells: Array.isArray(cellPayloads)
+      ? cellPayloads.map((cell) => normalizeSystemCorrelationMapCell(cell)).filter(Boolean)
+      : [],
+    classSummaries: Array.isArray(summaryPayloads)
+      ? summaryPayloads.map((summary) => normalizeSystemClassSummary(summary)).filter(Boolean)
+      : [],
+    warnings: normalizeWarnings(readFirst(payload, ['Warnings', 'warnings'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one drug column in a system-scoped heatmap.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API drug DTO.
+ * @returns {object | null} Drug view model or null.
+ */
+function normalizeSystemHeatmapDrug(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const index = toNullableNumber(readFirst(dto, ['Index', 'index']));
+  const drugDisplayName = toDisplayString(readFirst(dto, ['DrugDisplayName', 'drugDisplayName']));
+
+  if (index === null || !drugDisplayName) {
+    return null;
+  }
+
+  return {
+    index,
+    id: `${index}:${drugDisplayName}`,
+    encryptedActiveMoietyId: toDisplayString(
+      readFirst(dto, [
+        'EncryptedActiveMoietyID',
+        'EncryptedActiveMoietyId',
+        'encryptedActiveMoietyID',
+        'encryptedActiveMoietyId',
+      ]),
+    ),
+    drugDisplayName,
+    documentGuid: toDisplayString(readFirst(dto, ['DocumentGUID', 'DocumentGuid', 'documentGUID', 'documentGuid'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one populated class by drug heatmap cell.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API heatmap cell DTO.
+ * @returns {object | null} Heatmap cell view model or null.
+ */
+function normalizeSystemHeatmapCell(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const classIndex = toNullableNumber(readFirst(dto, ['ClassIndex', 'classIndex']));
+  const drugIndex = toNullableNumber(readFirst(dto, ['DrugIndex', 'drugIndex']));
+
+  if (classIndex === null || drugIndex === null) {
+    return null;
+  }
+
+  return {
+    id: `${classIndex}:${drugIndex}`,
+    classIndex,
+    drugIndex,
+    logRr: toNullableNumber(readFirst(dto, ['LogRr', 'logRr'])),
+    rr: toNullableNumber(readFirst(dto, ['Rr', 'RR', 'rr'])),
+    precision: normalizePrecisionClass(readFirst(dto, ['Precision', 'precision'])),
+    significance: normalizeDirection(readFirst(dto, ['Significance', 'significance'])),
+    termCount: toNullableNumber(readFirst(dto, ['TermCount', 'termCount'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes a system-scoped class by drug heatmap.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API heatmap DTO.
+ * @returns {object | null} Heatmap view model or null.
+ */
+export function normalizeSystemCorrelationHeatmap(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const selectedSystems = readFirst(payload, ['SelectedSystems', 'selectedSystems']);
+  const classPayloads = readFirst(payload, ['Classes', 'classes']);
+  const drugPayloads = readFirst(payload, ['Drugs', 'drugs']);
+  const cellPayloads = readFirst(payload, ['Cells', 'cells']);
+
+  return {
+    selectedSystems: Array.isArray(selectedSystems)
+      ? selectedSystems.map((system) => toDisplayString(system)).filter(Boolean)
+      : [],
+    appliedFilters: normalizeSystemCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
+    classPage: normalizeAxisPage(readFirst(payload, ['ClassPage', 'classPage']), { pageNumber: 1, pageSize: 40 }),
+    drugPage: normalizeAxisPage(readFirst(payload, ['DrugPage', 'drugPage']), { pageNumber: 1, pageSize: 50 }),
+    classes: Array.isArray(classPayloads)
+      ? classPayloads.map((item) => normalizeSystemClassAxisItem(item)).filter(Boolean)
+      : [],
+    drugs: Array.isArray(drugPayloads)
+      ? drugPayloads.map((drug) => normalizeSystemHeatmapDrug(drug)).filter(Boolean)
+      : [],
+    cells: Array.isArray(cellPayloads)
+      ? cellPayloads.map((cell) => normalizeSystemHeatmapCell(cell)).filter(Boolean)
+      : [],
+    warnings: normalizeWarnings(readFirst(payload, ['Warnings', 'warnings'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one selected-system term pair behind a class-pair cell.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API term-pair DTO.
+ * @returns {object | null} Term-pair view model or null.
+ */
+function normalizeSystemTermPair(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const parameterName = toDisplayString(readFirst(dto, ['ParameterName', 'parameterName']));
+
+  if (!parameterName) {
+    return null;
+  }
+
+  return {
+    id: `${toDisplayString(readFirst(dto, ['SystemOrganClass', 'systemOrganClass']))}:${parameterName}`,
+    systemOrganClass: toDisplayString(readFirst(dto, ['SystemOrganClass', 'systemOrganClass'])),
+    parameterName,
+    logRrX: toNullableNumber(readFirst(dto, ['LogRrX', 'logRrX'])),
+    logRrY: toNullableNumber(readFirst(dto, ['LogRrY', 'logRrY'])),
+    rrX: toNullableNumber(readFirst(dto, ['RrX', 'RRX', 'rrX'])),
+    rrY: toNullableNumber(readFirst(dto, ['RrY', 'RRY', 'rrY'])),
+    precisionX: normalizePrecisionClass(readFirst(dto, ['PrecisionX', 'precisionX'])),
+    precisionY: normalizePrecisionClass(readFirst(dto, ['PrecisionY', 'precisionY'])),
+    significanceX: normalizeDirection(readFirst(dto, ['SignificanceX', 'significanceX'])),
+    significanceY: normalizeDirection(readFirst(dto, ['SignificanceY', 'significanceY'])),
+    drugCountX: toNullableNumber(readFirst(dto, ['DrugCountX', 'drugCountX'])) ?? 0,
+    drugCountY: toNullableNumber(readFirst(dto, ['DrugCountY', 'drugCountY'])) ?? 0,
+    termCountX: toNullableNumber(readFirst(dto, ['TermCountX', 'termCountX'])) ?? 0,
+    termCountY: toNullableNumber(readFirst(dto, ['TermCountY', 'termCountY'])) ?? 0,
+  };
+}
+
+/**************************************************************/
+/**
+ * Normalizes selected-system term-pair detail behind one class-pair cell.
+ *
+ * @param {Record<string, unknown> | null | undefined} payload - API cell-detail DTO.
+ * @returns {object | null} Cell-detail view model or null.
+ */
+export function normalizeSystemCorrelationCellDetail(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const selectedSystems = readFirst(payload, ['SelectedSystems', 'selectedSystems']);
+  const pairPayloads = readFirst(payload, ['TermPairs', 'termPairs']);
+
+  return {
+    selectedSystems: Array.isArray(selectedSystems)
+      ? selectedSystems.map((system) => toDisplayString(system)).filter(Boolean)
+      : [],
+    classX: normalizeSystemClassAxisItem(readFirst(payload, ['ClassX', 'classX'])),
+    classY: normalizeSystemClassAxisItem(readFirst(payload, ['ClassY', 'classY'])),
+    appliedFilters: normalizeSystemCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
+    coefficient: toNullableNumber(readFirst(payload, ['Coefficient', 'coefficient'])),
+    rawCoefficient: toNullableNumber(readFirst(payload, ['RawCoefficient', 'rawCoefficient'])),
+    pValue: toNullableNumber(readFirst(payload, ['PValue', 'pValue'])),
+    rawPValue: toNullableNumber(readFirst(payload, ['RawPValue', 'rawPValue'])),
+    isSignificant: toBoolean(readFirst(payload, ['IsSignificant', 'isSignificant'])),
+    pairCount: toNullableNumber(readFirst(payload, ['PairCount', 'pairCount'])) ?? 0,
+    minTermsPerCell: toNullableNumber(readFirst(payload, ['MinTermsPerCell', 'minTermsPerCell'])) ?? 4,
+    insufficientN: toBoolean(readFirst(payload, ['InsufficientN', 'insufficientN'])),
+    isDiagonal: toBoolean(readFirst(payload, ['IsDiagonal', 'isDiagonal'])),
+    termPairPage: normalizeAxisPage(readFirst(payload, ['TermPairPage', 'termPairPage']), {
+      pageNumber: 1,
+      pageSize: 100,
+    }),
+    termPairs: Array.isArray(pairPayloads)
+      ? pairPayloads.map((pair) => normalizeSystemTermPair(pair)).filter(Boolean)
+      : [],
+    warnings: normalizeWarnings(readFirst(payload, ['Warnings', 'warnings'])),
   };
 }
 

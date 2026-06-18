@@ -6,6 +6,12 @@
  * @returns {JSX.Element} Focus switch.
  */
 export function FocusSwitch({ activeFocus, onChangeFocus }) {
+  const hintText = activeFocus === 'product'
+    ? 'One product -> adverse-event triage, forest plot & precision view'
+    : activeFocus === 'system'
+      ? 'One or more MedDRA systems -> class correlation map & heatmap'
+      : 'One pharmacologic class -> SOC correlation map & heatmap';
+
   return (
     <div className="focus-strip" aria-label="Dashboard focus">
       <div className="focus-strip-inner">
@@ -39,8 +45,24 @@ export function FocusSwitch({ activeFocus, onChangeFocus }) {
             </svg>
             <span>By class</span>
           </button>
+          <button
+            type="button"
+            className={`focus-option${activeFocus === 'system' ? ' active' : ''}`}
+            role="tab"
+            aria-selected={activeFocus === 'system'}
+            onClick={() => onChangeFocus('system')}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="focus-icon">
+              <path d="M8 3v5a4 4 0 0 0 8 0V3" />
+              <path d="M5 3h3" />
+              <path d="M16 3h3" />
+              <path d="M12 12v3a4 4 0 0 0 8 0v-2" />
+              <circle cx="20" cy="11" r="2" />
+            </svg>
+            <span>By system</span>
+          </button>
         </div>
-        <span className="focus-strip-hint">One pharmacologic class {'->'} SOC correlation map & heatmap</span>
+        <span className="focus-strip-hint">{hintText}</span>
       </div>
     </div>
   );

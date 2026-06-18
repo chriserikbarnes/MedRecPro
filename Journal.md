@@ -5203,3 +5203,17 @@ Saved a pending frontend implementation handoff for adding the MedDRA-system-fir
 **Verification.** Verified the saved plan by exact `Get-Item`, first-page `Get-Content`, and `Select-String` markers for UI-only scope, `By system`, stethoscope icon, `CorrelationPager`, `includeFullMatrix`, no-regression guardrails, and acceptance criteria. No build or test commands were run because this session created a planning artifact only.
 
 ---
+
+### 2026-06-18 11:40 AM EST — AE Dashboard MedDRA System Correlation UI
+
+Implemented the MedDRA-system-first React dashboard lane, adding the `By system` focus, system picker, system header/KPI strip, paged class matrix, class/drug heatmap, and term-pair cell detail over the existing system correlation API.
+
+**Implementation.** Updated [App.jsx](MedRecProReact/src/App.jsx), [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js), and [normalizers.js](MedRecProReact/src/lib/normalizers.js) with system URL state, repeated `systems` serialization, system filters, paging state, full-matrix toggle, export payloads, and normalized picker/map/heatmap/detail DTOs. Added system-focused components under [MedRecProReact/src/components](MedRecProReact/src/components) and [MedRecProReact/src/components/correlation](MedRecProReact/src/components/correlation), while keeping class mode on shared filter and scatter/pager helpers.
+
+**UI and bundle.** Updated [FocusSwitch.jsx](MedRecProReact/src/components/FocusSwitch.jsx) with the `By system` stethoscope option and focus-specific hint copy, added system picker/pager/chip styling in [index.css](MedRecProReact/src/index.css), and rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted `ae-dashboard.js` and `ae-dashboard.css` carry the new lane.
+
+**Tests and plan.** Added focused Vitest coverage for system client URL serialization, system normalizers, system picker helpers, system class-map diagonal behavior, and pager helper functions in [adverseEventClient.test.js](MedRecProReact/src/test/adverseEventClient.test.js), [normalizers.test.js](MedRecProReact/src/test/normalizers.test.js), [classPicker.test.js](MedRecProReact/src/test/classPicker.test.js), [correlationMap.test.js](MedRecProReact/src/test/correlationMap.test.js), and [correlationPager.test.js](MedRecProReact/src/test/correlationPager.test.js). Renamed the completed handoff artifact to [Plans/(done) AE Dashboard MedDRA System Class Correlation UI Plan.md](Plans/(done) AE Dashboard MedDRA System Class Correlation UI Plan.md).
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 8/8 test files and 53/53 tests. `npm.cmd run build` passed and refreshed `ae-dashboard.js` (363,684 bytes) and `ae-dashboard.css` (50,152 bytes). A foreground `npm.cmd run dev -- --host 127.0.0.1 --port 50346` reached Vite ready at `/ae-dashboard/`, but browser smoke could not complete because the hidden local dev server did not stay reachable from the in-app browser (`ERR_CONNECTION_REFUSED`); no leftover Vite/node server remained after cleanup.
+
+---

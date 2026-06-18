@@ -449,6 +449,40 @@ export const AdverseEventClient = {
 
   /**************************************************************/
   /**
+   * Gets MedDRA System Organ Classes that have AE rows for inverse correlation views.
+   *
+   * @param {{ systemSearch?: string, pageNumber?: number, pageSize?: number, comparator?: string, includeNonSignificant?: boolean, excludeFragile?: boolean, excludeCombos?: boolean, minEvents?: number, minTermsPerCell?: number, signal?: AbortSignal }} args - Request options.
+   * @returns {Promise<{ items: unknown[], totalCount: number, chartableCount: number, pageNumber: number, pageSize: number }>} API system-picker page.
+   */
+  getCorrelationSystems({
+    systemSearch = '',
+    pageNumber = 1,
+    pageSize = 50,
+    comparator = undefined,
+    includeNonSignificant = undefined,
+    excludeFragile = undefined,
+    excludeCombos = undefined,
+    minEvents = undefined,
+    minTermsPerCell = undefined,
+    signal = null,
+  } = {}) {
+    const url = buildAdverseEventUrl('correlation/systems', {
+      systemSearch,
+      pageNumber,
+      pageSize,
+      comparator: comparator === undefined ? undefined : normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      excludeCombos,
+      minEvents,
+      minTermsPerCell,
+    });
+
+    return requestJsonPage(url, getFetchOptions(signal), { pageNumber, pageSize });
+  },
+
+  /**************************************************************/
+  /**
    * Gets the SOC by SOC correlation map for one pharmacologic class.
    *
    * @param {object} args - Request options.
@@ -485,6 +519,48 @@ export const AdverseEventClient = {
 
   /**************************************************************/
   /**
+   * Gets a pharmacologic-class by pharmacologic-class map scoped to selected MedDRA systems.
+   *
+   * @param {object} args - Request options.
+   * @returns {Promise<unknown>} API system correlation-map payload.
+   */
+  getSystemCorrelationMap({
+    systems = [],
+    classSearch = '',
+    classPageNumber = 1,
+    classPageSize = 40,
+    comparator = 'Placebo',
+    includeNonSignificant = true,
+    excludeFragile = true,
+    minTermsPerCell = 4,
+    method = 'Spearman',
+    aggregation = 'MedianLogRr',
+    excludeCombos = false,
+    minEvents = 0,
+    includeFullMatrix = false,
+    signal = null,
+  } = {}) {
+    const url = buildAdverseEventUrl('correlation/systems/map', {
+      systems,
+      classSearch,
+      classPageNumber,
+      classPageSize,
+      comparator: normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      minTermsPerCell,
+      method,
+      aggregation,
+      excludeCombos,
+      minEvents,
+      includeFullMatrix,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
    * Gets the sparse SOC by drug heatmap for one pharmacologic class.
    *
    * @param {object} args - Request options.
@@ -508,6 +584,48 @@ export const AdverseEventClient = {
       excludeFragile,
       aggregation,
       seriousSocOnly,
+      excludeCombos,
+      minEvents,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
+   * Gets a sparse pharmacologic-class by drug heatmap scoped to selected MedDRA systems.
+   *
+   * @param {object} args - Request options.
+   * @returns {Promise<unknown>} API system heatmap payload.
+   */
+  getSystemCorrelationHeatmap({
+    systems = [],
+    classSearch = '',
+    drugSearch = '',
+    classPageNumber = 1,
+    classPageSize = 40,
+    drugPageNumber = 1,
+    drugPageSize = 50,
+    comparator = 'Placebo',
+    includeNonSignificant = true,
+    excludeFragile = true,
+    aggregation = 'MedianLogRr',
+    excludeCombos = false,
+    minEvents = 0,
+    signal = null,
+  } = {}) {
+    const url = buildAdverseEventUrl('correlation/systems/heatmap', {
+      systems,
+      classSearch,
+      drugSearch,
+      classPageNumber,
+      classPageSize,
+      drugPageNumber,
+      drugPageSize,
+      comparator: normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      aggregation,
       excludeCombos,
       minEvents,
     });
@@ -550,6 +668,48 @@ export const AdverseEventClient = {
       seriousSocOnly,
       excludeCombos,
       minEvents,
+    });
+
+    return requestJson(url, getFetchOptions(signal));
+  },
+
+  /**************************************************************/
+  /**
+   * Gets shared selected-system term detail for one class-pair correlation cell.
+   *
+   * @param {object} args - Request options.
+   * @returns {Promise<unknown>} API system cell-detail payload.
+   */
+  getSystemCorrelationCell({
+    systems = [],
+    classX,
+    classY,
+    comparator = 'Placebo',
+    includeNonSignificant = true,
+    excludeFragile = true,
+    minTermsPerCell = 4,
+    method = 'Spearman',
+    aggregation = 'MedianLogRr',
+    excludeCombos = false,
+    minEvents = 0,
+    pageNumber = 1,
+    pageSize = 100,
+    signal = null,
+  } = {}) {
+    const url = buildAdverseEventUrl('correlation/systems/cell', {
+      systems,
+      classX,
+      classY,
+      comparator: normalizeClassComparatorParameter(comparator),
+      includeNonSignificant,
+      excludeFragile,
+      minTermsPerCell,
+      method,
+      aggregation,
+      excludeCombos,
+      minEvents,
+      pageNumber,
+      pageSize,
     });
 
     return requestJson(url, getFetchOptions(signal));

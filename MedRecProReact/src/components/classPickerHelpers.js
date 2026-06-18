@@ -25,6 +25,29 @@ export function buildClassSections(classes) {
 
 /**************************************************************/
 /**
+ * Builds picker sections for MedDRA systems.
+ *
+ * @param {object[]} systems - System rows.
+ * @returns {object[]} Picker sections.
+ */
+export function buildSystemSections(systems) {
+  const mapReadyRows = systems.filter((item) => item.hasRenderableMap);
+  const noMapRows = systems.filter((item) => !item.hasRenderableMap);
+  const sections = [];
+
+  if (mapReadyRows.length > 0) {
+    sections.push({ id: 'map-ready', label: 'Map-ready systems', rows: mapReadyRows });
+  }
+
+  if (noMapRows.length > 0) {
+    sections.push({ id: 'no-map-cells', label: 'No map cells at current floor', rows: noMapRows });
+  }
+
+  return sections;
+}
+
+/**************************************************************/
+/**
  * Formats the renderability badge for a class picker row.
  *
  * @param {object} item - Class row.
@@ -38,6 +61,26 @@ export function formatMapCellBadge(item) {
 
   if ((item.maxPairCount ?? 0) > 0) {
     return `max ${formatInteger(item.maxPairCount)} pairs`;
+  }
+
+  return 'no map cells';
+}
+
+/**************************************************************/
+/**
+ * Formats the renderability badge for a MedDRA system picker row.
+ *
+ * @param {object} item - System row.
+ * @returns {string} Badge text.
+ */
+export function formatSystemMapCellBadge(item) {
+  if (item.hasRenderableMap) {
+    const cellCount = item.usableMapCellCount ?? 0;
+    return `${formatInteger(cellCount)} map ${cellCount === 1 ? 'cell' : 'cells'}`;
+  }
+
+  if ((item.maxPairCount ?? 0) > 0) {
+    return `max ${formatInteger(item.maxPairCount)} terms`;
   }
 
   return 'no map cells';
@@ -69,4 +112,30 @@ export function getClassPickerChartableCount(chartableClassCount, classes) {
   return Number.isFinite(chartableClassCount) && chartableClassCount > 0
     ? chartableClassCount
     : classes.filter((item) => item.hasRenderableMap).length;
+}
+
+/**************************************************************/
+/**
+ * Chooses the count shown in the system picker search row.
+ *
+ * @param {number} totalSystemCount - Total matching system count from the API.
+ * @param {number} loadedSystemCount - Locally loaded row count.
+ * @returns {number} Display count.
+ */
+export function getSystemPickerDisplayCount(totalSystemCount, loadedSystemCount) {
+  return getClassPickerDisplayCount(totalSystemCount, loadedSystemCount);
+}
+
+/**************************************************************/
+/**
+ * Chooses the chartable count shown in the system picker search row.
+ *
+ * @param {number} chartableSystemCount - Total chartable system count from the API.
+ * @param {object[]} systems - Locally loaded system rows.
+ * @returns {number} Display count.
+ */
+export function getSystemPickerChartableCount(chartableSystemCount, systems) {
+  return Number.isFinite(chartableSystemCount) && chartableSystemCount > 0
+    ? chartableSystemCount
+    : systems.filter((item) => item.hasRenderableMap).length;
 }

@@ -8,11 +8,14 @@ import { ClassPicker } from './components/ClassPicker';
 import { FocusSwitch } from './components/FocusSwitch';
 import { PageHeader } from './components/PageHeader';
 import { CompactProductPicker, ProductPicker } from './components/ProductPicker';
+import { SystemPageHeader } from './components/SystemPageHeader';
+import { SystemPicker } from './components/SystemPicker';
 import { DisabledFeature } from './components/common/DisabledFeature';
 import { EmptyState } from './components/common/EmptyState';
 import { InlineError } from './components/common/InlineError';
 import { Loading } from './components/common/Loading';
 import { ClassCorrelationSurface } from './components/correlation/ClassCorrelationSurface';
+import { SystemCorrelationSurface } from './components/correlation/SystemCorrelationSurface';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
 import { useFavorites } from './hooks/useFavorites';
 import { useMediaQuery } from './hooks/useMediaQuery';
@@ -35,10 +38,14 @@ import {
     normalizeCorrelationClassPage,
     normalizeCorrelationHeatmap,
     normalizeCorrelationMap,
+    normalizeCorrelationSystemPage,
     normalizeForest,
     normalizeInterchange,
     normalizeQuadrant,
     normalizeReverseLookup,
+    normalizeSystemCorrelationCellDetail,
+    normalizeSystemCorrelationHeatmap,
+    normalizeSystemCorrelationMap,
     normalizeTriage,
 } from './lib/normalizers';
 
@@ -49,15 +56,22 @@ const DASHBOARD_VIEWS = new Set(['triage', 'forest', 'quadrant']);
 const COMPARATOR_FILTERS = new Set(['all', 'placebo', 'active']);
 
 // Supported top-level dashboard focuses preserve the existing product default.
-const DASHBOARD_FOCUSES = new Set(['product', 'class']);
+const DASHBOARD_FOCUSES = new Set(['product', 'class', 'system']);
 
 // Supported class-mode tabs.
 const CLASS_DASHBOARD_VIEWS = new Set(['map', 'heatmap']);
+
+// Supported system-mode tabs.
+const SYSTEM_DASHBOARD_VIEWS = new Set(['map', 'heatmap']);
 
 // Supported class-mode enum filters mirror the backend query values.
 const CLASS_COMPARATORS = new Set(['Placebo', 'Active', 'Both']);
 const CLASS_CORRELATION_METHODS = new Set(['Spearman', 'Pearson']);
 const CLASS_CORRELATION_AGGREGATIONS = new Set(['MedianLogRr', 'MeanLogRr']);
+
+const DEFAULT_SYSTEM_CLASS_PAGE_SIZE = 40;
+const DEFAULT_SYSTEM_DRUG_PAGE_SIZE = 50;
+const DEFAULT_SYSTEM_TERM_PAIR_PAGE_SIZE = 100;
 
 // View copy is centralized so tabs and panel headings stay in sync.
 const VIEW_COPY = {
@@ -219,6 +233,24 @@ function readDashboardUrlState() {
             aggregation: 'MedianLogRr',
             excludeCombos: false,
             minEvents: 0,
+            systems: [],
+            systemSearch: '',
+            systemView: 'map',
+            systemComparator: 'Placebo',
+            systemIncludeNonSignificant: true,
+            systemExcludeFragile: true,
+            systemExcludeCombos: false,
+            minTermsPerCell: 4,
+            systemMethod: 'Spearman',
+            systemAggregation: 'MedianLogRr',
+            systemMinEvents: 0,
+            systemClassPageNumber: 1,
+            systemClassPageSize: DEFAULT_SYSTEM_CLASS_PAGE_SIZE,
+            systemDrugPageNumber: 1,
+            systemDrugPageSize: DEFAULT_SYSTEM_DRUG_PAGE_SIZE,
+            systemTermPairPageNumber: 1,
+            systemTermPairPageSize: DEFAULT_SYSTEM_TERM_PAIR_PAGE_SIZE,
+            systemFullMatrix: false,
         };
     }
 
@@ -256,6 +288,44 @@ function readDashboardUrlState() {
         aggregation: readEnumQuery(searchParams, 'aggregation', CLASS_CORRELATION_AGGREGATIONS, 'MedianLogRr'),
         excludeCombos: readBooleanQuery(searchParams, 'excludeCombos', false),
         minEvents: readIntegerQuery(searchParams, 'minEvents', 0, 0),
+        systems: searchParams.getAll('systems').map((system) => system.trim()).filter(Boolean),
+        systemSearch: searchParams.get('systemSearch') ?? '',
+        systemView: readEnumQuery(searchParams, 'systemView', SYSTEM_DASHBOARD_VIEWS, 'map'),
+        systemComparator: readEnumQuery(searchParams, 'systemComparator', CLASS_COMPARATORS, 'Placebo'),
+        systemIncludeNonSignificant: readBooleanQuery(searchParams, 'systemIncludeNonSignificant', true),
+        systemExcludeFragile: readBooleanQuery(searchParams, 'systemExcludeFragile', true),
+        systemExcludeCombos: readBooleanQuery(searchParams, 'systemExcludeCombos', false),
+        minTermsPerCell: readIntegerQuery(searchParams, 'minTermsPerCell', 4, 3),
+        systemMethod: readEnumQuery(searchParams, 'systemMethod', CLASS_CORRELATION_METHODS, 'Spearman'),
+        systemAggregation: readEnumQuery(
+            searchParams,
+            'systemAggregation',
+            CLASS_CORRELATION_AGGREGATIONS,
+            'MedianLogRr',
+        ),
+        systemMinEvents: readIntegerQuery(searchParams, 'systemMinEvents', 0, 0),
+        systemClassPageNumber: readIntegerQuery(searchParams, 'systemClassPageNumber', 1, 1),
+        systemClassPageSize: readIntegerQuery(
+            searchParams,
+            'systemClassPageSize',
+            DEFAULT_SYSTEM_CLASS_PAGE_SIZE,
+            1,
+        ),
+        systemDrugPageNumber: readIntegerQuery(searchParams, 'systemDrugPageNumber', 1, 1),
+        systemDrugPageSize: readIntegerQuery(
+            searchParams,
+            'systemDrugPageSize',
+            DEFAULT_SYSTEM_DRUG_PAGE_SIZE,
+            1,
+        ),
+        systemTermPairPageNumber: readIntegerQuery(searchParams, 'systemTermPairPageNumber', 1, 1),
+        systemTermPairPageSize: readIntegerQuery(
+            searchParams,
+            'systemTermPairPageSize',
+            DEFAULT_SYSTEM_TERM_PAIR_PAGE_SIZE,
+            1,
+        ),
+        systemFullMatrix: readBooleanQuery(searchParams, 'systemFullMatrix', false),
     };
 }
 
@@ -282,6 +352,24 @@ function writeDashboardUrlState({
     aggregation,
     excludeCombos,
     minEvents,
+    systems,
+    systemSearch,
+    systemView,
+    systemComparator,
+    systemIncludeNonSignificant,
+    systemExcludeFragile,
+    systemExcludeCombos,
+    minTermsPerCell,
+    systemMethod,
+    systemAggregation,
+    systemMinEvents,
+    systemClassPageNumber,
+    systemClassPageSize,
+    systemDrugPageNumber,
+    systemDrugPageSize,
+    systemTermPairPageNumber,
+    systemTermPairPageSize,
+    systemFullMatrix,
 }, shouldPush) {
     // URL state is browser-only.
     if (!globalThis.window?.history) {
@@ -306,6 +394,26 @@ function writeDashboardUrlState({
     const resolvedAggregation = aggregation ?? currentState.aggregation;
     const resolvedExcludeCombos = excludeCombos ?? currentState.excludeCombos;
     const resolvedMinEvents = minEvents ?? currentState.minEvents;
+    const resolvedSystems = systems ?? currentState.systems;
+    const resolvedSystemSearch = systemSearch ?? currentState.systemSearch;
+    const resolvedSystemView = systemView ?? currentState.systemView;
+    const resolvedSystemComparator = systemComparator ?? currentState.systemComparator;
+    const resolvedSystemIncludeNonSignificant =
+        systemIncludeNonSignificant ?? currentState.systemIncludeNonSignificant;
+    const resolvedSystemExcludeFragile = systemExcludeFragile ?? currentState.systemExcludeFragile;
+    const resolvedSystemExcludeCombos = systemExcludeCombos ?? currentState.systemExcludeCombos;
+    const resolvedMinTermsPerCell = minTermsPerCell ?? currentState.minTermsPerCell;
+    const resolvedSystemMethod = systemMethod ?? currentState.systemMethod;
+    const resolvedSystemAggregation = systemAggregation ?? currentState.systemAggregation;
+    const resolvedSystemMinEvents = systemMinEvents ?? currentState.systemMinEvents;
+    const resolvedSystemClassPageNumber = systemClassPageNumber ?? currentState.systemClassPageNumber;
+    const resolvedSystemClassPageSize = systemClassPageSize ?? currentState.systemClassPageSize;
+    const resolvedSystemDrugPageNumber = systemDrugPageNumber ?? currentState.systemDrugPageNumber;
+    const resolvedSystemDrugPageSize = systemDrugPageSize ?? currentState.systemDrugPageSize;
+    const resolvedSystemTermPairPageNumber =
+        systemTermPairPageNumber ?? currentState.systemTermPairPageNumber;
+    const resolvedSystemTermPairPageSize = systemTermPairPageSize ?? currentState.systemTermPairPageSize;
+    const resolvedSystemFullMatrix = systemFullMatrix ?? currentState.systemFullMatrix;
 
     nextUrl.searchParams.set('focus', resolvedFocus);
 
@@ -336,6 +444,33 @@ function writeDashboardUrlState({
     nextUrl.searchParams.delete('seriousSocOnly');
     nextUrl.searchParams.set('excludeCombos', String(resolvedExcludeCombos));
     nextUrl.searchParams.set('minEvents', String(resolvedMinEvents));
+    nextUrl.searchParams.delete('systems');
+    for (const system of resolvedSystems) {
+        if (system) {
+            nextUrl.searchParams.append('systems', system);
+        }
+    }
+    if (resolvedSystemSearch) {
+        nextUrl.searchParams.set('systemSearch', resolvedSystemSearch);
+    } else {
+        nextUrl.searchParams.delete('systemSearch');
+    }
+    nextUrl.searchParams.set('systemView', resolvedSystemView);
+    nextUrl.searchParams.set('systemComparator', resolvedSystemComparator);
+    nextUrl.searchParams.set('systemIncludeNonSignificant', String(resolvedSystemIncludeNonSignificant));
+    nextUrl.searchParams.set('systemExcludeFragile', String(resolvedSystemExcludeFragile));
+    nextUrl.searchParams.set('systemExcludeCombos', String(resolvedSystemExcludeCombos));
+    nextUrl.searchParams.set('minTermsPerCell', String(resolvedMinTermsPerCell));
+    nextUrl.searchParams.set('systemMethod', resolvedSystemMethod);
+    nextUrl.searchParams.set('systemAggregation', resolvedSystemAggregation);
+    nextUrl.searchParams.set('systemMinEvents', String(resolvedSystemMinEvents));
+    nextUrl.searchParams.set('systemClassPageNumber', String(resolvedSystemClassPageNumber));
+    nextUrl.searchParams.set('systemClassPageSize', String(resolvedSystemClassPageSize));
+    nextUrl.searchParams.set('systemDrugPageNumber', String(resolvedSystemDrugPageNumber));
+    nextUrl.searchParams.set('systemDrugPageSize', String(resolvedSystemDrugPageSize));
+    nextUrl.searchParams.set('systemTermPairPageNumber', String(resolvedSystemTermPairPageNumber));
+    nextUrl.searchParams.set('systemTermPairPageSize', String(resolvedSystemTermPairPageSize));
+    nextUrl.searchParams.set('systemFullMatrix', String(resolvedSystemFullMatrix));
 
     // Product selection should be bookmarkable as a navigation event.
     if (shouldPush) {
@@ -2220,6 +2355,69 @@ function App() {
     const [classCellError, setClassCellError] = useState(null);
     const [classCellReloadToken, setClassCellReloadToken] = useState(0);
 
+    // System-mode picker search is debounced before it reaches the system endpoint.
+    const [systemSearch, setSystemSearch] = useState(initialUrlState.systemSearch);
+    const debouncedSystemSearch = useDebouncedValue(systemSearch, 250);
+
+    // Selected systems can come from repeated URL values before picker metadata loads.
+    const [selectedSystems, setSelectedSystems] = useState(
+        () => initialUrlState.systems.map((system) => ({
+            id: system,
+            systemOrganClass: system,
+            classCount: 0,
+            drugCount: 0,
+            termCount: 0,
+            usableMapCellCount: 0,
+            maxPairCount: 0,
+            hasRenderableMap: false,
+            renderabilityReason: '',
+        })),
+    );
+
+    // System-mode view, filters, and paging start from URL state.
+    const [systemView, setSystemView] = useState(initialUrlState.systemView);
+    const [systemComparator, setSystemComparator] = useState(initialUrlState.systemComparator);
+    const [systemIncludeNonSignificant, setSystemIncludeNonSignificant] =
+        useState(initialUrlState.systemIncludeNonSignificant);
+    const [systemExcludeFragile, setSystemExcludeFragile] = useState(initialUrlState.systemExcludeFragile);
+    const [systemExcludeCombos, setSystemExcludeCombos] = useState(initialUrlState.systemExcludeCombos);
+    const [minTermsPerCell, setMinTermsPerCell] = useState(initialUrlState.minTermsPerCell);
+    const [systemMethod, setSystemMethod] = useState(initialUrlState.systemMethod);
+    const [systemAggregation, setSystemAggregation] = useState(initialUrlState.systemAggregation);
+    const [systemMinEvents, setSystemMinEvents] = useState(initialUrlState.systemMinEvents);
+    const [systemClassPageNumber, setSystemClassPageNumber] = useState(initialUrlState.systemClassPageNumber);
+    const [systemClassPageSize, setSystemClassPageSize] = useState(initialUrlState.systemClassPageSize);
+    const [systemDrugPageNumber, setSystemDrugPageNumber] = useState(initialUrlState.systemDrugPageNumber);
+    const [systemDrugPageSize, setSystemDrugPageSize] = useState(initialUrlState.systemDrugPageSize);
+    const [systemTermPairPageNumber, setSystemTermPairPageNumber] =
+        useState(initialUrlState.systemTermPairPageNumber);
+    const [systemTermPairPageSize, setSystemTermPairPageSize] =
+        useState(initialUrlState.systemTermPairPageSize);
+    const [systemFullMatrix, setSystemFullMatrix] = useState(initialUrlState.systemFullMatrix);
+
+    // System picker payload is independent from the class picker and product catalog.
+    const [correlationSystems, setCorrelationSystems] = useState([]);
+    const [correlationSystemTotalCount, setCorrelationSystemTotalCount] = useState(0);
+    const [correlationSystemChartableCount, setCorrelationSystemChartableCount] = useState(0);
+    const [isSystemPickerLoading, setIsSystemPickerLoading] = useState(false);
+    const [systemPickerError, setSystemPickerError] = useState(null);
+    const [systemPickerReloadToken, setSystemPickerReloadToken] = useState(0);
+
+    // System correlation payloads are loaded separately so map, heatmap, and detail errors stay local.
+    const [systemMap, setSystemMap] = useState(null);
+    const [isSystemMapLoading, setIsSystemMapLoading] = useState(false);
+    const [systemMapError, setSystemMapError] = useState(null);
+    const [systemMapReloadToken, setSystemMapReloadToken] = useState(0);
+    const [systemHeatmap, setSystemHeatmap] = useState(null);
+    const [isSystemHeatmapLoading, setIsSystemHeatmapLoading] = useState(false);
+    const [systemHeatmapError, setSystemHeatmapError] = useState(null);
+    const [systemHeatmapReloadToken, setSystemHeatmapReloadToken] = useState(0);
+    const [selectedSystemCell, setSelectedSystemCell] = useState(null);
+    const [systemCellDetail, setSystemCellDetail] = useState(null);
+    const [isSystemCellLoading, setIsSystemCellLoading] = useState(false);
+    const [systemCellError, setSystemCellError] = useState(null);
+    const [systemCellReloadToken, setSystemCellReloadToken] = useState(0);
+
     // Triage payload stores the tiered flagship view.
     const [triageView, setTriageView] = useState({ product: null, tiers: [] });
 
@@ -2289,6 +2487,9 @@ function App() {
     // Initial selection should happen once after products or deep-link hydration become available.
     const hasResolvedInitialSelectionRef = useRef(false);
 
+    // System default selection should happen only once; removing the last chip must stay empty.
+    const hasResolvedInitialSystemSelectionRef = useRef(initialUrlState.systems.length > 0);
+
     // Product catalog state comes from the live API.
     const {
         products,
@@ -2333,7 +2534,11 @@ function App() {
         || (classPickerError instanceof ApiError && classPickerError.isFeatureDisabled)
         || (classMapError instanceof ApiError && classMapError.isFeatureDisabled)
         || (classHeatmapError instanceof ApiError && classHeatmapError.isFeatureDisabled)
-        || (classCellError instanceof ApiError && classCellError.isFeatureDisabled);
+        || (classCellError instanceof ApiError && classCellError.isFeatureDisabled)
+        || (systemPickerError instanceof ApiError && systemPickerError.isFeatureDisabled)
+        || (systemMapError instanceof ApiError && systemMapError.isFeatureDisabled)
+        || (systemHeatmapError instanceof ApiError && systemHeatmapError.isFeatureDisabled)
+        || (systemCellError instanceof ApiError && systemCellError.isFeatureDisabled);
 
     // Favorite state is overlaid at render time so async favorite hydration updates the header.
     const selectedProductWithFavoriteState = selectedProduct
@@ -2368,6 +2573,82 @@ function App() {
             minDrugsPerCell,
             minEvents,
         ],
+    );
+
+    // System filters are grouped separately so minTermsPerCell never leaks into class mode.
+    const systemFilters = useMemo(
+        () => ({
+            comparator: systemComparator,
+            includeNonSignificant: systemIncludeNonSignificant,
+            excludeFragile: systemExcludeFragile,
+            minTermsPerCell,
+            method: systemMethod,
+            aggregation: systemAggregation,
+            excludeCombos: systemExcludeCombos,
+            minEvents: systemMinEvents,
+        }),
+        [
+            minTermsPerCell,
+            systemAggregation,
+            systemComparator,
+            systemExcludeCombos,
+            systemExcludeFragile,
+            systemIncludeNonSignificant,
+            systemMethod,
+            systemMinEvents,
+        ],
+    );
+
+    // System requests use canonical names, not picker object identity.
+    const selectedSystemNames = useMemo(
+        () => selectedSystems.map((system) => system.systemOrganClass).filter(Boolean),
+        [selectedSystems],
+    );
+
+    // Fallback page metadata gives controls stable dimensions before the first response arrives.
+    const systemMapClassPage = useMemo(
+        () => ({
+            pageNumber: systemClassPageNumber,
+            pageSize: systemClassPageSize,
+            totalCount: systemMap?.classPage?.totalCount ?? 0,
+            totalPages: systemMap?.classPage?.totalPages ?? 1,
+            hasPreviousPage: systemClassPageNumber > 1,
+            hasNextPage: Boolean(systemMap?.classPage?.hasNextPage),
+        }),
+        [systemClassPageNumber, systemClassPageSize, systemMap?.classPage],
+    );
+    const systemHeatmapClassPage = useMemo(
+        () => ({
+            pageNumber: systemClassPageNumber,
+            pageSize: systemClassPageSize,
+            totalCount: systemHeatmap?.classPage?.totalCount ?? 0,
+            totalPages: systemHeatmap?.classPage?.totalPages ?? 1,
+            hasPreviousPage: systemClassPageNumber > 1,
+            hasNextPage: Boolean(systemHeatmap?.classPage?.hasNextPage),
+        }),
+        [systemClassPageNumber, systemClassPageSize, systemHeatmap?.classPage],
+    );
+    const systemHeatmapDrugPage = useMemo(
+        () => ({
+            pageNumber: systemDrugPageNumber,
+            pageSize: systemDrugPageSize,
+            totalCount: systemHeatmap?.drugPage?.totalCount ?? 0,
+            totalPages: systemHeatmap?.drugPage?.totalPages ?? 1,
+            hasPreviousPage: systemDrugPageNumber > 1,
+            hasNextPage: Boolean(systemHeatmap?.drugPage?.hasNextPage),
+        }),
+        [systemDrugPageNumber, systemDrugPageSize, systemHeatmap?.drugPage],
+    );
+    const systemTermPairPage = useMemo(
+        () => ({
+            pageNumber: systemTermPairPageNumber,
+            pageSize: systemTermPairPageSize,
+            totalCount: systemCellDetail?.termPairPage?.totalCount ?? 0,
+            totalPages: systemCellDetail?.termPairPage?.totalPages ?? 1,
+            hasPreviousPage: systemTermPairPageNumber > 1,
+            hasNextPage: Boolean(systemCellDetail?.termPairPage?.hasNextPage),
+        }),
+        [systemCellDetail?.termPairPage, systemTermPairPageNumber, systemTermPairPageSize],
     );
 
     // Class picker searches use an initial URL code until that code is resolved.
@@ -2473,6 +2754,24 @@ function App() {
                     aggregation: classFilters.aggregation,
                     excludeCombos: classFilters.excludeCombos,
                     minEvents: classFilters.minEvents,
+                    systems: selectedSystemNames,
+                    systemSearch,
+                    systemView,
+                    systemComparator: systemFilters.comparator,
+                    systemIncludeNonSignificant: systemFilters.includeNonSignificant,
+                    systemExcludeFragile: systemFilters.excludeFragile,
+                    systemExcludeCombos: systemFilters.excludeCombos,
+                    minTermsPerCell: systemFilters.minTermsPerCell,
+                    systemMethod: systemFilters.method,
+                    systemAggregation: systemFilters.aggregation,
+                    systemMinEvents: systemFilters.minEvents,
+                    systemClassPageNumber,
+                    systemClassPageSize,
+                    systemDrugPageNumber,
+                    systemDrugPageSize,
+                    systemTermPairPageNumber,
+                    systemTermPairPageSize,
+                    systemFullMatrix,
                     ...overrides,
                 },
                 shouldPush,
@@ -2486,7 +2785,18 @@ function App() {
             dashboardFocus,
             selectedClassCode,
             selectedDocumentGuid,
+            selectedSystemNames,
             showFragile,
+            systemClassPageNumber,
+            systemClassPageSize,
+            systemDrugPageNumber,
+            systemDrugPageSize,
+            systemFilters,
+            systemFullMatrix,
+            systemSearch,
+            systemTermPairPageNumber,
+            systemTermPairPageSize,
+            systemView,
         ],
     );
 
@@ -2850,6 +3160,296 @@ function App() {
     ]);
 
     useEffect(() => {
+        // System data is quiet until system focus is visible or URL-selected systems need enrichment.
+        if (dashboardFocus !== 'system' && selectedSystemNames.length === 0) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads MedDRA system picker rows from the live inverse-correlation endpoint.
+         */
+        async function loadCorrelationSystems() {
+            setIsSystemPickerLoading(true);
+            setSystemPickerError(null);
+
+            try {
+                const payload = await AdverseEventClient.getCorrelationSystems({
+                    systemSearch: debouncedSystemSearch,
+                    pageNumber: 1,
+                    pageSize: 50,
+                    comparator: systemFilters.comparator,
+                    includeNonSignificant: systemFilters.includeNonSignificant,
+                    excludeFragile: systemFilters.excludeFragile,
+                    excludeCombos: systemFilters.excludeCombos,
+                    minEvents: systemFilters.minEvents,
+                    minTermsPerCell: systemFilters.minTermsPerCell,
+                    signal: abortController.signal,
+                });
+                const normalizedPage = normalizeCorrelationSystemPage(payload);
+                const normalizedSystems = normalizedPage.items;
+
+                setCorrelationSystems(normalizedSystems);
+                setCorrelationSystemTotalCount(normalizedPage.totalCount);
+                setCorrelationSystemChartableCount(normalizedPage.chartableCount);
+
+                setSelectedSystems((currentSystems) => {
+                    if (
+                        currentSystems.length === 0
+                        && normalizedSystems.length > 0
+                        && !hasResolvedInitialSystemSelectionRef.current
+                    ) {
+                        hasResolvedInitialSystemSelectionRef.current = true;
+                        const nextSystem = normalizedSystems.find((item) => item.hasRenderableMap)
+                            ?? normalizedSystems[0];
+
+                        writeDashboardUrlState(
+                            {
+                                ...readDashboardUrlState(),
+                                focus: dashboardFocus,
+                                systems: [nextSystem.systemOrganClass],
+                            },
+                            false,
+                        );
+
+                        return [nextSystem];
+                    }
+
+                    const byName = new Map(
+                        normalizedSystems.map((system) => [system.systemOrganClass.toLowerCase(), system]),
+                    );
+                    let didChange = false;
+                    const enrichedSystems = currentSystems.map((system) => {
+                        const enrichedSystem = byName.get(system.systemOrganClass.toLowerCase());
+
+                        if (!enrichedSystem) {
+                            return system;
+                        }
+
+                        if (enrichedSystem === system) {
+                            return system;
+                        }
+
+                        didChange = true;
+                        return enrichedSystem;
+                    });
+
+                    return didChange ? enrichedSystems : currentSystems;
+                });
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setCorrelationSystems([]);
+                setCorrelationSystemTotalCount(0);
+                setCorrelationSystemChartableCount(0);
+                setSystemPickerError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsSystemPickerLoading(false);
+                }
+            }
+        }
+
+        loadCorrelationSystems();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [
+        dashboardFocus,
+        debouncedSystemSearch,
+        selectedSystemNames.length,
+        systemFilters,
+        systemPickerReloadToken,
+    ]);
+
+    useEffect(() => {
+        if (dashboardFocus !== 'system' || systemView !== 'map' || selectedSystemNames.length === 0) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads the MedDRA-system-scoped class by class correlation map.
+         */
+        async function loadSystemMap() {
+            setIsSystemMapLoading(true);
+            setSystemMapError(null);
+
+            try {
+                const payload = await AdverseEventClient.getSystemCorrelationMap({
+                    systems: selectedSystemNames,
+                    classPageNumber: systemClassPageNumber,
+                    classPageSize: systemClassPageSize,
+                    includeFullMatrix: systemFullMatrix,
+                    ...systemFilters,
+                    signal: abortController.signal,
+                });
+
+                setSystemMap(normalizeSystemCorrelationMap(payload));
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setSystemMap(null);
+                setSystemMapError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsSystemMapLoading(false);
+                }
+            }
+        }
+
+        loadSystemMap();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [
+        dashboardFocus,
+        selectedSystemNames,
+        systemClassPageNumber,
+        systemClassPageSize,
+        systemFilters,
+        systemFullMatrix,
+        systemMapReloadToken,
+        systemView,
+    ]);
+
+    useEffect(() => {
+        if (dashboardFocus !== 'system' || systemView !== 'heatmap' || selectedSystemNames.length === 0) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads the MedDRA-system-scoped class by drug heatmap.
+         */
+        async function loadSystemHeatmap() {
+            setIsSystemHeatmapLoading(true);
+            setSystemHeatmapError(null);
+
+            try {
+                const payload = await AdverseEventClient.getSystemCorrelationHeatmap({
+                    systems: selectedSystemNames,
+                    classPageNumber: systemClassPageNumber,
+                    classPageSize: systemClassPageSize,
+                    drugPageNumber: systemDrugPageNumber,
+                    drugPageSize: systemDrugPageSize,
+                    comparator: systemFilters.comparator,
+                    includeNonSignificant: systemFilters.includeNonSignificant,
+                    excludeFragile: systemFilters.excludeFragile,
+                    aggregation: systemFilters.aggregation,
+                    excludeCombos: systemFilters.excludeCombos,
+                    minEvents: systemFilters.minEvents,
+                    signal: abortController.signal,
+                });
+
+                setSystemHeatmap(normalizeSystemCorrelationHeatmap(payload));
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setSystemHeatmap(null);
+                setSystemHeatmapError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsSystemHeatmapLoading(false);
+                }
+            }
+        }
+
+        loadSystemHeatmap();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [
+        dashboardFocus,
+        selectedSystemNames,
+        systemClassPageNumber,
+        systemClassPageSize,
+        systemDrugPageNumber,
+        systemDrugPageSize,
+        systemFilters,
+        systemHeatmapReloadToken,
+        systemView,
+    ]);
+
+    useEffect(() => {
+        if (
+            dashboardFocus !== 'system'
+            || systemView !== 'map'
+            || selectedSystemNames.length === 0
+            || !selectedSystemCell
+            || selectedSystemCell.isDiagonal
+        ) {
+            return undefined;
+        }
+
+        const abortController = new AbortController();
+
+        /**************************************************************/
+        /**
+         * Loads per-term detail for the selected system class-pair map cell.
+         */
+        async function loadSystemCellDetail() {
+            setIsSystemCellLoading(true);
+            setSystemCellError(null);
+
+            try {
+                const payload = await AdverseEventClient.getSystemCorrelationCell({
+                    systems: selectedSystemNames,
+                    classX: selectedSystemCell.rowClassCode,
+                    classY: selectedSystemCell.columnClassCode,
+                    pageNumber: systemTermPairPageNumber,
+                    pageSize: systemTermPairPageSize,
+                    ...systemFilters,
+                    signal: abortController.signal,
+                });
+
+                setSystemCellDetail(normalizeSystemCorrelationCellDetail(payload));
+            } catch (requestError) {
+                if (requestError.name === 'AbortError') {
+                    return;
+                }
+
+                setSystemCellDetail(null);
+                setSystemCellError(requestError);
+            } finally {
+                if (!abortController.signal.aborted) {
+                    setIsSystemCellLoading(false);
+                }
+            }
+        }
+
+        loadSystemCellDetail();
+
+        return () => {
+            abortController.abort();
+        };
+    }, [
+        dashboardFocus,
+        selectedSystemCell,
+        selectedSystemNames,
+        systemCellReloadToken,
+        systemFilters,
+        systemTermPairPageNumber,
+        systemTermPairPageSize,
+        systemView,
+    ]);
+
+    useEffect(() => {
         // No product means visualization state should be empty and quiet.
         if (!selectedDocumentGuid) {
             return;
@@ -3113,7 +3713,7 @@ function App() {
     /**
      * Changes the dashboard focus while preserving the other focus state.
      *
-     * @param {'product' | 'class'} nextFocus - Next dashboard focus.
+     * @param {'product' | 'class' | 'system'} nextFocus - Next dashboard focus.
      */
     const handleChangeDashboardFocus = useCallback(
         (nextFocus) => {
@@ -3284,6 +3884,443 @@ function App() {
      */
     const retryClassCell = useCallback(() => {
         setClassCellReloadToken((currentToken) => currentToken + 1);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Changes the system picker search and resets paged system charts.
+     *
+     * @param {string} nextSearch - Search text.
+     */
+    const handleChangeSystemSearch = useCallback(
+        (nextSearch) => {
+            setSystemSearch(nextSearch);
+            setSystemClassPageNumber(1);
+            setSystemDrugPageNumber(1);
+            setSystemTermPairPageNumber(1);
+            setSelectedSystemCell(null);
+            setSystemCellDetail(null);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemSearch: nextSearch,
+                    systemClassPageNumber: 1,
+                    systemDrugPageNumber: 1,
+                    systemTermPairPageNumber: 1,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Adds one MedDRA system to the selected system set.
+     *
+     * @param {object} item - System picker row.
+     */
+    const handleAddSystem = useCallback(
+        (item) => {
+            if (!item?.systemOrganClass) {
+                return;
+            }
+
+            const lookupKey = item.systemOrganClass.toLowerCase();
+            const isAlreadySelected = selectedSystems.some(
+                (system) => system.systemOrganClass.toLowerCase() === lookupKey,
+            );
+
+            if (isAlreadySelected) {
+                return;
+            }
+
+            const nextSystems = [...selectedSystems, item];
+
+            setSelectedSystems(nextSystems);
+            setSystemMap(null);
+            setSystemHeatmap(null);
+            setSelectedSystemCell(null);
+            setSystemCellDetail(null);
+            setSystemClassPageNumber(1);
+            setSystemDrugPageNumber(1);
+            setSystemTermPairPageNumber(1);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systems: nextSystems.map((system) => system.systemOrganClass),
+                    systemClassPageNumber: 1,
+                    systemDrugPageNumber: 1,
+                    systemTermPairPageNumber: 1,
+                },
+                true,
+            );
+        },
+        [selectedSystems, writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Removes one MedDRA system from the selected set.
+     *
+     * @param {string} systemOrganClass - System name to remove.
+     */
+    const handleRemoveSystem = useCallback(
+        (systemOrganClass) => {
+            const lookupKey = systemOrganClass.toLowerCase();
+            const nextSystems = selectedSystems.filter(
+                (system) => system.systemOrganClass.toLowerCase() !== lookupKey,
+            );
+
+            setSelectedSystems(nextSystems);
+            setSystemMap(null);
+            setSystemHeatmap(null);
+            setSelectedSystemCell(null);
+            setSystemCellDetail(null);
+            setSystemClassPageNumber(1);
+            setSystemDrugPageNumber(1);
+            setSystemTermPairPageNumber(1);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systems: nextSystems.map((system) => system.systemOrganClass),
+                    systemClassPageNumber: 1,
+                    systemDrugPageNumber: 1,
+                    systemTermPairPageNumber: 1,
+                },
+                true,
+            );
+        },
+        [selectedSystems, writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the active system view and persists URL state.
+     *
+     * @param {'map' | 'heatmap'} nextView - Next system view.
+     */
+    const handleChangeSystemView = useCallback(
+        (nextView) => {
+            if (!SYSTEM_DASHBOARD_VIEWS.has(nextView)) {
+                return;
+            }
+
+            setSystemView(nextView);
+            if (nextView !== 'map') {
+                setSelectedSystemCell(null);
+                setSystemCellDetail(null);
+            }
+
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemView: nextView,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes one system correlation filter.
+     *
+     * @param {string} name - Filter name.
+     * @param {unknown} value - Next filter value.
+     */
+    const handleChangeSystemFilter = useCallback(
+        (name, value) => {
+            const nextOverrides = {
+                focus: 'system',
+                systemClassPageNumber: 1,
+                systemDrugPageNumber: 1,
+                systemTermPairPageNumber: 1,
+            };
+
+            if (name === 'comparator' && CLASS_COMPARATORS.has(value)) {
+                setSystemComparator(value);
+                nextOverrides.systemComparator = value;
+            } else if (name === 'includeNonSignificant') {
+                setSystemIncludeNonSignificant(Boolean(value));
+                nextOverrides.systemIncludeNonSignificant = Boolean(value);
+            } else if (name === 'excludeFragile') {
+                setSystemExcludeFragile(Boolean(value));
+                nextOverrides.systemExcludeFragile = Boolean(value);
+            } else if (name === 'minTermsPerCell') {
+                const nextValue = Math.max(3, Number(value) || 3);
+                setMinTermsPerCell(nextValue);
+                nextOverrides.minTermsPerCell = nextValue;
+            } else if (name === 'method' && CLASS_CORRELATION_METHODS.has(value)) {
+                setSystemMethod(value);
+                nextOverrides.systemMethod = value;
+            } else if (name === 'aggregation' && CLASS_CORRELATION_AGGREGATIONS.has(value)) {
+                setSystemAggregation(value);
+                nextOverrides.systemAggregation = value;
+            } else if (name === 'excludeCombos') {
+                setSystemExcludeCombos(Boolean(value));
+                nextOverrides.systemExcludeCombos = Boolean(value);
+            } else if (name === 'minEvents') {
+                const nextValue = Math.max(0, Number(value) || 0);
+                setSystemMinEvents(nextValue);
+                nextOverrides.systemMinEvents = nextValue;
+            } else {
+                return;
+            }
+
+            setSystemClassPageNumber(1);
+            setSystemDrugPageNumber(1);
+            setSystemTermPairPageNumber(1);
+            setSelectedSystemCell(null);
+            setSystemCellDetail(null);
+            writeCurrentDashboardUrlState(nextOverrides, false);
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Selects an off-diagonal system class-pair map cell.
+     *
+     * @param {object} cell - Map cell.
+     */
+    const handleSelectSystemCell = useCallback(
+        (cell) => {
+            if (!cell || cell.isDiagonal) {
+                return;
+            }
+
+            setSelectedSystemCell(cell);
+            setSystemCellDetail(null);
+            setSystemCellError(null);
+            setSystemTermPairPageNumber(1);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemTermPairPageNumber: 1,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Toggles full-matrix loading for the system class map.
+     */
+    const handleToggleSystemFullMatrix = useCallback(() => {
+        const nextValue = !systemFullMatrix;
+
+        setSystemFullMatrix(nextValue);
+        setSelectedSystemCell(null);
+        setSystemCellDetail(null);
+        writeCurrentDashboardUrlState(
+            {
+                focus: 'system',
+                systemFullMatrix: nextValue,
+            },
+            false,
+        );
+    }, [systemFullMatrix, writeCurrentDashboardUrlState]);
+
+    /**************************************************************/
+    /**
+     * Changes the map class-axis page.
+     *
+     * @param {number} nextPageNumber - Next page number.
+     */
+    const handleChangeSystemMapClassPage = useCallback(
+        (nextPageNumber) => {
+            const nextValue = Math.max(1, Number(nextPageNumber) || 1);
+
+            setSystemClassPageNumber(nextValue);
+            setSelectedSystemCell(null);
+            setSystemCellDetail(null);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemClassPageNumber: nextValue,
+                    systemTermPairPageNumber: 1,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the system class-axis page size.
+     *
+     * @param {number} nextPageSize - Next page size.
+     */
+    const handleChangeSystemClassPageSize = useCallback(
+        (nextPageSize) => {
+            const nextValue = Math.max(1, Number(nextPageSize) || DEFAULT_SYSTEM_CLASS_PAGE_SIZE);
+
+            setSystemClassPageSize(nextValue);
+            setSystemClassPageNumber(1);
+            setSelectedSystemCell(null);
+            setSystemCellDetail(null);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemClassPageNumber: 1,
+                    systemClassPageSize: nextValue,
+                    systemTermPairPageNumber: 1,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the heatmap class-row page.
+     *
+     * @param {number} nextPageNumber - Next page number.
+     */
+    const handleChangeSystemHeatmapClassPage = useCallback(
+        (nextPageNumber) => {
+            const nextValue = Math.max(1, Number(nextPageNumber) || 1);
+
+            setSystemClassPageNumber(nextValue);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemClassPageNumber: nextValue,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the heatmap drug-column page.
+     *
+     * @param {number} nextPageNumber - Next page number.
+     */
+    const handleChangeSystemDrugPage = useCallback(
+        (nextPageNumber) => {
+            const nextValue = Math.max(1, Number(nextPageNumber) || 1);
+
+            setSystemDrugPageNumber(nextValue);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemDrugPageNumber: nextValue,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the system drug-column page size.
+     *
+     * @param {number} nextPageSize - Next page size.
+     */
+    const handleChangeSystemDrugPageSize = useCallback(
+        (nextPageSize) => {
+            const nextValue = Math.max(1, Number(nextPageSize) || DEFAULT_SYSTEM_DRUG_PAGE_SIZE);
+
+            setSystemDrugPageSize(nextValue);
+            setSystemDrugPageNumber(1);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemDrugPageNumber: 1,
+                    systemDrugPageSize: nextValue,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the selected cell term-pair page.
+     *
+     * @param {number} nextPageNumber - Next page number.
+     */
+    const handleChangeSystemTermPairPage = useCallback(
+        (nextPageNumber) => {
+            const nextValue = Math.max(1, Number(nextPageNumber) || 1);
+
+            setSystemTermPairPageNumber(nextValue);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemTermPairPageNumber: nextValue,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Changes the selected cell term-pair page size.
+     *
+     * @param {number} nextPageSize - Next page size.
+     */
+    const handleChangeSystemTermPairPageSize = useCallback(
+        (nextPageSize) => {
+            const nextValue = Math.max(1, Number(nextPageSize) || DEFAULT_SYSTEM_TERM_PAIR_PAGE_SIZE);
+
+            setSystemTermPairPageSize(nextValue);
+            setSystemTermPairPageNumber(1);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemTermPairPageNumber: 1,
+                    systemTermPairPageSize: nextValue,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
+     * Retries the system picker request.
+     */
+    const retrySystemPicker = useCallback(() => {
+        setSystemPickerReloadToken((currentToken) => currentToken + 1);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Retries the system map request.
+     */
+    const retrySystemMap = useCallback(() => {
+        setSystemMapReloadToken((currentToken) => currentToken + 1);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Retries the system heatmap request.
+     */
+    const retrySystemHeatmap = useCallback(() => {
+        setSystemHeatmapReloadToken((currentToken) => currentToken + 1);
+    }, []);
+
+    /**************************************************************/
+    /**
+     * Retries the selected system cell-detail request.
+     */
+    const retrySystemCell = useCallback(() => {
+        setSystemCellReloadToken((currentToken) => currentToken + 1);
     }, []);
 
     /**************************************************************/
@@ -3662,6 +4699,37 @@ function App() {
                 ],
             };
             exportName = `${selectedClass.pharmClassName}-ae-class-dashboard.json`;
+        } else if (dashboardFocus === 'system') {
+            if (selectedSystems.length === 0) {
+                return;
+            }
+
+            exportPayload = {
+                focus: 'system',
+                selectedSystems,
+                state: {
+                    systemView,
+                    ...systemFilters,
+                    page: {
+                        classPageNumber: systemClassPageNumber,
+                        classPageSize: systemClassPageSize,
+                        drugPageNumber: systemDrugPageNumber,
+                        drugPageSize: systemDrugPageSize,
+                        termPairPageNumber: systemTermPairPageNumber,
+                        termPairPageSize: systemTermPairPageSize,
+                        includeFullMatrix: systemFullMatrix,
+                    },
+                },
+                map: systemMap,
+                heatmap: systemHeatmap,
+                cellDetail: systemCellDetail,
+                warnings: [
+                    ...(systemMap?.warnings ?? []),
+                    ...(systemHeatmap?.warnings ?? []),
+                    ...(systemCellDetail?.warnings ?? []),
+                ],
+            };
+            exportName = `ae-system-correlation-${selectedSystems[0].systemOrganClass}.json`;
         } else {
             // Export requires a selected product.
             if (!selectedProductWithFavoriteState) {
@@ -3716,7 +4784,20 @@ function App() {
         reverseLookupResult,
         selectedClass,
         selectedProductWithFavoriteState,
+        selectedSystems,
         showFragile,
+        systemCellDetail,
+        systemClassPageNumber,
+        systemClassPageSize,
+        systemDrugPageNumber,
+        systemDrugPageSize,
+        systemFilters,
+        systemFullMatrix,
+        systemHeatmap,
+        systemMap,
+        systemTermPairPageNumber,
+        systemTermPairPageSize,
+        systemView,
     ]);
 
     /**************************************************************/
@@ -3747,7 +4828,9 @@ function App() {
         exportButton.disabled =
             dashboardFocus === 'class'
                 ? !selectedClass
-                : !selectedProductWithFavoriteState;
+                : dashboardFocus === 'system'
+                    ? selectedSystems.length === 0
+                    : !selectedProductWithFavoriteState;
 
         saveButton.addEventListener('click', handleSaveProduct);
         exportButton.addEventListener('click', handleExportDashboard);
@@ -3761,6 +4844,7 @@ function App() {
         handleSaveProduct,
         selectedClass,
         selectedProductWithFavoriteState,
+        selectedSystems.length,
     ]);
 
     // Feature-disabled state owns the entire page.
@@ -3870,7 +4954,7 @@ function App() {
                             comparatorFilter={comparatorFilter}
                         />
                     </>
-                ) : (
+                ) : dashboardFocus === 'class' ? (
                     <>
                         <ClassPageHeader
                             selectedClass={selectedClass}
@@ -3918,6 +5002,69 @@ function App() {
                             onSelectCell={handleSelectCorrelationCell}
                         />
                     </>
+                ) : (
+                    <>
+                        <SystemPageHeader
+                            selectedSystems={selectedSystems}
+                            map={systemMap}
+                            filters={systemFilters}
+                            picker={(
+                                <SystemPicker
+                                    systems={correlationSystems}
+                                    selectedSystems={selectedSystems}
+                                    searchTerm={systemSearch}
+                                    onSearchTermChange={handleChangeSystemSearch}
+                                    onAddSystem={handleAddSystem}
+                                    onRemoveSystem={handleRemoveSystem}
+                                    totalSystemCount={correlationSystemTotalCount}
+                                    chartableSystemCount={correlationSystemChartableCount}
+                                    isLoading={isSystemPickerLoading}
+                                    error={systemPickerError}
+                                    onRetry={retrySystemPicker}
+                                />
+                            )}
+                        />
+
+                        {systemPickerError && !(systemPickerError instanceof ApiError && systemPickerError.isFeatureDisabled) ? (
+                            <InlineError error={systemPickerError} onRetry={retrySystemPicker} />
+                        ) : null}
+
+                        <SystemCorrelationSurface
+                            selectedSystems={selectedSystems}
+                            systemView={systemView}
+                            filters={systemFilters}
+                            systemMap={systemMap}
+                            systemHeatmap={systemHeatmap}
+                            systemCellDetail={systemCellDetail}
+                            selectedCell={selectedSystemCell}
+                            isSystemMapLoading={isSystemMapLoading}
+                            systemMapError={systemMapError}
+                            onRetrySystemMap={retrySystemMap}
+                            isSystemHeatmapLoading={isSystemHeatmapLoading}
+                            systemHeatmapError={systemHeatmapError}
+                            onRetrySystemHeatmap={retrySystemHeatmap}
+                            isSystemCellLoading={isSystemCellLoading}
+                            systemCellError={systemCellError}
+                            onRetrySystemCell={retrySystemCell}
+                            onChangeSystemView={handleChangeSystemView}
+                            onChangeSystemFilter={handleChangeSystemFilter}
+                            onSelectCell={handleSelectSystemCell}
+                            mapClassPage={systemMapClassPage}
+                            heatmapClassPage={systemHeatmapClassPage}
+                            heatmapDrugPage={systemHeatmapDrugPage}
+                            termPairPage={systemTermPairPage}
+                            includeFullMatrix={systemFullMatrix}
+                            onToggleFullMatrix={handleToggleSystemFullMatrix}
+                            onChangeMapClassPage={handleChangeSystemMapClassPage}
+                            onChangeMapClassPageSize={handleChangeSystemClassPageSize}
+                            onChangeHeatmapClassPage={handleChangeSystemHeatmapClassPage}
+                            onChangeHeatmapClassPageSize={handleChangeSystemClassPageSize}
+                            onChangeHeatmapDrugPage={handleChangeSystemDrugPage}
+                            onChangeHeatmapDrugPageSize={handleChangeSystemDrugPageSize}
+                            onChangeTermPairPage={handleChangeSystemTermPairPage}
+                            onChangeTermPairPageSize={handleChangeSystemTermPairPageSize}
+                        />
+                    </>
                 )}
 
                 <div className="foot-note">
@@ -3946,6 +5093,14 @@ function App() {
                             SOC values and is less sensitive to outliers or uneven spacing. Pearson compares the
                             linear relationship between the per-drug SOC values. Both methods use the currently
                             selected class, comparator, aggregation, and filter settings.
+                        </p>
+                    ) : null}
+                    {dashboardFocus === 'system' ? (
+                        <p>
+                            <strong>Correlation methods:</strong> Spearman compares selected-system term-profile
+                            ranks across pharmacologic classes. Pearson compares the linear relationship between
+                            those class-level term profiles under the selected systems, comparator, aggregation,
+                            and filter settings.
                         </p>
                     ) : null}
                 </div>

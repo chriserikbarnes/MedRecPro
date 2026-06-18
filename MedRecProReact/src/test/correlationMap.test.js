@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getMapCell } from '../components/correlation/correlationMapCells';
+import { getMapCell, getSystemClassMapCell } from '../components/correlation/correlationMapCells';
 
 describe('CorrelationMap helpers', () => {
   it('synthesizes the upper-left diagonal cell for sparse map payloads', () => {
@@ -24,5 +24,22 @@ describe('CorrelationMap helpers', () => {
     const columnSoc = { name: 'Gastrointestinal', index: 1 };
 
     expect(getMapCell(new Map(), rowSoc, columnSoc)).toBeNull();
+  });
+
+  it('synthesizes diagonal cells for sparse system class matrices', () => {
+    const rowClass = { pharmClassCode: 'N0000000001', pharmClassName: 'Class A', index: 0 };
+    const columnClass = { pharmClassCode: 'N0000000001', pharmClassName: 'Class A', index: 0 };
+
+    const cell = getSystemClassMapCell(new Map(), rowClass, columnClass);
+
+    expect(cell).toMatchObject({
+      rowIndex: 0,
+      columnIndex: 0,
+      rowClassCode: 'N0000000001',
+      columnClassCode: 'N0000000001',
+      coefficient: 1,
+      pairCount: 0,
+      isDiagonal: true,
+    });
   });
 });

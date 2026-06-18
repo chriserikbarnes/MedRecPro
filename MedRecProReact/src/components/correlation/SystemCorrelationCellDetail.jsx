@@ -2,22 +2,23 @@ import { formatDecimal, formatInteger } from '../../lib/formatters';
 import { EmptyState } from '../common/EmptyState';
 import { InlineError } from '../common/InlineError';
 import { Loading } from '../common/Loading';
+import { CorrelationPager } from './CorrelationPager';
 import { getScatterDomain, scalePoint } from './correlationScatter';
 
 /**************************************************************/
 /**
- * Renders the per-drug LogRR scatter plot.
+ * Renders the selected-system term LogRR scatter plot.
  *
- * @param {{ pairs: object[] }} props - Component props.
+ * @param {{ pairs: object[], classXLabel: string, classYLabel: string }} props - Component props.
  * @returns {JSX.Element} Scatter plot.
  */
-function PairScatter({ pairs }) {
+function TermPairScatter({ pairs, classXLabel, classYLabel }) {
   const drawablePairs = pairs.filter((pair) => Number.isFinite(pair.logRrX) && Number.isFinite(pair.logRrY));
   const xDomain = getScatterDomain(drawablePairs.map((pair) => pair.logRrX));
   const yDomain = getScatterDomain(drawablePairs.map((pair) => pair.logRrY));
 
   return (
-    <svg className="cell-scatter" viewBox="0 0 320 220" role="img" aria-label="Per-drug LogRR scatter plot">
+    <svg className="cell-scatter" viewBox="0 0 320 220" role="img" aria-label="Selected-system term LogRR scatter plot">
       <line className="scatter-axis" x1="36" y1="184" x2="292" y2="184" />
       <line className="scatter-axis" x1="36" y1="28" x2="36" y2="184" />
       <line
@@ -36,17 +37,17 @@ function PairScatter({ pairs }) {
       />
       {drawablePairs.map((pair) => (
         <circle
-          key={`${pair.drugDisplayName}-${pair.logRrX}-${pair.logRrY}`}
+          key={`${pair.systemOrganClass}-${pair.parameterName}-${pair.logRrX}-${pair.logRrY}`}
           className="scatter-point"
           cx={scalePoint(pair.logRrX, xDomain, 36, 292)}
           cy={scalePoint(pair.logRrY, yDomain, 184, 28)}
           r="5"
         >
-          <title>{pair.drugDisplayName}: {formatDecimal(pair.logRrX, 2)}, {formatDecimal(pair.logRrY, 2)}</title>
+          <title>{pair.parameterName}: {formatDecimal(pair.logRrX, 2)}, {formatDecimal(pair.logRrY, 2)}</title>
         </circle>
       ))}
-      <text className="scatter-label" x="164" y="210">SOC X LogRR</text>
-      <text className="scatter-label y" x="-108" y="13">SOC Y LogRR</text>
+      <text className="scatter-label" x="164" y="210">{classXLabel} LogRR</text>
+      <text className="scatter-label y" x="-108" y="13">{classYLabel} LogRR</text>
     </svg>
   );
 }
@@ -70,7 +71,7 @@ function CellMetric({ label, value, sub = '' }) {
 
 /**************************************************************/
 /**
- * Renders warnings returned by the cell endpoint.
+ * Renders warnings returned by the system cell endpoint.
  *
  * @param {{ warnings?: string[] }} props - Component props.
  * @returns {JSX.Element | null} Warning block or null.
@@ -91,30 +92,44 @@ function CellWarnings({ warnings = [] }) {
 
 /**************************************************************/
 /**
- * Drill-down panel for a selected correlation map cell.
+ * Drill-down panel for a selected system-scoped class-pair map cell.
  *
  * @param {object} props - Component props.
  * @returns {JSX.Element | null} Cell detail panel or null.
  */
-export function CorrelationCellDetail({ selectedCell, detail, isLoading, error, onRetry }) {
+export function SystemCorrelationCellDetail({
+  selectedCell,
+  detail,
+  isLoading,
+  error,
+  onRetry,
+  onChangeTermPairPage,
+  onChangeTermPairPageSize,
+}) {
   if (!selectedCell) {
     return (
       <section className="panel corr-detail-panel">
-        <EmptyState title="Select an off-diagonal map cell." body="Cell detail will show paired per-drug LogRR values." />
+        <EmptyState
+          title="Select an off-diagonal class-pair cell."
+          body="Cell detail will show shared selected-system adverse-event terms."
+        />
       </section>
     );
   }
+
+  const classXLabel = detail?.classX?.pharmClassName ?? selectedCell.rowClassName ?? selectedCell.rowClassCode;
+  const classYLabel = detail?.classY?.pharmClassName ?? selectedCell.columnClassName ?? selectedCell.columnClassCode;
 
   return (
     <section className="panel corr-detail-panel">
       <div className="panel-header">
         <div className="panel-heading">
-          <div className="panel-title">{selectedCell.rowSoc} x {selectedCell.columnSoc}</div>
-          <div className="panel-sub">Per-drug paired observations behind the selected map cell.</div>
+          <div className="panel-title">{classXLabel} x {classYLabel}</div>
+          <div className="panel-sub">Shared selected-system terms behind the selected class-pair cell.</div>
         </div>
       </div>
 
-      {isLoading ? <Loading label="Loading cell detail" /> : null}
+      {isLoading ? <Loading label="Loading term detail" /> : null}
       {error ? <InlineError error={error} onRetry={onRetry} /> : null}
       {!isLoading && !error && detail ? (
         <div className="cell-detail">
@@ -127,12 +142,12 @@ export function CorrelationCellDetail({ selectedCell, detail, isLoading, error, 
             <CellMetric
               label="Raw diagnostic coefficient"
               value={formatDecimal(detail.rawCoefficient, 2)}
-              sub="Unsuppressed pairwise value"
+              sub="Unsuppressed term-pair value"
             />
             <CellMetric
-              label="Pairs"
+              label="Term pairs"
               value={formatInteger(detail.pairCount)}
-              sub={`Floor ${formatInteger(detail.minDrugsPerCell)}`}
+              sub={`Floor ${formatInteger(detail.minTermsPerCell)}`}
             />
             <CellMetric
               label="p-values"
@@ -141,27 +156,48 @@ export function CorrelationCellDetail({ selectedCell, detail, isLoading, error, 
             />
           </div>
 
-          <div className="cell-detail-grid">
+          <CorrelationPager
+            label="Term pairs"
+            page={detail.termPairPage}
+            itemLabel="term pairs"
+            pageSizeOptions={[50, 100, 250, 500]}
+            onChangePage={onChangeTermPairPage}
+            onChangePageSize={onChangeTermPairPageSize}
+          />
+
+          <div className="cell-detail-grid system-cell-detail-grid">
             <div className="cell-scatter-wrap">
-              <PairScatter pairs={detail.drugPairs} />
+              <TermPairScatter
+                pairs={detail.termPairs}
+                classXLabel={detail.classX?.pharmClassCode ?? selectedCell.rowClassCode}
+                classYLabel={detail.classY?.pharmClassCode ?? selectedCell.columnClassCode}
+              />
             </div>
 
-            <div className="cell-pair-list" role="table" aria-label="Per-drug paired LogRR values">
-              <div className="cell-pair-row is-head" role="row">
-                <span role="columnheader">Drug</span>
-                <span role="columnheader">{detail.socX}</span>
-                <span role="columnheader">{detail.socY}</span>
+            <div className="cell-pair-list system-term-pair-list" role="table" aria-label="Selected-system term pairs">
+              <div className="cell-pair-row is-head system-term-pair-row" role="row">
+                <span role="columnheader">System</span>
+                <span role="columnheader">Term</span>
+                <span role="columnheader">{detail.classX?.pharmClassCode ?? selectedCell.rowClassCode}</span>
+                <span role="columnheader">{detail.classY?.pharmClassCode ?? selectedCell.columnClassCode}</span>
               </div>
-              {detail.drugPairs.map((pair) => (
-                <div className="cell-pair-row" key={pair.drugDisplayName} role="row">
-                  <span role="cell" title={pair.drugDisplayName}>{pair.drugDisplayName}</span>
+              {detail.termPairs.map((pair) => (
+                <div className="cell-pair-row system-term-pair-row" key={pair.id} role="row">
+                  <span role="cell" title={pair.systemOrganClass}>{pair.systemOrganClass}</span>
+                  <span role="cell" title={pair.parameterName}>{pair.parameterName}</span>
                   <span role="cell">
                     RR {formatDecimal(pair.rrX, 2)}
-                    <small>Log {formatDecimal(pair.logRrX, 2)} | {pair.precisionX} | {formatInteger(pair.termCountX)} terms</small>
+                    <small>
+                      Log {formatDecimal(pair.logRrX, 2)} | {pair.precisionX} | {pair.significanceX}
+                      {' | '} {formatInteger(pair.drugCountX)} drugs
+                    </small>
                   </span>
                   <span role="cell">
                     RR {formatDecimal(pair.rrY, 2)}
-                    <small>Log {formatDecimal(pair.logRrY, 2)} | {pair.precisionY} | {formatInteger(pair.termCountY)} terms</small>
+                    <small>
+                      Log {formatDecimal(pair.logRrY, 2)} | {pair.precisionY} | {pair.significanceY}
+                      {' | '} {formatInteger(pair.drugCountY)} drugs
+                    </small>
                   </span>
                 </div>
               ))}

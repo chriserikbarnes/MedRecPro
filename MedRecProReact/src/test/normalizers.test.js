@@ -1,15 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeReverseLookupResults,
+  normalizeAxisPage,
   normalizeCorrelationCellDetail,
   normalizeCorrelationClassPage,
   normalizeCorrelationClasses,
   normalizeCorrelationHeatmap,
   normalizeCorrelationMap,
+  normalizeCorrelationSystem,
+  normalizeCorrelationSystemPage,
   normalizeInterchange,
   normalizeProduct,
   normalizeReverseLookup,
   normalizeSignal,
+  normalizeSystemClassAxisItem,
+  normalizeSystemCorrelationCellDetail,
+  normalizeSystemCorrelationFilters,
+  normalizeSystemCorrelationHeatmap,
+  normalizeSystemCorrelationMap,
 } from '../lib/normalizers';
 
 const documentGuidA = '11111111-1111-1111-1111-111111111111';
@@ -423,6 +431,257 @@ describe('normalizers', () => {
       precisionX: 'tight',
       precisionY: 'wide',
       termCountY: 4,
+    });
+    expect(detail.warnings).toEqual(['Raw value shown for diagnostics only.']);
+  });
+
+  it('normalizes system correlation filters and axis pages from enum values', () => {
+    const filters = normalizeSystemCorrelationFilters({
+      Comparator: 2,
+      IncludeNonSignificant: 'false',
+      ExcludeFragile: 'true',
+      MinTermsPerCell: '6',
+      Method: 1,
+      Aggregation: 1,
+      ExcludeCombos: true,
+      MinEvents: '3',
+    });
+    const page = normalizeAxisPage({
+      PageNumber: 2,
+      PageSize: 40,
+      TotalCount: 101,
+      TotalPages: 3,
+      HasPreviousPage: true,
+      HasNextPage: true,
+    });
+
+    expect(filters).toMatchObject({
+      comparator: 'Both',
+      includeNonSignificant: false,
+      excludeFragile: true,
+      minTermsPerCell: 6,
+      method: 'Pearson',
+      aggregation: 'MeanLogRr',
+      excludeCombos: true,
+      minEvents: 3,
+    });
+    expect(page).toEqual({
+      pageNumber: 2,
+      pageSize: 40,
+      totalCount: 101,
+      totalPages: 3,
+      hasPreviousPage: true,
+      hasNextPage: true,
+    });
+  });
+
+  it('normalizes system picker rows and pages from casing variants', () => {
+    const row = normalizeCorrelationSystem({
+      systemOrganClass: 'Cardiac Disorders',
+      classCount: '12',
+      drugCount: '91',
+      termCount: '44',
+      usableMapCellCount: 5,
+      maxPairCount: 8,
+      hasRenderableMap: 'true',
+    });
+    const page = normalizeCorrelationSystemPage({
+      items: [
+        {
+          SystemOrganClass: 'Vascular Disorders',
+          ClassCount: 10,
+          DrugCount: 80,
+          TermCount: 30,
+          HasRenderableMap: false,
+          RenderabilityReason: 'No class-pair cells meet the term floor.',
+        },
+      ],
+      TotalCount: '17',
+      ChartableCount: '9',
+      PageNumber: '1',
+      PageSize: '50',
+    });
+
+    expect(row).toMatchObject({
+      systemOrganClass: 'Cardiac Disorders',
+      classCount: 12,
+      drugCount: 91,
+      termCount: 44,
+      usableMapCellCount: 5,
+      maxPairCount: 8,
+      hasRenderableMap: true,
+    });
+    expect(page.items[0]).toMatchObject({
+      systemOrganClass: 'Vascular Disorders',
+      hasRenderableMap: false,
+      renderabilityReason: 'No class-pair cells meet the term floor.',
+    });
+    expect(page.totalCount).toBe(17);
+    expect(page.chartableCount).toBe(9);
+  });
+
+  it('normalizes system class axis items without raw integer IDs', () => {
+    const axis = normalizeSystemClassAxisItem({
+      Index: 3,
+      PharmClassCode: 'N0000000001',
+      PharmClassName: 'Kinase Inhibitor [EPC]',
+      EncryptedPharmacologicClassID: 'enc-class',
+      TermCount: 12,
+      DrugCount: 40,
+      HasRenderableMap: true,
+    });
+
+    expect(axis).toMatchObject({
+      index: 3,
+      pharmClassCode: 'N0000000001',
+      pharmClassName: 'Kinase Inhibitor [EPC]',
+      encryptedPharmacologicClassId: 'enc-class',
+      termCount: 12,
+      drugCount: 40,
+      hasRenderableMap: true,
+    });
+    expect(axis).not.toHaveProperty('PharmacologicClassID');
+  });
+
+  it('normalizes system map cells with null coefficients and full-matrix metadata', () => {
+    const map = normalizeSystemCorrelationMap({
+      SelectedSystems: ['Cardiac Disorders', 'Vascular Disorders'],
+      AppliedFilters: { Comparator: 'Both', MinTermsPerCell: 6, Method: 'Pearson' },
+      ClassCount: 83,
+      IncludesFullMatrix: true,
+      ClassPage: {
+        PageNumber: 1,
+        PageSize: 40,
+        TotalCount: 83,
+        TotalPages: 3,
+        HasPreviousPage: false,
+        HasNextPage: true,
+      },
+      Classes: [
+        { Index: 0, PharmClassCode: 'N0000000001', PharmClassName: 'Class A', TermCount: 10 },
+        { Index: 1, PharmClassCode: 'N0000000002', PharmClassName: 'Class B', TermCount: 9 },
+      ],
+      Cells: [
+        {
+          RowIndex: 0,
+          ColumnIndex: 1,
+          RowClassCode: 'N0000000001',
+          ColumnClassCode: 'N0000000002',
+          Coefficient: null,
+          PairCount: 2,
+          InsufficientN: true,
+          PValue: null,
+        },
+      ],
+      ClassSummaries: [
+        { Index: 0, PharmClassCode: 'N0000000001', PharmClassName: 'Class A', DrugCount: 11, TermCount: 4 },
+      ],
+      Warnings: ['Below floor.'],
+    });
+
+    expect(map.selectedSystems).toEqual(['Cardiac Disorders', 'Vascular Disorders']);
+    expect(map.includesFullMatrix).toBe(true);
+    expect(map.classPage.totalCount).toBe(83);
+    expect(map.cells[0]).toMatchObject({
+      coefficient: null,
+      pairCount: 2,
+      insufficientN: true,
+      rowClassCode: 'N0000000001',
+      columnClassCode: 'N0000000002',
+    });
+    expect(map.classSummaries[0].drugCount).toBe(11);
+    expect(map.warnings).toEqual(['Below floor.']);
+  });
+
+  it('normalizes system sparse heatmap cells with class and drug pages', () => {
+    const heatmap = normalizeSystemCorrelationHeatmap({
+      selectedSystems: ['Cardiac Disorders'],
+      appliedFilters: { comparator: 'Active', aggregation: 1 },
+      classPage: { pageNumber: 2, pageSize: 40, totalCount: 80, totalPages: 2, hasPreviousPage: true },
+      drugPage: { pageNumber: 3, pageSize: 50, totalCount: 160, totalPages: 4, hasNextPage: true },
+      classes: [
+        { index: 4, pharmClassCode: 'N0000000004', pharmClassName: 'Class D', termCount: 7 },
+      ],
+      drugs: [
+        { index: 8, encryptedActiveMoietyId: 'enc-drug', drugDisplayName: 'Drug A', documentGuid: documentGuidA },
+      ],
+      cells: [
+        {
+          classIndex: 4,
+          drugIndex: 8,
+          logRr: '0.25',
+          rr: '1.28',
+          precision: 0,
+          significance: 2,
+          termCount: 3,
+        },
+      ],
+    });
+
+    expect(heatmap.appliedFilters.aggregation).toBe('MeanLogRr');
+    expect(heatmap.classPage.pageNumber).toBe(2);
+    expect(heatmap.drugPage.pageNumber).toBe(3);
+    expect(heatmap.cells[0]).toMatchObject({
+      classIndex: 4,
+      drugIndex: 8,
+      logRr: 0.25,
+      precision: 'tight',
+      significance: 'protective',
+    });
+  });
+
+  it('normalizes system cell detail term-pair paging and raw coefficients', () => {
+    const detail = normalizeSystemCorrelationCellDetail({
+      SelectedSystems: ['Cardiac Disorders'],
+      ClassX: { Index: 0, PharmClassCode: 'N0000000001', PharmClassName: 'Class A' },
+      ClassY: { Index: 1, PharmClassCode: 'N0000000002', PharmClassName: 'Class B' },
+      AppliedFilters: { Comparator: 0, MinTermsPerCell: 4 },
+      Coefficient: null,
+      RawCoefficient: 0.72,
+      PValue: null,
+      RawPValue: 0.03,
+      PairCount: 12,
+      MinTermsPerCell: 4,
+      InsufficientN: true,
+      TermPairPage: {
+        PageNumber: 2,
+        PageSize: 100,
+        TotalCount: 180,
+        TotalPages: 2,
+        HasPreviousPage: true,
+      },
+      TermPairs: [
+        {
+          SystemOrganClass: 'Cardiac Disorders',
+          ParameterName: 'Palpitations',
+          LogRrX: 0.4,
+          LogRrY: 0.8,
+          RrX: 1.49,
+          RrY: 2.22,
+          PrecisionX: 'Tight',
+          PrecisionY: 'Wide',
+          SignificanceX: 'Elevated',
+          SignificanceY: 'Protective',
+          DrugCountX: 6,
+          DrugCountY: 5,
+          TermCountX: 2,
+          TermCountY: 3,
+        },
+      ],
+      Warnings: ['Raw value shown for diagnostics only.'],
+    });
+
+    expect(detail.coefficient).toBeNull();
+    expect(detail.rawCoefficient).toBe(0.72);
+    expect(detail.termPairPage).toMatchObject({ pageNumber: 2, pageSize: 100, totalCount: 180 });
+    expect(detail.termPairs[0]).toMatchObject({
+      systemOrganClass: 'Cardiac Disorders',
+      parameterName: 'Palpitations',
+      precisionX: 'tight',
+      precisionY: 'wide',
+      significanceX: 'elevated',
+      significanceY: 'protective',
+      drugCountX: 6,
     });
     expect(detail.warnings).toEqual(['Raw value shown for diagnostics only.']);
   });
