@@ -5193,3 +5193,13 @@ Added an opt-in full-matrix mode for the MedDRA-system-first class correlation m
 **Verification.** A sandboxed `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` failed because the sandbox could not read `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`. The approved rerun of the same command passed 63/63 focused tests with the repo's existing warning noise.
 
 ---
+
+### 2026-06-18 11:06 AM EST — AE Dashboard MedDRA System Class Correlation UI Plan
+
+Saved a pending frontend implementation handoff for adding the MedDRA-system-first correlation workflow to the existing React AE dashboard while preserving the completed class dashboard look and feel.
+
+**Plan artifact.** Added [Plans/(pending) AE Dashboard MedDRA System Class Correlation UI Plan.md](Plans/(pending) AE Dashboard MedDRA System Class Correlation UI Plan.md). The plan keeps scope UI-only, adds a `By system` focus item with a stethoscope icon, maps the completed `correlation/systems` API surface into React client methods and normalizers, reuses class dashboard header/filter/map/heatmap/detail primitives, and specifies compact paging controls for the system class matrix, heatmap axes, and term-pair detail.
+
+**Verification.** Verified the saved plan by exact `Get-Item`, first-page `Get-Content`, and `Select-String` markers for UI-only scope, `By system`, stethoscope icon, `CorrelationPager`, `includeFullMatrix`, no-regression guardrails, and acceptance criteria. No build or test commands were run because this session created a planning artifact only.
+
+---
