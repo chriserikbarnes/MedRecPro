@@ -2145,8 +2145,11 @@ a { color: var(--color-primary); text-decoration: none; }
   outline: 0;
 }
 .corr-wrap {
-  overflow-x: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
   padding: 10px 34px 18px 18px;
+  scrollbar-color: var(--color-border) transparent;
+  scrollbar-width: thin;
 }
 .corr-grid {
   display: grid;
@@ -2154,6 +2157,7 @@ a { color: var(--color-primary); text-decoration: none; }
   width: 100%;
   max-width: var(--corr-grid-max, 100%);
   min-width: 0;
+  align-items: stretch;
 }
 .corr-row-fragment,
 .heatmap-row-fragment {
@@ -2161,29 +2165,57 @@ a { color: var(--color-primary); text-decoration: none; }
 }
 .corr-corner {
   min-width: 0;
+  position: sticky;
+  left: 0;
+  z-index: 8;
+  background: var(--color-background);
 }
 .corr-colhead {
-    display: flex;
-    align-items: flex-end;
-    justify-content: flex-start;
-    height: 124px;
-    min-width: 0;
-    overflow: visible;
-    padding: 0 0 4px;
-    font-size: 11px;
-    color: var(--color-text-secondary);
-    line-height: 1;
-    margin-left: 40%;
-    /*font-family: var(--font-mono);*/
-    /*font-weight: var(--weight-semibold);*/
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+  z-index: 9;
+  height: 166px;
+  min-width: 0;
+  overflow: visible;
+  padding: 0 0 12px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  line-height: 1;
 }
 .corr-colhead > span {
-  display: inline-block;
+  position: absolute;
+  z-index: 9;
+  bottom: 12px;
+  left: 50%;
+  display: block;
   max-width: none;
   overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
-  transform: rotate(-45deg);
+  transform: rotate(-56deg);
   transform-origin: left bottom;
+}
+.corr-grid.dense-axis .corr-colhead {
+  height: 156px;
+}
+.corr-grid.dense-axis .corr-colhead > span {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: rotate(-62deg);
+}
+.corr-grid.super-dense-axis .corr-colhead {
+  height: 150px;
+}
+.corr-grid.super-dense-axis .corr-colhead > span {
+  max-width: 118px;
+  font-size: 10.5px;
+  transform: rotate(-68deg);
+}
+.corr-colhead.is-suppressed > span {
+  display: none;
 }
 .corr-colhead.drug {
   font-family: var(--font-primary);
@@ -2191,18 +2223,26 @@ a { color: var(--color-primary); text-decoration: none; }
   color: var(--color-text-tertiary);
 }
 .corr-rowhead {
-    text-align: right;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    padding-right: 10px;
-    margin-top: 10%;
-    color: var(--color-text-secondary);
-    font-size: 11px;
-    /*display: flex;*/
-    /*font-weight: var(--weight-medium);*/
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  height: 100%;
+  min-height: 30px;
+  overflow: hidden;
+  padding-right: 16px;
+  border-right: 1px solid var(--color-border-x-light);
+  background: linear-gradient(90deg, var(--color-background) 0%, var(--color-background) 92%, rgba(255,255,255,0) 100%);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  text-align: right;
 }
 .corr-rowhead-name {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2236,6 +2276,9 @@ button.corr-cell {
   min-height: 26px;
   border-radius: 2px;
   cursor: default;
+}
+.corr-grid.heat .corr-rowhead {
+  min-height: 26px;
 }
 .corr-cell:hover {
   outline-color: var(--color-secondary);
@@ -2279,6 +2322,14 @@ button.corr-cell {
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
+}
+.corr-grid.hide-cell-values .corr-cell-value {
+  opacity: 0;
+}
+.corr-grid.hide-cell-values .corr-cell:hover .corr-cell-value,
+.corr-grid.hide-cell-values .corr-cell:focus-visible .corr-cell-value,
+.corr-grid.hide-cell-values .corr-cell.selected .corr-cell-value {
+  opacity: 1;
 }
 .corr-tooltip {
   position: absolute;

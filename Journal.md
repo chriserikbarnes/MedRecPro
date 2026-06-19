@@ -5239,3 +5239,39 @@ Implemented the mixed API and React remediation for the By System adverse-event 
 **Tests and verification.** Added controller and data-access coverage in [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) and [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs) for default page size 20, multi-system 400s, orphan pruning, full-matrix pruning, empty no-renderable maps, and pair-aware page compaction. Updated [adverseEventClient.test.js](MedRecProReact/src/test/adverseEventClient.test.js) for single-system URL serialization. `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` passed 65/65 tests after approved NuGet-config access. `npm.cmd --prefix .\MedRecProReact run lint`, `npm.cmd --prefix .\MedRecProReact test`, `npm.cmd --prefix .\MedRecProReact run build`, and `git diff --check` passed; the dev server starts in the foreground, but background smoke was not feasible because hidden/background launch methods exited or were sandbox-blocked.
 
 ---
+
+### 2026-06-19 10:13 AM EST — AE Dashboard Dense Axis Label Refinement
+
+Implemented dense-axis refinements for the By System correlation heatmap and full-matrix views so high-density pages remain scannable without text colliding into the grid.
+
+**Implementation.** Added [axisLabelDensity.js](MedRecProReact/src/components/correlation/axisLabelDensity.js) to centralize column-label sampling thresholds and dense-grid class names. Updated [SystemCorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationHeatmap.jsx) and [SystemCorrelationMap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationMap.jsx) to reserve a wider row-label gutter, sample dense column labels while keeping full labels in `title`/ARIA metadata, and suppress in-cell map values at very high matrix density while preserving hover/focus detail.
+
+**Styling and bundle.** Updated [index.css](MedRecProReact/src/index.css) so correlation grids horizontally scroll instead of clipping, row headers stay in a sticky left gutter with ellipsis, dense column headers rotate more steeply, suppressed headers leave clean spacing, and hidden dense values reappear on hover/focus/selection. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted `ae-dashboard.css` and `ae-dashboard.js` include the UI refinement.
+
+**Verification.** Added [axisLabelDensity.test.js](MedRecProReact/src/test/axisLabelDensity.test.js) for sampling thresholds, edge-label retention, and dense class-name behavior. `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 56/56 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed the hosted bundle. `git diff --check` passed with only CRLF conversion warnings. A hidden/background Vite start still exited before binding `127.0.0.1:50346`; foreground Vite remains available for local visual smoke.
+
+---
+
+### 2026-06-19 10:32 AM EST — AE Dashboard Axis Label Readability Follow-Up
+
+Refined the By System matrix axis-label behavior after visual review showed the dense-label treatment was too aggressive for 20-column and 25-column views.
+
+**Implementation.** Updated [axisLabelDensity.js](MedRecProReact/src/components/correlation/axisLabelDensity.js) so matrices through 32 visible columns render every x-axis label, while larger matrices sample more gradually. Updated [SystemCorrelationMap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationMap.jsx) so small class matrices render full x-axis class labels instead of the compact formatter, and updated [SystemCorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationHeatmap.jsx) so heatmap tooltips use the product name as the title above the class comparison details.
+
+**Styling and bundle.** Updated [index.css](MedRecProReact/src/index.css) so column label text starts from the horizontal center of its column, full labels are not ellipsized on non-dense matrices, and dense labels use milder rotation/truncation. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) to refresh the hosted static CSS and JavaScript bundle.
+
+**Verification.** Updated [axisLabelDensity.test.js](MedRecProReact/src/test/axisLabelDensity.test.js) for the 25-column full-label guarantee and gentler sampling thresholds. `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 57/57 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed the hosted bundle. `git diff --check` passed with only CRLF conversion warnings. Browser smoke remained blocked by the local hidden/background Vite process exiting before binding `127.0.0.1:50346`, though the same Vite command reports ready when run in the foreground.
+
+---
+
+### 2026-06-19 10:45 AM EST — AE Dashboard Super-Dense Axis Polish
+
+Touched up the remaining dense-axis issues after visual review: the first x-axis label no longer clips under the sticky row-label gutter, and super-dense class correlation maps reduce right-edge label collisions.
+
+**Implementation.** Updated [axisLabelDensity.js](MedRecProReact/src/components/correlation/axisLabelDensity.js) so axes above 96 visible columns enter a `super-dense-axis` state with wider sampling intervals. The label renderer still preserves first and last edge labels, but it now suppresses sampled labels that would render too close to the final edge label.
+
+**Styling and bundle.** Updated [index.css](MedRecProReact/src/index.css) so column headers and their rotated label text stack above the sticky left gutter, preventing the first label from being clipped. Added a super-dense label style with a shorter max width, smaller type, and steeper rotation for very wide matrices. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted static bundle includes the polish.
+
+**Verification.** Updated [axisLabelDensity.test.js](MedRecProReact/src/test/axisLabelDensity.test.js) for super-dense thresholds, class names, and near-edge collision suppression. `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 58/58 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed the hosted bundle. `git diff --check` passed with only CRLF conversion warnings.
+
+---

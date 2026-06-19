@@ -2,7 +2,11 @@ import { formatDecimal, formatInteger } from '../../lib/formatters';
 import { getCorrelationColor, getScaleTextColor } from '../../lib/correlationScales';
 import { EmptyState } from '../common/EmptyState';
 import { CorrelationTooltip } from './CorrelationTooltip';
+import { getAxisDensityClassName, shouldRenderAxisLabel } from './axisLabelDensity';
 import { getSystemClassMapCell } from './correlationMapCells';
+
+const MAP_ROW_LABEL_COLUMN = 'minmax(220px, 300px)';
+const MAP_CELL_WIDTH = 84;
 
 /**************************************************************/
 /**
@@ -123,7 +127,9 @@ export function SystemCorrelationMap({ map, selectedCell, onSelectCell }) {
   const methodText = formatMethod(appliedFilters.method);
   const aggregationText = formatAggregation(appliedFilters.aggregation);
   const minTermsPerCell = appliedFilters.minTermsPerCell ?? 4;
-  const maxGridWidth = 220 + (classes.length * 84) + (classes.length * 2);
+  const maxGridWidth = 300 + (classes.length * MAP_CELL_WIDTH) + (classes.length * 2);
+  const densityClassName = getAxisDensityClassName(classes.length, { hideCellValues: true });
+  const useFullAxisLabels = classes.length <= 32;
 
   if (classes.length === 0) {
     return (
@@ -141,23 +147,36 @@ export function SystemCorrelationMap({ map, selectedCell, onSelectCell }) {
     <div className="corr-panel">
       <div className="corr-wrap" role="region" aria-label="Class by class correlation map" tabIndex={0}>
         <div
-          className="corr-grid"
+          className={`corr-grid ${densityClassName}`.trim()}
           style={{
             '--corr-grid-max': `${maxGridWidth}px`,
-            gridTemplateColumns: `minmax(120px, 220px) repeat(${classes.length}, minmax(0, 84px))`,
+            gridTemplateColumns: `${MAP_ROW_LABEL_COLUMN} repeat(${classes.length}, minmax(0, ${MAP_CELL_WIDTH}px))`,
           }}
           role="grid"
           aria-rowcount={classes.length + 1}
           aria-colcount={classes.length + 1}
         >
           <div className="corr-corner" role="columnheader" aria-label="Class" />
-          {classes.map((columnClass) => (
-            <div className="corr-colhead" key={`col-${columnClass.pharmClassCode}`} role="columnheader">
-              <span title={`${columnClass.pharmClassName} (${columnClass.pharmClassCode})`}>
-                {formatClassAxisLabel(columnClass.pharmClassName)}
-              </span>
-            </div>
-          ))}
+          {classes.map((columnClass, index) => {
+            const renderLabel = shouldRenderAxisLabel(index, classes.length);
+            const title = `${columnClass.pharmClassName} (${columnClass.pharmClassCode})`;
+
+            return (
+              <div
+                className={`corr-colhead${renderLabel ? '' : ' is-suppressed'}`}
+                key={`col-${columnClass.pharmClassCode}`}
+                role="columnheader"
+                aria-label={title}
+                title={title}
+              >
+                {renderLabel ? (
+                  <span>
+                    {useFullAxisLabels ? columnClass.pharmClassName : formatClassAxisLabel(columnClass.pharmClassName)}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
 
           {classes.map((rowClass) => (
             <div className="corr-row-fragment" key={`row-${rowClass.pharmClassCode}`} role="row">

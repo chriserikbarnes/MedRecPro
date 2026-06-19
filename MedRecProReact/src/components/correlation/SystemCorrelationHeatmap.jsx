@@ -2,6 +2,10 @@ import { formatDecimal, formatInteger } from '../../lib/formatters';
 import { getLogRrColor, getScaleTextColor } from '../../lib/correlationScales';
 import { EmptyState } from '../common/EmptyState';
 import { CorrelationTooltip } from './CorrelationTooltip';
+import { getAxisDensityClassName, shouldRenderAxisLabel } from './axisLabelDensity';
+
+const HEATMAP_ROW_LABEL_COLUMN = 'minmax(220px, 300px)';
+const HEATMAP_CELL_WIDTH = 64;
 
 /**************************************************************/
 /**
@@ -79,7 +83,8 @@ export function SystemCorrelationHeatmap({ heatmap }) {
   const cellLookup = buildHeatmapCellLookup(cells);
   const aggregationText = formatAggregation(heatmap?.appliedFilters?.aggregation);
   const totalDrugCount = heatmap?.drugPage?.totalCount || drugs.length;
-  const maxGridWidth = 220 + (drugs.length * 64) + (drugs.length * 2);
+  const maxGridWidth = 300 + (drugs.length * HEATMAP_CELL_WIDTH) + (drugs.length * 2);
+  const densityClassName = getAxisDensityClassName(drugs.length);
 
   if (classes.length === 0 || drugs.length === 0) {
     return (
@@ -97,21 +102,31 @@ export function SystemCorrelationHeatmap({ heatmap }) {
     <div className="corr-panel">
       <div className="corr-wrap" role="region" aria-label="Class by drug LogRR heatmap" tabIndex={0}>
         <div
-          className="corr-grid heat"
+          className={`corr-grid heat ${densityClassName}`.trim()}
           style={{
             '--corr-grid-max': `${maxGridWidth}px`,
-            gridTemplateColumns: `minmax(120px, 220px) repeat(${drugs.length}, minmax(0, 64px))`,
+            gridTemplateColumns: `${HEATMAP_ROW_LABEL_COLUMN} repeat(${drugs.length}, minmax(0, ${HEATMAP_CELL_WIDTH}px))`,
           }}
           role="grid"
           aria-rowcount={classes.length + 1}
           aria-colcount={drugs.length + 1}
         >
           <div className="corr-corner" role="columnheader" aria-label="Class" />
-          {drugs.map((drug) => (
-            <div className="corr-colhead drug" key={drug.id} role="columnheader">
-              <span title={drug.drugDisplayName}>{drug.drugDisplayName}</span>
-            </div>
-          ))}
+          {drugs.map((drug, index) => {
+            const renderLabel = shouldRenderAxisLabel(index, drugs.length);
+
+            return (
+              <div
+                className={`corr-colhead drug${renderLabel ? '' : ' is-suppressed'}`}
+                key={drug.id}
+                role="columnheader"
+                aria-label={drug.drugDisplayName}
+                title={drug.drugDisplayName}
+              >
+                {renderLabel ? <span>{drug.drugDisplayName}</span> : null}
+              </div>
+            );
+          })}
 
           {classes.map((rowClass) => (
             <div className="heatmap-row-fragment" key={rowClass.pharmClassCode} role="row">
@@ -145,7 +160,8 @@ export function SystemCorrelationHeatmap({ heatmap }) {
                   >
                     {cell ? (
                       <CorrelationTooltip>
-                        <strong>{rowClass.pharmClassName} x {drug.drugDisplayName}</strong>
+                        <strong>{drug.drugDisplayName}</strong>
+                        <span>{rowClass.pharmClassName}</span>
                         <span>LogRR: {formatDecimal(cell.logRr, 2)}</span>
                         <span>RR: {formatDecimal(cell.rr, 2)}</span>
                         <span>Significance: {cell.significance}</span>
