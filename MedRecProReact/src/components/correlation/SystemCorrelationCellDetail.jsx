@@ -3,7 +3,7 @@ import { EmptyState } from '../common/EmptyState';
 import { InlineError } from '../common/InlineError';
 import { Loading } from '../common/Loading';
 import { CorrelationPager } from './CorrelationPager';
-import { getScatterDomain, scalePoint } from './correlationScatter';
+import { getScatterDomain, scalePoint, scaleReferenceLine } from './correlationScatter';
 
 /**************************************************************/
 /**
@@ -23,17 +23,17 @@ function TermPairScatter({ pairs, classXLabel, classYLabel }) {
       <line className="scatter-axis" x1="36" y1="28" x2="36" y2="184" />
       <line
         className="scatter-zero"
-        x1={scalePoint(0, xDomain, 36, 292)}
+        x1={scaleReferenceLine(0, xDomain, 36, 292)}
         y1="28"
-        x2={scalePoint(0, xDomain, 36, 292)}
+        x2={scaleReferenceLine(0, xDomain, 36, 292)}
         y2="184"
       />
       <line
         className="scatter-zero"
         x1="36"
-        y1={scalePoint(0, yDomain, 184, 28)}
+        y1={scaleReferenceLine(0, yDomain, 184, 28)}
         x2="292"
-        y2={scalePoint(0, yDomain, 184, 28)}
+        y2={scaleReferenceLine(0, yDomain, 184, 28)}
       />
       {drawablePairs.map((pair) => (
         <circle

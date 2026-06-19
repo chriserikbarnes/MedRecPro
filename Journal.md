@@ -5345,3 +5345,15 @@ Refined the selected By System cell-detail panel so per-term drug counts render 
 **Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 61/61 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`. `git diff --check` passed with only CRLF conversion warnings.
 
 ---
+
+### 2026-06-19 12:55 PM EST — AE Dashboard Detail Scatter Axis Clamp
+
+Refined the selected detail correlation plots so dashed zero-reference axis lines stay inside the visible SVG plot area even when every plotted LogRR value is on the same side of zero.
+
+**Implementation.** Added `scaleReferenceLine` to [correlationScatter.js](MedRecProReact/src/components/correlation/correlationScatter.js) so reference-line coordinates reuse the existing point scaling and then clamp to the SVG plot range. Updated [CorrelationCellDetail.jsx](MedRecProReact/src/components/correlation/CorrelationCellDetail.jsx) and [SystemCorrelationCellDetail.jsx](MedRecProReact/src/components/correlation/SystemCorrelationCellDetail.jsx) so both class-detail and By System detail scatter plots use the clamped helper for their dashed zero axes while leaving plotted point coordinates unchanged.
+
+**Tests and bundle.** Added [correlationScatter.test.js](MedRecProReact/src/test/correlationScatter.test.js) to cover positive-only and negative-only domains, including the reversed y-axis SVG range. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted dashboard JavaScript includes the scatter-axis clamp.
+
+**Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 10/10 test files and 63/63 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`. `git diff --check` passed with only CRLF conversion warnings. Hidden/background Vite launch still exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
+
+---

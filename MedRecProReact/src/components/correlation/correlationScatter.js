@@ -42,3 +42,21 @@ export function scalePoint(value, domain, low, high) {
 
   return low + (ratio * (high - low));
 }
+
+/**************************************************************/
+/**
+ * Converts a reference-line value into a coordinate that stays inside the plot range.
+ *
+ * @param {number} value - Reference value.
+ * @param {{ min: number, max: number }} domain - Axis domain.
+ * @param {number} low - Low output coordinate.
+ * @param {number} high - High output coordinate.
+ * @returns {number} Coordinate clamped to the SVG plot range.
+ */
+export function scaleReferenceLine(value, domain, low, high) {
+  const coordinate = scalePoint(value, domain, low, high);
+  const minCoordinate = Math.min(low, high);
+  const maxCoordinate = Math.max(low, high);
+
+  return Math.min(maxCoordinate, Math.max(minCoordinate, coordinate));
+}
