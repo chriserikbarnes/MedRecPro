@@ -1,4 +1,4 @@
-import { formatDecimal, formatInteger } from '../../lib/formatters';
+import { formatCountLabel, formatDecimal, formatInteger } from '../../lib/formatters';
 import { EmptyState } from '../common/EmptyState';
 import { InlineError } from '../common/InlineError';
 import { Loading } from '../common/Loading';
@@ -189,14 +189,14 @@ export function SystemCorrelationCellDetail({
                     RR {formatDecimal(pair.rrX, 2)}
                     <small>
                       Log {formatDecimal(pair.logRrX, 2)} | {pair.precisionX} | {pair.significanceX}
-                      {' | '} {formatInteger(pair.drugCountX)} drugs
+                      {' | '} {formatCountLabel(pair.drugCountX, 'drug')}
                     </small>
                   </span>
                   <span role="cell">
                     RR {formatDecimal(pair.rrY, 2)}
                     <small>
                       Log {formatDecimal(pair.logRrY, 2)} | {pair.precisionY} | {pair.significanceY}
-                      {' | '} {formatInteger(pair.drugCountY)} drugs
+                      {' | '} {formatCountLabel(pair.drugCountY, 'drug')}
                     </small>
                   </span>
                 </div>

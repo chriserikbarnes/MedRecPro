@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatComparatorCoverage,
+  formatCountLabel,
   formatDecimal,
   formatDenominators,
   formatDose,
@@ -23,6 +24,14 @@ describe('formatters', () => {
     expect(formatPercent(0.455)).toBe('46%');
     expect(formatDenominators(null, null)).toBe('-');
     expect(formatDenominators(1200, 1133)).toBe('1,200 / 1,133');
+  });
+
+  it('formats singular and plural count labels', () => {
+    expect(formatCountLabel(1, 'drug')).toBe('1 drug');
+    expect(formatCountLabel(2, 'drug')).toBe('2 drugs');
+    expect(formatCountLabel(null, 'drug')).toBe('0 drugs');
+    expect(formatCountLabel(1, 'class', 'classes')).toBe('1 class');
+    expect(formatCountLabel(2, 'class', 'classes')).toBe('2 classes');
   });
 
   it('formats comparator coverage and favorite action labels', () => {

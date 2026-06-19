@@ -5333,3 +5333,15 @@ Raised the shared correlation tooltip stacking layer so selected grid cells no l
 **Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 60/60 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`/`ae-dashboard.css`. `git diff --check` passed with only CRLF conversion warnings. Hidden/background Vite launch still exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
 
 ---
+
+### 2026-06-19 12:41 PM EST — AE Dashboard Detail Drug Count Pluralization
+
+Refined the selected By System cell-detail panel so per-term drug counts render grammatically with their numeric count.
+
+**Implementation.** Added `formatCountLabel` to [formatters.js](MedRecProReact/src/lib/formatters.js) for reusable singular/plural count labels, including optional irregular plural nouns. Updated [SystemCorrelationCellDetail.jsx](MedRecProReact/src/components/correlation/SystemCorrelationCellDetail.jsx) so both class-side drug counts render as `1 drug`, `2 drugs`, and so on instead of always using `drugs`.
+
+**Tests and bundle.** Added helper coverage in [formatters.test.js](MedRecProReact/src/test/formatters.test.js) for singular, plural, missing-count fallback, and irregular plural examples. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted dashboard JavaScript includes the formatter change.
+
+**Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 61/61 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`. `git diff --check` passed with only CRLF conversion warnings.
+
+---

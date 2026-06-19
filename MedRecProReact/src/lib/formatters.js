@@ -16,6 +16,22 @@ export function formatInteger(value) {
 
 /**************************************************************/
 /**
+ * Formats a count with a singular or plural noun.
+ *
+ * @param {number | null | undefined} value - Count to format.
+ * @param {string} singularNoun - Noun to use when the count is exactly one.
+ * @param {string | undefined} pluralNoun - Optional plural noun override.
+ * @returns {string} Formatted count and noun.
+ */
+export function formatCountLabel(value, singularNoun, pluralNoun = `${singularNoun}s`) {
+  const numericValue = Number(value);
+  const noun = numericValue === 1 ? singularNoun : pluralNoun;
+
+  return `${formatInteger(value)} ${noun}`;
+}
+
+/**************************************************************/
+/**
  * Formats a nullable ratio or score with compact precision.
  *
  * @param {number | null | undefined} value - Ratio to format.
