@@ -5,7 +5,6 @@ import { CorrelationTooltip } from './CorrelationTooltip';
 import { getAxisDensityClassName, shouldRenderAxisLabel } from './axisLabelDensity';
 
 const HEATMAP_ROW_LABEL_COLUMN = 'minmax(220px, 300px)';
-const HEATMAP_CELL_WIDTH = 64;
 
 /**************************************************************/
 /**
@@ -83,7 +82,6 @@ export function SystemCorrelationHeatmap({ heatmap }) {
   const cellLookup = buildHeatmapCellLookup(cells);
   const aggregationText = formatAggregation(heatmap?.appliedFilters?.aggregation);
   const totalDrugCount = heatmap?.drugPage?.totalCount || drugs.length;
-  const maxGridWidth = 300 + (drugs.length * HEATMAP_CELL_WIDTH) + (drugs.length * 2);
   const densityClassName = getAxisDensityClassName(drugs.length);
 
   if (classes.length === 0 || drugs.length === 0) {
@@ -104,8 +102,7 @@ export function SystemCorrelationHeatmap({ heatmap }) {
         <div
           className={`corr-grid heat ${densityClassName}`.trim()}
           style={{
-            '--corr-grid-max': `${maxGridWidth}px`,
-            gridTemplateColumns: `${HEATMAP_ROW_LABEL_COLUMN} repeat(${drugs.length}, minmax(0, ${HEATMAP_CELL_WIDTH}px))`,
+            gridTemplateColumns: `${HEATMAP_ROW_LABEL_COLUMN} repeat(${drugs.length}, minmax(0, 1fr))`,
           }}
           role="grid"
           aria-rowcount={classes.length + 1}

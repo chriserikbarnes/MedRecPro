@@ -347,7 +347,7 @@ a { color: var(--color-primary); text-decoration: none; }
   text-transform: uppercase;
   letter-spacing: .06em;
   font-weight: var(--weight-medium);
-  margin-left: 40px;
+  margin-left: 10px;
   margin-right: 4px;
 }
 .chip {
@@ -2076,6 +2076,11 @@ a { color: var(--color-primary); text-decoration: none; }
   font-size: 12px;
   color: var(--color-text-tertiary);
 }
+.system-class-type-chip {
+  min-width: 42px;
+  justify-content: center;
+  margin: 0;
+}
 .corr-pager {
   display: inline-flex;
   align-items: center;
@@ -2145,11 +2150,9 @@ a { color: var(--color-primary); text-decoration: none; }
   outline: 0;
 }
 .corr-wrap {
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: visible;
   padding: 10px 34px 18px 18px;
-  scrollbar-color: var(--color-border) transparent;
-  scrollbar-width: thin;
 }
 .corr-grid {
   display: grid;

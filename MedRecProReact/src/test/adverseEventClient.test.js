@@ -219,6 +219,7 @@ describe('buildAdverseEventUrl', () => {
     await AdverseEventClient.getSystemCorrelationMap({
       systems: ['Cardiac Disorders', 'Vascular Disorders'],
       classSearch: 'kinase',
+      classType: 'EPC',
       classPageNumber: 3,
       classPageSize: 80,
       comparator: 'Both',
@@ -232,7 +233,7 @@ describe('buildAdverseEventUrl', () => {
       includeFullMatrix: true,
     });
 
-    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/map?systems=Cardiac+Disorders&classSearch=kinase&classPageNumber=3&classPageSize=80&comparator=Both&includeNonSignificant=false&excludeFragile=true&minTermsPerCell=6&method=Pearson&aggregation=MeanLogRr&excludeCombos=true&minEvents=5&includeFullMatrix=true');
+    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/map?systems=Cardiac+Disorders&classSearch=kinase&classType=EPC&classPageNumber=3&classPageSize=80&comparator=Both&includeNonSignificant=false&excludeFragile=true&minTermsPerCell=6&method=Pearson&aggregation=MeanLogRr&excludeCombos=true&minEvents=5&includeFullMatrix=true');
   });
 
   it('serializes system heatmap class and drug paging', async () => {
@@ -241,6 +242,7 @@ describe('buildAdverseEventUrl', () => {
     await AdverseEventClient.getSystemCorrelationHeatmap({
       systems: ['Cardiac Disorders', 'Vascular Disorders'],
       classSearch: 'kinase',
+      classType: 'MOA',
       drugSearch: 'aspirin',
       classPageNumber: 2,
       classPageSize: 40,
@@ -254,7 +256,7 @@ describe('buildAdverseEventUrl', () => {
       minEvents: 3,
     });
 
-    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/heatmap?systems=Cardiac+Disorders&classSearch=kinase&drugSearch=aspirin&classPageNumber=2&classPageSize=40&drugPageNumber=4&drugPageSize=100&comparator=Active&includeNonSignificant=true&excludeFragile=false&aggregation=MedianLogRr&excludeCombos=true&minEvents=3');
+    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/heatmap?systems=Cardiac+Disorders&classSearch=kinase&classType=MOA&drugSearch=aspirin&classPageNumber=2&classPageSize=40&drugPageNumber=4&drugPageSize=100&comparator=Active&includeNonSignificant=true&excludeFragile=false&aggregation=MedianLogRr&excludeCombos=true&minEvents=3');
   });
 
   it('serializes system cell detail term-pair paging', async () => {

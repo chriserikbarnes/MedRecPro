@@ -84,6 +84,21 @@ function normalizeClassComparatorParameter(comparator) {
 
 /**************************************************************/
 /**
+ * Converts the UI class-type token into the optional API query value.
+ *
+ * @param {string} classType - Selected class-type token.
+ * @returns {string | null} API classType value or null for all class types.
+ */
+function normalizeSystemClassTypeParameter(classType) {
+  const normalizedType = String(classType ?? '').trim();
+
+  return !normalizedType || normalizedType.toLowerCase() === 'all' || normalizedType === '*'
+    ? null
+    : normalizedType;
+}
+
+/**************************************************************/
+/**
  * Normalizes a selected-system query value to the backend's single-system contract.
  *
  * @param {unknown} systems - Selected system value or array.
@@ -544,6 +559,7 @@ export const AdverseEventClient = {
   getSystemCorrelationMap({
     systems = [],
     classSearch = '',
+    classType = 'All',
     classPageNumber = 1,
     classPageSize = 20,
     comparator = 'Placebo',
@@ -560,6 +576,7 @@ export const AdverseEventClient = {
     const url = buildAdverseEventUrl('correlation/systems/map', {
       systems: normalizeSingleSystemParameter(systems),
       classSearch,
+      classType: normalizeSystemClassTypeParameter(classType),
       classPageNumber,
       classPageSize,
       comparator: normalizeClassComparatorParameter(comparator),
@@ -618,6 +635,7 @@ export const AdverseEventClient = {
   getSystemCorrelationHeatmap({
     systems = [],
     classSearch = '',
+    classType = 'All',
     drugSearch = '',
     classPageNumber = 1,
     classPageSize = 40,
@@ -634,6 +652,7 @@ export const AdverseEventClient = {
     const url = buildAdverseEventUrl('correlation/systems/heatmap', {
       systems: normalizeSingleSystemParameter(systems),
       classSearch,
+      classType: normalizeSystemClassTypeParameter(classType),
       drugSearch,
       classPageNumber,
       classPageSize,

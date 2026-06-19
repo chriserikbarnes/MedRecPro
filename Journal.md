@@ -16,8 +16,6 @@ Files modified:
 
 Both projects build with 0 errors.
 
----
-
 ### 2026-02-24 12:45 PM EST — Refactored OrangeBookImportService: Extract Private Methods from Monolithic Lambda
 Refactored `executeImportWithProgressAsync()` in `OrangeBookImportService.cs`. The `.StartAsync` lambda was ~185 lines mixing progress callback construction, message routing, phase transitions, and import orchestration. Broke it into focused private methods to eliminate duplication (DRY).
 
@@ -5273,5 +5271,53 @@ Touched up the remaining dense-axis issues after visual review: the first x-axis
 **Styling and bundle.** Updated [index.css](MedRecProReact/src/index.css) so column headers and their rotated label text stack above the sticky left gutter, preventing the first label from being clipped. Added a super-dense label style with a shorter max width, smaller type, and steeper rotation for very wide matrices. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted static bundle includes the polish.
 
 **Verification.** Updated [axisLabelDensity.test.js](MedRecProReact/src/test/axisLabelDensity.test.js) for super-dense thresholds, class names, and near-edge collision suppression. `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 58/58 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed the hosted bundle. `git diff --check` passed with only CRLF conversion warnings.
+
+---
+
+### 2026-06-19 11:06 AM EST — AE Dashboard By System Matrix Class Type Filter Plan
+
+Saved a pending mixed API/UI handoff for adding a pharmacologic class-type filter to the By System matrix paging row, so users can focus the class x class matrix on suffix groups such as `[EPC]`, `[MOA]`, `[EP]`, and future class types without changing the broader MedDRA system workflow.
+
+**Plan artifact.** Added [Plans/(pending) AE Dashboard By System Matrix Class Type Filter Plan.md](Plans/(pending) AE Dashboard By System Matrix Class Type Filter Plan.md). The plan is grounded in the completed By System remediation and system correlation API/UI handoffs, the live `AdverseEventController` system endpoints, `AeSystemClassAxisItemDto`, `DtoLabelAccess` system observation builder, `AeDashboardDerivation` class-axis pruning, and the React `SystemCorrelationSurface`/`CorrelationPager` paging row.
+
+**Key decision.** Recommended an explicit `classType` API query and `systemClassType` URL state instead of reusing `classSearch=[EPC]`, because SQL Server `LIKE` treats square brackets as pattern syntax and the UI needs reliable type facets across the full class axis, not just the current returned page.
+
+**Verification.** Verified the saved plan by exact `Get-Item` metadata and `Select-String` markers for `classType=EPC`, `SystemClassTypeChips`, `ClassTypeFacets`, `Verification Commands`, and `No-Regression Guardrails`. No builds or tests were run because this session created a planning artifact only.
+
+---
+
+### 2026-06-19 11:28 AM EST — AE Dashboard System Class Type Filter
+
+Implemented the saved mixed API/UI handoff for filtering the By System matrix and heatmap class axis by pharmacologic class suffix groups such as `EPC`, `MOA`, `EP`, and `Other`, then renamed the completed handoff to [Plans/(done) AE Dashboard By System Matrix Class Type Filter Plan.md](Plans/(done) AE Dashboard By System Matrix Class Type Filter Plan.md).
+
+**Backend.** Updated [AeDashboardDto.cs](MedRecPro/Models/AeDashboardDto.cs), [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs), [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs), and [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs) with tolerant class-type normalization, final-bracket suffix extraction, `ClassType` axis/summary fields, `ClassTypeFacets`, `SelectedClassType`, and optional `classType` query support on the system map and heatmap endpoints. Facets are computed before the selected type filter, while map renderability pruning, full-matrix generation, and heatmap rows use the filtered class axis.
+
+**React and bundle.** Updated [App.jsx](MedRecProReact/src/App.jsx), [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js), [normalizers.js](MedRecProReact/src/lib/normalizers.js), [SystemCorrelationSurface.jsx](MedRecProReact/src/components/correlation/SystemCorrelationSurface.jsx), and [index.css](MedRecProReact/src/index.css) so `systemClassType` hydrates from URL state, serializes as API `classType`, resets class/drug/detail paging on chip changes, appears in exports, and renders compact class-type chips in map and heatmap class-axis control rows. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) to refresh the hosted bundle.
+
+**Verification.** Added backend coverage in [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) and [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs), plus frontend coverage in [adverseEventClient.test.js](MedRecProReact/src/test/adverseEventClient.test.js) and [normalizers.test.js](MedRecProReact/src/test/normalizers.test.js). `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` passed 68/68 tests after approved access to the user NuGet config; the initial sandboxed attempt could not read `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`. `npm.cmd --prefix .\MedRecProReact run lint`, `npm.cmd --prefix .\MedRecProReact test` passed 9/9 files and 60/60 tests, `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`/`ae-dashboard.css`, and `git diff --check` passed with only CRLF conversion warnings.
+
+---
+
+### 2026-06-19 11:52 AM EST — AE Dashboard Class Type Chip Refinement
+
+Refined the By System class-type filter placement and option set so the suffix chips read as primary correlation filters instead of class-axis paging controls.
+
+**Implementation.** Updated [CorrelationFilterControls.jsx](MedRecProReact/src/components/correlation/CorrelationFilterControls.jsx) to render optional `TYPE` chips in the same primary row as Comparator, Method, and Aggregation, using the existing `filter-label` and `chip` styling. The type list now omits the thinly populated `CHEMICAL/INGREDIENT` and `EXT` facets while preserving the active class-type filter behavior for the remaining choices.
+
+**Surface and bundle.** Updated [SystemCorrelationSurface.jsx](MedRecProReact/src/components/correlation/SystemCorrelationSurface.jsx) to pass class-type facets into the shared filter row and remove the old pager-row chip placement. Cleaned the now-unused wrapper styling in [index.css](MedRecProReact/src/index.css), then rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted bundle carries the refinement.
+
+**Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 60/60 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js` and `ae-dashboard.css`. `git diff --check` passed with only CRLF conversion warnings. Hidden/background Vite launch attempts did not bind `127.0.0.1:50346`; a foreground Vite run remains the fallback for local visual smoke.
+
+---
+
+### 2026-06-19 12:10 PM EST — AE Dashboard System Comma and Chart Fit Refinements
+
+Refined the By System dashboard after visual review showed comma-bearing MedDRA system names were being treated as multiple selections and dense class charts were creating horizontal overflow.
+
+**Backend.** Updated [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs) and [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs) so selected-system query values are trimmed and de-duplicated without comma splitting. Repeated `systems=` keys still represent multiple selected systems, while names such as `Injury, Poisoning and Procedural Complications` remain one literal MedDRA System Organ Class through controller validation and data-access filtering.
+
+**Chart fit and bundle.** Updated [CorrelationMap.jsx](MedRecProReact/src/components/correlation/CorrelationMap.jsx), [CorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/CorrelationHeatmap.jsx), [SystemCorrelationMap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationMap.jsx), [SystemCorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationHeatmap.jsx), and [index.css](MedRecProReact/src/index.css) so correlation grids use fluid column tracks inside the available card width and no longer expose a horizontal scrollbar. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) to refresh the hosted bundle.
+
+**Verification.** Updated [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) to seed and validate a comma-bearing system name across the system map, heatmap, and cell endpoints. The initial sandboxed `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` attempt failed because it could not read `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`; the approved rerun passed 68/68 tests. `npm.cmd --prefix .\MedRecProReact run lint` passed, `npm.cmd --prefix .\MedRecProReact test` passed 9/9 files and 60/60 tests, `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`/`ae-dashboard.css`, and `git diff --check` passed with only CRLF conversion warnings. A hidden Vite process was started but exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
 
 ---

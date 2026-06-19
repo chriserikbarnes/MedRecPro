@@ -66,7 +66,9 @@ export function SystemCorrelationSurface({
   heatmapClassPage,
   heatmapDrugPage,
   termPairPage,
+  systemClassType,
   includeFullMatrix,
+  onChangeClassType,
   onToggleFullMatrix,
   onChangeMapClassPage,
   onChangeMapClassPageSize,
@@ -82,6 +84,12 @@ export function SystemCorrelationSurface({
     systemView === 'map'
       ? 'Pairwise pharmacologic-class coefficients over selected MedDRA system terms.'
       : 'Sparse per-drug selected-system LogRR cells across pharmacologic classes.';
+  const classTypeFacets = systemView === 'map'
+    ? systemMap?.classTypeFacets
+    : systemHeatmap?.classTypeFacets;
+  const isClassTypeDisabled = systemView === 'map'
+    ? isSystemMapLoading
+    : isSystemHeatmapLoading;
 
   if (!Array.isArray(selectedSystems) || selectedSystems.length === 0) {
     return (
@@ -109,6 +117,10 @@ export function SystemCorrelationSurface({
           onChangeFilter={onChangeSystemFilter}
           floorKey="minTermsPerCell"
           floorLabel="Min terms"
+          classTypeFacets={classTypeFacets}
+          selectedClassType={systemClassType}
+          isClassTypeDisabled={isClassTypeDisabled}
+          onChangeClassType={onChangeClassType}
           afterExcludeCombosControl={systemView === 'map' ? (
             <button
               type="button"

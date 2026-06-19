@@ -160,6 +160,53 @@ const CORRELATION_AGGREGATION_TOKENS = {
 
 /**************************************************************/
 /**
+ * Normalizes pharmacologic class-type tokens for system correlation controls.
+ *
+ * @param {unknown} value - Candidate class-type value.
+ * @param {string} fallback - Fallback token.
+ * @returns {string} Normalized class-type token.
+ */
+export function normalizeSystemClassType(value, fallback = 'Other') {
+  let token = toDisplayString(value);
+
+  if (token.length >= 2 && token.startsWith('[') && token.endsWith(']')) {
+    token = token.slice(1, -1).trim();
+  }
+
+  if (!token) {
+    return fallback;
+  }
+
+  if (token.toLowerCase() === 'all') {
+    return 'All';
+  }
+
+  return token.toLowerCase() === 'other' ? 'Other' : token.toUpperCase();
+}
+
+/**************************************************************/
+/**
+ * Derives a class-type token from the final bracket suffix in a class label.
+ *
+ * @param {unknown} pharmClassName - Pharmacologic class display name.
+ * @returns {string} Normalized class-type token.
+ */
+function deriveSystemClassType(pharmClassName) {
+  const className = toDisplayString(pharmClassName);
+
+  if (!className.endsWith(']')) {
+    return 'Other';
+  }
+
+  const openBracketIndex = className.lastIndexOf('[');
+
+  return openBracketIndex >= 0 && openBracketIndex < className.length - 2
+    ? normalizeSystemClassType(className.slice(openBracketIndex + 1, -1))
+    : 'Other';
+}
+
+/**************************************************************/
+/**
  * Normalizes interchange enum values to UI grouping tokens.
  *
  * @param {unknown} value - API enum value, numeric or string.
@@ -661,6 +708,7 @@ export function normalizeSystemClassAxisItem(dto) {
 
   const index = toNullableNumber(readFirst(dto, ['Index', 'index']));
   const pharmClassCode = toDisplayString(readFirst(dto, ['PharmClassCode', 'pharmClassCode']));
+  const pharmClassName = toDisplayString(readFirst(dto, ['PharmClassName', 'pharmClassName']), pharmClassCode);
 
   if (index === null || !pharmClassCode) {
     return null;
@@ -670,7 +718,11 @@ export function normalizeSystemClassAxisItem(dto) {
     index,
     id: pharmClassCode,
     pharmClassCode,
-    pharmClassName: toDisplayString(readFirst(dto, ['PharmClassName', 'pharmClassName']), pharmClassCode),
+    pharmClassName,
+    classType: normalizeSystemClassType(
+      readFirst(dto, ['ClassType', 'classType']),
+      deriveSystemClassType(pharmClassName),
+    ),
     encryptedPharmacologicClassId: toDisplayString(
       readFirst(dto, [
         'EncryptedPharmacologicClassID',
@@ -683,6 +735,88 @@ export function normalizeSystemClassAxisItem(dto) {
     drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
     hasRenderableMap: toBoolean(readFirst(dto, ['HasRenderableMap', 'hasRenderableMap'])),
   };
+}
+
+/**************************************************************/
+/**
+ * Normalizes one class-type facet.
+ *
+ * @param {Record<string, unknown> | null | undefined} dto - API facet DTO.
+ * @returns {object | null} Facet view model or null.
+ */
+function normalizeSystemClassTypeFacet(dto) {
+  if (!dto) {
+    return null;
+  }
+
+  const classType = normalizeSystemClassType(readFirst(dto, ['ClassType', 'classType']));
+
+  if (!classType) {
+    return null;
+  }
+
+  return {
+    classType,
+    displayLabel: toDisplayString(readFirst(dto, ['DisplayLabel', 'displayLabel']), classType),
+    classCount: toNullableNumber(readFirst(dto, ['ClassCount', 'classCount'])) ?? 0,
+    hasRenderableMap: toBoolean(readFirst(dto, ['HasRenderableMap', 'hasRenderableMap'])),
+  };
+}
+
+/**************************************************************/
+/**
+ * Builds class-type facets, falling back to returned classes for older API payloads.
+ *
+ * @param {unknown} facetPayloads - API facet payloads.
+ * @param {object[]} classes - Normalized class rows.
+ * @returns {object[]} Class-type facets with All prepended.
+ */
+function normalizeSystemClassTypeFacets(facetPayloads, classes) {
+  const facets = Array.isArray(facetPayloads)
+    ? facetPayloads.map((facet) => normalizeSystemClassTypeFacet(facet)).filter(Boolean)
+    : [];
+  const sourceFacets = facets.length > 0
+    ? facets
+    : Array.from(classes.reduce((byType, item) => {
+      const classType = normalizeSystemClassType(item.classType);
+      const facet = byType.get(classType) ?? {
+        classType,
+        displayLabel: classType,
+        classCount: 0,
+        hasRenderableMap: false,
+      };
+
+      facet.classCount += 1;
+      facet.hasRenderableMap = facet.hasRenderableMap || Boolean(item.hasRenderableMap);
+      byType.set(classType, facet);
+
+      return byType;
+    }, new Map()).values())
+      .sort((left, right) => {
+        if (left.hasRenderableMap !== right.hasRenderableMap) {
+          return left.hasRenderableMap ? -1 : 1;
+        }
+
+        if (left.classCount !== right.classCount) {
+          return right.classCount - left.classCount;
+        }
+
+        return left.displayLabel.localeCompare(right.displayLabel);
+      });
+
+  const dedupedFacets = sourceFacets
+    .filter((facet) => facet.classType !== 'All')
+    .filter((facet, index, allFacets) => allFacets.findIndex((item) => item.classType === facet.classType) === index);
+  const allFacet = {
+    classType: 'All',
+    displayLabel: 'All',
+    classCount: facets.length > 0
+      ? facets.reduce((total, facet) => total + facet.classCount, 0)
+      : classes.length,
+    hasRenderableMap: dedupedFacets.some((facet) => facet.hasRenderableMap),
+  };
+
+  return [allFacet, ...dedupedFacets];
 }
 
 /**************************************************************/
@@ -734,6 +868,7 @@ function normalizeSystemClassSummary(dto) {
 
   const index = toNullableNumber(readFirst(dto, ['Index', 'index']));
   const pharmClassCode = toDisplayString(readFirst(dto, ['PharmClassCode', 'pharmClassCode']));
+  const pharmClassName = toDisplayString(readFirst(dto, ['PharmClassName', 'pharmClassName']), pharmClassCode);
 
   if (index === null || !pharmClassCode) {
     return null;
@@ -742,7 +877,11 @@ function normalizeSystemClassSummary(dto) {
   return {
     index,
     pharmClassCode,
-    pharmClassName: toDisplayString(readFirst(dto, ['PharmClassName', 'pharmClassName']), pharmClassCode),
+    pharmClassName,
+    classType: normalizeSystemClassType(
+      readFirst(dto, ['ClassType', 'classType']),
+      deriveSystemClassType(pharmClassName),
+    ),
     drugCount: toNullableNumber(readFirst(dto, ['DrugCount', 'drugCount'])) ?? 0,
     termCount: toNullableNumber(readFirst(dto, ['TermCount', 'termCount'])) ?? 0,
     medianLogRr: toNullableNumber(readFirst(dto, ['MedianLogRr', 'medianLogRr'])),
@@ -768,6 +907,12 @@ export function normalizeSystemCorrelationMap(payload) {
   const classPayloads = readFirst(payload, ['Classes', 'classes']);
   const cellPayloads = readFirst(payload, ['Cells', 'cells']);
   const summaryPayloads = readFirst(payload, ['ClassSummaries', 'classSummaries']);
+  const classes = Array.isArray(classPayloads)
+    ? classPayloads.map((item) => normalizeSystemClassAxisItem(item)).filter(Boolean)
+    : [];
+  const classSummaries = Array.isArray(summaryPayloads)
+    ? summaryPayloads.map((summary) => normalizeSystemClassSummary(summary)).filter(Boolean)
+    : [];
 
   return {
     selectedSystems: Array.isArray(selectedSystems)
@@ -776,16 +921,20 @@ export function normalizeSystemCorrelationMap(payload) {
     appliedFilters: normalizeSystemCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
     classCount: toNullableNumber(readFirst(payload, ['ClassCount', 'classCount'])) ?? 0,
     includesFullMatrix: toBoolean(readFirst(payload, ['IncludesFullMatrix', 'includesFullMatrix'])),
+    selectedClassType: normalizeSystemClassType(
+      readFirst(payload, ['SelectedClassType', 'selectedClassType']),
+      'All',
+    ),
+    classTypeFacets: normalizeSystemClassTypeFacets(
+      readFirst(payload, ['ClassTypeFacets', 'classTypeFacets']),
+      classes,
+    ),
     classPage: normalizeAxisPage(readFirst(payload, ['ClassPage', 'classPage']), { pageNumber: 1, pageSize: 40 }),
-    classes: Array.isArray(classPayloads)
-      ? classPayloads.map((item) => normalizeSystemClassAxisItem(item)).filter(Boolean)
-      : [],
+    classes,
     cells: Array.isArray(cellPayloads)
       ? cellPayloads.map((cell) => normalizeSystemCorrelationMapCell(cell)).filter(Boolean)
       : [],
-    classSummaries: Array.isArray(summaryPayloads)
-      ? summaryPayloads.map((summary) => normalizeSystemClassSummary(summary)).filter(Boolean)
-      : [],
+    classSummaries,
     warnings: normalizeWarnings(readFirst(payload, ['Warnings', 'warnings'])),
   };
 }
@@ -872,17 +1021,26 @@ export function normalizeSystemCorrelationHeatmap(payload) {
   const classPayloads = readFirst(payload, ['Classes', 'classes']);
   const drugPayloads = readFirst(payload, ['Drugs', 'drugs']);
   const cellPayloads = readFirst(payload, ['Cells', 'cells']);
+  const classes = Array.isArray(classPayloads)
+    ? classPayloads.map((item) => normalizeSystemClassAxisItem(item)).filter(Boolean)
+    : [];
 
   return {
     selectedSystems: Array.isArray(selectedSystems)
       ? selectedSystems.map((system) => toDisplayString(system)).filter(Boolean)
       : [],
     appliedFilters: normalizeSystemCorrelationFilters(readFirst(payload, ['AppliedFilters', 'appliedFilters'])),
+    selectedClassType: normalizeSystemClassType(
+      readFirst(payload, ['SelectedClassType', 'selectedClassType']),
+      'All',
+    ),
+    classTypeFacets: normalizeSystemClassTypeFacets(
+      readFirst(payload, ['ClassTypeFacets', 'classTypeFacets']),
+      classes,
+    ),
     classPage: normalizeAxisPage(readFirst(payload, ['ClassPage', 'classPage']), { pageNumber: 1, pageSize: 40 }),
     drugPage: normalizeAxisPage(readFirst(payload, ['DrugPage', 'drugPage']), { pageNumber: 1, pageSize: 50 }),
-    classes: Array.isArray(classPayloads)
-      ? classPayloads.map((item) => normalizeSystemClassAxisItem(item)).filter(Boolean)
-      : [],
+    classes,
     drugs: Array.isArray(drugPayloads)
       ? drugPayloads.map((drug) => normalizeSystemHeatmapDrug(drug)).filter(Boolean)
       : [],

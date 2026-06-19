@@ -1357,6 +1357,7 @@ namespace MedRecPro.DataAccess
         /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
         /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return the complete filtered matrix.</param>
+        /// <param name="classType">Optional pharmacologic-class type filter such as EPC, MOA, EP, or Other.</param>
         /// <returns>The system-scoped class correlation map, or null when the selected system has no usable rows.</returns>
         /// <remarks>
         /// Correlates pharmacologic classes over selected-SOC adverse-event term profiles.
@@ -1379,10 +1380,12 @@ namespace MedRecPro.DataAccess
             AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
             bool excludeCombos = false,
             int minEvents = 0,
-            bool includeFullMatrix = false)
+            bool includeFullMatrix = false,
+            string? classType = null)
         {
             #region implementation
 
+            var selectedClassType = AeDashboardDerivation.NormalizePharmacologicClassTypeFilter(classType);
             var filters = buildSystemCorrelationFilters(
                 comparator,
                 includeNonSignificant,
@@ -1412,7 +1415,8 @@ namespace MedRecPro.DataAccess
                 context.Value.Warnings,
                 classPageNumber,
                 classPageSize,
-                includeFullMatrix);
+                includeFullMatrix,
+                selectedClassType);
 
             #endregion
         }
@@ -1437,6 +1441,7 @@ namespace MedRecPro.DataAccess
         /// <param name="aggregation">Within-class/drug aggregation; median LogRR by default.</param>
         /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="classType">Optional pharmacologic-class type filter such as EPC, MOA, EP, or Other.</param>
         /// <returns>The sparse heatmap, or null when the selected system has no usable rows.</returns>
         /// <seealso cref="AeDashboardDerivation.BuildSystemClassHeatmap"/>
         /// <seealso cref="AeSystemClassHeatmapDto"/>
@@ -1456,10 +1461,12 @@ namespace MedRecPro.DataAccess
             bool excludeFragile = true,
             AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
             bool excludeCombos = false,
-            int minEvents = 0)
+            int minEvents = 0,
+            string? classType = null)
         {
             #region implementation
 
+            var selectedClassType = AeDashboardDerivation.NormalizePharmacologicClassTypeFilter(classType);
             var filters = buildSystemCorrelationFilters(
                 comparator,
                 includeNonSignificant,
@@ -1490,7 +1497,8 @@ namespace MedRecPro.DataAccess
                 classPageNumber,
                 classPageSize,
                 drugPageNumber,
-                drugPageSize);
+                drugPageSize,
+                selectedClassType);
 
             #endregion
         }
@@ -2964,8 +2972,8 @@ namespace MedRecPro.DataAccess
         /// <param name="systems">Raw selected-system query values.</param>
         /// <returns>Trimmed, de-duplicated selected systems in caller order.</returns>
         /// <remarks>
-        /// ASP.NET Core binds repeated query keys naturally, but accepting comma-separated values
-        /// makes direct callers and ad hoc API probes less brittle.
+        /// ASP.NET Core binds repeated query keys naturally. MedDRA System Organ Class names
+        /// may contain commas, so each supplied value is preserved as one literal system name.
         /// </remarks>
         private static List<string> normalizeSystemInputs(IEnumerable<string>? systems)
         {
@@ -2977,7 +2985,7 @@ namespace MedRecPro.DataAccess
             }
 
             return systems
-                .SelectMany(system => (system ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Select(system => (system ?? string.Empty).Trim())
                 .Where(system => !string.IsNullOrWhiteSpace(system))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

@@ -1352,6 +1352,86 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Extracts the normalized final bracket suffix from a pharmacologic class display name.
+        /// </summary>
+        /// <param name="pharmClassName">Pharmacologic class display name, such as "Kinase Inhibitor [EPC]".</param>
+        /// <returns>Uppercase suffix token, or Other when the display name has no final bracket suffix.</returns>
+        /// <remarks>
+        /// The dashboard class-type filter is derived from the final FDA pharmacologic-class
+        /// suffix and remains tolerant of mixed-case labels such as [MoA].
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var classType = AeDashboardDerivation.ExtractPharmacologicClassType("Protein Kinase Inhibitors [MoA]");
+        /// </code>
+        /// </example>
+        /// <seealso cref="NormalizePharmacologicClassTypeFilter"/>
+        /// <seealso cref="AeSystemClassAxisItemDto"/>
+        public static string ExtractPharmacologicClassType(string? pharmClassName)
+        {
+            #region implementation
+
+            var normalizedName = pharmClassName?.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedName) || !normalizedName.EndsWith("]", StringComparison.Ordinal))
+            {
+                return "Other";
+            }
+
+            var openBracketIndex = normalizedName.LastIndexOf('[', normalizedName.Length - 1);
+            if (openBracketIndex < 0 || openBracketIndex >= normalizedName.Length - 2)
+            {
+                return "Other";
+            }
+
+            return normalizePharmacologicClassTypeToken(
+                normalizedName.Substring(openBracketIndex + 1, normalizedName.Length - openBracketIndex - 2));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes an optional class-type filter for selected-system correlation requests.
+        /// </summary>
+        /// <param name="classType">User-supplied class-type token, optionally wrapped in brackets.</param>
+        /// <returns>Normalized class-type token, or null when the caller requested all class types.</returns>
+        /// <remarks>
+        /// Blank, All, and * values disable the filter. Unknown suffix tokens are preserved
+        /// in uppercase so future class-type values do not require a backend deployment.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var filter = AeDashboardDerivation.NormalizePharmacologicClassTypeFilter("[ep]");
+        /// </code>
+        /// </example>
+        /// <seealso cref="ExtractPharmacologicClassType"/>
+        /// <seealso cref="BuildSystemClassCorrelationMap"/>
+        public static string? NormalizePharmacologicClassTypeFilter(string? classType)
+        {
+            #region implementation
+
+            var normalizedType = classType?.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedType)
+                || string.Equals(normalizedType, "All", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalizedType, "*", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (normalizedType.Length >= 2
+                && normalizedType.StartsWith("[", StringComparison.Ordinal)
+                && normalizedType.EndsWith("]", StringComparison.Ordinal))
+            {
+                normalizedType = normalizedType.Substring(1, normalizedType.Length - 2).Trim();
+            }
+
+            return normalizePharmacologicClassTypeToken(normalizedType);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds the class x class correlation map scoped to one selected MedDRA system.
         /// </summary>
         /// <param name="selectedSystems">Canonical selected System Organ Classes.</param>
@@ -1361,6 +1441,7 @@ namespace MedRecPro.DataAccess
         /// <param name="classPageNumber">1-based class-axis page number.</param>
         /// <param name="classPageSize">Class-axis page size.</param>
         /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return all filtered classes.</param>
+        /// <param name="classType">Optional pharmacologic-class type filter such as EPC, MOA, EP, or Other.</param>
         /// <returns>A class-correlation map with page metadata and upper-triangle cells.</returns>
         /// <remarks>
         /// Each off-diagonal cell correlates selected-SOC adverse-event term profiles between
@@ -1381,23 +1462,27 @@ namespace MedRecPro.DataAccess
             IReadOnlyList<string> warnings,
             int classPageNumber = 1,
             int classPageSize = 20,
-            bool includeFullMatrix = false)
+            bool includeFullMatrix = false,
+            string? classType = null)
         {
             #region implementation
 
             var floor = Math.Max(filters.MinTermsPerCell, 3);
+            var selectedClassType = NormalizePharmacologicClassTypeFilter(classType);
             var termAggregates = AggregatePerClassTerm(observations, filters.Aggregation);
             var perClassTerm = pivotSystemByClass(termAggregates);
             var allClasses = buildSystemClassAxis(observations, perClassTerm, floor);
-            var renderablePairs = buildSystemRenderableClassPairs(allClasses, perClassTerm, floor);
+            var classTypeFacets = buildSystemClassTypeFacets(allClasses);
+            var typeFilteredClasses = filterSystemClassesByType(allClasses, selectedClassType);
+            var renderablePairs = buildSystemRenderableClassPairs(typeFilteredClasses, perClassTerm, floor);
             var renderableClassCodes = renderablePairs
                 .SelectMany(pair => new[] { pair.LeftClassCode, pair.RightClassCode })
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var renderableClasses = allClasses
+            var renderableClasses = typeFilteredClasses
                 .Where(axis => !string.IsNullOrWhiteSpace(axis.PharmClassCode)
                     && renderableClassCodes.Contains(axis.PharmClassCode))
                 .ToList();
-            var prunedClassCount = allClasses.Count - renderableClasses.Count;
+            var prunedClassCount = typeFilteredClasses.Count - renderableClasses.Count;
             var classPage = includeFullMatrix
                 ? buildAxisPage(1, Math.Max(renderableClasses.Count, 1), renderableClasses.Count)
                 : buildAxisPage(classPageNumber, classPageSize, renderableClasses.Count);
@@ -1462,6 +1547,8 @@ namespace MedRecPro.DataAccess
                 AppliedFilters = filters,
                 ClassCount = renderableClasses.Count,
                 IncludesFullMatrix = includeFullMatrix,
+                SelectedClassType = selectedClassType ?? "All",
+                ClassTypeFacets = classTypeFacets,
                 ClassPage = classPage,
                 Classes = classes,
                 Cells = cells
@@ -1487,6 +1574,7 @@ namespace MedRecPro.DataAccess
         /// <param name="classPageSize">Class-axis page size.</param>
         /// <param name="drugPageNumber">1-based drug-axis page number.</param>
         /// <param name="drugPageSize">Drug-axis page size.</param>
+        /// <param name="classType">Optional pharmacologic-class type filter such as EPC, MOA, EP, or Other.</param>
         /// <returns>A sparse heatmap with independent class and drug page metadata.</returns>
         /// <remarks>
         /// Only populated class/drug intersections are emitted; clients fill missing grid cells
@@ -1507,22 +1595,34 @@ namespace MedRecPro.DataAccess
             int classPageNumber = 1,
             int classPageSize = 40,
             int drugPageNumber = 1,
-            int drugPageSize = 50)
+            int drugPageSize = 50,
+            string? classType = null)
         {
             #region implementation
 
+            var selectedClassType = NormalizePharmacologicClassTypeFilter(classType);
             var termAggregates = AggregatePerClassTerm(observations, filters.Aggregation);
             var perClassTerm = pivotSystemByClass(termAggregates);
             var allClasses = buildSystemClassAxis(observations, perClassTerm, Math.Max(filters.MinTermsPerCell, 3));
-            var classPage = buildAxisPage(classPageNumber, classPageSize, allClasses.Count);
-            var classes = pageAxis(allClasses, classPage)
+            var classTypeFacets = buildSystemClassTypeFacets(allClasses);
+            var typeFilteredClasses = filterSystemClassesByType(allClasses, selectedClassType);
+            var typeFilteredClassCodes = typeFilteredClasses
+                .Select(axis => axis.PharmClassCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Cast<string>()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var typeFilteredObservations = observations
+                .Where(observation => typeFilteredClassCodes.Contains(observation.ClassCode))
+                .ToList();
+            var classPage = buildAxisPage(classPageNumber, classPageSize, typeFilteredClasses.Count);
+            var classes = pageAxis(typeFilteredClasses, classPage)
                 .Select((axis, index) => copyClassAxisItem(axis, index))
                 .ToList();
             var classIndex = classes
                 .Where(axis => !string.IsNullOrWhiteSpace(axis.PharmClassCode))
                 .ToDictionary(axis => axis.PharmClassCode!, axis => axis.Index, StringComparer.OrdinalIgnoreCase);
 
-            var allDrugs = observations
+            var allDrugs = typeFilteredObservations
                 .GroupBy(observation => observation.DrugKey, StringComparer.Ordinal)
                 .Select(group => group.First())
                 .OrderBy(observation => observation.DrugDisplayName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
@@ -1542,7 +1642,7 @@ namespace MedRecPro.DataAccess
                 .Select((observation, index) => (observation.DrugKey, index))
                 .ToDictionary(entry => entry.DrugKey, entry => entry.index, StringComparer.Ordinal);
 
-            var classDrugAggregates = AggregatePerClassDrug(observations, filters.Aggregation);
+            var classDrugAggregates = AggregatePerClassDrug(typeFilteredObservations, filters.Aggregation);
             var cells = new List<AeSystemClassHeatmapCellDto>();
             foreach (var aggregate in classDrugAggregates)
             {
@@ -1579,6 +1679,8 @@ namespace MedRecPro.DataAccess
             {
                 SelectedSystems = selectedSystems.ToList(),
                 AppliedFilters = filters,
+                SelectedClassType = selectedClassType ?? "All",
+                ClassTypeFacets = classTypeFacets,
                 ClassPage = classPage,
                 DrugPage = drugPage,
                 Classes = classes,
@@ -2597,6 +2699,7 @@ namespace MedRecPro.DataAccess
                     {
                         PharmClassCode = code,
                         PharmClassName = className,
+                        ClassType = ExtractPharmacologicClassType(className),
                         EncryptedPharmacologicClassID = encryptedClassId,
                         TermCount = termCount,
                         DrugCount = group.Select(observation => observation.DrugKey).Distinct(StringComparer.Ordinal).Count(),
@@ -2616,6 +2719,80 @@ namespace MedRecPro.DataAccess
             }
 
             return classes;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Normalizes one pharmacologic class-type token while preserving the Other bucket label.
+        /// </summary>
+        private static string normalizePharmacologicClassTypeToken(string? classType)
+        {
+            #region implementation
+
+            var normalizedType = classType?.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedType))
+            {
+                return "Other";
+            }
+
+            return string.Equals(normalizedType, "Other", StringComparison.OrdinalIgnoreCase)
+                ? "Other"
+                : normalizedType.ToUpperInvariant();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds class-type facets from the selected-system class axis before type filtering.
+        /// </summary>
+        private static List<AeSystemClassTypeFacetDto> buildSystemClassTypeFacets(
+            IReadOnlyList<AeSystemClassAxisItemDto> classes)
+        {
+            #region implementation
+
+            return classes
+                .GroupBy(axis => normalizePharmacologicClassTypeToken(axis.ClassType), StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    var classType = normalizePharmacologicClassTypeToken(group.Key);
+                    return new AeSystemClassTypeFacetDto
+                    {
+                        ClassType = classType,
+                        DisplayLabel = classType,
+                        ClassCount = group.Count(),
+                        HasRenderableMap = group.Any(axis => axis.HasRenderableMap)
+                    };
+                })
+                .OrderByDescending(facet => facet.HasRenderableMap)
+                .ThenByDescending(facet => facet.ClassCount)
+                .ThenBy(facet => string.Equals(facet.ClassType, "Other", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ThenBy(facet => facet.DisplayLabel, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies an optional class-type filter to a selected-system class axis.
+        /// </summary>
+        private static List<AeSystemClassAxisItemDto> filterSystemClassesByType(
+            IReadOnlyList<AeSystemClassAxisItemDto> classes,
+            string? classType)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(classType))
+            {
+                return classes.ToList();
+            }
+
+            return classes
+                .Where(axis => string.Equals(axis.ClassType, classType, StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
             #endregion
         }
@@ -2881,6 +3058,7 @@ namespace MedRecPro.DataAccess
                 Index = index,
                 PharmClassCode = source.PharmClassCode,
                 PharmClassName = source.PharmClassName,
+                ClassType = source.ClassType,
                 EncryptedPharmacologicClassID = source.EncryptedPharmacologicClassID,
                 TermCount = source.TermCount,
                 DrugCount = source.DrugCount,
@@ -3009,6 +3187,7 @@ namespace MedRecPro.DataAccess
                 Index = axis.Index,
                 PharmClassCode = axis.PharmClassCode,
                 PharmClassName = axis.PharmClassName,
+                ClassType = axis.ClassType,
                 DrugCount = axis.DrugCount,
                 TermCount = axis.TermCount,
                 MedianLogRr = medianLogRr,

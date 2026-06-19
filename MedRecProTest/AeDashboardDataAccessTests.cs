@@ -1955,6 +1955,27 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies that pharmacologic class-type helpers extract suffixes and normalize filter tokens.
+        /// </summary>
+        /// <seealso cref="AeDashboardDerivation.ExtractPharmacologicClassType"/>
+        /// <seealso cref="AeDashboardDerivation.NormalizePharmacologicClassTypeFilter"/>
+        [TestMethod]
+        public void PharmacologicClassTypeHelpers_NormalizeSuffixesAndFilters()
+        {
+            #region implementation
+
+            Assert.AreEqual("EPC", AeDashboardDerivation.ExtractPharmacologicClassType("Kinase Inhibitor [EPC]"));
+            Assert.AreEqual("MOA", AeDashboardDerivation.ExtractPharmacologicClassType("Protein Kinase Inhibitors [MoA]"));
+            Assert.AreEqual("EP", AeDashboardDerivation.NormalizePharmacologicClassTypeFilter("[ep]"));
+            Assert.AreEqual("Other", AeDashboardDerivation.ExtractPharmacologicClassType("Unbucketed Pharmacologic Class"));
+            Assert.IsNull(AeDashboardDerivation.NormalizePharmacologicClassTypeFilter("All"));
+            Assert.IsNull(AeDashboardDerivation.NormalizePharmacologicClassTypeFilter("*"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies that system-scoped class maps correlate shared selected-SOC term profiles.
         /// </summary>
         /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationMapAsync"/>
@@ -1994,6 +2015,114 @@ namespace MedRecProTest
             Assert.IsFalse(map.IncludesFullMatrix);
             Assert.AreEqual(1, map.ClassPage.PageNumber);
             Assert.AreEqual(20, map.ClassPage.PageSize);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that the selected class type filters system-scoped map axes while preserving facets.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationMapAsync"/>
+        /// <seealso cref="AeSystemClassTypeFacetDto"/>
+        [TestMethod]
+        public async Task GetAeSystemCorrelationMapAsync_ClassTypeFilter_ReturnsFilteredAxisAndUnfilteredFacets()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string soc = "Cardiac Disorders";
+            var terms = new[] { "Tachycardia", "Palpitations", "Chest pain" };
+            var riskId = 1;
+            foreach (var term in terms)
+            {
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 101, "EPC-A", soc, 2.0 + riskId, pharmacologicClassId: 1001, parameterName: term, pharmClassName: "Kinase Inhibitor [EPC]");
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 102, "EPC-B", soc, 3.0 + riskId, pharmacologicClassId: 1002, parameterName: term, pharmClassName: "Protein Kinase Inhibitor [EPC]");
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 201, "MOA-A", soc, 4.0 + riskId, pharmacologicClassId: 2001, parameterName: term, pharmClassName: "Protein Kinase Inhibitors [MoA]");
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 202, "MOA-B", soc, 5.0 + riskId, pharmacologicClassId: 2002, parameterName: term, pharmClassName: "Tyrosine Kinase Inhibitors [MoA]");
+            }
+
+            var map = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(
+                context,
+                new[] { soc },
+                PkSecret,
+                logger,
+                minTermsPerCell: 3,
+                classType: "[epc]");
+            var fullMap = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(
+                context,
+                new[] { soc },
+                PkSecret,
+                logger,
+                minTermsPerCell: 3,
+                includeFullMatrix: true,
+                classType: "MOA");
+
+            Assert.IsNotNull(map);
+            Assert.AreEqual("EPC", map.SelectedClassType);
+            Assert.AreEqual(2, map.ClassCount);
+            Assert.AreEqual(2, map.ClassPage.TotalCount);
+            Assert.IsTrue(map.Classes.All(axis => axis.ClassType == "EPC"));
+            Assert.IsTrue(map.ClassSummaries.All(summary => summary.ClassType == "EPC"));
+            Assert.AreEqual(2, map.ClassTypeFacets.Single(facet => facet.ClassType == "EPC").ClassCount);
+            Assert.AreEqual(2, map.ClassTypeFacets.Single(facet => facet.ClassType == "MOA").ClassCount);
+            Assert.IsTrue(map.ClassTypeFacets.Single(facet => facet.ClassType == "MOA").HasRenderableMap);
+
+            Assert.IsNotNull(fullMap);
+            Assert.IsTrue(fullMap.IncludesFullMatrix);
+            Assert.AreEqual("MOA", fullMap.SelectedClassType);
+            Assert.AreEqual(2, fullMap.ClassPage.TotalCount);
+            Assert.IsTrue(fullMap.Classes.All(axis => axis.ClassType == "MOA"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that the selected class type filters system-scoped heatmap class rows.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationHeatmapAsync"/>
+        /// <seealso cref="AeSystemClassHeatmapDto"/>
+        [TestMethod]
+        public async Task GetAeSystemCorrelationHeatmapAsync_ClassTypeFilter_ReturnsFilteredClassRows()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string soc = "Cardiac Disorders";
+            seedCorrelationRow(connection, drugDoc(1), riskId: 1, activeMoietyId: 101, pharmClassCode: "EPC-A", parameterCategory: soc, rr: 2.0, parameterName: "Tachycardia", pharmClassName: "Kinase Inhibitor [EPC]");
+            seedCorrelationRow(connection, drugDoc(2), riskId: 2, activeMoietyId: 102, pharmClassCode: "MOA-A", parameterCategory: soc, rr: 3.0, parameterName: "Tachycardia", pharmClassName: "Protein Kinase Inhibitors [MoA]");
+            seedCorrelationRow(connection, drugDoc(3), riskId: 3, activeMoietyId: 102, pharmClassCode: "MOA-A", parameterCategory: soc, rr: 4.0, parameterName: "Palpitations", pharmClassName: "Protein Kinase Inhibitors [MoA]");
+
+            var heatmap = await DtoLabelAccess.GetAeSystemCorrelationHeatmapAsync(
+                context,
+                new[] { soc },
+                PkSecret,
+                logger,
+                classPageNumber: 1,
+                classPageSize: 10,
+                drugPageNumber: 1,
+                drugPageSize: 10,
+                classType: "MOA");
+
+            Assert.IsNotNull(heatmap);
+            Assert.AreEqual("MOA", heatmap.SelectedClassType);
+            Assert.AreEqual(1, heatmap.ClassPage.TotalCount);
+            Assert.AreEqual(1, heatmap.Classes.Count);
+            Assert.AreEqual("MOA", heatmap.Classes.Single().ClassType);
+            Assert.IsTrue(heatmap.Cells.Count > 0);
+            Assert.IsTrue(heatmap.ClassTypeFacets.Any(facet => facet.ClassType == "EPC"));
+            Assert.IsTrue(heatmap.ClassTypeFacets.Any(facet => facet.ClassType == "MOA"));
 
             #endregion
         }

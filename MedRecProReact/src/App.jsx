@@ -43,6 +43,7 @@ import {
     normalizeInterchange,
     normalizeQuadrant,
     normalizeReverseLookup,
+    normalizeSystemClassType,
     normalizeSystemCorrelationCellDetail,
     normalizeSystemCorrelationHeatmap,
     normalizeSystemCorrelationMap,
@@ -244,6 +245,7 @@ function readDashboardUrlState() {
             systemMethod: 'Spearman',
             systemAggregation: 'MedianLogRr',
             systemMinEvents: 0,
+            systemClassType: 'All',
             systemClassPageNumber: 1,
             systemClassPageSize: DEFAULT_SYSTEM_CLASS_PAGE_SIZE,
             systemDrugPageNumber: 1,
@@ -307,6 +309,7 @@ function readDashboardUrlState() {
             'MedianLogRr',
         ),
         systemMinEvents: readIntegerQuery(searchParams, 'systemMinEvents', 0, 0),
+        systemClassType: normalizeSystemClassType(searchParams.get('systemClassType'), 'All'),
         systemClassPageNumber: readIntegerQuery(searchParams, 'systemClassPageNumber', 1, 1),
         systemClassPageSize: readIntegerQuery(
             searchParams,
@@ -366,6 +369,7 @@ function writeDashboardUrlState({
     systemMethod,
     systemAggregation,
     systemMinEvents,
+    systemClassType,
     systemClassPageNumber,
     systemClassPageSize,
     systemDrugPageNumber,
@@ -413,6 +417,10 @@ function writeDashboardUrlState({
     const resolvedSystemMethod = systemMethod ?? currentState.systemMethod;
     const resolvedSystemAggregation = systemAggregation ?? currentState.systemAggregation;
     const resolvedSystemMinEvents = systemMinEvents ?? currentState.systemMinEvents;
+    const resolvedSystemClassType = normalizeSystemClassType(
+        systemClassType ?? currentState.systemClassType,
+        'All',
+    );
     const resolvedSystemClassPageNumber = systemClassPageNumber ?? currentState.systemClassPageNumber;
     const resolvedSystemClassPageSize = systemClassPageSize ?? currentState.systemClassPageSize;
     const resolvedSystemDrugPageNumber = systemDrugPageNumber ?? currentState.systemDrugPageNumber;
@@ -470,6 +478,11 @@ function writeDashboardUrlState({
     nextUrl.searchParams.set('systemMethod', resolvedSystemMethod);
     nextUrl.searchParams.set('systemAggregation', resolvedSystemAggregation);
     nextUrl.searchParams.set('systemMinEvents', String(resolvedSystemMinEvents));
+    if (resolvedSystemClassType && resolvedSystemClassType !== 'All') {
+        nextUrl.searchParams.set('systemClassType', resolvedSystemClassType);
+    } else {
+        nextUrl.searchParams.delete('systemClassType');
+    }
     nextUrl.searchParams.set('systemClassPageNumber', String(resolvedSystemClassPageNumber));
     nextUrl.searchParams.set('systemClassPageSize', String(resolvedSystemClassPageSize));
     nextUrl.searchParams.set('systemDrugPageNumber', String(resolvedSystemDrugPageNumber));
@@ -2391,6 +2404,7 @@ function App() {
     const [systemMethod, setSystemMethod] = useState(initialUrlState.systemMethod);
     const [systemAggregation, setSystemAggregation] = useState(initialUrlState.systemAggregation);
     const [systemMinEvents, setSystemMinEvents] = useState(initialUrlState.systemMinEvents);
+    const [systemClassType, setSystemClassType] = useState(initialUrlState.systemClassType);
     const [systemClassPageNumber, setSystemClassPageNumber] = useState(initialUrlState.systemClassPageNumber);
     const [systemClassPageSize, setSystemClassPageSize] = useState(initialUrlState.systemClassPageSize);
     const [systemDrugPageNumber, setSystemDrugPageNumber] = useState(initialUrlState.systemDrugPageNumber);
@@ -2771,6 +2785,7 @@ function App() {
                     systemMethod: systemFilters.method,
                     systemAggregation: systemFilters.aggregation,
                     systemMinEvents: systemFilters.minEvents,
+                    systemClassType,
                     systemClassPageNumber,
                     systemClassPageSize,
                     systemDrugPageNumber,
@@ -2795,6 +2810,7 @@ function App() {
             showFragile,
             systemClassPageNumber,
             systemClassPageSize,
+            systemClassType,
             systemDrugPageNumber,
             systemDrugPageSize,
             systemFilters,
@@ -3291,6 +3307,7 @@ function App() {
             try {
                 const payload = await AdverseEventClient.getSystemCorrelationMap({
                     systems: selectedSystemNames,
+                    classType: systemClassType,
                     classPageNumber: systemClassPageNumber,
                     classPageSize: systemClassPageSize,
                     includeFullMatrix: systemFullMatrix,
@@ -3323,6 +3340,7 @@ function App() {
         selectedSystemNames,
         systemClassPageNumber,
         systemClassPageSize,
+        systemClassType,
         systemFilters,
         systemFullMatrix,
         systemMapReloadToken,
@@ -3347,6 +3365,7 @@ function App() {
             try {
                 const payload = await AdverseEventClient.getSystemCorrelationHeatmap({
                     systems: selectedSystemNames,
+                    classType: systemClassType,
                     classPageNumber: systemClassPageNumber,
                     classPageSize: systemClassPageSize,
                     drugPageNumber: systemDrugPageNumber,
@@ -3385,6 +3404,7 @@ function App() {
         selectedSystemNames,
         systemClassPageNumber,
         systemClassPageSize,
+        systemClassType,
         systemDrugPageNumber,
         systemDrugPageSize,
         systemFilters,
@@ -4049,6 +4069,36 @@ function App() {
 
     /**************************************************************/
     /**
+     * Changes the pharmacologic class type filter for system-scoped class axes.
+     *
+     * @param {string} nextClassType - Next class-type token.
+     */
+    const handleChangeSystemClassType = useCallback(
+        (nextClassType) => {
+            const normalizedClassType = normalizeSystemClassType(nextClassType, 'All');
+
+            setSystemClassType(normalizedClassType);
+            setSystemClassPageNumber(1);
+            setSystemDrugPageNumber(1);
+            setSystemTermPairPageNumber(1);
+            setSelectedSystemCell(null);
+            setSystemCellDetail(null);
+            writeCurrentDashboardUrlState(
+                {
+                    focus: 'system',
+                    systemClassType: normalizedClassType,
+                    systemClassPageNumber: 1,
+                    systemDrugPageNumber: 1,
+                    systemTermPairPageNumber: 1,
+                },
+                false,
+            );
+        },
+        [writeCurrentDashboardUrlState],
+    );
+
+    /**************************************************************/
+    /**
      * Selects an off-diagonal system class-pair map cell.
      *
      * @param {object} cell - Map cell.
@@ -4680,6 +4730,7 @@ function App() {
                 selectedSystems: selectedSystems.slice(0, 1),
                 state: {
                     systemView,
+                    systemClassType,
                     ...systemFilters,
                     page: {
                         classPageNumber: systemClassPageNumber,
@@ -4758,6 +4809,7 @@ function App() {
         selectedSystems,
         showFragile,
         systemCellDetail,
+        systemClassType,
         systemClassPageNumber,
         systemClassPageSize,
         systemDrugPageNumber,
@@ -5023,7 +5075,9 @@ function App() {
                             heatmapClassPage={systemHeatmapClassPage}
                             heatmapDrugPage={systemHeatmapDrugPage}
                             termPairPage={systemTermPairPage}
+                            systemClassType={systemClassType}
                             includeFullMatrix={systemFullMatrix}
+                            onChangeClassType={handleChangeSystemClassType}
                             onToggleFullMatrix={handleToggleSystemFullMatrix}
                             onChangeMapClassPage={handleChangeSystemMapClassPage}
                             onChangeMapClassPageSize={handleChangeSystemClassPageSize}

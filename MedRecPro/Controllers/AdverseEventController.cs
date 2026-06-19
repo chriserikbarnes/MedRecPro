@@ -1238,7 +1238,7 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Gets a system-scoped pharmacologic-class correlation map.
         /// </summary>
-        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys and comma-separated values are accepted for one value only.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys are accepted, and each value is treated as one literal system name.</param>
         /// <param name="classSearch">Optional class code or name search before axis paging.</param>
         /// <param name="classPageNumber">Optional 1-based class-axis page number.</param>
         /// <param name="classPageSize">Optional class-axis page size.</param>
@@ -1251,6 +1251,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
         /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return every filtered class-pair cell.</param>
+        /// <param name="classType">Optional pharmacologic-class type filter such as EPC, MOA, EP, or Other. Bracketed input like [EPC] is accepted.</param>
         /// <returns>The system-scoped class correlation map.</returns>
         /// <remarks>
         /// For one selected MedDRA system (<c>ParameterCategory</c> value), correlates
@@ -1264,6 +1265,7 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;classPageSize=20
+        /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;classType=EPC
         /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;includeFullMatrix=true
         /// </code>
         /// </example>
@@ -1296,7 +1298,8 @@ namespace MedRecPro.Api.Controllers
             [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
             [FromQuery] bool excludeCombos = false,
             [FromQuery] int minEvents = 0,
-            [FromQuery] bool includeFullMatrix = false)
+            [FromQuery] bool includeFullMatrix = false,
+            [FromQuery] string? classType = null)
         {
             #region implementation
 
@@ -1350,7 +1353,8 @@ namespace MedRecPro.Api.Controllers
                     aggregation,
                     excludeCombos,
                     minEvents,
-                    includeFullMatrix);
+                    includeFullMatrix,
+                    classType);
 
                 if (result == null)
                 {
@@ -1374,7 +1378,7 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Gets a sparse system-scoped pharmacologic-class x drug heatmap.
         /// </summary>
-        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys and comma-separated values are accepted for one value only.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys are accepted, and each value is treated as one literal system name.</param>
         /// <param name="classSearch">Optional class code or name search.</param>
         /// <param name="drugSearch">Optional product or substance search.</param>
         /// <param name="classPageNumber">Optional 1-based class-row page number.</param>
@@ -1387,6 +1391,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="aggregation">Within-class/drug aggregation; median LogRR by default.</param>
         /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
+        /// <param name="classType">Optional pharmacologic-class type filter such as EPC, MOA, EP, or Other. Bracketed input like [MOA] is accepted.</param>
         /// <returns>The sparse system-scoped class x drug heatmap.</returns>
         /// <remarks>
         /// Rows are pharmacologic classes and columns are drugs for one selected MedDRA system,
@@ -1398,6 +1403,7 @@ namespace MedRecPro.Api.Controllers
         /// <example>
         /// <code>
         /// GET /api/AdverseEvent/correlation/systems/heatmap?systems=Cardiac%20Disorders&amp;drugPageSize=50
+        /// GET /api/AdverseEvent/correlation/systems/heatmap?systems=Cardiac%20Disorders&amp;classType=MOA
         /// </code>
         /// </example>
         /// <response code="200">Returns the sparse heatmap.</response>
@@ -1429,7 +1435,8 @@ namespace MedRecPro.Api.Controllers
             [FromQuery] bool excludeFragile = true,
             [FromQuery] AeCorrelationAggregation aggregation = AeCorrelationAggregation.MedianLogRr,
             [FromQuery] bool excludeCombos = false,
-            [FromQuery] int minEvents = 0)
+            [FromQuery] int minEvents = 0,
+            [FromQuery] string? classType = null)
         {
             #region implementation
 
@@ -1481,7 +1488,8 @@ namespace MedRecPro.Api.Controllers
                     excludeFragile,
                     aggregation,
                     excludeCombos,
-                    minEvents);
+                    minEvents,
+                    classType);
 
                 if (result == null)
                 {
@@ -1505,7 +1513,7 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Gets the per-term detail behind one system-scoped class-pair cell.
         /// </summary>
-        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys and comma-separated values are accepted for one value only.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys are accepted, and each value is treated as one literal system name.</param>
         /// <param name="classX">Row pharmacologic class code.</param>
         /// <param name="classY">Column pharmacologic class code.</param>
         /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
@@ -2039,13 +2047,14 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Normalizes selected-system query values, accepting repeated keys or comma-separated values.
+        /// Normalizes selected-system query values while preserving literal MedDRA commas.
         /// </summary>
         /// <param name="systems">Raw selected-system query values.</param>
         /// <returns>Trimmed, de-duplicated selected systems in caller order.</returns>
         /// <remarks>
-        /// ASP.NET Core binds repeated query parameters naturally; comma splitting keeps direct
-        /// controller calls and ad hoc URL probes consistent with that model.
+        /// ASP.NET Core binds repeated query parameters naturally. MedDRA System Organ Class
+        /// names may contain commas, so each supplied query value is treated as one literal
+        /// selected system instead of a delimited list.
         /// </remarks>
         private static List<string> normalizeSystemQueryValues(IEnumerable<string>? systems)
         {
@@ -2057,7 +2066,7 @@ namespace MedRecPro.Api.Controllers
             }
 
             return systems
-                .SelectMany(system => (system ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Select(system => (system ?? string.Empty).Trim())
                 .Where(system => !string.IsNullOrWhiteSpace(system))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

@@ -1,6 +1,7 @@
 const CORRELATION_COMPARATORS = ['Placebo', 'Active', 'Both'];
 const CORRELATION_METHODS = ['Spearman', 'Pearson'];
 const CORRELATION_AGGREGATIONS = ['MedianLogRr', 'MeanLogRr'];
+const OMITTED_CLASS_TYPES = new Set(['CHEMICAL/INGREDIENT', 'EXT']);
 
 /**************************************************************/
 /**
@@ -31,6 +32,73 @@ function FilterToggle({ isOn, onClick, children }) {
 
 /**************************************************************/
 /**
+ * Renders optional system class-type chips in the primary filter row.
+ *
+ * @param {object} props - Component props.
+ * @returns {JSX.Element | null} Class-type chip controls.
+ */
+function ClassTypeFilter({
+  facets = [],
+  selectedClassType = 'All',
+  isDisabled = false,
+  onChangeClassType = null,
+}) {
+  if (!onChangeClassType) {
+    return null;
+  }
+
+  const options = Array.isArray(facets) && facets.length > 0
+    ? facets
+    : [{ classType: 'All', displayLabel: 'All', classCount: 0, hasRenderableMap: false }];
+  const visibleOptions = options.filter((facet) => !OMITTED_CLASS_TYPES.has(facet.classType));
+  const shouldAppendSelected = selectedClassType
+    && !OMITTED_CLASS_TYPES.has(selectedClassType)
+    && !visibleOptions.some((facet) => facet.classType === selectedClassType);
+  const selectedOptions = shouldAppendSelected
+    ? [
+      ...visibleOptions,
+      {
+        classType: selectedClassType,
+        displayLabel: selectedClassType,
+        classCount: 0,
+        hasRenderableMap: false,
+      },
+    ]
+    : visibleOptions;
+  const activeClassType = OMITTED_CLASS_TYPES.has(selectedClassType) ? 'All' : selectedClassType;
+
+  return (
+    <>
+      <span className="filter-label">TYPE</span>
+      {selectedOptions.map((facet) => {
+        const isSelected = facet.classType === activeClassType;
+        const countLabel = `${facet.classCount ?? 0} classes`;
+
+        return (
+          <button
+            key={facet.classType}
+            type="button"
+            className={`chip system-class-type-chip${isSelected ? ' active' : ''}`}
+            aria-pressed={isSelected}
+            aria-label={`${facet.displayLabel} class type, ${countLabel}`}
+            title={`${facet.displayLabel} - ${countLabel}`}
+            disabled={isDisabled}
+            onClick={() => {
+              if (!isSelected) {
+                onChangeClassType(facet.classType);
+              }
+            }}
+          >
+            {facet.displayLabel}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+/**************************************************************/
+/**
  * Shared class/system correlation filter controls.
  *
  * @param {object} props - Component props.
@@ -42,6 +110,10 @@ export function CorrelationFilterControls({
   floorKey,
   floorLabel,
   afterExcludeCombosControl = null,
+  classTypeFacets = null,
+  selectedClassType = 'All',
+  isClassTypeDisabled = false,
+  onChangeClassType = null,
 }) {
   return (
     <>
@@ -81,6 +153,13 @@ export function CorrelationFilterControls({
             {formatAggregation(aggregation)}
           </button>
         ))}
+
+        <ClassTypeFilter
+          facets={classTypeFacets}
+          selectedClassType={selectedClassType}
+          isDisabled={isClassTypeDisabled}
+          onChangeClassType={onChangeClassType}
+        />
       </div>
 
       <div className="filter-row class-filter-row advanced">

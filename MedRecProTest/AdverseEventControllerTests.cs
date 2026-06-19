@@ -638,7 +638,7 @@ namespace MedRecProTest
             var controller = createController(context, createConfiguration());
 
             const string code = "CTRLKINASE";
-            const string socA = "Skin and Subcutaneous Tissue Disorders";
+            const string socA = "Injury, Poisoning and Procedural Complications";
             const string socB = "Gastrointestinal Disorders";
 
             // A correlatable class: three placebo drugs across the two SOCs.
@@ -705,11 +705,17 @@ namespace MedRecProTest
             Assert.AreEqual(1, systems.Count);
             StringAssert.Contains(controller.Response.Headers["X-Chartable-Count"].ToString(), "0");
 
-            var systemMap = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA.ToLowerInvariant() }, null, null, null, minTermsPerCell: 3));
+            var systemMap = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA }, null, null, null, minTermsPerCell: 3));
             Assert.AreEqual(socA, systemMap.SelectedSystems.Single());
             Assert.IsFalse(systemMap.IncludesFullMatrix);
             Assert.AreEqual(1, systemMap.ClassPage.PageNumber);
             Assert.AreEqual(20, systemMap.ClassPage.PageSize);
+
+            var systemMapWithType = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA }, null, null, null, minTermsPerCell: 3, classType: "[EPC]"));
+            Assert.AreEqual("EPC", systemMapWithType.SelectedClassType);
+
+            var systemMapWithAllType = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA }, null, null, null, minTermsPerCell: 3, classType: "All"));
+            Assert.AreEqual("All", systemMapWithAllType.SelectedClassType);
 
             var fullSystemMap = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA }, null, 1, 1, minTermsPerCell: 3, includeFullMatrix: true));
             Assert.IsTrue(fullSystemMap.IncludesFullMatrix);
@@ -718,6 +724,9 @@ namespace MedRecProTest
             var systemHeatmap = getOkValue<AeSystemClassHeatmapDto>(await controller.GetSystemCorrelationHeatmap(new List<string> { socA }, null, null, null, null, null, null));
             Assert.AreEqual(1, systemHeatmap.ClassPage.PageNumber);
             Assert.AreEqual(50, systemHeatmap.DrugPage.PageSize);
+
+            var systemHeatmapWithType = getOkValue<AeSystemClassHeatmapDto>(await controller.GetSystemCorrelationHeatmap(new List<string> { socA }, null, null, null, null, null, null, classType: "MOA"));
+            Assert.AreEqual("MOA", systemHeatmapWithType.SelectedClassType);
 
             var systemCell = getOkValue<AeSystemClassCorrelationCellDetailDto>(await controller.GetSystemCorrelationCell(new List<string> { socA }, code, code, minTermsPerCell: 3));
             Assert.IsTrue(systemCell.IsDiagonal);

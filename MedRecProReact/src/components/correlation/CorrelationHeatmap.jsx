@@ -101,7 +101,6 @@ export function CorrelationHeatmap({ heatmap }) {
   const cellLookup = buildHeatmapCellLookup(cells);
   const aggregationText = formatAggregation(heatmap?.appliedFilters?.aggregation);
   const totalDrugCount = heatmap?.drugCount || drugs.length;
-  const maxGridWidth = 220 + (displayAxes.drugs.length * 64) + (displayAxes.drugs.length * 2);
 
   if (displayAxes.soc.length === 0 || displayAxes.drugs.length === 0) {
     return (
@@ -121,8 +120,7 @@ export function CorrelationHeatmap({ heatmap }) {
         <div
           className="corr-grid heat"
           style={{
-            '--corr-grid-max': `${maxGridWidth}px`,
-            gridTemplateColumns: `minmax(120px, 220px) repeat(${displayAxes.drugs.length}, minmax(0, 64px))`,
+            gridTemplateColumns: `minmax(120px, 220px) repeat(${displayAxes.drugs.length}, minmax(0, 1fr))`,
           }}
           role="grid"
           aria-rowcount={displayAxes.soc.length + 1}

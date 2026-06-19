@@ -2017,6 +2017,10 @@ namespace MedRecPro.Models
         public string? PharmClassName { get; set; }
 
         /**************************************************************/
+        /// <summary>Normalized final bracket suffix for the pharmacologic class, such as EPC, MOA, or Other.</summary>
+        public string ClassType { get; set; } = "Other";
+
+        /**************************************************************/
         /// <summary>Encrypted pharmacologic class identifier for client-safe navigation.</summary>
         public string? EncryptedPharmacologicClassID { get; set; }
 
@@ -2125,6 +2129,10 @@ namespace MedRecPro.Models
         public string? PharmClassName { get; set; }
 
         /**************************************************************/
+        /// <summary>Normalized final bracket suffix for the pharmacologic class, such as EPC, MOA, or Other.</summary>
+        public string ClassType { get; set; } = "Other";
+
+        /**************************************************************/
         /// <summary>Distinct drugs represented by this class under the selected systems.</summary>
         public int DrugCount { get; set; }
 
@@ -2149,6 +2157,41 @@ namespace MedRecPro.Models
         public double ProtectiveShare { get; set; }
 
         #endregion Summary Properties
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Facet count for one pharmacologic class type in a selected-system response.
+    /// </summary>
+    /// <remarks>
+    /// Facets are computed after the selected-system, comparator, significance,
+    /// fragility, combination-product, minimum-event, and class-search filters, but
+    /// before the optional class-type filter is applied.
+    /// </remarks>
+    /// <seealso cref="AeSystemClassAxisItemDto"/>
+    /// <seealso cref="AeSystemClassCorrelationMapDto"/>
+    /// <seealso cref="AeSystemClassHeatmapDto"/>
+    public class AeSystemClassTypeFacetDto
+    {
+        #region Facet Properties
+
+        /**************************************************************/
+        /// <summary>Normalized class-type token, such as EPC, MOA, EP, or Other.</summary>
+        public string ClassType { get; set; } = "Other";
+
+        /**************************************************************/
+        /// <summary>Display label for the class-type chip.</summary>
+        public string DisplayLabel { get; set; } = "Other";
+
+        /**************************************************************/
+        /// <summary>Number of candidate classes for this type before the selected type filter is applied.</summary>
+        public int ClassCount { get; set; }
+
+        /**************************************************************/
+        /// <summary>Whether at least one class in this type can participate in a renderable map pair.</summary>
+        public bool HasRenderableMap { get; set; }
+
+        #endregion Facet Properties
     }
 
     /**************************************************************/
@@ -2184,6 +2227,14 @@ namespace MedRecPro.Models
         /// Whether the returned class axis and cells cover every filtered class instead of a paged matrix window.
         /// </summary>
         public bool IncludesFullMatrix { get; set; }
+
+        /**************************************************************/
+        /// <summary>Normalized selected class-type filter echoed for reproducibility, or All when no type filter is active.</summary>
+        public string SelectedClassType { get; set; } = "All";
+
+        /**************************************************************/
+        /// <summary>Available class-type facets before the selected type filter is applied.</summary>
+        public List<AeSystemClassTypeFacetDto> ClassTypeFacets { get; set; } = new();
 
         /**************************************************************/
         /// <summary>Page metadata for the returned class axis window.</summary>
@@ -2308,6 +2359,14 @@ namespace MedRecPro.Models
         /**************************************************************/
         /// <summary>Applied filters echoed for reproducibility.</summary>
         public AeSystemCorrelationFilters AppliedFilters { get; set; } = new();
+
+        /**************************************************************/
+        /// <summary>Normalized selected class-type filter echoed for reproducibility, or All when no type filter is active.</summary>
+        public string SelectedClassType { get; set; } = "All";
+
+        /**************************************************************/
+        /// <summary>Available class-type facets before the selected type filter is applied.</summary>
+        public List<AeSystemClassTypeFacetDto> ClassTypeFacets { get; set; } = new();
 
         /**************************************************************/
         /// <summary>Page metadata for the returned class rows.</summary>

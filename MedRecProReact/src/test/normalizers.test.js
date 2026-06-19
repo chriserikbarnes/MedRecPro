@@ -13,6 +13,7 @@ import {
   normalizeProduct,
   normalizeReverseLookup,
   normalizeSignal,
+  normalizeSystemClassType,
   normalizeSystemClassAxisItem,
   normalizeSystemCorrelationCellDetail,
   normalizeSystemCorrelationFilters,
@@ -535,6 +536,7 @@ describe('normalizers', () => {
       index: 3,
       pharmClassCode: 'N0000000001',
       pharmClassName: 'Kinase Inhibitor [EPC]',
+      classType: 'EPC',
       encryptedPharmacologicClassId: 'enc-class',
       termCount: 12,
       drugCount: 40,
@@ -543,12 +545,24 @@ describe('normalizers', () => {
     expect(axis).not.toHaveProperty('PharmacologicClassID');
   });
 
+  it('normalizes system class type tokens and bracketed input', () => {
+    expect(normalizeSystemClassType('[ep]')).toBe('EP');
+    expect(normalizeSystemClassType('MoA')).toBe('MOA');
+    expect(normalizeSystemClassType('other')).toBe('Other');
+    expect(normalizeSystemClassType('', 'All')).toBe('All');
+  });
+
   it('normalizes system map cells with null coefficients and full-matrix metadata', () => {
     const map = normalizeSystemCorrelationMap({
       SelectedSystems: ['Cardiac Disorders', 'Vascular Disorders'],
       AppliedFilters: { Comparator: 'Both', MinTermsPerCell: 6, Method: 'Pearson' },
       ClassCount: 83,
       IncludesFullMatrix: true,
+      SelectedClassType: '[epc]',
+      ClassTypeFacets: [
+        { ClassType: 'EPC', DisplayLabel: 'EPC', ClassCount: 50, HasRenderableMap: true },
+        { ClassType: 'MOA', DisplayLabel: 'MOA', ClassCount: 33, HasRenderableMap: false },
+      ],
       ClassPage: {
         PageNumber: 1,
         PageSize: 40,
@@ -574,13 +588,16 @@ describe('normalizers', () => {
         },
       ],
       ClassSummaries: [
-        { Index: 0, PharmClassCode: 'N0000000001', PharmClassName: 'Class A', DrugCount: 11, TermCount: 4 },
+        { Index: 0, PharmClassCode: 'N0000000001', PharmClassName: 'Class A [EPC]', DrugCount: 11, TermCount: 4 },
       ],
       Warnings: ['Below floor.'],
     });
 
     expect(map.selectedSystems).toEqual(['Cardiac Disorders', 'Vascular Disorders']);
     expect(map.includesFullMatrix).toBe(true);
+    expect(map.selectedClassType).toBe('EPC');
+    expect(map.classTypeFacets.map((facet) => facet.classType)).toEqual(['All', 'EPC', 'MOA']);
+    expect(map.classTypeFacets[0].classCount).toBe(83);
     expect(map.classPage.totalCount).toBe(83);
     expect(map.cells[0]).toMatchObject({
       coefficient: null,
@@ -590,13 +607,31 @@ describe('normalizers', () => {
       columnClassCode: 'N0000000002',
     });
     expect(map.classSummaries[0].drugCount).toBe(11);
+    expect(map.classSummaries[0].classType).toBe('EPC');
     expect(map.warnings).toEqual(['Below floor.']);
+  });
+
+  it('derives fallback class-type facets when the API omits server facets', () => {
+    const map = normalizeSystemCorrelationMap({
+      Classes: [
+        { Index: 0, PharmClassCode: 'EPC-A', PharmClassName: 'Class A [EPC]', HasRenderableMap: true },
+        { Index: 1, PharmClassCode: 'MOA-A', PharmClassName: 'Class B [MoA]', HasRenderableMap: false },
+      ],
+    });
+
+    expect(map.classTypeFacets.map((facet) => facet.classType)).toEqual(['All', 'EPC', 'MOA']);
+    expect(map.classes.map((item) => item.classType)).toEqual(['EPC', 'MOA']);
   });
 
   it('normalizes system sparse heatmap cells with class and drug pages', () => {
     const heatmap = normalizeSystemCorrelationHeatmap({
       selectedSystems: ['Cardiac Disorders'],
       appliedFilters: { comparator: 'Active', aggregation: 1 },
+      selectedClassType: 'MOA',
+      classTypeFacets: [
+        { classType: 'EPC', displayLabel: 'EPC', classCount: 1, hasRenderableMap: false },
+        { classType: 'MOA', displayLabel: 'MOA', classCount: 2, hasRenderableMap: true },
+      ],
       classPage: { pageNumber: 2, pageSize: 40, totalCount: 80, totalPages: 2, hasPreviousPage: true },
       drugPage: { pageNumber: 3, pageSize: 50, totalCount: 160, totalPages: 4, hasNextPage: true },
       classes: [
@@ -619,6 +654,8 @@ describe('normalizers', () => {
     });
 
     expect(heatmap.appliedFilters.aggregation).toBe('MeanLogRr');
+    expect(heatmap.selectedClassType).toBe('MOA');
+    expect(heatmap.classTypeFacets.map((facet) => facet.classType)).toEqual(['All', 'EPC', 'MOA']);
     expect(heatmap.classPage.pageNumber).toBe(2);
     expect(heatmap.drugPage.pageNumber).toBe(3);
     expect(heatmap.cells[0]).toMatchObject({

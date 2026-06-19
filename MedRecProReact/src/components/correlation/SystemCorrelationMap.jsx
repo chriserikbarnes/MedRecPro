@@ -6,7 +6,6 @@ import { getAxisDensityClassName, shouldRenderAxisLabel } from './axisLabelDensi
 import { getSystemClassMapCell } from './correlationMapCells';
 
 const MAP_ROW_LABEL_COLUMN = 'minmax(220px, 300px)';
-const MAP_CELL_WIDTH = 84;
 
 /**************************************************************/
 /**
@@ -127,7 +126,6 @@ export function SystemCorrelationMap({ map, selectedCell, onSelectCell }) {
   const methodText = formatMethod(appliedFilters.method);
   const aggregationText = formatAggregation(appliedFilters.aggregation);
   const minTermsPerCell = appliedFilters.minTermsPerCell ?? 4;
-  const maxGridWidth = 300 + (classes.length * MAP_CELL_WIDTH) + (classes.length * 2);
   const densityClassName = getAxisDensityClassName(classes.length, { hideCellValues: true });
   const useFullAxisLabels = classes.length <= 32;
 
@@ -149,8 +147,7 @@ export function SystemCorrelationMap({ map, selectedCell, onSelectCell }) {
         <div
           className={`corr-grid ${densityClassName}`.trim()}
           style={{
-            '--corr-grid-max': `${maxGridWidth}px`,
-            gridTemplateColumns: `${MAP_ROW_LABEL_COLUMN} repeat(${classes.length}, minmax(0, ${MAP_CELL_WIDTH}px))`,
+            gridTemplateColumns: `${MAP_ROW_LABEL_COLUMN} repeat(${classes.length}, minmax(0, 1fr))`,
           }}
           role="grid"
           aria-rowcount={classes.length + 1}

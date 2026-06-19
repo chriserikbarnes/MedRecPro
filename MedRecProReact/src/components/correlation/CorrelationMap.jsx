@@ -137,7 +137,6 @@ export function CorrelationMap({ map, selectedCell, onSelectCell }) {
   const methodText = formatMethod(appliedFilters.method);
   const aggregationText = formatAggregation(appliedFilters.aggregation);
   const minDrugsPerCell = appliedFilters.minDrugsPerCell ?? 4;
-  const maxGridWidth = 220 + (displaySoc.length * 84) + (displaySoc.length * 2);
 
   if (displaySoc.length === 0) {
     return (
@@ -157,8 +156,7 @@ export function CorrelationMap({ map, selectedCell, onSelectCell }) {
         <div
           className="corr-grid"
           style={{
-            '--corr-grid-max': `${maxGridWidth}px`,
-            gridTemplateColumns: `minmax(120px, 220px) repeat(${displaySoc.length}, minmax(0, 84px))`,
+            gridTemplateColumns: `minmax(120px, 220px) repeat(${displaySoc.length}, minmax(0, 1fr))`,
           }}
           role="grid"
           aria-rowcount={displaySoc.length + 1}
