@@ -102,7 +102,7 @@ export function SystemCorrelationHeatmap({ heatmap }) {
         <div
           className={`corr-grid heat ${densityClassName}`.trim()}
           style={{
-            gridTemplateColumns: `${HEATMAP_ROW_LABEL_COLUMN} repeat(${drugs.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `${HEATMAP_ROW_LABEL_COLUMN} repeat(${drugs.length}, minmax(0, var(--corr-cell-max)))`,
           }}
           role="grid"
           aria-rowcount={classes.length + 1}

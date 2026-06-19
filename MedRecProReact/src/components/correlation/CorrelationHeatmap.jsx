@@ -120,7 +120,7 @@ export function CorrelationHeatmap({ heatmap }) {
         <div
           className="corr-grid heat"
           style={{
-            gridTemplateColumns: `minmax(120px, 220px) repeat(${displayAxes.drugs.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `minmax(120px, 220px) repeat(${displayAxes.drugs.length}, minmax(0, var(--corr-cell-max)))`,
           }}
           role="grid"
           aria-rowcount={displayAxes.soc.length + 1}

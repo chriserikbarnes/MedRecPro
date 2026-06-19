@@ -147,7 +147,7 @@ export function SystemCorrelationMap({ map, selectedCell, onSelectCell }) {
         <div
           className={`corr-grid ${densityClassName}`.trim()}
           style={{
-            gridTemplateColumns: `${MAP_ROW_LABEL_COLUMN} repeat(${classes.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `${MAP_ROW_LABEL_COLUMN} repeat(${classes.length}, minmax(0, var(--corr-cell-max)))`,
           }}
           role="grid"
           aria-rowcount={classes.length + 1}

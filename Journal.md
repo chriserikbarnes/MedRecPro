@@ -5357,3 +5357,15 @@ Refined the selected detail correlation plots so dashed zero-reference axis line
 **Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 10/10 test files and 63/63 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`. `git diff --check` passed with only CRLF conversion warnings. Hidden/background Vite launch still exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
 
 ---
+
+### 2026-06-19 1:31 PM EST — AE Dashboard Correlation Cell Size Cap
+
+Refined sparse correlation maps and heatmaps so low-cardinality grids no longer stretch their cells into oversized squares.
+
+**Implementation.** Updated [index.css](MedRecProReact/src/index.css) with a shared `--corr-cell-max: 90px` chart variable and centered grid content when available panel space exceeds the capped chart width. Updated [CorrelationMap.jsx](MedRecProReact/src/components/correlation/CorrelationMap.jsx), [CorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/CorrelationHeatmap.jsx), [SystemCorrelationMap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationMap.jsx), and [SystemCorrelationHeatmap.jsx](MedRecProReact/src/components/correlation/SystemCorrelationHeatmap.jsx) so all correlation grid tracks use the shared cap while still shrinking for dense charts.
+
+**Bundle.** Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted dashboard CSS and JavaScript include the max-size refinement.
+
+**Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 10/10 test files and 63/63 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`/`ae-dashboard.css`. `git diff --check` passed with only CRLF conversion warnings. Hidden/background Vite launch still exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
+
+---

@@ -156,7 +156,7 @@ export function CorrelationMap({ map, selectedCell, onSelectCell }) {
         <div
           className="corr-grid"
           style={{
-            gridTemplateColumns: `minmax(120px, 220px) repeat(${displaySoc.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `minmax(120px, 220px) repeat(${displaySoc.length}, minmax(0, var(--corr-cell-max)))`,
           }}
           role="grid"
           aria-rowcount={displaySoc.length + 1}
