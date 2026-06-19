@@ -9,7 +9,7 @@ export function FocusSwitch({ activeFocus, onChangeFocus }) {
   const hintText = activeFocus === 'product'
     ? 'One product -> adverse-event triage, forest plot & precision view'
     : activeFocus === 'system'
-      ? 'One or more MedDRA systems -> class correlation map & heatmap'
+      ? 'One MedDRA systems -> class correlation map & heatmap'
       : 'One pharmacologic class -> SOC correlation map & heatmap';
 
   return (

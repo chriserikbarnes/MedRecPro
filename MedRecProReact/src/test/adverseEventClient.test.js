@@ -232,7 +232,7 @@ describe('buildAdverseEventUrl', () => {
       includeFullMatrix: true,
     });
 
-    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/map?systems=Cardiac+Disorders&systems=Vascular+Disorders&classSearch=kinase&classPageNumber=3&classPageSize=80&comparator=Both&includeNonSignificant=false&excludeFragile=true&minTermsPerCell=6&method=Pearson&aggregation=MeanLogRr&excludeCombos=true&minEvents=5&includeFullMatrix=true');
+    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/map?systems=Cardiac+Disorders&classSearch=kinase&classPageNumber=3&classPageSize=80&comparator=Both&includeNonSignificant=false&excludeFragile=true&minTermsPerCell=6&method=Pearson&aggregation=MeanLogRr&excludeCombos=true&minEvents=5&includeFullMatrix=true');
   });
 
   it('serializes system heatmap class and drug paging', async () => {
@@ -254,7 +254,7 @@ describe('buildAdverseEventUrl', () => {
       minEvents: 3,
     });
 
-    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/heatmap?systems=Cardiac+Disorders&systems=Vascular+Disorders&classSearch=kinase&drugSearch=aspirin&classPageNumber=2&classPageSize=40&drugPageNumber=4&drugPageSize=100&comparator=Active&includeNonSignificant=true&excludeFragile=false&aggregation=MedianLogRr&excludeCombos=true&minEvents=3');
+    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/heatmap?systems=Cardiac+Disorders&classSearch=kinase&drugSearch=aspirin&classPageNumber=2&classPageSize=40&drugPageNumber=4&drugPageSize=100&comparator=Active&includeNonSignificant=true&excludeFragile=false&aggregation=MedianLogRr&excludeCombos=true&minEvents=3');
   });
 
   it('serializes system cell detail term-pair paging', async () => {
@@ -276,6 +276,6 @@ describe('buildAdverseEventUrl', () => {
       pageSize: 250,
     });
 
-    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/cell?systems=Cardiac+Disorders&systems=Vascular+Disorders&classX=N0000000001&classY=N0000000002&comparator=Placebo&includeNonSignificant=true&excludeFragile=true&minTermsPerCell=4&method=Spearman&aggregation=MedianLogRr&excludeCombos=false&minEvents=0&pageNumber=5&pageSize=250');
+    expect(capture.urls[0]).toBe('/api/AdverseEvent/correlation/systems/cell?systems=Cardiac+Disorders&classX=N0000000001&classY=N0000000002&comparator=Placebo&includeNonSignificant=true&excludeFragile=true&minTermsPerCell=4&method=Spearman&aggregation=MedianLogRr&excludeCombos=false&minEvents=0&pageNumber=5&pageSize=250');
   });
 });

@@ -2153,13 +2153,13 @@ namespace MedRecPro.Models
 
     /**************************************************************/
     /// <summary>
-    /// Pharmacologic-class x pharmacologic-class correlation map scoped to selected MedDRA systems.
+    /// Pharmacologic-class x pharmacologic-class correlation map scoped to one selected MedDRA system.
     /// </summary>
     /// <remarks>
     /// Cells correlate selected-SOC term profiles across classes, not shared drugs. The class
-    /// axis is paged symmetrically unless <see cref="IncludesFullMatrix"/> is true, and
-    /// <see cref="Warnings"/> explains pairwise deletion, mixed comparator requests, fragile
-    /// inclusion, and below-floor cells.
+    /// axis is pruned to renderable off-diagonal pairs and paged symmetrically unless
+    /// <see cref="IncludesFullMatrix"/> is true. <see cref="Warnings"/> explains pairwise
+    /// deletion, mixed comparator requests, fragile inclusion, below-floor cells, and pruning.
     /// </remarks>
     /// <seealso cref="AeSystemClassCorrelationCellDto"/>
     /// <seealso cref="AeSystemClassSummaryDto"/>
@@ -2168,7 +2168,7 @@ namespace MedRecPro.Models
         #region Context Properties
 
         /**************************************************************/
-        /// <summary>Canonical selected MedDRA System Organ Classes echoed from the data.</summary>
+        /// <summary>Canonical selected MedDRA System Organ Class echoed from the data.</summary>
         public List<string> SelectedSystems { get; set; } = new();
 
         /**************************************************************/
@@ -2176,7 +2176,7 @@ namespace MedRecPro.Models
         public AeSystemCorrelationFilters AppliedFilters { get; set; } = new();
 
         /**************************************************************/
-        /// <summary>Total selected-SOC classes after filters and before axis paging.</summary>
+        /// <summary>Total selected-SOC classes after filters, renderability pruning, and before axis paging.</summary>
         public int ClassCount { get; set; }
 
         /**************************************************************/

@@ -1993,7 +1993,7 @@ namespace MedRecProTest
             Assert.AreEqual(1.0, offDiagonal.Coefficient!.Value, 1e-9);
             Assert.IsFalse(map.IncludesFullMatrix);
             Assert.AreEqual(1, map.ClassPage.PageNumber);
-            Assert.AreEqual(40, map.ClassPage.PageSize);
+            Assert.AreEqual(20, map.ClassPage.PageSize);
 
             #endregion
         }
@@ -2066,11 +2066,11 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies that below-floor system-scoped class cells return null coefficients and warnings.
+        /// Verifies that below-floor system-scoped class maps return an empty pruned matrix with warnings.
         /// </summary>
         /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationMapAsync"/>
         [TestMethod]
-        public async Task GetAeSystemCorrelationMapAsync_BelowMinTermsPerCell_ReturnsNullInsufficientN()
+        public async Task GetAeSystemCorrelationMapAsync_BelowMinTermsPerCell_ReturnsEmptyPrunedMap()
         {
             #region implementation
 
@@ -2089,11 +2089,113 @@ namespace MedRecProTest
             var map = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(context, new[] { soc }, PkSecret, logger);
 
             Assert.IsNotNull(map);
-            var offDiagonal = map.Cells.Single(cell => !cell.IsDiagonal);
-            Assert.AreEqual(2, offDiagonal.PairCount);
-            Assert.IsTrue(offDiagonal.InsufficientN);
-            Assert.IsNull(offDiagonal.Coefficient);
-            Assert.IsTrue(map.Warnings.Any(warning => warning.Contains("minimum")));
+            Assert.AreEqual(0, map.ClassCount);
+            Assert.AreEqual(0, map.ClassPage.TotalCount);
+            Assert.AreEqual(0, map.Classes.Count);
+            Assert.AreEqual(0, map.Cells.Count);
+            Assert.IsTrue(map.Warnings.Any(warning => warning.Contains("No off-diagonal", StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(map.Warnings.Any(warning => warning.Contains("Pruned", StringComparison.OrdinalIgnoreCase)));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that system-scoped class maps remove orphan classes before paging.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationMapAsync"/>
+        [TestMethod]
+        public async Task GetAeSystemCorrelationMapAsync_OrphanClass_PrunesBeforePaging()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string soc = "Cardiac Disorders";
+            var terms = new[] { "Tachycardia", "Palpitations", "Chest pain" };
+            var riskId = 1;
+            foreach (var term in terms)
+            {
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 100 + riskId, "CLASS-A", soc, 2.0 + riskId, parameterName: term);
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 200 + riskId, "CLASS-B", soc, 3.0 + riskId, parameterName: term);
+            }
+
+            seedCorrelationRow(connection, drugDoc(riskId), riskId++, 300 + riskId, "CLASS-C", soc, 5.0, parameterName: "Unique orphan term");
+
+            var map = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(context, new[] { soc }, PkSecret, logger, minTermsPerCell: 3);
+            var fullMap = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(
+                context,
+                new[] { soc },
+                PkSecret,
+                logger,
+                minTermsPerCell: 3,
+                includeFullMatrix: true);
+
+            Assert.IsNotNull(map);
+            Assert.AreEqual(2, map.ClassCount);
+            Assert.AreEqual(2, map.ClassPage.TotalCount);
+            Assert.IsFalse(map.Classes.Any(axis => axis.PharmClassCode == "CLASS-C"));
+            Assert.IsTrue(map.Warnings.Any(warning => warning.Contains("Pruned 1", StringComparison.OrdinalIgnoreCase)));
+
+            Assert.IsNotNull(fullMap);
+            Assert.IsTrue(fullMap.IncludesFullMatrix);
+            Assert.AreEqual(2, fullMap.ClassPage.TotalCount);
+            Assert.AreEqual(2, fullMap.ClassPage.PageSize);
+            Assert.IsFalse(fullMap.Classes.Any(axis => axis.PharmClassCode == "CLASS-C"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies that later class-axis pages compact around a renderable off-diagonal pair.
+        /// </summary>
+        /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationMapAsync"/>
+        [TestMethod]
+        public async Task GetAeSystemCorrelationMapAsync_PageWithoutRenderablePair_CompactsAroundPair()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            const string soc = "Cardiac Disorders";
+            var firstPairTerms = new[] { "Term A1", "Term A2", "Term A3" };
+            var secondPairTerms = new[] { "Term B1", "Term B2", "Term B3" };
+            var riskId = 1;
+            foreach (var term in firstPairTerms)
+            {
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 100 + riskId, "CLASS-A", soc, 2.0 + riskId, parameterName: term);
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 200 + riskId, "CLASS-C", soc, 3.0 + riskId, parameterName: term);
+            }
+
+            foreach (var term in secondPairTerms)
+            {
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 300 + riskId, "CLASS-B", soc, 4.0 + riskId, parameterName: term);
+                seedCorrelationRow(connection, drugDoc(riskId), riskId++, 400 + riskId, "CLASS-D", soc, 5.0 + riskId, parameterName: term);
+            }
+
+            var map = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(
+                context,
+                new[] { soc },
+                PkSecret,
+                logger,
+                classPageNumber: 1,
+                classPageSize: 2,
+                minTermsPerCell: 3);
+
+            Assert.IsNotNull(map);
+            Assert.AreEqual(4, map.ClassCount);
+            Assert.AreEqual(2, map.Classes.Count);
+            Assert.IsTrue(map.Cells.Any(cell => !cell.IsDiagonal && cell.Coefficient.HasValue));
+            Assert.IsTrue(map.Warnings.Any(warning => warning.Contains("compacted", StringComparison.OrdinalIgnoreCase)));
 
             #endregion
         }

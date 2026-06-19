@@ -69,7 +69,7 @@ const CLASS_COMPARATORS = new Set(['Placebo', 'Active', 'Both']);
 const CLASS_CORRELATION_METHODS = new Set(['Spearman', 'Pearson']);
 const CLASS_CORRELATION_AGGREGATIONS = new Set(['MedianLogRr', 'MeanLogRr']);
 
-const DEFAULT_SYSTEM_CLASS_PAGE_SIZE = 40;
+const DEFAULT_SYSTEM_CLASS_PAGE_SIZE = 20;
 const DEFAULT_SYSTEM_DRUG_PAGE_SIZE = 50;
 const DEFAULT_SYSTEM_TERM_PAIR_PAGE_SIZE = 100;
 
@@ -272,6 +272,9 @@ function readDashboardUrlState() {
     // Fragile rows are visible by default because the prototype exposes them with muted styling.
     const fragile = (searchParams.get('fragile') ?? 'true') !== 'false';
 
+    // System mode is intentionally single-select; older repeated values hydrate only the first.
+    const requestedSystem = (searchParams.get('system') ?? searchParams.get('systems') ?? '').trim();
+
     return {
         focus: DASHBOARD_FOCUSES.has(requestedFocus) ? requestedFocus : 'product',
         productGuid,
@@ -288,7 +291,7 @@ function readDashboardUrlState() {
         aggregation: readEnumQuery(searchParams, 'aggregation', CLASS_CORRELATION_AGGREGATIONS, 'MedianLogRr'),
         excludeCombos: readBooleanQuery(searchParams, 'excludeCombos', false),
         minEvents: readIntegerQuery(searchParams, 'minEvents', 0, 0),
-        systems: searchParams.getAll('systems').map((system) => system.trim()).filter(Boolean),
+        systems: requestedSystem ? [requestedSystem] : [],
         systemSearch: searchParams.get('systemSearch') ?? '',
         systemView: readEnumQuery(searchParams, 'systemView', SYSTEM_DASHBOARD_VIEWS, 'map'),
         systemComparator: readEnumQuery(searchParams, 'systemComparator', CLASS_COMPARATORS, 'Placebo'),
@@ -394,7 +397,11 @@ function writeDashboardUrlState({
     const resolvedAggregation = aggregation ?? currentState.aggregation;
     const resolvedExcludeCombos = excludeCombos ?? currentState.excludeCombos;
     const resolvedMinEvents = minEvents ?? currentState.minEvents;
-    const resolvedSystems = systems ?? currentState.systems;
+    const sourceSystems = systems ?? currentState.systems;
+    const resolvedSystems = (Array.isArray(sourceSystems) ? sourceSystems : [sourceSystems])
+        .map((system) => String(system ?? '').trim())
+        .filter(Boolean)
+        .slice(0, 1);
     const resolvedSystemSearch = systemSearch ?? currentState.systemSearch;
     const resolvedSystemView = systemView ?? currentState.systemView;
     const resolvedSystemComparator = systemComparator ?? currentState.systemComparator;
@@ -444,11 +451,10 @@ function writeDashboardUrlState({
     nextUrl.searchParams.delete('seriousSocOnly');
     nextUrl.searchParams.set('excludeCombos', String(resolvedExcludeCombos));
     nextUrl.searchParams.set('minEvents', String(resolvedMinEvents));
+    nextUrl.searchParams.delete('system');
     nextUrl.searchParams.delete('systems');
-    for (const system of resolvedSystems) {
-        if (system) {
-            nextUrl.searchParams.append('systems', system);
-        }
+    if (resolvedSystems[0]) {
+        nextUrl.searchParams.append('systems', resolvedSystems[0]);
     }
     if (resolvedSystemSearch) {
         nextUrl.searchParams.set('systemSearch', resolvedSystemSearch);
@@ -2359,9 +2365,9 @@ function App() {
     const [systemSearch, setSystemSearch] = useState(initialUrlState.systemSearch);
     const debouncedSystemSearch = useDebouncedValue(systemSearch, 250);
 
-    // Selected systems can come from repeated URL values before picker metadata loads.
+    // Selected system can come from URL state before picker metadata loads.
     const [selectedSystems, setSelectedSystems] = useState(
-        () => initialUrlState.systems.map((system) => ({
+        () => initialUrlState.systems.slice(0, 1).map((system) => ({
             id: system,
             systemOrganClass: system,
             classCount: 0,
@@ -2487,7 +2493,7 @@ function App() {
     // Initial selection should happen once after products or deep-link hydration become available.
     const hasResolvedInitialSelectionRef = useRef(false);
 
-    // System default selection should happen only once; removing the last chip must stay empty.
+    // System default selection should happen only once after picker rows arrive.
     const hasResolvedInitialSystemSelectionRef = useRef(initialUrlState.systems.length > 0);
 
     // Product catalog state comes from the live API.
@@ -2599,9 +2605,9 @@ function App() {
         ],
     );
 
-    // System requests use canonical names, not picker object identity.
+    // System requests use the selected canonical name, not picker object identity.
     const selectedSystemNames = useMemo(
-        () => selectedSystems.map((system) => system.systemOrganClass).filter(Boolean),
+        () => selectedSystems.slice(0, 1).map((system) => system.systemOrganClass).filter(Boolean),
         [selectedSystems],
     );
 
@@ -3916,61 +3922,23 @@ function App() {
 
     /**************************************************************/
     /**
-     * Adds one MedDRA system to the selected system set.
+     * Selects one MedDRA system for system-scoped correlation views.
      *
      * @param {object} item - System picker row.
      */
-    const handleAddSystem = useCallback(
+    const handleSelectSystem = useCallback(
         (item) => {
             if (!item?.systemOrganClass) {
                 return;
             }
 
             const lookupKey = item.systemOrganClass.toLowerCase();
-            const isAlreadySelected = selectedSystems.some(
-                (system) => system.systemOrganClass.toLowerCase() === lookupKey,
-            );
-
-            if (isAlreadySelected) {
+            const selectedSystem = selectedSystems[0];
+            if (selectedSystem?.systemOrganClass?.toLowerCase() === lookupKey) {
                 return;
             }
 
-            const nextSystems = [...selectedSystems, item];
-
-            setSelectedSystems(nextSystems);
-            setSystemMap(null);
-            setSystemHeatmap(null);
-            setSelectedSystemCell(null);
-            setSystemCellDetail(null);
-            setSystemClassPageNumber(1);
-            setSystemDrugPageNumber(1);
-            setSystemTermPairPageNumber(1);
-            writeCurrentDashboardUrlState(
-                {
-                    focus: 'system',
-                    systems: nextSystems.map((system) => system.systemOrganClass),
-                    systemClassPageNumber: 1,
-                    systemDrugPageNumber: 1,
-                    systemTermPairPageNumber: 1,
-                },
-                true,
-            );
-        },
-        [selectedSystems, writeCurrentDashboardUrlState],
-    );
-
-    /**************************************************************/
-    /**
-     * Removes one MedDRA system from the selected set.
-     *
-     * @param {string} systemOrganClass - System name to remove.
-     */
-    const handleRemoveSystem = useCallback(
-        (systemOrganClass) => {
-            const lookupKey = systemOrganClass.toLowerCase();
-            const nextSystems = selectedSystems.filter(
-                (system) => system.systemOrganClass.toLowerCase() !== lookupKey,
-            );
+            const nextSystems = [item];
 
             setSelectedSystems(nextSystems);
             setSystemMap(null);
@@ -4114,12 +4082,14 @@ function App() {
         const nextValue = !systemFullMatrix;
 
         setSystemFullMatrix(nextValue);
+        setSystemClassPageNumber(1);
         setSelectedSystemCell(null);
         setSystemCellDetail(null);
         writeCurrentDashboardUrlState(
             {
                 focus: 'system',
                 systemFullMatrix: nextValue,
+                systemClassPageNumber: 1,
             },
             false,
         );
@@ -4706,7 +4676,8 @@ function App() {
 
             exportPayload = {
                 focus: 'system',
-                selectedSystems,
+                selectedSystem: selectedSystems[0],
+                selectedSystems: selectedSystems.slice(0, 1),
                 state: {
                     systemView,
                     ...systemFilters,
@@ -5014,8 +4985,7 @@ function App() {
                                     selectedSystems={selectedSystems}
                                     searchTerm={systemSearch}
                                     onSearchTermChange={handleChangeSystemSearch}
-                                    onAddSystem={handleAddSystem}
-                                    onRemoveSystem={handleRemoveSystem}
+                                    onSelectSystem={handleSelectSystem}
                                     totalSystemCount={correlationSystemTotalCount}
                                     chartableSystemCount={correlationSystemChartableCount}
                                     isLoading={isSystemPickerLoading}
@@ -5099,7 +5069,7 @@ function App() {
                         <p>
                             <strong>Correlation methods:</strong> Spearman compares selected-system term-profile
                             ranks across pharmacologic classes. Pearson compares the linear relationship between
-                            those class-level term profiles under the selected systems, comparator, aggregation,
+                            those class-level term profiles under the selected system, comparator, aggregation,
                             and filter settings.
                         </p>
                     ) : null}

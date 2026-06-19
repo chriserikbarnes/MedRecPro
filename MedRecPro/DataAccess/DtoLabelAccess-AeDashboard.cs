@@ -1357,7 +1357,7 @@ namespace MedRecPro.DataAccess
         /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
         /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return the complete filtered matrix.</param>
-        /// <returns>The system-scoped class correlation map, or null when selected systems have no usable rows.</returns>
+        /// <returns>The system-scoped class correlation map, or null when the selected system has no usable rows.</returns>
         /// <remarks>
         /// Correlates pharmacologic classes over selected-SOC adverse-event term profiles.
         /// </remarks>
@@ -1370,7 +1370,7 @@ namespace MedRecPro.DataAccess
             ILogger logger,
             string? classSearch = null,
             int classPageNumber = 1,
-            int classPageSize = 40,
+            int classPageSize = 20,
             AeComparatorMix comparator = AeComparatorMix.Placebo,
             bool includeNonSignificant = true,
             bool excludeFragile = true,
@@ -1437,7 +1437,7 @@ namespace MedRecPro.DataAccess
         /// <param name="aggregation">Within-class/drug aggregation; median LogRR by default.</param>
         /// <param name="excludeCombos">Whether combination-product rows are dropped.</param>
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
-        /// <returns>The sparse heatmap, or null when selected systems have no usable rows.</returns>
+        /// <returns>The sparse heatmap, or null when the selected system has no usable rows.</returns>
         /// <seealso cref="AeDashboardDerivation.BuildSystemClassHeatmap"/>
         /// <seealso cref="AeSystemClassHeatmapDto"/>
         public static async Task<AeSystemClassHeatmapDto?> GetAeSystemCorrelationHeatmapAsync(
@@ -1515,7 +1515,7 @@ namespace MedRecPro.DataAccess
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
         /// <param name="pageNumber">1-based term-pair page number.</param>
         /// <param name="pageSize">Term-pair page size.</param>
-        /// <returns>The class-pair cell detail, or null when selected systems have no usable rows.</returns>
+        /// <returns>The class-pair cell detail, or null when the selected system has no usable rows.</returns>
         /// <seealso cref="AeDashboardDerivation.BuildSystemClassCellDetail"/>
         /// <seealso cref="AeSystemClassCorrelationCellDetailDto"/>
         public static async Task<AeSystemClassCorrelationCellDetailDto?> GetAeSystemCorrelationCellDetailAsync(

@@ -61,7 +61,7 @@ function SystemPickerRow({ item, optionId, isActive, isSelected, onSelect }) {
 
 /**************************************************************/
 /**
- * MedDRA system picker with live search, keyboard navigation, and multi-select chips.
+ * MedDRA system picker with live search, keyboard navigation, and single selection.
  *
  * @param {object} props - Component props.
  * @returns {JSX.Element} Picker UI.
@@ -71,8 +71,7 @@ export function SystemPicker({
   selectedSystems,
   searchTerm,
   onSearchTermChange,
-  onAddSystem,
-  onRemoveSystem,
+  onSelectSystem,
   isLoading,
   error,
   onRetry,
@@ -83,9 +82,11 @@ export function SystemPicker({
   const [activeIndex, setActiveIndex] = useState(0);
   const pickerRef = useRef(null);
   const inputRef = useRef(null);
+  const selectedSystem = selectedSystems?.[0] ?? null;
+  const selectedName = selectedSystem?.systemOrganClass ?? '';
   const selectedLookup = useMemo(
-    () => new Set((selectedSystems ?? []).map((item) => item.systemOrganClass.toLowerCase())),
-    [selectedSystems],
+    () => new Set(selectedName ? [selectedName.toLowerCase()] : []),
+    [selectedName],
   );
   const sections = useMemo(() => buildSystemSections(systems), [systems]);
   const flattenedRows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
@@ -95,9 +96,7 @@ export function SystemPicker({
     : undefined;
   const displayCount = getSystemPickerDisplayCount(totalSystemCount, flattenedRows.length);
   const displayChartableCount = getSystemPickerChartableCount(chartableSystemCount, flattenedRows);
-  const titleText = selectedSystems.length > 0
-    ? selectedSystems.map((system) => system.systemOrganClass).join(', ')
-    : 'Select systems';
+  const titleText = selectedName || 'Select system';
 
   useEffect(() => {
     /**************************************************************/
@@ -138,8 +137,8 @@ export function SystemPicker({
       return;
     }
 
-    onAddSystem(item);
-    setIsOpen(true);
+    onSelectSystem(item);
+    setIsOpen(false);
   }
 
   /**************************************************************/
@@ -201,24 +200,6 @@ export function SystemPicker({
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
-
-      <div className="system-chip-row" aria-label="Selected MedDRA systems">
-        {selectedSystems.length > 0 ? selectedSystems.map((system) => (
-          <span className="chip removable system-chip" key={system.systemOrganClass}>
-            {system.systemOrganClass}
-            <button
-              type="button"
-              className="chip-remove"
-              aria-label={`Remove ${system.systemOrganClass}`}
-              onClick={() => onRemoveSystem(system.systemOrganClass)}
-            >
-              x
-            </button>
-          </span>
-        )) : (
-          <span className="drug-meta-item">Search system organ class</span>
-        )}
-      </div>
 
       {isOpen ? (
         <div className="picker class-picker system-picker" role="presentation">
@@ -295,7 +276,7 @@ export function SystemPicker({
 
           <div className="picker-foot">
             <span><kbd>up</kbd><kbd>down</kbd> move</span>
-            <span><kbd>enter</kbd> add</span>
+            <span><kbd>enter</kbd> select</span>
             <span><kbd>esc</kbd> close</span>
           </div>
         </div>

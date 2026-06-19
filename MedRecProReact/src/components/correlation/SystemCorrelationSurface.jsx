@@ -86,7 +86,7 @@ export function SystemCorrelationSurface({
   if (!Array.isArray(selectedSystems) || selectedSystems.length === 0) {
     return (
       <section className="panel">
-        <EmptyState title="Choose one or more MedDRA systems." />
+        <EmptyState title="Choose a MedDRA system." />
       </section>
     );
   }
@@ -109,6 +109,16 @@ export function SystemCorrelationSurface({
           onChangeFilter={onChangeSystemFilter}
           floorKey="minTermsPerCell"
           floorLabel="Min terms"
+          afterExcludeCombosControl={systemView === 'map' ? (
+            <button
+              type="button"
+              className={`chip-toggle${includeFullMatrix ? ' on' : ''}`}
+              onClick={onToggleFullMatrix}
+            >
+              <span className="sw" aria-hidden="true" />
+              Full matrix
+            </button>
+          ) : null}
         />
 
         {filters.comparator === 'Both' ? (
@@ -120,14 +130,6 @@ export function SystemCorrelationSurface({
         {systemView === 'map' ? (
           <>
             <div className="corr-control-row">
-              <button
-                type="button"
-                className={`chip-toggle${includeFullMatrix ? ' on' : ''}`}
-                onClick={onToggleFullMatrix}
-              >
-                <span className="sw" aria-hidden="true" />
-                Full matrix
-              </button>
               {includeFullMatrix ? (
                 <span className="corr-control-note">
                   {systemMap?.includesFullMatrix ? 'Full matrix returned' : 'Full matrix requested'}

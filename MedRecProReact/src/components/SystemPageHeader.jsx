@@ -42,7 +42,8 @@ export function SystemPageHeader({ selectedSystems, picker, map, filters }) {
   const classCount = hasSelection ? (map?.classCount ?? sumSystemField(selectedSystems, 'classCount')) : 0;
   const drugCount = hasSelection ? sumSystemField(selectedSystems, 'drugCount') : 0;
   const termCount = hasSelection ? sumSystemField(selectedSystems, 'termCount') : 0;
-  const hasMapReadySystem = selectedSystems.some((system) => system.hasRenderableMap);
+  const selectedSystem = hasSelection ? selectedSystems[0] : null;
+  const hasMapReadySystem = Boolean(selectedSystem?.hasRenderableMap);
 
   return (
     <header className="page-header class-page-header system-page-header">

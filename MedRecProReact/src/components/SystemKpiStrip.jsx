@@ -52,7 +52,7 @@ function getFilterContext(map, fallbackFilters) {
 
 /**************************************************************/
 /**
- * System-level KPI cards for selected MedDRA systems.
+ * System-level KPI cards for the selected MedDRA system.
  *
  * @param {object} props - Component props.
  * @returns {JSX.Element | null} KPI strip or null.
@@ -73,7 +73,7 @@ export function SystemKpiStrip({ selectedSystems, map, filters }) {
       <article className="kpi-card">
         <div className="kpi-label">Classes with data</div>
         <div className="kpi-value">{formatInteger(classCount)}</div>
-        <div className="kpi-sub">{formatInteger(selectedSystems.length)} selected systems</div>
+        <div className="kpi-sub">Selected MedDRA system</div>
       </article>
 
       <article className="kpi-card">
@@ -85,7 +85,7 @@ export function SystemKpiStrip({ selectedSystems, map, filters }) {
       <article className="kpi-card">
         <div className="kpi-label">Terms with data</div>
         <div className="kpi-value">{formatInteger(termCount)}</div>
-        <div className="kpi-sub">Across selected MedDRA systems</div>
+        <div className="kpi-sub">Within selected MedDRA system</div>
       </article>
 
       <article className="kpi-card">

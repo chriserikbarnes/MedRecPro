@@ -84,6 +84,23 @@ function normalizeClassComparatorParameter(comparator) {
 
 /**************************************************************/
 /**
+ * Normalizes a selected-system query value to the backend's single-system contract.
+ *
+ * @param {unknown} systems - Selected system value or array.
+ * @returns {string[]} Zero or one system query values.
+ */
+function normalizeSingleSystemParameter(systems) {
+  // Older callers may still pass an array; keep the first non-empty value only.
+  const values = Array.isArray(systems) ? systems : [systems];
+  const selectedSystem = values
+    .map((system) => String(system ?? '').trim())
+    .find(Boolean);
+
+  return selectedSystem ? [selectedSystem] : [];
+}
+
+/**************************************************************/
+/**
  * Converts the configured API base plus endpoint path into a fetchable URL.
  *
  * @param {string} path - Endpoint path beneath /api/AdverseEvent.
@@ -519,7 +536,7 @@ export const AdverseEventClient = {
 
   /**************************************************************/
   /**
-   * Gets a pharmacologic-class by pharmacologic-class map scoped to selected MedDRA systems.
+   * Gets a pharmacologic-class by pharmacologic-class map scoped to one selected MedDRA system.
    *
    * @param {object} args - Request options.
    * @returns {Promise<unknown>} API system correlation-map payload.
@@ -528,7 +545,7 @@ export const AdverseEventClient = {
     systems = [],
     classSearch = '',
     classPageNumber = 1,
-    classPageSize = 40,
+    classPageSize = 20,
     comparator = 'Placebo',
     includeNonSignificant = true,
     excludeFragile = true,
@@ -541,7 +558,7 @@ export const AdverseEventClient = {
     signal = null,
   } = {}) {
     const url = buildAdverseEventUrl('correlation/systems/map', {
-      systems,
+      systems: normalizeSingleSystemParameter(systems),
       classSearch,
       classPageNumber,
       classPageSize,
@@ -593,7 +610,7 @@ export const AdverseEventClient = {
 
   /**************************************************************/
   /**
-   * Gets a sparse pharmacologic-class by drug heatmap scoped to selected MedDRA systems.
+   * Gets a sparse pharmacologic-class by drug heatmap scoped to one selected MedDRA system.
    *
    * @param {object} args - Request options.
    * @returns {Promise<unknown>} API system heatmap payload.
@@ -615,7 +632,7 @@ export const AdverseEventClient = {
     signal = null,
   } = {}) {
     const url = buildAdverseEventUrl('correlation/systems/heatmap', {
-      systems,
+      systems: normalizeSingleSystemParameter(systems),
       classSearch,
       drugSearch,
       classPageNumber,
@@ -697,7 +714,7 @@ export const AdverseEventClient = {
     signal = null,
   } = {}) {
     const url = buildAdverseEventUrl('correlation/systems/cell', {
-      systems,
+      systems: normalizeSingleSystemParameter(systems),
       classX,
       classY,
       comparator: normalizeClassComparatorParameter(comparator),

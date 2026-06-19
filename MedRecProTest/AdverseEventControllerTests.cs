@@ -686,18 +686,21 @@ namespace MedRecProTest
             assertStatus((await controller.GetSystemCorrelationMap(new List<string> { " " }, null, null, null)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { " " }, null, null, null, null, null, null)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetSystemCorrelationCell(new List<string> { " " }, code, code)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationMap(new List<string> { socA, socB }, null, null, null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { socA, socB }, null, null, null, null, null, null)).Result!, StatusCodes.Status400BadRequest);
+            assertStatus((await controller.GetSystemCorrelationCell(new List<string> { socA, socB }, code, code)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetSystemCorrelationCell(new List<string> { socA }, " ", code)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetSystemCorrelationMap(new List<string> { socA }, null, null, null, (AeComparatorMix)99)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetSystemCorrelationMap(new List<string> { socA }, null, null, null, minEvents: -1)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetSystemCorrelationMap(new List<string> { socA }, null, 0, null)).Result!, StatusCodes.Status400BadRequest);
             assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { socA }, null, null, null, null, null, 201)).Result!, StatusCodes.Status400BadRequest);
 
-            // Unknown selected systems -> 404 (controller maps null data-access result).
+            // Unknown selected system -> 404 (controller maps null data-access result).
             assertStatus((await controller.GetSystemCorrelationMap(new List<string> { "No Such SOC" }, null, null, null)).Result!, StatusCodes.Status404NotFound);
             assertStatus((await controller.GetSystemCorrelationHeatmap(new List<string> { "No Such SOC" }, null, null, null, null, null, null)).Result!, StatusCodes.Status404NotFound);
             assertStatus((await controller.GetSystemCorrelationCell(new List<string> { "No Such SOC" }, code, code)).Result!, StatusCodes.Status404NotFound);
 
-            // Valid system-first responses echo canonical selected systems and body-level paging metadata.
+            // Valid system-first responses echo the canonical selected system and body-level paging metadata.
             var systems = getOkValue<List<AeMeddraSystemPickerItemDto>>(await controller.GetCorrelationSystems(null, 1, 1, minTermsPerCell: 3));
             Assert.AreEqual(1, systems.Count);
             StringAssert.Contains(controller.Response.Headers["X-Chartable-Count"].ToString(), "0");
@@ -706,7 +709,7 @@ namespace MedRecProTest
             Assert.AreEqual(socA, systemMap.SelectedSystems.Single());
             Assert.IsFalse(systemMap.IncludesFullMatrix);
             Assert.AreEqual(1, systemMap.ClassPage.PageNumber);
-            Assert.AreEqual(40, systemMap.ClassPage.PageSize);
+            Assert.AreEqual(20, systemMap.ClassPage.PageSize);
 
             var fullSystemMap = getOkValue<AeSystemClassCorrelationMapDto>(await controller.GetSystemCorrelationMap(new List<string> { socA }, null, 1, 1, minTermsPerCell: 3, includeFullMatrix: true));
             Assert.IsTrue(fullSystemMap.IncludesFullMatrix);

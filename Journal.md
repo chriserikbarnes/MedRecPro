@@ -5217,3 +5217,25 @@ Implemented the MedDRA-system-first React dashboard lane, adding the `By system`
 **Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 8/8 test files and 53/53 tests. `npm.cmd run build` passed and refreshed `ae-dashboard.js` (363,684 bytes) and `ae-dashboard.css` (50,152 bytes). A foreground `npm.cmd run dev -- --host 127.0.0.1 --port 50346` reached Vite ready at `/ae-dashboard/`, but browser smoke could not complete because the hidden local dev server did not stay reachable from the in-app browser (`ERR_CONNECTION_REFUSED`); no leftover Vite/node server remained after cleanup.
 
 ---
+
+### 2026-06-19 8:23 AM EST — AE Dashboard By System Matrix Remediation Plan
+
+Saved a pending mixed API/UI remediation handoff for the By System adverse-event matrix, covering the default page size change to 20, API-level pruning of all-shaded class matrix pages and full-matrix payloads, conversion of the MedDRA system picker and API calls to single-selection behavior, and moving the Full matrix toggle into the advanced filter row after Exclude combos.
+
+**Plan artifact.** Added [Plans/(pending) AE Dashboard By System Matrix Remediation Plan.md](Plans/(pending) AE Dashboard By System Matrix Remediation Plan.md). The plan is grounded in the completed MedDRA system correlation API/UI plans, the live `AdverseEventController` and derivation pipeline, the React `SystemPicker`/`SystemCorrelationSurface` state flow, and the supplied screenshots.
+
+**Verification.** Verified the saved plan by exact `Get-Item` metadata and `Select-String` markers for single-select behavior, empty-page pruning, Full matrix placement, and the verification checklist. No builds or tests were run because this session created a planning artifact only.
+
+---
+
+### 2026-06-19 8:51 AM EST — AE Dashboard By System Matrix Remediation
+
+Implemented the mixed API and React remediation for the By System adverse-event matrix, completing the saved handoff and renaming it to [Plans/(done) AE Dashboard By System Matrix Remediation Plan.md](Plans/(done) AE Dashboard By System Matrix Remediation Plan.md).
+
+**Implementation.** Updated [AdverseEventController.cs](MedRecPro/Controllers/AdverseEventController.cs), [DtoLabelAccess-AeDashboard.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboard.cs), [AeDashboardDerivation.cs](MedRecPro/DataAccess/AeDashboardDerivation.cs), and [AeDashboardDto.cs](MedRecPro/Models/AeDashboardDto.cs) so system matrix defaults use a 20-class page, system correlation map/heatmap/cell endpoints enforce exactly one selected system, and matrix axes are pruned to renderable off-diagonal class pairs before paging or full-matrix payloads. Empty non-renderable matrices now return valid empty payloads with warnings, while page compaction avoids knowingly diagonal-only visible pages.
+
+**UI and bundle.** Updated [App.jsx](MedRecProReact/src/App.jsx), [adverseEventClient.js](MedRecProReact/src/api/adverseEventClient.js), [SystemPicker.jsx](MedRecProReact/src/components/SystemPicker.jsx), [SystemCorrelationSurface.jsx](MedRecProReact/src/components/correlation/SystemCorrelationSurface.jsx), [CorrelationFilterControls.jsx](MedRecProReact/src/components/correlation/CorrelationFilterControls.jsx), [SystemPageHeader.jsx](MedRecProReact/src/components/SystemPageHeader.jsx), and [SystemKpiStrip.jsx](MedRecProReact/src/components/SystemKpiStrip.jsx) so the By System lane is single-select, old repeated `systems` URLs hydrate to one system, API requests serialize one system, exports include a singular selected-system field, and the Full matrix toggle sits after Exclude combos in the filter row. Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) to refresh the hosted static bundle.
+
+**Tests and verification.** Added controller and data-access coverage in [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) and [AeDashboardDataAccessTests.cs](MedRecProTest/AeDashboardDataAccessTests.cs) for default page size 20, multi-system 400s, orphan pruning, full-matrix pruning, empty no-renderable maps, and pair-aware page compaction. Updated [adverseEventClient.test.js](MedRecProReact/src/test/adverseEventClient.test.js) for single-system URL serialization. `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` passed 65/65 tests after approved NuGet-config access. `npm.cmd --prefix .\MedRecProReact run lint`, `npm.cmd --prefix .\MedRecProReact test`, `npm.cmd --prefix .\MedRecProReact run build`, and `git diff --check` passed; the dev server starts in the foreground, but background smoke was not feasible because hidden/background launch methods exited or were sandbox-blocked.
+
+---

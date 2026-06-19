@@ -41,6 +41,7 @@ export function CorrelationFilterControls({
   onChangeFilter,
   floorKey,
   floorLabel,
+  afterExcludeCombosControl = null,
 }) {
   return (
     <>
@@ -101,6 +102,7 @@ export function CorrelationFilterControls({
         >
           Exclude combos
         </FilterToggle>
+        {afterExcludeCombosControl}
 
         <label className="class-number-filter">
           <span>{floorLabel}</span>

@@ -1238,7 +1238,7 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Gets a system-scoped pharmacologic-class correlation map.
         /// </summary>
-        /// <param name="systems">Selected MedDRA System Organ Classes. Repeated query keys and comma-separated values are accepted.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys and comma-separated values are accepted for one value only.</param>
         /// <param name="classSearch">Optional class code or name search before axis paging.</param>
         /// <param name="classPageNumber">Optional 1-based class-axis page number.</param>
         /// <param name="classPageSize">Optional class-axis page size.</param>
@@ -1253,7 +1253,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="includeFullMatrix">Whether to ignore class-axis paging and return every filtered class-pair cell.</param>
         /// <returns>The system-scoped class correlation map.</returns>
         /// <remarks>
-        /// For selected MedDRA systems (<c>ParameterCategory</c> values), correlates
+        /// For one selected MedDRA system (<c>ParameterCategory</c> value), correlates
         /// pharmacologic classes over selected-SOC adverse-event term profiles, not shared
         /// drugs. By default the returned matrix is symmetric and page-windowed on one class
         /// axis. Set <c>includeFullMatrix=true</c> to ignore class-axis paging and return the
@@ -1263,13 +1263,13 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         /// <example>
         /// <code>
-        /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;classPageSize=40
+        /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;classPageSize=20
         /// GET /api/AdverseEvent/correlation/systems/map?systems=Cardiac%20Disorders&amp;includeFullMatrix=true
         /// </code>
         /// </example>
         /// <response code="200">Returns the system-scoped class correlation map.</response>
-        /// <response code="400">If selected systems, paging, or filters are invalid.</response>
-        /// <response code="404">If the selected systems have no usable AE dashboard rows.</response>
+        /// <response code="400">If the selected system, paging, or filters are invalid.</response>
+        /// <response code="404">If the selected system has no usable AE dashboard rows.</response>
         /// <response code="500">If an unexpected error occurs.</response>
         /// <response code="503">If the AE dashboard feature is disabled.</response>
         /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationMapAsync"/>
@@ -1306,19 +1306,20 @@ namespace MedRecPro.Api.Controllers
             }
 
             var selectedSystems = normalizeSystemQueryValues(systems);
-            if (selectedSystems.Count == 0)
+            var systemValidation = validateSingleSelectedSystem(selectedSystems);
+            if (systemValidation != null)
             {
-                return BadRequest("At least one selected MedDRA system is required.");
+                return systemValidation;
             }
 
             if (includeFullMatrix)
             {
                 classPageNumber = 1;
-                classPageSize = 40;
+                classPageSize ??= 20;
             }
             else
             {
-                var pagingValidation = validateBoundedPagingParameters(ref classPageNumber, ref classPageSize, 40, 100, "class");
+                var pagingValidation = validateBoundedPagingParameters(ref classPageNumber, ref classPageSize, 20, 100, "class");
                 if (pagingValidation != null)
                 {
                     return pagingValidation;
@@ -1353,7 +1354,7 @@ namespace MedRecPro.Api.Controllers
 
                 if (result == null)
                 {
-                    return NotFound("The selected MedDRA systems are not available in the AE dashboard.");
+                    return NotFound("The selected MedDRA system is not available in the AE dashboard.");
                 }
 
                 return Ok(result);
@@ -1373,7 +1374,7 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Gets a sparse system-scoped pharmacologic-class x drug heatmap.
         /// </summary>
-        /// <param name="systems">Selected MedDRA System Organ Classes. Repeated query keys and comma-separated values are accepted.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys and comma-separated values are accepted for one value only.</param>
         /// <param name="classSearch">Optional class code or name search.</param>
         /// <param name="drugSearch">Optional product or substance search.</param>
         /// <param name="classPageNumber">Optional 1-based class-row page number.</param>
@@ -1388,7 +1389,8 @@ namespace MedRecPro.Api.Controllers
         /// <param name="minEvents">Minimum total events a row needs to count.</param>
         /// <returns>The sparse system-scoped class x drug heatmap.</returns>
         /// <remarks>
-        /// Rows are pharmacologic classes and columns are drugs, both independently paged in the
+        /// Rows are pharmacologic classes and columns are drugs for one selected MedDRA system,
+        /// both independently paged in the
         /// response body. Cells are sparse: absent class/drug intersections are omitted rather
         /// than serialized as null placeholders. Paging can hide classes or drugs outside the
         /// returned window.
@@ -1399,8 +1401,8 @@ namespace MedRecPro.Api.Controllers
         /// </code>
         /// </example>
         /// <response code="200">Returns the sparse heatmap.</response>
-        /// <response code="400">If selected systems, paging, or filters are invalid.</response>
-        /// <response code="404">If the selected systems have no usable AE dashboard rows.</response>
+        /// <response code="400">If the selected system, paging, or filters are invalid.</response>
+        /// <response code="404">If the selected system has no usable AE dashboard rows.</response>
         /// <response code="500">If an unexpected error occurs.</response>
         /// <response code="503">If the AE dashboard feature is disabled.</response>
         /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationHeatmapAsync"/>
@@ -1437,9 +1439,10 @@ namespace MedRecPro.Api.Controllers
             }
 
             var selectedSystems = normalizeSystemQueryValues(systems);
-            if (selectedSystems.Count == 0)
+            var systemValidation = validateSingleSelectedSystem(selectedSystems);
+            if (systemValidation != null)
             {
-                return BadRequest("At least one selected MedDRA system is required.");
+                return systemValidation;
             }
 
             var classPagingValidation = validateBoundedPagingParameters(ref classPageNumber, ref classPageSize, 40, 100, "class");
@@ -1482,7 +1485,7 @@ namespace MedRecPro.Api.Controllers
 
                 if (result == null)
                 {
-                    return NotFound("The selected MedDRA systems are not available in the AE dashboard.");
+                    return NotFound("The selected MedDRA system is not available in the AE dashboard.");
                 }
 
                 return Ok(result);
@@ -1502,7 +1505,7 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Gets the per-term detail behind one system-scoped class-pair cell.
         /// </summary>
-        /// <param name="systems">Selected MedDRA System Organ Classes. Repeated query keys and comma-separated values are accepted.</param>
+        /// <param name="systems">Selected MedDRA System Organ Class. Repeated query keys and comma-separated values are accepted for one value only.</param>
         /// <param name="classX">Row pharmacologic class code.</param>
         /// <param name="classY">Column pharmacologic class code.</param>
         /// <param name="comparator">Comparator mix; defaults to placebo-controlled only.</param>
@@ -1517,7 +1520,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="pageSize">Optional term-pair page size.</param>
         /// <returns>The class-pair cell detail with shared selected-SOC term pairs.</returns>
         /// <remarks>
-        /// Mirrors the map's honesty contract. <c>Coefficient</c> is map-safe and suppressed
+        /// Mirrors the map's single-system honesty contract. <c>Coefficient</c> is map-safe and suppressed
         /// below <c>minTermsPerCell</c>; <c>RawCoefficient</c> remains available for diagnostics.
         /// Diagonal cells are non-informative and forced to 1.0. Missing shared terms return
         /// warnings and empty <c>TermPairs</c> rather than a server error.
@@ -1528,8 +1531,8 @@ namespace MedRecPro.Api.Controllers
         /// </code>
         /// </example>
         /// <response code="200">Returns the class-pair cell detail.</response>
-        /// <response code="400">If selected systems, class codes, paging, or filters are invalid.</response>
-        /// <response code="404">If the selected systems have no usable AE dashboard rows.</response>
+        /// <response code="400">If the selected system, class codes, paging, or filters are invalid.</response>
+        /// <response code="404">If the selected system has no usable AE dashboard rows.</response>
         /// <response code="500">If an unexpected error occurs.</response>
         /// <response code="503">If the AE dashboard feature is disabled.</response>
         /// <seealso cref="DtoLabelAccess.GetAeSystemCorrelationCellDetailAsync"/>
@@ -1566,9 +1569,10 @@ namespace MedRecPro.Api.Controllers
             }
 
             var selectedSystems = normalizeSystemQueryValues(systems);
-            if (selectedSystems.Count == 0)
+            var systemValidation = validateSingleSelectedSystem(selectedSystems);
+            if (systemValidation != null)
             {
-                return BadRequest("At least one selected MedDRA system is required.");
+                return systemValidation;
             }
 
             if (string.IsNullOrWhiteSpace(classX) || string.IsNullOrWhiteSpace(classY))
@@ -1610,7 +1614,7 @@ namespace MedRecPro.Api.Controllers
 
                 if (result == null)
                 {
-                    return NotFound("The selected MedDRA systems are not available in the AE dashboard.");
+                    return NotFound("The selected MedDRA system is not available in the AE dashboard.");
                 }
 
                 return Ok(result);
@@ -2057,6 +2061,38 @@ namespace MedRecPro.Api.Controllers
                 .Where(system => !string.IsNullOrWhiteSpace(system))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates that a system-scoped linear-correlation endpoint received exactly one MedDRA system.
+        /// </summary>
+        /// <param name="selectedSystems">Normalized selected-system values from the query string.</param>
+        /// <returns>A bad-request result when the selected-system contract is violated; otherwise null.</returns>
+        /// <remarks>
+        /// The By System matrix, heatmap, and cell-detail views are intentionally scoped to one
+        /// System Organ Class at a time so the pharmacologic-class axes stay interpretable.
+        /// </remarks>
+        /// <seealso cref="GetSystemCorrelationMap"/>
+        /// <seealso cref="GetSystemCorrelationHeatmap"/>
+        /// <seealso cref="GetSystemCorrelationCell"/>
+        private BadRequestObjectResult? validateSingleSelectedSystem(IReadOnlyList<string> selectedSystems)
+        {
+            #region implementation
+
+            if (selectedSystems.Count == 0)
+            {
+                return BadRequest("Exactly one selected MedDRA system is required.");
+            }
+
+            if (selectedSystems.Count > 1)
+            {
+                return BadRequest("System correlation endpoints accept exactly one selected MedDRA system.");
+            }
+
+            return null;
 
             #endregion
         }

@@ -1352,7 +1352,7 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Builds the class x class correlation map scoped to selected MedDRA systems.
+        /// Builds the class x class correlation map scoped to one selected MedDRA system.
         /// </summary>
         /// <param name="selectedSystems">Canonical selected System Organ Classes.</param>
         /// <param name="filters">Applied system-correlation filters.</param>
@@ -1369,7 +1369,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <example>
         /// <code>
-        /// var map = AeDashboardDerivation.BuildSystemClassCorrelationMap(systems, filters, observations, warnings, 1, 40, includeFullMatrix: false);
+        /// var map = AeDashboardDerivation.BuildSystemClassCorrelationMap(systems, filters, observations, warnings, 1, 20, includeFullMatrix: false);
         /// </code>
         /// </example>
         /// <seealso cref="AeSystemClassCorrelationMapDto"/>
@@ -1380,7 +1380,7 @@ namespace MedRecPro.DataAccess
             IReadOnlyList<AeSystemCorrelationObservation> observations,
             IReadOnlyList<string> warnings,
             int classPageNumber = 1,
-            int classPageSize = 40,
+            int classPageSize = 20,
             bool includeFullMatrix = false)
         {
             #region implementation
@@ -1389,10 +1389,23 @@ namespace MedRecPro.DataAccess
             var termAggregates = AggregatePerClassTerm(observations, filters.Aggregation);
             var perClassTerm = pivotSystemByClass(termAggregates);
             var allClasses = buildSystemClassAxis(observations, perClassTerm, floor);
+            var renderablePairs = buildSystemRenderableClassPairs(allClasses, perClassTerm, floor);
+            var renderableClassCodes = renderablePairs
+                .SelectMany(pair => new[] { pair.LeftClassCode, pair.RightClassCode })
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var renderableClasses = allClasses
+                .Where(axis => !string.IsNullOrWhiteSpace(axis.PharmClassCode)
+                    && renderableClassCodes.Contains(axis.PharmClassCode))
+                .ToList();
+            var prunedClassCount = allClasses.Count - renderableClasses.Count;
             var classPage = includeFullMatrix
-                ? buildAxisPage(1, Math.Max(allClasses.Count, 1), allClasses.Count)
-                : buildAxisPage(classPageNumber, classPageSize, allClasses.Count);
-            var classes = pageAxis(allClasses, classPage)
+                ? buildAxisPage(1, Math.Max(renderableClasses.Count, 1), renderableClasses.Count)
+                : buildAxisPage(classPageNumber, classPageSize, renderableClasses.Count);
+            var compactedPage = false;
+            var classWindow = includeFullMatrix
+                ? renderableClasses
+                : selectSystemClassPageWindow(renderableClasses, classPage, renderablePairs, out compactedPage);
+            var classes = classWindow
                 .Select((axis, index) => copyClassAxisItem(axis, index))
                 .ToList();
             var classIndex = classes
@@ -1423,6 +1436,21 @@ namespace MedRecPro.DataAccess
                 mapWarnings.Add($"Some cells fall below the minimum of {floor} selected-SOC terms and are returned as null.");
             }
 
+            if (prunedClassCount > 0)
+            {
+                mapWarnings.Add($"Pruned {prunedClassCount} class(es) with no off-diagonal class pair meeting the {floor}-term floor.");
+            }
+
+            if (renderableClasses.Count == 0)
+            {
+                mapWarnings.Add($"No off-diagonal class pair meets the {floor}-term floor; returning an empty matrix.");
+            }
+
+            if (compactedPage)
+            {
+                mapWarnings.Add("Class-axis page was compacted to include a renderable off-diagonal class pair.");
+            }
+
             if (!includeFullMatrix && classPage.TotalCount > classes.Count)
             {
                 mapWarnings.Add("Class-axis paging can hide classes outside the returned matrix window.");
@@ -1432,7 +1460,7 @@ namespace MedRecPro.DataAccess
             {
                 SelectedSystems = selectedSystems.ToList(),
                 AppliedFilters = filters,
-                ClassCount = allClasses.Count,
+                ClassCount = renderableClasses.Count,
                 IncludesFullMatrix = includeFullMatrix,
                 ClassPage = classPage,
                 Classes = classes,
@@ -2588,6 +2616,204 @@ namespace MedRecPro.DataAccess
             }
 
             return classes;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds renderable off-diagonal class-pair metadata for a selected-system matrix.
+        /// </summary>
+        /// <param name="classes">Candidate pharmacologic class axis items.</param>
+        /// <param name="perClassTerm">Class-to-selected-term aggregate lookup.</param>
+        /// <param name="floor">Minimum shared selected-SOC terms needed for a map cell.</param>
+        /// <returns>Renderable class-pair keys with their shared selected-term counts.</returns>
+        /// <remarks>
+        /// The graph is computed before paging so map pages can omit orphan classes and can be
+        /// compacted when a requested window contains only classes whose partners sit elsewhere.
+        /// </remarks>
+        /// <seealso cref="BuildSystemClassCorrelationMap"/>
+        private static List<(string PairKey, string LeftClassCode, string RightClassCode, int SharedTermCount)> buildSystemRenderableClassPairs(
+            IReadOnlyList<AeSystemClassAxisItemDto> classes,
+            IReadOnlyDictionary<string, Dictionary<string, AeSystemCorrelationAggregate>> perClassTerm,
+            int floor)
+        {
+            #region implementation
+
+            var pairs = new List<(string PairKey, string LeftClassCode, string RightClassCode, int SharedTermCount)>();
+            for (var i = 0; i < classes.Count; i++)
+            {
+                var leftCode = classes[i].PharmClassCode;
+                if (string.IsNullOrWhiteSpace(leftCode)
+                    || !perClassTerm.TryGetValue(leftCode, out var leftTerms))
+                {
+                    continue;
+                }
+
+                for (var j = i + 1; j < classes.Count; j++)
+                {
+                    var rightCode = classes[j].PharmClassCode;
+                    if (string.IsNullOrWhiteSpace(rightCode)
+                        || !perClassTerm.TryGetValue(rightCode, out var rightTerms))
+                    {
+                        continue;
+                    }
+
+                    var sharedTermCount = leftTerms.Keys
+                        .Intersect(rightTerms.Keys, StringComparer.OrdinalIgnoreCase)
+                        .Count();
+                    if (sharedTermCount >= floor)
+                    {
+                        pairs.Add((
+                            systemClassPairKey(leftCode, rightCode),
+                            leftCode,
+                            rightCode,
+                            sharedTermCount));
+                    }
+                }
+            }
+
+            return pairs;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Selects a class page window and compacts it when the requested page has no renderable off-diagonal pair.
+        /// </summary>
+        /// <param name="axis">Pruned renderable class axis.</param>
+        /// <param name="page">Requested class page metadata.</param>
+        /// <param name="renderablePairs">Renderable off-diagonal pair metadata for the full pruned axis.</param>
+        /// <param name="compacted">Whether the returned page had to be compacted around a renderable pair.</param>
+        /// <returns>A page window with at least one renderable off-diagonal pair when the page size allows it.</returns>
+        /// <remarks>
+        /// This keeps later pages from rendering as a diagonal-only matrix when every visible
+        /// class has its qualifying partner outside the requested page slice.
+        /// </remarks>
+        /// <seealso cref="buildSystemRenderableClassPairs"/>
+        private static List<AeSystemClassAxisItemDto> selectSystemClassPageWindow(
+            IReadOnlyList<AeSystemClassAxisItemDto> axis,
+            AeCorrelationAxisPageDto page,
+            IReadOnlyList<(string PairKey, string LeftClassCode, string RightClassCode, int SharedTermCount)> renderablePairs,
+            out bool compacted)
+        {
+            #region implementation
+
+            compacted = false;
+            var pageWindow = pageAxis(axis, page);
+            var renderablePairKeys = renderablePairs
+                .Select(pair => pair.PairKey)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (page.PageSize < 2
+                || axis.Count < 2
+                || hasRenderableSystemClassPair(pageWindow, renderablePairKeys))
+            {
+                return pageWindow;
+            }
+
+            var axisPositions = axis
+                .Select((item, index) => (item.PharmClassCode, index))
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.PharmClassCode))
+                .ToDictionary(entry => entry.PharmClassCode!, entry => entry.index, StringComparer.OrdinalIgnoreCase);
+            var pageCodeSet = pageWindow
+                .Select(item => item.PharmClassCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Cast<string>()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var anchorIndex = Math.Min(
+                Math.Max((page.PageNumber - 1) * page.PageSize, 0),
+                axis.Count - 1);
+
+            var selectedPair = renderablePairs
+                .Where(pair => axisPositions.ContainsKey(pair.LeftClassCode)
+                    && axisPositions.ContainsKey(pair.RightClassCode))
+                .OrderBy(pair => pageCodeSet.Contains(pair.LeftClassCode) || pageCodeSet.Contains(pair.RightClassCode) ? 0 : 1)
+                .ThenBy(pair => Math.Min(
+                    Math.Abs(axisPositions[pair.LeftClassCode] - anchorIndex),
+                    Math.Abs(axisPositions[pair.RightClassCode] - anchorIndex)))
+                .ThenByDescending(pair => pair.SharedTermCount)
+                .ThenBy(pair => Math.Min(axisPositions[pair.LeftClassCode], axisPositions[pair.RightClassCode]))
+                .ThenBy(pair => Math.Max(axisPositions[pair.LeftClassCode], axisPositions[pair.RightClassCode]))
+                .FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(selectedPair.PairKey))
+            {
+                return pageWindow;
+            }
+
+            var selectedIndexes = new HashSet<int>
+            {
+                axisPositions[selectedPair.LeftClassCode],
+                axisPositions[selectedPair.RightClassCode]
+            };
+
+            for (var i = anchorIndex; i < axis.Count && selectedIndexes.Count < page.PageSize; i++)
+            {
+                selectedIndexes.Add(i);
+            }
+
+            for (var i = 0; i < anchorIndex && selectedIndexes.Count < page.PageSize; i++)
+            {
+                selectedIndexes.Add(i);
+            }
+
+            compacted = true;
+            return selectedIndexes
+                .OrderBy(index => index)
+                .Select(index => axis[index])
+                .ToList();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Determines whether a class window contains at least one renderable off-diagonal class pair.
+        /// </summary>
+        /// <param name="classWindow">Returned class-axis window.</param>
+        /// <param name="renderablePairKeys">Renderable off-diagonal class-pair keys.</param>
+        /// <returns>True when any distinct class pair in the window is renderable.</returns>
+        /// <seealso cref="systemClassPairKey"/>
+        private static bool hasRenderableSystemClassPair(
+            IReadOnlyList<AeSystemClassAxisItemDto> classWindow,
+            IReadOnlySet<string> renderablePairKeys)
+        {
+            #region implementation
+
+            for (var i = 0; i < classWindow.Count; i++)
+            {
+                for (var j = i + 1; j < classWindow.Count; j++)
+                {
+                    if (renderablePairKeys.Contains(systemClassPairKey(
+                        classWindow[i].PharmClassCode,
+                        classWindow[j].PharmClassCode)))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds an order-insensitive key for a pharmacologic class pair.
+        /// </summary>
+        /// <param name="leftClassCode">First pharmacologic class code.</param>
+        /// <param name="rightClassCode">Second pharmacologic class code.</param>
+        /// <returns>A stable pair key suitable for case-insensitive lookups.</returns>
+        private static string systemClassPairKey(string? leftClassCode, string? rightClassCode)
+        {
+            #region implementation
+
+            var left = leftClassCode ?? string.Empty;
+            var right = rightClassCode ?? string.Empty;
+            return string.Compare(left, right, StringComparison.OrdinalIgnoreCase) <= 0
+                ? $"{left}||{right}"
+                : $"{right}||{left}";
 
             #endregion
         }
