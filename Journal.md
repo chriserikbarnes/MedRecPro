@@ -5321,3 +5321,15 @@ Refined the By System dashboard after visual review showed comma-bearing MedDRA 
 **Verification.** Updated [AdverseEventControllerTests.cs](MedRecProTest/AdverseEventControllerTests.cs) to seed and validate a comma-bearing system name across the system map, heatmap, and cell endpoints. The initial sandboxed `dotnet test .\MedRecProTest\MedRecProTest.csproj --filter "FullyQualifiedName~AdverseEventController|FullyQualifiedName~AeDashboardDataAccess"` attempt failed because it could not read `C:\Users\chris\AppData\Roaming\NuGet\NuGet.Config`; the approved rerun passed 68/68 tests. `npm.cmd --prefix .\MedRecProReact run lint` passed, `npm.cmd --prefix .\MedRecProReact test` passed 9/9 files and 60/60 tests, `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`/`ae-dashboard.css`, and `git diff --check` passed with only CRLF conversion warnings. A hidden Vite process was started but exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
 
 ---
+
+### 2026-06-19 12:33 PM EST — AE Dashboard Tooltip Stacking Refinement
+
+Raised the shared correlation tooltip stacking layer so selected grid cells no longer render their tooltip under rotated x-axis labels.
+
+**Implementation.** Updated [index.css](MedRecProReact/src/index.css) so hovered, focused, and selected `.corr-cell` elements share the same high chart-layer `z-index`, and raised `.corr-tooltip` above that cell layer. This keeps selected-cell tooltips above the x-axis labels without changing map or heatmap rendering logic.
+
+**Bundle.** Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted dashboard CSS carries the stacking fix.
+
+**Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 9/9 test files and 60/60 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`/`ae-dashboard.css`. `git diff --check` passed with only CRLF conversion warnings. Hidden/background Vite launch still exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
+
+---

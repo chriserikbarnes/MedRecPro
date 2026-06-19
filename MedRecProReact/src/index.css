@@ -2285,18 +2285,18 @@ button.corr-cell {
 }
 .corr-cell:hover {
   outline-color: var(--color-secondary);
-  z-index: 12;
+  z-index: 40;
 }
 .corr-grid.heat .corr-cell:hover {
   outline-color: var(--color-border);
 }
 .corr-cell:focus-visible {
   outline-color: var(--color-secondary);
-  z-index: 12;
+  z-index: 40;
 }
 .corr-cell.selected {
   outline-color: var(--color-secondary);
-  z-index: 3;
+  z-index: 40;
 }
 .corr-cell.diag {
   background: var(--color-secondary) !important;
@@ -2338,7 +2338,7 @@ button.corr-cell {
   position: absolute;
   left: 50%;
   bottom: calc(100% + 8px);
-  z-index: 30;
+  z-index: 60;
   display: none;
   min-width: 210px;
   max-width: min(280px, 88vw);
