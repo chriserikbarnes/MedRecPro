@@ -77,8 +77,8 @@ because it does not render the Razor partial.
 
 ## Dashboard Surface
 
-The dashboard has two top-level **focuses**, selected with the focus switch and
-reflected in the URL (`?focus=product|class`).
+The dashboard has three top-level **focuses**, selected with the focus switch and
+reflected in the URL (`?focus=product|class|system`).
 
 ### Product focus (`focus=product`)
 
@@ -96,8 +96,10 @@ Two cross-product tools sit beneath the views:
 - **Symptom reverse lookup** — find which scoped products report one or more exact
   AE terms, with a causal/protective/low-confidence verdict per match.
 - **Therapeutic interchange** — compare two products side by side as paired RR
-  mini-tracks, grouped by which product carries the higher-concern signal, with
-  `Differences only` and `Shared signals only` toggles.
+  mini-tracks, grouped by which product carries the higher-concern signal. The
+  interchange request follows the active comparator filter, carries
+  Placebo/Active context badges and study metadata into the plotted points, and
+  keeps `Differences only` / `Shared signals only` toggles.
 
 ### Class focus (`focus=class`)
 
@@ -117,13 +119,35 @@ suppressed `null` coefficients rather than fabricated numbers, and every payload
 carries `Warnings` (mixed comparator, fragile included, low n, non-PSD pairwise
 deletion).
 
+### By system focus (`focus=system`)
+
+A single MedDRA System Organ Class is selected from the system picker (system
+selection is intentionally single-select, even when old URLs contain repeated
+`systems=` keys). Within that selected system:
+
+| View | Description |
+|---|---|
+| **Correlation map** | Pharmacologic-class × pharmacologic-class correlation over selected-system adverse-event term profiles, page-windowed by default with an opt-in full-matrix mode. |
+| **Heatmap** | Sparse pharmacologic-class × drug LogRR grid for the selected system, with independent class-row and drug-column paging. |
+| **Cell drill-down** | Shared selected-system term pairs behind a selected class-pair cell, with map-safe vs. raw diagnostic coefficients. |
+
+The By System lane keeps the same honesty contract as the class views, but the
+observation unit is a shared adverse-event term within one selected MedDRA
+system. Non-renderable class pairs are pruned before page selection, empty
+matrices return warnings instead of fabricated cells, and class-axis filters can
+focus the matrix on suffix groups such as `EPC`, `MOA`, `EP`, and `Other`.
+
 ### Shared controls
 
 - **Comparator filter** — `all` / `placebo` / `active` (product focus);
-  `Placebo` / `Active` / `Both` (class focus).
+  `Placebo` / `Active` / `Both` (class and By System focuses).
 - **Fragile toggle** — show or hide low-precision rows.
-- **URL state** — focus, product, class, active view, comparator, and class
-  filters are all bookmarkable query parameters.
+- **Correlation filters** — class and By System views share method,
+  aggregation, non-significant row inclusion, combination-product exclusion, and
+  minimum observation floors; By System also exposes class-type chips and the
+  map-only full-matrix toggle.
+- **URL state** — focus, product, class, system, active view, comparator, and
+  correlation filters are all bookmarkable query parameters.
 
 ### Data limitation caveat
 
@@ -167,10 +191,15 @@ MedRecProReact/
     components/
       PageHeader.jsx  KpiStrip.jsx  ProductPicker.jsx  FocusSwitch.jsx
       ClassPicker.jsx  ClassPageHeader.jsx  ClassKpiStrip.jsx  classPickerHelpers.js
+      SystemPicker.jsx  SystemPageHeader.jsx  SystemKpiStrip.jsx
       common/         # DisabledFeature, EmptyState, InlineError, Loading
       correlation/    # ClassCorrelationSurface, CorrelationMap, CorrelationHeatmap,
-                      #   CorrelationCellDetail, CorrelationTooltip, socLabels, correlationMapCells
-    test/             # Vitest specs for client URLs, normalizers, formatters, scales, pickers
+                      #   CorrelationCellDetail, SystemCorrelationSurface,
+                      #   SystemCorrelationMap, SystemCorrelationHeatmap,
+                      #   SystemCorrelationCellDetail, CorrelationPager,
+                      #   CorrelationTooltip, axisLabelDensity, correlationMapCells
+    test/             # Vitest specs for client URLs, normalizers, formatters, scales, pickers,
+                      #   pager helpers, dense-axis rules, and scatter helpers
 ```
 
 ## API Contract
@@ -188,9 +217,16 @@ All requests go to `AdverseEventController` under `/api/AdverseEvent` with
 Endpoints consumed (see the [MedRecPro README](../README.md) for the full table):
 `products`, `products/catalog`, `products/count`, `products/favorites`,
 `PUT|DELETE products/{guid}/favorite`, `products/{guid}/{triage,forest,quadrant}`,
-`reverse-lookup`, `interchange`, and `correlation[/classes|/heatmap|/cell]`. The
-class picker reads pagination/aggregate totals from the `X-Page-Number`,
-`X-Page-Size`, `X-Total-Count`, and `X-Chartable-Count` response headers.
+`reverse-lookup`, `interchange`, `correlation[/classes|/heatmap|/cell]`, and
+`correlation/systems[/map|/heatmap|/cell]`. The class and system pickers read
+pagination/aggregate totals from the `X-Page-Number`, `X-Page-Size`,
+`X-Total-Count`, and `X-Chartable-Count` response headers.
+
+System-scoped calls serialize one literal selected system, so comma-bearing
+MedDRA names such as `Injury, Poisoning and Procedural Complications` stay a
+single value. The system map accepts `includeFullMatrix=true` to ignore
+class-axis paging, and the system map/heatmap accept `classType=EPC|MOA|EP|Other`
+for pharmacologic-class suffix filtering.
 
 The whole feature is gated server-side by `FeatureFlags:AeDashboard:Enabled`;
 when disabled the client renders the `DisabledFeature` state.
@@ -210,8 +246,9 @@ when disabled the client renders the `DisabledFeature` state.
 Unit tests live under `src/test/` and run with Vitest (`npm run test`). They
 cover the deterministic, browser-free logic — API URL serialization, DTO
 normalization (including numeric vs. string enum payloads and Pascal/camel
-casing), formatters, forest/correlation scales, and the class-picker/correlation
-helpers — rather than full component rendering.
+casing), formatters, forest/correlation scales, class/system picker helpers,
+correlation pagers, dense-axis sampling, and scatter reference-line helpers —
+rather than full component rendering.
 
 ## Related Projects
 

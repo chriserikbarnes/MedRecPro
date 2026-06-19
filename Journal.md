@@ -5369,3 +5369,13 @@ Refined sparse correlation maps and heatmaps so low-cardinality grids no longer 
 **Verification.** `npm.cmd --prefix .\MedRecProReact run lint` passed. `npm.cmd --prefix .\MedRecProReact test` passed 10/10 test files and 63/63 tests. `npm.cmd --prefix .\MedRecProReact run build` passed and refreshed `ae-dashboard.js`/`ae-dashboard.css`. `git diff --check` passed with only CRLF conversion warnings. Hidden/background Vite launch still exited before binding `127.0.0.1:50346`, so browser smoke remains a foreground-server follow-up.
 
 ---
+
+### 2026-06-19 2:07 PM EST — README AE Dashboard Currency Refresh
+
+Updated the repository README files from the 6/17 baseline through the latest AE dashboard commit comments and journal entries.
+
+**Documentation.** Updated [MedRecProReact/README.md](MedRecProReact/README.md) so the dashboard surface now documents the three focuses (`product`, `class`, and `system`), comparator-aware therapeutic interchange context, the MedDRA By System lane, single-system behavior, class-type chips, full-matrix map mode, current system endpoint set, and the expanded browser-free Vitest coverage areas. Updated [README.md](README.md) so the top-level architecture, project structure, `/api/AdverseEvent` endpoint table, and adverse-event dashboard summary include the system-scoped class correlation API/UI and current honesty-first caveats.
+
+**Verification.** `git diff -- MedRecProReact\README.md README.md` reviewed the Markdown changes. `rg -n "two top-level|focus=product\|class\)|correlation\[/classes\|/heatmap\|/cell\]|SOC correlation map/heatmap/cell|product \+ class focus|Class-picker responses" MedRecProReact\README.md README.md` found only the intentionally retained endpoint shorthand. `git diff --check -- MedRecProReact\README.md README.md` passed with the repo's existing CRLF conversion warnings only. No build or test suite was run because this session changed Markdown documentation only.
+
+---

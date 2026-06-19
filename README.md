@@ -64,7 +64,7 @@ The solution's three web projects are deployed to a single Azure App Service usi
 
 **MedRecProMCP** is an OAuth 2.1 gateway that exposes MedRecPro API capabilities as MCP tools. When Claude.ai connects, it authenticates users through Google/Microsoft OAuth, resolves upstream identity provider identities to numeric database user IDs (auto-provisioning new users if needed), then forwards authenticated MCP JWTs to the MedRecPro API. It uses JWT tokens, PKCE (S256), Dynamic Client Registration (RFC 7591), and a shared PKSecret for encrypted user ID exchange with the API.
 
-**MedRecProReact** is the source for the adverse-event risk dashboard — a React + Vite single-page "island". Its Vite build emits a deterministic bundle directly into `MedRecProStatic/wwwroot/ae-dashboard`, which MedRecProStatic serves at `/adverse-events`. The dashboard reads only from the API's `/api/AdverseEvent` surface (`AdverseEventController`), which in turn queries the materialized AE risk tables produced by the table-standardization pipeline (Stage 5). See the [MedRecProReact README](MedRecProReact/README.md) for the dashboard, and the [MedRecProImportClass README](MedRecProImportClass/README.md) for the risk-statistics contract.
+**MedRecProReact** is the source for the adverse-event risk dashboard — a React + Vite single-page "island". Its Vite build emits a deterministic bundle directly into `MedRecProStatic/wwwroot/ae-dashboard`, which MedRecProStatic serves at `/adverse-events`. The dashboard reads only from the API's `/api/AdverseEvent` surface (`AdverseEventController`), which in turn queries the materialized AE risk tables produced by the table-standardization pipeline (Stage 5). Current dashboard focuses cover product-level risk, pharmacologic-class SOC correlation, and MedDRA-system-scoped class correlation. See the [MedRecProReact README](MedRecProReact/README.md) for the dashboard, and the [MedRecProImportClass README](MedRecProImportClass/README.md) for the risk-statistics contract.
 
 ## Repository File Structure
 
@@ -91,7 +91,8 @@ MedRecPro/                          # Root repository
       SettingsController.cs         # App info, feature flags, metrics, logs, cache
       AdverseEventController.cs     # Adverse-event dashboard data: products, favorites,
                                       #   triage/forest/quadrant, reverse-lookup, interchange,
-                                      #   SOC correlation map/heatmap/cell (gated by AeDashboard flag)
+                                      #   class SOC correlation, and MedDRA-system-scoped
+                                      #   class correlation map/heatmap/cell (gated by AeDashboard flag)
     Service/
       SplImportService.cs           # SPL ZIP file import and parsing orchestration
       SplParsingService.cs          # Core SPL XML parsing
@@ -349,9 +350,9 @@ MedRecPro/                          # Root repository
     vite.config.js                  # base /ae-dashboard/, builds into MedRecProStatic/wwwroot/ae-dashboard
     package.json                    # React 19, Vite 8, Vitest 4, ESLint 10
     src/
-      App.jsx                       # Dashboard shell (product + class focus, all panels)
+      App.jsx                       # Dashboard shell (product + class + system focus, all panels)
       api/                          # /api/AdverseEvent client + dev/prod base resolution
-      lib/ hooks/ components/       # Normalizers, scales, hooks, charts (forest/quadrant/correlation)
+      lib/ hooks/ components/       # Normalizers, scales, hooks, charts (forest/quadrant/correlation/system)
       test/                         # Vitest specs (see MedRecProReact/README.md)
 
   MedRecProTest/                    # Unit and integration tests
@@ -527,7 +528,7 @@ The main data controller with 40+ endpoints covering navigation views, search, C
 
 ### Adverse Event Dashboard (`/api/AdverseEvent`)
 
-Backs the React adverse-event risk dashboard. The whole controller is gated by the `FeatureFlags:AeDashboard:Enabled` flag (returns 503 when disabled). Reads are anonymous (favorite state is enriched for authenticated users); favorite writes require `ApiAccess`. Class-picker responses expose pagination/aggregate totals via the `X-Page-Number`, `X-Page-Size`, `X-Total-Count`, and `X-Chartable-Count` headers.
+Backs the React adverse-event risk dashboard. The whole controller is gated by the `FeatureFlags:AeDashboard:Enabled` flag (returns 503 when disabled). Reads are anonymous (favorite state is enriched for authenticated users); favorite writes require `ApiAccess`. Class-picker and MedDRA system-picker responses expose pagination/aggregate totals via the `X-Page-Number`, `X-Page-Size`, `X-Total-Count`, and `X-Chartable-Count` headers.
 
 | Method | Route | Description |
 |---|---|---|
@@ -541,11 +542,15 @@ Backs the React adverse-event risk dashboard. The whole controller is gated by t
 | GET | `products/{documentGuid}/forest` | Forest-plot payload for one product |
 | GET | `products/{documentGuid}/quadrant` | Risk-vs-precision quadrant payload |
 | GET | `reverse-lookup` | Products reporting one or more exact AE terms |
-| GET | `interchange` | Two-product therapeutic interchange comparison |
+| GET | `interchange` | Comparator-aware two-product therapeutic interchange comparison |
 | GET | `correlation/classes` | Pharmacologic classes with AE data (class picker) |
 | GET | `correlation` | SOC × SOC correlation map for one class |
 | GET | `correlation/heatmap` | Sparse SOC × drug RR heatmap for one class |
 | GET | `correlation/cell` | Per-drug drill-down for one correlation cell |
+| GET | `correlation/systems` | MedDRA System Organ Classes with AE rows (system picker) |
+| GET | `correlation/systems/map` | Selected-system pharmacologic-class × pharmacologic-class correlation map |
+| GET | `correlation/systems/heatmap` | Selected-system pharmacologic-class × drug RR heatmap |
+| GET | `correlation/systems/cell` | Per-term drill-down for one selected-system class-pair cell |
 
 ### MCP Server (`/mcp`)
 
@@ -627,10 +632,10 @@ The platform turns the free-text adverse-event tables buried in SPL labels into 
 The data flow spans three projects:
 
 1. **MedRecProImportClass / MedRecProConsole** — the SPL table-standardization pipeline parses heterogeneous label tables into a uniform analytical schema and, in Stage 5, pre-computes Relative Risk (RR), Dose-Normalized RR (DNRR), and 95% confidence intervals per adverse-event row. Results are materialized into the `tmp_FlattenedAdverseEvent*` tables. See the [MedRecProImportClass README](MedRecProImportClass/README.md) for the full pipeline and the statistical contract.
-2. **MedRecPro (API)** — `AdverseEventController` (`/api/AdverseEvent`) serves dashboard-ready, encrypted-ID payloads from the materialized risk views: per-product triage/forest/quadrant, symptom reverse lookup, two-product therapeutic interchange, and pharmacologic-class SOC × SOC correlation maps, heatmaps, and per-cell drill-downs. The feature is gated by `FeatureFlags:AeDashboard:Enabled`.
-3. **MedRecProReact** — a React + Vite single-page island that renders the dashboard. Its build output is committed into `MedRecProStatic/wwwroot/ae-dashboard` and served by MedRecProStatic. See the [MedRecProReact README](MedRecProReact/README.md).
+2. **MedRecPro (API)** — `AdverseEventController` (`/api/AdverseEvent`) serves dashboard-ready, encrypted-ID payloads from the materialized risk views: per-product triage/forest/quadrant, symptom reverse lookup, comparator-aware two-product therapeutic interchange, pharmacologic-class SOC × SOC correlation maps/heatmaps/cell drill-downs, and MedDRA-system-scoped class × class / class × drug correlation views. The feature is gated by `FeatureFlags:AeDashboard:Enabled`.
+3. **MedRecProReact** — a React + Vite single-page island that renders the product, class, and By System dashboard focuses. Its build output is committed into `MedRecProStatic/wwwroot/ae-dashboard` and served by MedRecProStatic. See the [MedRecProReact README](MedRecProReact/README.md).
 
-Because the observation unit for class correlations is a single drug within a class, sample sizes are small and the dashboard is deliberately honesty-first: cells below a minimum-drug floor are suppressed rather than fabricated, and every payload carries explicit data-quality warnings. The displayed figures are bounded by what each label discloses and what the parser can extract — absence of a signal is not evidence of its absence in practice.
+Because the observation units for correlation views are intentionally narrow — a single drug within a class for SOC × SOC maps, or shared selected-system terms for By System class-pair maps — sample sizes can be small. The dashboard is deliberately honesty-first: below-floor cells are suppressed rather than fabricated, non-renderable system matrices return warnings, the By System focus is single-system by design, and comparator-mixed payloads are explicitly flagged. The displayed figures are bounded by what each label discloses and what the parser can extract — absence of a signal is not evidence of its absence in practice.
 
 ## FDA Orange Book Integration
 
