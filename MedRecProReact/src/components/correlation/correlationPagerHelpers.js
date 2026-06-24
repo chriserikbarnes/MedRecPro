@@ -1,6 +1,6 @@
 import { formatInteger } from '../../lib/formatters';
 
-export const DEFAULT_PAGE_SIZE_OPTIONS = [20, 40, 80, 100];
+export const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 40, 80, 100];
 
 /**************************************************************/
 /**

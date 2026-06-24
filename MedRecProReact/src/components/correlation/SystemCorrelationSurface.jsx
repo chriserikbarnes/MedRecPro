@@ -151,7 +151,7 @@ export function SystemCorrelationSurface({
                   label="Classes"
                   page={systemMap?.classPage ?? mapClassPage}
                   itemLabel="classes"
-                  pageSizeOptions={[20, 40, 80, 100]}
+                  pageSizeOptions={[10, 20, 40, 80, 100]}
                   onChangePage={onChangeMapClassPage}
                   onChangePageSize={onChangeMapClassPageSize}
                   isDisabled={isSystemMapLoading}
@@ -170,16 +170,16 @@ export function SystemCorrelationSurface({
           <>
             <div className="corr-control-row">
               <CorrelationPager
-                label="Class rows"
+                label="Class"
                 page={systemHeatmap?.classPage ?? heatmapClassPage}
                 itemLabel="classes"
-                pageSizeOptions={[20, 40, 80, 100]}
+                pageSizeOptions={[10, 20, 40, 80, 100]}
                 onChangePage={onChangeHeatmapClassPage}
                 onChangePageSize={onChangeHeatmapClassPageSize}
                 isDisabled={isSystemHeatmapLoading}
               />
               <CorrelationPager
-                label="Drug columns"
+                label="Drug"
                 page={systemHeatmap?.drugPage ?? heatmapDrugPage}
                 itemLabel="drugs"
                 pageSizeOptions={[25, 50, 100, 200]}

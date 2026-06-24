@@ -5379,3 +5379,15 @@ Updated the repository README files from the 6/17 baseline through the latest AE
 **Verification.** `git diff -- MedRecProReact\README.md README.md` reviewed the Markdown changes. `rg -n "two top-level|focus=product\|class\)|correlation\[/classes\|/heatmap\|/cell\]|SOC correlation map/heatmap/cell|product \+ class focus|Class-picker responses" MedRecProReact\README.md README.md` found only the intentionally retained endpoint shorthand. `git diff --check -- MedRecProReact\README.md README.md` passed with the repo's existing CRLF conversion warnings only. No build or test suite was run because this session changed Markdown documentation only.
 
 ---
+
+### 2026-06-24 10:27 AM EST — AE Dashboard Ten-Row System Pager Option
+
+Added the smaller mobile-friendly ten-row option to the By System correlation class pagers.
+
+**Implementation.** Updated [SystemCorrelationSurface.jsx](MedRecProReact/src/components/correlation/SystemCorrelationSurface.jsx) so the system correlation map class pager and the system heatmap class pager pass `[10, 20, 40, 80, 100]` into `CorrelationPager`. The shared default in [correlationPagerHelpers.js](MedRecProReact/src/components/correlation/correlationPagerHelpers.js) already included `10`, but these two visible pagers supplied explicit option arrays, so the default helper value was being overridden and never appeared in the UI.
+
+**Bundle.** Rebuilt [MedRecProStatic/wwwroot/ae-dashboard](MedRecProStatic/wwwroot/ae-dashboard) so the hosted dashboard JavaScript includes the corrected class page-size options.
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 10/10 test files and 63/63 tests. `npm.cmd run build` passed and refreshed `ae-dashboard.js`.
+
+---
