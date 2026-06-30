@@ -76,6 +76,9 @@
 	  <None Remove="nul" />
 	</ItemGroup>
 	<ItemGroup>
+	  <ProjectReference Include="..\MedRecProImportClass\MedRecProImportClass.csproj" />
+	</ItemGroup>
+	<ItemGroup>
 		<None Update="Skills\retryPrompt.md">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>

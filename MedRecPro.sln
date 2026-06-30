@@ -1,11 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.13.35931.197
+# Visual Studio Version 18
+VisualStudioVersion = 18.5.11709.299 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MedRecPro", "MedRecPro\MedRecPro.csproj", "{C9F6D662-4E63-670C-529D-B1A76788DD7E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MedRecProTest", "MedRecProTest\MedRecProTest.csproj", "{40086BC8-310C-0BF9-2EEB-E046006235EB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MedRecProImportClass", "MedRecProImportClass\MedRecProImportClass.csproj", "{255DD2F1-589F-3A0C-BA69-E368359F5DCC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +23,10 @@ Global
 		{40086BC8-310C-0BF9-2EEB-E046006235EB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{40086BC8-310C-0BF9-2EEB-E046006235EB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{40086BC8-310C-0BF9-2EEB-E046006235EB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{255DD2F1-589F-3A0C-BA69-E368359F5DCC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{255DD2F1-589F-3A0C-BA69-E368359F5DCC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{255DD2F1-589F-3A0C-BA69-E368359F5DCC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{255DD2F1-589F-3A0C-BA69-E368359F5DCC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
