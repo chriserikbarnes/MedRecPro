@@ -48,9 +48,9 @@ The solution's three web projects are deployed to a single Azure App Service usi
 |---|---|---|
 | `/` | **MedRecProStatic** | Static site, marketing pages, AI chat UI, OAuth/MCP discovery metadata, adverse-event dashboard host |
 | `/adverse-events` | **MedRecProReact** (hosted by MedRecProStatic) | Adverse-event risk dashboard React island |
-| `/api` | **MedRecPro** | REST API: SPL parsing, label CRUD, authentication, AI interpret/synthesize, adverse-event dashboard data |
+| `/api` | **MedRecPro** | REST API: SPL upload/progress boundary, label CRUD, authentication, AI interpret/synthesize, adverse-event dashboard data |
 | `/mcp` | **MedRecProMCP** | MCP server: OAuth 2.1 gateway for Claude.ai integration |
-| _(CLI)_ | **MedRecProConsole** | Standalone bulk import utility (SPL labels, FDA Orange Book, and table standardization) |
+| _(CLI)_ | **MedRecProConsole** | Standalone bulk import utility over the shared import library (SPL labels, FDA Orange Book, and table standardization) |
 | _(library)_ | **MedRecProImportClass** | Shared class library: entity models, parsing services, table-standardization pipeline, and EF Core context for SPL and Orange Book import |
 | _(SPA source)_ | **MedRecProReact** | React + Vite source for the adverse-event dashboard; builds into MedRecProStatic's web root |
 | _(prototypes)_ | **MedRecProPrototypes** | Standalone HTML/JS prototypes (e.g. the AE dashboard) that seed production UI work |
@@ -60,7 +60,7 @@ The solution's three web projects are deployed to a single Azure App Service usi
 
 **MedRecProStatic** is the user-facing front end. Its AI chat interface (`/Home/Chat`) communicates with the API using a request-interpret-execute-synthesize pattern: user queries are sent to the API's AI endpoints, which use Claude to map natural language to API calls. The static site also serves OAuth/MCP discovery metadata (`/.well-known/*`) at the domain root on behalf of the MCP server, because the MCP SDK resolves discovery URLs relative to the domain root rather than the `/mcp` path.
 
-**MedRecPro (API)** is the core backend. It handles SPL XML parsing and import, label data CRUD, user authentication, AI query interpretation via Claude, database views for navigation, and SPL document rendering via RazorLight templates.
+**MedRecPro (API)** is the core backend. It handles label data CRUD, user authentication, AI query interpretation via Claude, database views for navigation, SPL document rendering via RazorLight templates, and the HTTP/progress boundary for SPL ZIP uploads. The actual SPL ZIP traversal, XML parsing, duplicate checks, and parser orchestration now live in **MedRecProImportClass**; the API keeps thin compatibility adapters and maps import-library result DTOs back into the web import-progress models.
 
 **MedRecProMCP** is an OAuth 2.1 gateway that exposes MedRecPro API capabilities as MCP tools. When Claude.ai connects, it authenticates users through Google/Microsoft OAuth, resolves upstream identity provider identities to numeric database user IDs (auto-provisioning new users if needed), then forwards authenticated MCP JWTs to the MedRecPro API. It uses JWT tokens, PKCE (S256), Dynamic Client Registration (RFC 7591), and a shared PKSecret for encrypted user ID exchange with the API.
 
@@ -94,8 +94,8 @@ MedRecPro/                          # Root repository
                                       #   class SOC correlation, and MedDRA-system-scoped
                                       #   class correlation map/heatmap/cell (gated by AeDashboard flag)
     Service/
-      SplImportService.cs           # SPL ZIP file import and parsing orchestration
-      SplParsingService.cs          # Core SPL XML parsing
+      SplImportService.cs           # Compatibility adapter delegating SPL ZIP imports to MedRecProImportClass
+      SplParsingService.cs          # Legacy SplXmlParser adapter over MedRecProImportClass.Service.SplXmlParser
       SplDataService.cs             # Database operations for label data
       SplContextService.cs          # SPL document context management
       SplDocumentRenderingService.cs    # SPL-to-HTML rendering via RazorLight
@@ -114,12 +114,7 @@ MedRecPro/                          # Root repository
       DatabaseKeepAliveService.cs   # Keeps Azure SQL Serverless awake during business hours
       AzureTokenCredentialService.cs
       AzureAppHostTokenCredentialService.cs
-      ParsingServices/              # 20+ specialized SPL XML parsers
-        SectionParser.cs
-        ProductIdentityParser.cs
-        PackagingParser.cs
-        ... (and more)
-      ParsingValidators/            # SPL validation services
+      ParsingValidators/            # SPL validation services retained for existing web references
     DataAccess/
       RepositoryDataAccess.cs       # Core data access layer
       UserDataAccess.cs             # User-specific queries
@@ -147,6 +142,8 @@ MedRecPro/                          # Root repository
       DocumentRendering.cs          # Rendering models
       TarpitSettings.cs             # Tarpit configuration (thresholds, delays, monitored endpoints)
       ... (and more)
+    Mappers/
+      ImportResultMapper.cs         # Converts import-library import results into web import-progress DTOs
     Skills/                         # AI skill definitions (markdown prompts for Claude)
       skills.md                     # Master skill index
       selectors.md                  # Query routing rules
@@ -308,7 +305,7 @@ MedRecPro/                          # Root repository
   MedRecProConsole/                 # Bulk import CLI tool (SPL + Orange Book)
     Program.cs                      # Entry point, interactive menu, CLI argument dispatch
     Services/
-      ImportService.cs              # SPL import orchestration
+      ImportService.cs              # Console orchestration over MedRecProImportClass.SplImportService
       ImportProgressTracker.cs      # SPL progress tracking
       OrangeBookImportService.cs    # Orange Book import orchestration (ZIP extraction, truncation, progress)
     Models/
@@ -325,12 +322,25 @@ MedRecPro/                          # Root repository
 
   MedRecProImportClass/             # Shared class library for import operations
     Models/
+      BufferedFile.cs               # Import-library file reference used by web and console adapters
+      Import.cs                     # Import-library SPL result/progress models
+      ImportStatus.cs               # Import-library operation status model
       OrangeBook.cs                 # Orange Book entity classes (Applicant, Product, Patent, Exclusivity, junctions)
       ... (SPL models)
+    DataAccess/
+      RepositoryDataAccess.cs       # Import-library repository/data-access helpers
+      UserDataAccess.cs             # Import-side user lookup helpers
     Service/
+      SplImportService.cs           # SPL ZIP traversal, XML extraction, duplicate checks, parser orchestration
+      SplParsingService.cs          # SPL XML parser orchestrator used by the import library
+      SplDataService.cs             # Import-library database operations for SPL persistence
       ParsingServices/
+        SectionParser.cs            # SPL section parsing
+        ProductIdentityParser.cs    # SPL product identity parsing
+        PackagingParser.cs          # SPL package parsing
         OrangeBookProductParsingService.cs  # Orange Book products.txt parsing, batch upserts, entity matching
-        ... (20+ SPL parsers)
+        ... (SPL and Orange Book parsers)
+      ParsingValidators/            # SPL parser validation rules shared by the import workflow
       TransformationServices/             # SPL table-standardization pipeline (Stage 0 -> Stage 5)
         TableStandardizationServiceCollectionExtensions.cs  # AddTableStandardization(...) DI graph
         ColumnStandardizationService.cs   # Stage 3.25 column standardization (SOC normalization, Phase 2 content)

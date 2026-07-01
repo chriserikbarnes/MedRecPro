@@ -5455,3 +5455,13 @@ Implemented the warning-cleanup handoff against the current MedRecPro solution b
 **Verification.** `dotnet restore C:\Users\chris\OneDrive\Documents\Repos\MedRecPro.sln` passed. `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecPro.sln --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --no-build --filter "FullyQualifiedName!~ProductRenderingServiceTests"` passed 2299/2299 with 1 existing skipped test. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --no-build --filter "FullyQualifiedName~ProductRenderingServiceTests"` passed 16/16. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --no-build` passed the full suite with 2315 passed and 1 skipped. `git diff --check` passed with CRLF conversion warnings only.
 
 ---
+
+### 2026-07-01 2:25 PM EST — README Import Structure Refresh
+
+Updated the root repository README so its architecture summary and file-structure tree match the import-library unification work recorded in [Journal.md](Journal.md).
+
+**Documentation.** Updated [README.md](README.md) to describe MedRecPro API as the SPL upload/progress boundary instead of the owner of SPL parser orchestration, documented the thin `SplImportService` and `SplParsingService` compatibility adapters, added the web [ImportResultMapper.cs](MedRecPro/Mappers/ImportResultMapper.cs), and moved parser ownership in the tree to [MedRecProImportClass](MedRecProImportClass).
+
+**Verification.** Reviewed the July 1 import-related journal entries, checked the live `MedRecPro/Service` and `MedRecProImportClass/Service` folder layout, ran `rg -n "REST API: SPL parsing|ParsingServices/|20\+ specialized SPL XML parsers|Core SPL XML parsing|SPL ZIP file import and parsing orchestration|Console orchestration|upload/progress boundary|compatibility adapters" README.md`, and ran `git diff --check -- README.md`, which passed with only the repo's existing LF-to-CRLF working-copy warning. No build or test suite was run because this session changed Markdown documentation only.
+
+---
