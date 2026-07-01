@@ -27,4 +27,8 @@
 		 <ProjectReference Include="..\MedRecProConsole\MedRecProConsole.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<None Include="TestData\SPL\*.xml" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
 </Project>

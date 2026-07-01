@@ -121,9 +121,12 @@ namespace MedRecProImportClass.Service.ParsingServices
                             && !string.IsNullOrWhiteSpace(codeA)
                             && !string.IsNullOrWhiteSpace(codeB)
                             && codeSet.Contains(codeA)
-                            && codeSet.Contains(codeB))
+                            && codeSet.Contains(codeB)
+                            && !removeCodes.Contains(codeA)
+                            && !removeCodes.Contains(codeB))
                         {
                             // Both are present, must reject one (arbitrary: reject codeB)
+                            // The rule list includes both directions, so skip pairs already handled.
                             removeCodes.Add(codeB);
 
                             logger.LogDebug(

@@ -5415,3 +5415,19 @@ Implemented the import-library unification runtime trace plan by making the SPL 
 **Verification.** `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SplImportServiceTests"` passed 16/16 tests. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~ImportResultMapper|FullyQualifiedName~OperationStatus"` passed 5/5 tests. `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecPro\MedRecPro.csproj --no-restore -p:UseAppHost=false` passed with 0 errors and the existing warning baseline. `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecProImportClass\MedRecProImportClass.csproj --no-restore` passed with 0 warnings and 0 errors. `git diff --check` passed with CRLF conversion warnings only. Runtime upload smoke was not run because no local app server and sample SPL ZIP were started for this pass.
 
 ---
+
+### 2026-07-01 12:54 PM EST — ParsingServices Comprehensive Test Coverage
+
+Implemented the ParsingServices comprehensive test coverage plan with focused parser, validator, orchestration, and fixture-backed coverage across the import-library parsing surface.
+
+**Test infrastructure.** Added a shared SQLite-backed [ParsingServiceTestHelper.cs](MedRecProTest/ParsingServices/ParsingServiceTestHelper.cs) with common parser context creation, schema setup, service registration, seed data, and reusable SPL XML factories. Added the repo-local SPL fixture under [TestData/SPL](MedRecProTest/TestData/SPL) and updated [MedRecProTest.csproj](MedRecProTest/MedRecProTest.csproj) so fixture XML files copy to test output.
+
+**Coverage.** Added dedicated MSTest classes for SPL parse context helpers, dosing specifications, product events, document and author parsing, product data, packaging and lot parsing, section content, section orchestration, specialty parsers, and full SPL fixture checks. Added a public surface inventory guard so newly added public ParsingServices and ParsingValidators methods are called out until corresponding tests are added.
+
+**Production fix.** Updated [SpecializedKindValidatorService.cs](MedRecProImportClass/Service/ParsingValidators/SpecializedKindValidatorService.cs) so bidirectional mutually exclusive specialized-kind rules do not remove both sides of the same pair.
+
+**Plan artifact.** Marked the saved plan status as done and renamed it to [(done) ParsingServices Comprehensive Test Coverage Plan.md](Plans/(done)%20ParsingServices%20Comprehensive%20Test%20Coverage%20Plan.md).
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~ParsingServices"` passed 63/63 tests. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~OrangeBook|FullyQualifiedName~TableParser|FullyQualifiedName~ValueParser|FullyQualifiedName~SplImportService"` passed 397/397 tests with 1 skipped. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore` ran the full suite with 2299 passed, 1 skipped, and 16 existing `ProductRenderingServiceTests` initialization failures caused by the local missing `Security:DB:PKSecret` user secret. `git diff --check` passed with CRLF conversion warnings only.
+
+---
