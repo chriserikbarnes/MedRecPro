@@ -179,7 +179,7 @@ namespace MedRecPro.Service.Test
                 .Returns(splDataService.Object);
             serviceProvider.Setup(x => x.GetService(typeof(SplXmlParser)))
                 .Returns(splXmlParser.Object);
-            serviceProvider.Setup(x => x.GetService(typeof(ApplicationDbContext)))
+            serviceProvider.Setup(x => x.GetService(typeof(MedRecProImportClass.Data.ApplicationDbContext)))
                 .Returns(dbContext);
 
             // Configure SplDataService to return non-duplicate for testing
@@ -190,8 +190,8 @@ namespace MedRecPro.Service.Test
 
             // Configure SplXmlParser to return successful result
             splXmlParser.Setup(x => x.ParseAndSaveSplDataAsync(It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<Action<string>>(), It.IsAny<ApplicationDbContext>()))
-                .ReturnsAsync(new SplFileImportResult
+                    It.IsAny<Action<string>>(), It.IsAny<MedRecProImportClass.Data.ApplicationDbContext>()))
+                .ReturnsAsync(new MedRecProImportClass.Models.SplFileImportResult
                 {
                     FileName = TestXmlFileName,
                     Success = true,
@@ -637,7 +637,7 @@ namespace MedRecPro.Service.Test
                 };
 
                 var resultSnapshots = new List<int>();
-                Action<List<SplZipImportResult>> results = r => resultSnapshots.Add(r.Count);
+                Action<List<MedRecProImportClass.Models.SplZipImportResult>> results = r => resultSnapshots.Add(r.Count);
                 Action<int> fileCounter = _ => { };
 
                 // Act

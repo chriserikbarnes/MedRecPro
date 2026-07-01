@@ -1,12 +1,13 @@
 ﻿
 using System.Xml.Linq;
 using MedRecPro.Models;
-using MedRecPro.Service.ParsingServices; // Import the new parsers
+using MedRecProImportClass.Service.ParsingServices; // Import the new parsers
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using sc = MedRecPro.Models.SplConstants;
 #pragma warning restore CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 #pragma warning disable CS8981 // The type name only contains lower-cased ascii characters. Such names may become reserved for the language.
 using c = MedRecPro.Models.Constant;
+using MRPI = MedRecProImportClass.Models;
 using MedRecPro.Data;
 using static MedRecPro.Models.Label;
 using Microsoft.EntityFrameworkCore;
@@ -285,13 +286,13 @@ namespace MedRecPro.Service
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="SplParseContext"/>
         /// <seealso cref="XDocument"/>
-        public virtual async Task<SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent,
+        public virtual async Task<MRPI.SplFileImportResult> ParseAndSaveSplDataAsync(string xmlContent,
             string fileNameInZip,
             Action<string>? reportProgress = null,
-            ApplicationDbContext? sharedDbContext = null)
+            MedRecProImportClass.Data.ApplicationDbContext? sharedDbContext = null)
         {
             #region implementation
-            var fileResult = new SplFileImportResult { FileName = fileNameInZip };
+            var fileResult = new MRPI.SplFileImportResult { FileName = fileNameInZip };
             XDocument xdoc;
 
             // Parse XML document with comprehensive error handling

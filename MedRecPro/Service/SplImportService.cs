@@ -1,17 +1,10 @@
-﻿using MedRecPro.Data;
-using MedRecPro.Models;
-using Microsoft.AspNetCore.Http;
+﻿using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.IO.Compression;
-using System.Linq;
-using System.Security.Claims;
 using System.Text;
-using System.Threading.Tasks;
+using MRPI = MedRecProImportClass.Models;
+using MRPI_S = MedRecProImportClass.Service;
+
 
 namespace MedRecPro.Service
 {
@@ -96,16 +89,16 @@ namespace MedRecPro.Service
         /// <seealso cref="BufferedFile"/>
         /// <seealso cref="SplXmlParser"/>
         /// <seealso cref="Label"/>
-        public async Task<List<SplZipImportResult>> ProcessZipFilesAsync(
+        public async Task<List<MRPI.SplZipImportResult>> ProcessZipFilesAsync(
             List<BufferedFile> bufferedFiles,
             long? currentUserId,
             CancellationToken token,
             Action<int> fileCounter,
             Action<string>? updateStatus = null,
-            Action<List<SplZipImportResult>>? results = null)
+            Action<List<MRPI.SplZipImportResult>>? results = null)
         {
             #region implementation
-            var allZipResults = new List<SplZipImportResult>();
+            var allZipResults = new List<MRPI.SplZipImportResult>();
             var progressTracker = new ProcessingProgressTracker(bufferedFiles.Count);
 
             foreach (var zipFile in bufferedFiles)
@@ -137,7 +130,7 @@ namespace MedRecPro.Service
         /// <seealso cref="SplZipImportResult"/>
         /// <seealso cref="BufferedFile"/>
         /// <seealso cref="Label"/>
-        private async Task<SplZipImportResult> processZipFileAsync(
+        private async Task<MRPI.SplZipImportResult> processZipFileAsync(
             BufferedFile zipFile,
             long? currentUserId,
             Action<string>? updateStatus,
@@ -145,7 +138,7 @@ namespace MedRecPro.Service
             CancellationToken token)
         {
             #region implementation
-            var zipResult = new SplZipImportResult { ZipFileName = zipFile.FileName };
+            var zipResult = new MRPI.SplZipImportResult { ZipFileName = zipFile.FileName };
 
             _logger.LogInformation("Processing ZIP file: {ZipFileName}", zipFile.FileName);
 
@@ -208,7 +201,7 @@ namespace MedRecPro.Service
             string zipFileName,
             long? currentUserId,
             Action<string>? updateStatus,
-            SplZipImportResult zipResult,
+            MRPI.SplZipImportResult zipResult,
             ProcessingProgressTracker progressTracker,
             CancellationToken token)
         {
@@ -253,9 +246,9 @@ namespace MedRecPro.Service
         /// </remarks>
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="ZipArchiveEntry"/>
-        /// <seealso cref="SplXmlParser"/>
+        /// <seealso cref="MRPI_S.SplXmlParser"/>
         /// <seealso cref="Label"/>
-        private async Task<SplFileImportResult> processXmlEntryAsync(
+        private async Task<MRPI.SplFileImportResult> processXmlEntryAsync(
             ZipArchiveEntry entry,
             long? currentUserId,
             Action<string>? updateStatus,
@@ -268,7 +261,7 @@ namespace MedRecPro.Service
                 var xmlFileGuid = parseXmlFileGuid(entry.Name);
 
                 using var scope = _scopeFactory.CreateScope();
-                var splDataService = scope.ServiceProvider.GetRequiredService<SplDataService>();
+                var splDataService = scope.ServiceProvider.GetRequiredService<MRPI_S.SplDataService>();
 
                 // Skip duplicate content
                 if (await splDataService.IsDuplicateSplDataAsync(xmlContent, xmlFileGuid))
@@ -277,7 +270,7 @@ namespace MedRecPro.Service
                 }
 
                 // Get shared DbContext for connection reuse
-                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var context = scope.ServiceProvider.GetRequiredService<MedRecProImportClass.Data.ApplicationDbContext>();
 
                 // Manually open connection - EF will keep it open and reuse it
                 var connection = context.Database.GetDbConnection();
@@ -288,7 +281,7 @@ namespace MedRecPro.Service
                     await storeXmlContentAsync(splDataService, xmlContent, xmlFileGuid,
                         currentUserId, entry.FullName, updateStatus);
 
-                    var xmlParser = scope.ServiceProvider.GetRequiredService<SplXmlParser>();
+                    var xmlParser = scope.ServiceProvider.GetRequiredService<MRPI_S.SplXmlParser>();
                     var result = await xmlParser.ParseAndSaveSplDataAsync(xmlContent,
                         entry.FullName, updateStatus, context);
 
@@ -325,7 +318,7 @@ namespace MedRecPro.Service
         /// <seealso cref="SplDataService"/>
         /// <seealso cref="Label"/>
         private async Task storeXmlContentAsync(
-            SplDataService splDataService,
+            MRPI_S.SplDataService splDataService,
             string xmlContent,
             Guid xmlFileGuid,
             long? currentUserId,
@@ -427,8 +420,8 @@ namespace MedRecPro.Service
         private void updateProgressAndResults(
             ProcessingProgressTracker progressTracker,
             Action<int> fileCounter,
-            Action<List<SplZipImportResult>>? results,
-            List<SplZipImportResult> allZipResults)
+            Action<List<MRPI.SplZipImportResult>>? results,
+            List<MRPI.SplZipImportResult> allZipResults)
         {
             #region implementation
             var progressPercentage = progressTracker.GetProgressPercentage();
@@ -444,12 +437,12 @@ namespace MedRecPro.Service
         /// Creates a result object for empty ZIP files.
         /// </summary>
         /// <returns>A SplFileImportResult indicating empty ZIP file</returns>
-        /// <seealso cref="SplFileImportResult"/>
+        /// <seealso cref="MRPI.SplFileImportResult"/>
         /// <seealso cref="Label"/>
-        private SplFileImportResult createEmptyZipResult()
+        private MRPI.SplFileImportResult createEmptyZipResult()
         {
             #region implementation
-            return new SplFileImportResult
+            return new MRPI.SplFileImportResult
             {
                 FileName = ZIP_ARCHIVE,
                 Success = false,
@@ -466,10 +459,10 @@ namespace MedRecPro.Service
         /// <returns>A SplFileImportResult indicating ZIP processing error</returns>
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="Label"/>
-        private SplFileImportResult createZipProcessingErrorResult(string errorMessage)
+        private MRPI.SplFileImportResult createZipProcessingErrorResult(string errorMessage)
         {
             #region implementation
-            return new SplFileImportResult
+            return new MRPI.SplFileImportResult
             {
                 FileName = ZIP_ARCHIVE_PROCESSING,
                 Success = false,
@@ -487,10 +480,10 @@ namespace MedRecPro.Service
         /// <returns>A SplFileImportResult indicating XML processing error</returns>
         /// <seealso cref="SplFileImportResult"/>
         /// <seealso cref="Label"/>
-        private SplFileImportResult createXmlProcessingErrorResult(string fileName, string errorMessage)
+        private MRPI.SplFileImportResult createXmlProcessingErrorResult(string fileName, string errorMessage)
         {
             #region implementation
-            return new SplFileImportResult
+            return new MRPI.SplFileImportResult
             {
                 FileName = fileName,
                 Success = false,
@@ -505,12 +498,12 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="fileName">The name of the XML file that was skipped</param>
         /// <returns>A SplFileImportResult indicating duplicate file was skipped</returns>
-        /// <seealso cref="SplFileImportResult"/>
+        /// <seealso cref="MRPI.SplFileImportResult"/>
         /// <seealso cref="Label"/>
-        private SplFileImportResult createSkippedDuplicateResult(string fileName)
+        private MRPI.SplFileImportResult createSkippedDuplicateResult(string fileName)
         {
             #region implementation
-            return new SplFileImportResult
+            return new MRPI.SplFileImportResult
             {
                 FileName = fileName,
                 Success = true,

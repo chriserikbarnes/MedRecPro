@@ -5735,7 +5735,7 @@ namespace MedRecPro.Api.Controllers
                 _queue.Enqueue(operationId, async token =>
                 {
                     // Update status to indicate processing has started
-                    var status = new ImportOperationStatus
+                    var status = new MedRecProImportClass.Models.ImportOperationStatus
                     {
                         Status = "Queued",
                         PercentComplete = 0,
@@ -5753,7 +5753,7 @@ namespace MedRecPro.Api.Controllers
                         int currentFileIndex = 0;
 
                         // Process ZIP files with progress and status callbacks
-                        List<SplZipImportResult> results = await _splImportService.ProcessZipFilesAsync(
+                        List<MedRecProImportClass.Models.SplZipImportResult> results = await _splImportService.ProcessZipFilesAsync(
                             bufferedFiles,
                             currentUserId,
                             source.Token,
