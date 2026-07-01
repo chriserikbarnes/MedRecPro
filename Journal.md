@@ -5521,3 +5521,15 @@ Updated and renamed the saved public-method coverage plan to [Plans/(progress) M
 **Verification.** Verified the ignored `Plans/` artifact directly with `Get-Item`, `Get-Content`, and `Select-String`; confirmed the old `(pending)` path no longer exists and the new `(progress)` plan contains `Progress.`, `Completed Plan Items`, `Outstanding Plan Items`, and `What Is Needed To Complete The Outstanding Items`. No build or test suite was rerun because this session only updated the plan artifact and journal.
 
 ---
+
+### 2026-07-01 6:54 PM EST — MedRecPro Coverage Inventory Refresh
+
+Updated [Plans/(progress) MedRecPro Public Method Test Coverage Expansion Plan.md](Plans/%28progress%29%20MedRecPro%20Public%20Method%20Test%20Coverage%20Expansion%20Plan.md) so the inventory reflects the deterministic test tranche already added to [MedRecProTest](MedRecProTest).
+
+**Inventory counts.** Refreshed the test-project evidence to 95 C# test files and 1,898 `[TestMethod]` methods, then updated the public-method coverage summary from 239 directly signaled / 399 gaps to 349 directly signaled / 289 gaps. The updated area counts now show Context 2/2/0, Helpers 159/101/58, Models 27/24/3, and Service 213/98/115 while preserving unchanged controller, data-access, filter, mapper, middleware, and todo counts.
+
+**Appendix progress.** Renamed Appendix A to track original public-method gaps with progress markers and marked 110 original appendix rows complete with `[x]` entries tied to their covering test files: 2 context methods, 86 helper methods, 14 model methods, and 8 service methods. Unmarked appendix rows remain outstanding.
+
+**Verification.** Verified the plan by direct `Select-String` and section-count checks because `Plans/` is ignored. The appendix marker totals match the refreshed coverage math. No build or test suite was rerun because this session updated the saved plan inventory and journal only.
+
+---
