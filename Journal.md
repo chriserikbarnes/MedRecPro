@@ -5391,3 +5391,27 @@ Added the smaller mobile-friendly ten-row option to the By System correlation cl
 **Verification.** `npm.cmd run lint` passed. `npm.cmd test` passed 10/10 test files and 63/63 tests. `npm.cmd run build` passed and refreshed `ae-dashboard.js`.
 
 ---
+
+### 2026-07-01 10:55 AM EST — Import Library Unification Runtime Trace Plan
+
+Created a saved implementation handoff for the `import-library-unification` branch after the minimal removal of the local parsing-services folder surfaced an import progress cache type mismatch.
+
+**Planning.** Added [(pending) Import Library Unification Runtime Trace Plan.md](Plans/(pending)%20Import%20Library%20Unification%20Runtime%20Trace%20Plan.md) with the root-cause analysis for the `MedRecProImportClass.Models.ImportOperationStatus` to `MedRecPro.Models.ImportOperationStatus` invalid cast, a minimal mapper-based stabilization path for `LabelController.UploadSplZips`, and staged DRY steps for [SplParsingService.cs](MedRecPro/Service/SplParsingService.cs) and [SplImportService.cs](MedRecPro/Service/SplImportService.cs).
+
+**Verification.** Verified the saved plan by exact `Get-Item` and `Get-Content` reads under ignored `Plans/`. No build or test suite was run because this session created a planning artifact only; the plan includes focused follow-up commands for `SplImportServiceTests`, mapper/status regression coverage, and import-progress runtime smoke testing.
+
+---
+
+### 2026-07-01 11:16 AM EST — Import Progress Boundary Stabilization
+
+Implemented the import-library unification runtime trace plan by making the SPL import progress cache round trip use the web status type consistently while leaving the broader web model layer intact.
+
+**Status boundary.** Updated [LabelController.cs](MedRecPro/Controllers/LabelController.cs) so `UploadSplZips` creates `MedRecPro.Models.ImportOperationStatus` for every `_statusStore.Set` call and maps import-library result DTOs through [ImportResultMapper.cs](MedRecPro/Mappers/ImportResultMapper.cs) before assigning `status.Results`.
+
+**Import adapters.** Reduced [SplParsingService.cs](MedRecPro/Service/SplParsingService.cs) to a compatibility adapter over `MedRecProImportClass.Service.SplXmlParser` and reduced [SplImportService.cs](MedRecPro/Service/SplImportService.cs) to a buffered-file adapter over `MedRecProImportClass.Service.SplImportService`. Registered the import-library DbContext, repository, parser, import service, and SPL data service in [Program.cs](MedRecPro/Program.cs). Carried the old empty-ZIP explicit result behavior into [MedRecProImportClass/Service/SplImportService.cs](MedRecProImportClass/Service/SplImportService.cs) so the delegated workflow preserves existing ZIP handling.
+
+**Tests.** Added [ImportResultMapperTests.cs](MedRecProTest/ImportResultMapperTests.cs) and [OperationStatusStoreTests.cs](MedRecProTest/OperationStatusStoreTests.cs), and updated [SplImportServiceTests.cs](MedRecProTest/SplImportServiceTests.cs) so the web adapter is tested against import-library service dependencies without pulling parser persistence into the ZIP traversal tests.
+
+**Verification.** `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SplImportServiceTests"` passed 16/16 tests. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~ImportResultMapper|FullyQualifiedName~OperationStatus"` passed 5/5 tests. `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecPro\MedRecPro.csproj --no-restore -p:UseAppHost=false` passed with 0 errors and the existing warning baseline. `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecProImportClass\MedRecProImportClass.csproj --no-restore` passed with 0 warnings and 0 errors. `git diff --check` passed with CRLF conversion warnings only. Runtime upload smoke was not run because no local app server and sample SPL ZIP were started for this pass.
+
+---

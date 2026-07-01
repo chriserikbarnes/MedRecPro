@@ -3,6 +3,7 @@ using MedRecPro.Data;
 using MedRecPro.DataAccess; // From LabelDataAccess.cs (Repository)
 using MedRecPro.Filters;
 using MedRecPro.Helpers;   // From DtoTransformer.cs (DtoTransformer, StringCipher)
+using MedRecPro.Mappers;
 using MedRecPro.Models; // From LabelClasses.cs
 using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
@@ -5735,7 +5736,7 @@ namespace MedRecPro.Api.Controllers
                 _queue.Enqueue(operationId, async token =>
                 {
                     // Update status to indicate processing has started
-                    var status = new MedRecProImportClass.Models.ImportOperationStatus
+                    var status = new ImportOperationStatus
                     {
                         Status = "Queued",
                         PercentComplete = 0,
@@ -5784,7 +5785,7 @@ namespace MedRecPro.Api.Controllers
                             results =>
                             {
                                 // Store results when processing is complete
-                                status.Results = results;
+                                status.Results = ImportResultMapper.ToWebResults(results);
                                 status.OperationId = operationId;
                                 status.ProgressUrl = progressUrl;
                                 _statusStore.Set(operationId, status);
@@ -5794,7 +5795,7 @@ namespace MedRecPro.Api.Controllers
                         // Mark operation as completed and store results
                         status.Status = "Completed";
                         status.PercentComplete = 100;
-                        status.Results = results; // fixed: assign the list
+                        status.Results = ImportResultMapper.ToWebResults(results);
                     }
                     catch (OperationCanceledException)
                     {

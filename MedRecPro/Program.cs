@@ -38,6 +38,7 @@ using RazorLight;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using ImportApplicationDbContext = MedRecProImportClass.Data.ApplicationDbContext;
 
 
 /**************************************************************/
@@ -84,6 +85,17 @@ if (string.IsNullOrEmpty(connectionString))
 
 /**************************************************************/
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(connectionString, sqlOptions =>
+    {
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null);
+        sqlOptions.CommandTimeout(60);
+    })
+     .LogTo(Console.WriteLine, LogLevel.Error));
+
+builder.Services.AddDbContext<ImportApplicationDbContext>(options =>
     options.UseSqlServer(connectionString, sqlOptions =>
     {
         sqlOptions.EnableRetryOnFailure(
@@ -177,6 +189,16 @@ builder.Services.AddScoped<ActivityLogActionFilter>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 
 builder.Services.AddScoped(typeof(Repository<>), typeof(Repository<>));
+
+builder.Services.AddScoped(typeof(MedRecProImportClass.DataAccess.Repository<>), typeof(MedRecProImportClass.DataAccess.Repository<>));
+
+builder.Services.AddTransient<MedRecProImportClass.Helpers.StringCipher>();
+
+builder.Services.AddScoped<MedRecProImportClass.Service.SplXmlParser>();
+
+builder.Services.AddScoped<MedRecProImportClass.Service.SplImportService>();
+
+builder.Services.AddScoped<MedRecProImportClass.Service.SplDataService>();
 
 builder.Services.AddScoped<SplXmlParser>();
 

@@ -11,6 +11,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using System.IO.Compression;
 using System.Text;
+using ImportApplicationDbContext = MedRecProImportClass.Data.ApplicationDbContext;
+using ImportSplData = MedRecProImportClass.Models.SplData;
+using ImportSplDataRepository = MedRecProImportClass.DataAccess.Repository<MedRecProImportClass.Models.SplData>;
+using ImportSplDataService = MedRecProImportClass.Service.SplDataService;
+using ImportSplImportService = MedRecProImportClass.Service.SplImportService;
 
 namespace MedRecPro.Service.Test
 {
@@ -138,7 +143,7 @@ namespace MedRecPro.Service.Test
         /// <returns>A configured SplImportService instance</returns>
         private SplImportService createMockedImportService()
         {
-            var logger = new Mock<ILogger<SplImportService>>();
+            var importLogger = new Mock<ILogger<ImportSplImportService>>();
             var scopeFactory = new Mock<IServiceScopeFactory>();
             var scope = new Mock<IServiceScope>();
             var serviceProvider = new Mock<IServiceProvider>();
@@ -147,11 +152,11 @@ namespace MedRecPro.Service.Test
             scopeFactory.Setup(x => x.CreateScope()).Returns(scope.Object);
             scope.Setup(x => x.ServiceProvider).Returns(serviceProvider.Object);
 
-            // Create shared in-memory database context for DI resolution
-            var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
+            // Create shared in-memory import-library database context for DI resolution
+            var dbOptions = new DbContextOptionsBuilder<ImportApplicationDbContext>()
                 .UseInMemoryDatabase($"SplImport_{Guid.NewGuid()}")
                 .Options;
-            var dbContext = new ApplicationDbContext(dbOptions);
+            var dbContext = new ImportApplicationDbContext(dbOptions);
 
             // Create configuration with required encryption key
             var testConfig = new ConfigurationBuilder()
@@ -161,44 +166,28 @@ namespace MedRecPro.Service.Test
                 })
                 .Build();
 
-            // Setup mock SplDataService (requires constructor args)
-            var splDataService = new Mock<SplDataService>(
-                new Mock<Repository<SplData>>(dbContext, new StringCipher(),
-                    new Mock<ILogger<SplData>>().Object, testConfig).Object,
+            // Setup mock import-library SplDataService so ZIP traversal remains isolated from parser persistence.
+            var splDataService = new Mock<ImportSplDataService>(
+                new Mock<ImportSplDataRepository>(dbContext, new MedRecProImportClass.Helpers.StringCipher(),
+                    new Mock<ILogger<ImportSplData>>().Object, testConfig).Object,
                 dbContext,
-                new Mock<ILogger<SplDataService>>().Object,
+                new Mock<ILogger<ImportSplDataService>>().Object,
                 testConfig);
 
-            // Setup mock SplXmlParser (requires constructor args)
-            var splXmlParser = new Mock<SplXmlParser>(
-                new Mock<IServiceProvider>().Object,
-                new Mock<ILogger<SplXmlParser>>().Object);
-
             // Register services for GetRequiredService resolution
-            serviceProvider.Setup(x => x.GetService(typeof(SplDataService)))
+            serviceProvider.Setup(x => x.GetService(typeof(ImportSplDataService)))
                 .Returns(splDataService.Object);
-            serviceProvider.Setup(x => x.GetService(typeof(SplXmlParser)))
-                .Returns(splXmlParser.Object);
-            serviceProvider.Setup(x => x.GetService(typeof(MedRecProImportClass.Data.ApplicationDbContext)))
+            serviceProvider.Setup(x => x.GetService(typeof(ImportApplicationDbContext)))
                 .Returns(dbContext);
 
-            // Configure SplDataService to return non-duplicate for testing
+            // Configure duplicate detection to bypass parser persistence while preserving ZIP traversal behavior.
             splDataService.Setup(x => x.IsDuplicateSplDataAsync(It.IsAny<string>(), It.IsAny<Guid>()))
-                .ReturnsAsync(false);
+                .ReturnsAsync(true);
             splDataService.Setup(x => x.GetOrCreateSplDataAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<long?>()))
                 .ReturnsAsync("encrypted-spl-data-id");
 
-            // Configure SplXmlParser to return successful result
-            splXmlParser.Setup(x => x.ParseAndSaveSplDataAsync(It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<Action<string>>(), It.IsAny<MedRecProImportClass.Data.ApplicationDbContext>()))
-                .ReturnsAsync(new MedRecProImportClass.Models.SplFileImportResult
-                {
-                    FileName = TestXmlFileName,
-                    Success = true,
-                    Message = "Successfully parsed and saved"
-                });
-
-            return new SplImportService(scopeFactory.Object, logger.Object);
+            var importService = new ImportSplImportService(scopeFactory.Object, importLogger.Object);
+            return new SplImportService(importService);
         }
 
         /**************************************************************/
