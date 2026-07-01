@@ -1,4 +1,5 @@
 using MedRecPro.Models;
+using MedRecPro.Models.Extensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace MedRecProTest
@@ -72,6 +73,64 @@ namespace MedRecProTest
             Assert.AreEqual(expected.CurrentFile, actual.CurrentFile);
             Assert.AreEqual(expected.TotalFiles, actual.TotalFiles);
             Assert.AreEqual("labels.zip", actual.Results?.Single().ZipFileName);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stores and retrieves comparison operation status through the typed extension methods.
+        /// </summary>
+        /// <remarks>
+        /// Guards the reflection-backed operation-status path that uses a separate cache prefix
+        /// from import operations.
+        /// </remarks>
+        /// <seealso cref="OperationStatusStoreExtensions.SetComparisonStatus"/>
+        /// <seealso cref="OperationStatusStoreExtensions.TryGetComparisonStatus"/>
+        [TestMethod]
+        public void SetComparisonStatus_TryGetComparisonStatus_ReturnsStoredStatus()
+        {
+            #region implementation
+            var store = new InMemoryOperationStatusStore();
+            var operationId = Guid.NewGuid().ToString();
+            var expected = new ComparisonOperationStatus
+            {
+                OperationId = operationId,
+                Status = "Completed",
+                PercentComplete = 100,
+                ProgressUrl = $"/api/Label/comparison/progress/{operationId}",
+                DocumentGuid = Guid.NewGuid()
+            };
+
+            store.SetComparisonStatus(operationId, expected);
+            var found = store.TryGetComparisonStatus(operationId, out var actual);
+
+            Assert.IsTrue(found);
+            Assert.IsNotNull(actual);
+            Assert.AreEqual(expected.OperationId, actual.OperationId);
+            Assert.AreEqual(expected.Status, actual.Status);
+            Assert.AreEqual(expected.PercentComplete, actual.PercentComplete);
+            Assert.AreEqual(expected.ProgressUrl, actual.ProgressUrl);
+            Assert.AreEqual(expected.DocumentGuid, actual.DocumentGuid);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the supported operation status types remain discoverable.
+        /// </summary>
+        /// <seealso cref="OperationStatusStoreExtensions.GetSupportedTypes"/>
+        /// <seealso cref="OperationStatusStoreExtensions.ClearStatusesByType{T}"/>
+        [TestMethod]
+        public void GetSupportedTypes_ClearStatusesByType_ReturnsSupportedTypeNamesAndDoesNotThrow()
+        {
+            #region implementation
+            var store = new InMemoryOperationStatusStore();
+
+            store.ClearStatusesByType<ComparisonOperationStatus>();
+            var supportedTypes = store.GetSupportedTypes().ToList();
+
+            CollectionAssert.Contains(supportedTypes, nameof(ImportOperationStatus));
+            CollectionAssert.Contains(supportedTypes, nameof(ComparisonOperationStatus));
             #endregion
         }
 
