@@ -19,7 +19,7 @@ namespace MedRecPro.Service.ParsingServices
     /// <seealso cref="ProductEvent"/>
     /// <seealso cref="Label"/>
     /// <seealso cref="PackagingLevel"/>
-    /// <seealso cref="ProductEventParser"/>
+    /// Related parser: <c>ProductEventParser</c>.
     public class ProductEventValidationService
     {
         #region implementation

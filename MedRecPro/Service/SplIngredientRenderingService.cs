@@ -420,7 +420,7 @@ namespace MedRecPro.Service
         /// <example>
         /// <code>
         /// var formatted = service.FormatSubstanceName("Example &amp; Substance");
-        /// // Returns: "Example & Substance"
+        /// // Returns: "Example &amp; Substance"
         /// </code>
         /// </example>
         /// <remarks>

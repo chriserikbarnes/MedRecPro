@@ -326,7 +326,7 @@ public class AzureSqlMetricsService
     /// <returns>The minimum <c>free_amount_remaining</c> value in the time window, or
     /// <see cref="FREE_TIER_MONTHLY_LIMIT"/> if no datapoints are returned.</returns>
     /// <remarks>
-    /// This is the original implementation that uses <see cref="MetricsClient.QueryResourcesAsync"/>.
+    /// This is the original implementation that uses <c>MetricsClient.QueryResourcesAsync</c>.
     /// It is retained as a fallback in case the REST endpoint returns nulls or is unavailable.
     /// </remarks>
     /// <example>
@@ -374,7 +374,7 @@ public class AzureSqlMetricsService
                     remainingSamples.AddRange(
                         timeSeries.Values
                             .Where(v => v.Minimum.HasValue)
-                            .Select(v => v.Minimum.Value));
+                            .Select(v => v.Minimum.GetValueOrDefault()));
                 }
             }
         }

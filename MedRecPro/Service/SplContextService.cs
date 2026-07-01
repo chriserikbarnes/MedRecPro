@@ -202,7 +202,7 @@ namespace MedRecPro.Service.ParsingServices
         /// like ComplianceActionParser to link to it.
         /// </summary>
         /// <seealso cref="PackageIdentifier"/>
-        /// <seealso cref="MedRecPro.Service.ParsingServices.PackagingParser"/>
+        /// Related parser: <c>PackagingParser</c>.
         public PackageIdentifier? CurrentPackageIdentifier { get; set; }
 
         /// <summary>
@@ -210,8 +210,7 @@ namespace MedRecPro.Service.ParsingServices
         /// allowing child parsers to link to it.
         /// </summary>
         /// <seealso cref="DocumentRelationship"/>
-        /// <seealso cref="MedRecPro.Service.ParsingServices.ComplianceActionParser"/>
-        /// <seealso cref="MedRecPro.Service.ParsingServices.CertificationProductLinkParser"/>
+        /// Related parsers: <c>ComplianceActionParser</c> and <c>CertificationProductLinkParser</c>.
         public DocumentRelationship? CurrentDocumentRelationship { get; set; }
 
         /// <summary>
@@ -219,7 +218,7 @@ namespace MedRecPro.Service.ParsingServices
         /// like AttachedDocumentParser to link to it.
         /// </summary>
         /// <seealso cref="ComplianceAction"/>
-        /// <seealso cref="MedRecPro.Service.ParsingServices.AttachedDocumentParser"/>
+        /// Related parser: <c>AttachedDocumentParser</c>.
         public ComplianceAction? CurrentComplianceAction { get; set; }
 
         /// <summary>

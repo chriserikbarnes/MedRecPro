@@ -39,7 +39,7 @@ namespace MedRecPro.Helpers
 
                 try
                 {
-                    errorMsg = (ErrorMsg)PerformanceHelper.GetCache(key) ?? new ErrorMsg();
+                    errorMsg = PerformanceHelper.GetCache(key) as ErrorMsg ?? new ErrorMsg();
                 }
                 catch
                 {
@@ -132,7 +132,7 @@ namespace MedRecPro.Helpers
 
                 key = string.Concat("Error", userName).GetSHA1HashString();
 
-                errorMsg = (ErrorMsg)PerformanceHelper.GetCache(key);
+                errorMsg = PerformanceHelper.GetCache(key) as ErrorMsg;
             }
             catch
             {
@@ -157,7 +157,7 @@ namespace MedRecPro.Helpers
             {
                 key = string.Concat("Error",Util.GetUserName() ??  System.Environment.UserName).GetSHA1HashString();
 
-                errorMsg = (ErrorMsg)PerformanceHelper.GetCache(key);
+                errorMsg = PerformanceHelper.GetCache(key) as ErrorMsg;
             }
             catch
             {

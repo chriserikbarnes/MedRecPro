@@ -1363,7 +1363,6 @@ namespace MedRecPro.DataAccess
         /// Applies common filters to IngredientView queries.
         /// Shared helper for DRY filter application across ingredient view types.
         /// </summary>
-        /// <typeparam name="T">The ingredient view type (IngredientView, ActiveIngredientView, or InactiveIngredientView).</typeparam>
         /// <param name="query">The base query to filter.</param>
         /// <param name="unii">Optional UNII for exact match.</param>
         /// <param name="substanceNameSearch">Optional substance name for partial/phonetic match.</param>

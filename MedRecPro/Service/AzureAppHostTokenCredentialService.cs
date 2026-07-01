@@ -74,7 +74,7 @@ public class AzureAppTokenProvider
         {
             // Exclude credentials that add latency or aren't useful for this scenario
             ExcludeInteractiveBrowserCredential = true,
-            ExcludeSharedTokenCacheCredential = true,
+            //ExcludeSharedTokenCacheCredential = true, // obsolete in .NET 8, replaced by ExcludeVisualStudioCodeCredential
 
             // Diagnostics for troubleshooting authentication issues
             Diagnostics =

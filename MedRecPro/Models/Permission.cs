@@ -1,10 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using MedRecPro.Helpers;
 using static MedRecPro.Models.Constant;
 
 namespace MedRecPro.Models
@@ -42,12 +39,6 @@ namespace MedRecPro.Models
     public class Permission
     {
         #region Properties
-        // DI fields for encryption and logging
-        private static IConfiguration? _configuration;
-        private static ILogger? _logger;
-        private static string? _encryptionKey;
-        private static StringCipher? _stringCipher;
-
         /// <summary>
         /// The contextual identity (actor type) for which this permission applies (e.g., Patient, Clinician, Aggregator).
         /// </summary>

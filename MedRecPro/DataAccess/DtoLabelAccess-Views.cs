@@ -901,6 +901,8 @@ namespace MedRecPro.DataAccess
         /// Combines all section markdown into a single document with metadata header.
         /// </summary>
         /// <param name="sections">Collection of section markdown DTOs.</param>
+        /// <param name="documentGuid">Optional document identifier included in the generated header.</param>
+        /// <param name="setGuid">Optional SPL set identifier included in the generated header.</param>
         /// <param name="documentTitle">The document title for the header.</param>
         /// <returns>Complete markdown string with header and all section content.</returns>
         /// <remarks>

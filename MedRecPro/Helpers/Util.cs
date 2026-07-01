@@ -259,7 +259,7 @@ namespace MedRecPro.Helpers
             catch (Exception e)
             {
                 ErrorHelper.AddErrorMsg($"Util.GetBearerToken: {e.Message}");
-                throw e;
+                throw;
             } 
             #endregion
         }
@@ -297,7 +297,10 @@ namespace MedRecPro.Helpers
                         // Note: Impersonation is different in .NET Core. If you still need impersonation logic,
                         // you must acquire a SafeAccessTokenHandle and call WindowsIdentity.RunImpersonated.
                         // For now, just get the current identity:
-                        user = WindowsIdentity.GetCurrent()?.Name;
+                        if (OperatingSystem.IsWindows())
+                        {
+                            user = WindowsIdentity.GetCurrent()?.Name;
+                        }
 
                     }
 
@@ -812,8 +815,8 @@ namespace MedRecPro.Helpers
         public static void SetValueFromString(this object target, string propertyName, string propertyValue)
         {
             #region implementation
-            PropertyInfo oProp = target?.GetType()?.GetProperty(propertyName);
-            Type tProp = oProp?.PropertyType;
+            PropertyInfo? oProp = target?.GetType()?.GetProperty(propertyName);
+            Type? tProp = oProp?.PropertyType;
 
             //Nullable properties have to be treated differently, since we 
             //  use their underlying property to set the value in the object
@@ -831,7 +834,7 @@ namespace MedRecPro.Helpers
                 }
 
                 //Get the underlying type property instead of the nullable generic
-                tProp = new NullableConverter(oProp.PropertyType).UnderlyingType;
+                tProp = new NullableConverter(oProp!.PropertyType).UnderlyingType;
             }
 
             //use the converter to get the correct value
@@ -859,8 +862,8 @@ namespace MedRecPro.Helpers
         public static string GetSHA1HashString<T>(this T obj, bool recursion = false)
         {
             #region implementation
-            string ret = null;
-            string txt = null;
+            string ret = string.Empty;
+            string txt = string.Empty;
             HashAlgorithm alg = SHA1.Create();
             StringBuilder sb = new StringBuilder();
             List<string> objVals = new List<string>(10);
@@ -872,7 +875,7 @@ namespace MedRecPro.Helpers
                     //when the object is a string
                     if (obj.GetType().Name.Equals("string", StringComparison.InvariantCultureIgnoreCase))
                     {
-                        txt = Convert.ToString(obj);
+                        txt = Convert.ToString(obj) ?? string.Empty;
 
                         //get the hash code
                         byte[] hash = alg.ComputeHash(Encoding.UTF8.GetBytes(txt));
@@ -880,15 +883,17 @@ namespace MedRecPro.Helpers
                         //build has from each byte
                         foreach (byte b in hash)
                         {
-                            sb?.Append(b.ToString("X2"));
+                            sb.Append(b.ToString("X2"));
                         }
 
-                        ret = sb?.ToString();
+                        ret = sb.ToString();
                     }
                     //this object is NOT a string
                     else
                     {
-                        ret = GetListHashString(obj as IEnumerable<T>);
+                        ret = obj is IEnumerable<T> enumerable
+                            ? GetListHashString(enumerable) ?? string.Empty
+                            : string.Empty;
 
                         //the object wasn't a list
                         if (string.IsNullOrEmpty(ret) && !recursion)
@@ -1144,11 +1149,11 @@ namespace MedRecPro.Helpers
         public static Guid? ConvertToGUID(this object a)
         {
             #region implementation
-            Guid? ret = null;
             try
             {
-                ret = Guid.Parse(Convert.ToString(a));
-                return ret;
+                return Guid.TryParse(Convert.ToString(a), out var guid)
+                    ? guid
+                    : null;
             }
             catch (Exception e)
             {
@@ -1242,13 +1247,13 @@ namespace MedRecPro.Helpers
             #region implementation
             try
             {
-                var ret = (T)obj.GetType().GetProperty(propName)?.GetValue(obj, null);
-                return ret;
+                var value = obj.GetType().GetProperty(propName)?.GetValue(obj, null);
+                return value is T typedValue ? typedValue : default!;
             }
             catch (Exception e)
             {
                 ErrorHelper.AddErrorMsg("Util.GetPropertyValue: " + e);
-                return default(T);
+                return default!;
             }
             #endregion
         }
@@ -1270,7 +1275,7 @@ namespace MedRecPro.Helpers
                 string ret = Convert.ToString(obj.GetType()
                     ?.GetProperty(propName)
                     ?.GetValue(obj, null)
-                    ?? string.Empty);
+                    ?? string.Empty) ?? string.Empty;
 
                 return ret;
             }
@@ -1293,14 +1298,14 @@ namespace MedRecPro.Helpers
         public static string GetPropertyValueAsString(this object obj, string propName, string propType)
         {
             #region implementation
-            string ret;
+            string ret = string.Empty;
 
             try
             {
                 ret = Convert.ToString(obj.GetType()
                    ?.GetProperty(propName)
                    ?.GetValue(obj, null)
-                   ?? string.Empty);
+                   ?? string.Empty) ?? string.Empty;
 
                 if (ret != null
                     && ret != string.Empty
@@ -1313,7 +1318,7 @@ namespace MedRecPro.Helpers
                    .ToShortDateString();
                 }
 
-                return ret;
+                return ret ?? string.Empty;
             }
             catch (Exception e)
             {

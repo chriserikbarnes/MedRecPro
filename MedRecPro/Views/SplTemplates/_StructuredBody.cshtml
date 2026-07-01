@@ -9,16 +9,17 @@
     }
 
     var viewModel = Model.StructuredBodyView;
+    var allSectionContexts = viewModel.AllSectionContexts ?? new List<SectionRendering>();
 
     // DIAGNOSTIC: Track section counts for duplication analysis
-    var sectionCount = viewModel.AllSectionContexts?.Count ?? 0;
-    var sectionIds = viewModel.AllSectionContexts != null
-        ? string.Join(",", viewModel.AllSectionContexts.Where(s => s.Section?.SectionID != null).Select(s => s.Section.SectionID))
+    var sectionCount = allSectionContexts.Count;
+    var sectionIds = allSectionContexts.Count > 0
+        ? string.Join(",", allSectionContexts.Where(s => s.Section?.SectionID != null).Select(s => s.Section.SectionID))
         : "none";
 }
 <!-- DUPLICATION_DIAG: StructuredBody rendering AllSectionContexts count=@sectionCount, SectionIDs=[@sectionIds] -->
 <structuredBody>
-    @foreach (var context in viewModel.AllSectionContexts)
+    @foreach (var context in allSectionContexts)
     {
         var sectionDtoHash = context.Section?.GetHashCode() ?? 0;
         var sectionRenderingHash = context.GetHashCode();

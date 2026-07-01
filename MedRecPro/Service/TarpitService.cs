@@ -135,7 +135,7 @@ public class TarpitService : IDisposable
     /// </summary>
     /// <param name="clientIp">The client IP address.</param>
     /// <remarks>
-    /// Uses <see cref="ConcurrentDictionary{TKey,TValue}.AddOrUpdate"/>
+    /// Uses <c>ConcurrentDictionary.AddOrUpdate</c>
     /// for atomic, thread-safe increment. If the dictionary exceeds
     /// <see cref="TarpitSettings.MaxTrackedIps"/>, oldest entries are evicted.
     /// </remarks>

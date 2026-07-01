@@ -355,7 +355,7 @@ namespace MedRecPro.Service.Common
         /// <returns>The decrypted integer value, or null if input is null/empty or parsing fails</returns>
         /// <seealso cref="DecryptToString"/>
         /// <seealso cref="TextUtil.Decrypt"/>
-        /// <seealso cref="Int32.TryParse"/>
+        /// Uses <c>int.TryParse</c> for safe parsing.
         /// <example>
         /// <code>
         /// var service = new EncryptionService(configuration);

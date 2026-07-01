@@ -164,6 +164,11 @@ namespace MedRecPro.Helpers
                     //log encrypted credential
                     ErrorHelper.AddErrorMsg("ConnectionString.getDbCredentialedConnection (info): " + credential);
 
+                    if (string.IsNullOrWhiteSpace(DatabaseKey))
+                    {
+                        throw new InvalidOperationException("Database credential key is not configured.");
+                    }
+
                     json = new StringCipher().Decrypt(credential, DatabaseKey);
 
                     if (!string.IsNullOrEmpty(json))

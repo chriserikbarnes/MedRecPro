@@ -5465,3 +5465,13 @@ Updated the root repository README so its architecture summary and file-structur
 **Verification.** Reviewed the July 1 import-related journal entries, checked the live `MedRecPro/Service` and `MedRecProImportClass/Service` folder layout, ran `rg -n "REST API: SPL parsing|ParsingServices/|20\+ specialized SPL XML parsers|Core SPL XML parsing|SPL ZIP file import and parsing orchestration|Console orchestration|upload/progress boundary|compatibility adapters" README.md`, and ran `git diff --check -- README.md`, which passed with only the repo's existing LF-to-CRLF working-copy warning. No build or test suite was run because this session changed Markdown documentation only.
 
 ---
+
+### 2026-07-01 3:26 PM EST — Compiler Warning Remediation Follow-Up
+
+Resolved the remaining Visual Studio active compiler warnings that were still visible after the initial warning-remediation pass by validating against a forced solution rebuild instead of relying on incremental build output.
+
+**Warning cleanup.** Fixed nullable flow, obsolete API, platform analyzer, XML documentation, and unused-member warnings across MedRecPro helpers, controllers, DTO/data-access files, SPL rendering services, Claude services, RazorLight templates, and program startup comments. Preserved the pre-existing user-owned deletion of [XmlHelpers.cs](MedRecPro/Helpers/XmlHelpers.cs) while working around the current solution baseline.
+
+**Verification.** `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecPro.sln --no-restore -t:Rebuild -p:UseAppHost=false` passed with 0 warnings and 0 errors. Parsed [build/medrecpro-warning-pass4-rebuild.log](build/medrecpro-warning-pass4-rebuild.log) and confirmed 0 warning lines. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore -p:UseAppHost=false` passed with 2315 passed, 1 skipped, and 0 failed. `git diff --check` completed with only Git LF-to-CRLF working-copy normalization notices.
+
+---

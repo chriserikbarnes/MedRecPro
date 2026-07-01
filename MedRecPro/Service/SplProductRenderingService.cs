@@ -195,8 +195,6 @@ namespace MedRecPro.Service
 
         private IPackageRenderingService? _packageRenderingService;
 
-        private IDictionaryUtilityService? _dictionaryUtilityService;
-
         private ICharacteristicRenderingService? _characteristicRenderingService;
 
         #endregion

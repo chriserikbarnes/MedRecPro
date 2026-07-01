@@ -5,6 +5,11 @@
 
 @if (Model != null)
 {
+    if (Model.Section == null)
+    {
+        return;
+    }
+
     var sectionModel = Model.Section;
     var sectionRootGuid = SplTemplateHelpers.GuidDown(sectionModel.SectionGUID);
 
@@ -27,9 +32,9 @@
             await IncludeAsync("_TextContent", Model.RenderedTextContent);
         }
 
-        @if (Model?.Section?.EffectiveTime != null)
+        @if (sectionModel.EffectiveTime != null)
         {
-            <effectiveTime @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(Model.Section.EffectiveTime)) />
+            <effectiveTime @SplTemplateHelpers.Attribute("value", SplTemplateHelpers.ToSplDate(sectionModel.EffectiveTime)) />
         }
 
         @* Render excerpt highlights if available *@

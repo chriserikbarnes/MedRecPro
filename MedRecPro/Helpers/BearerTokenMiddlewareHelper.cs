@@ -54,7 +54,7 @@ namespace MedRecPro.Helpers
 
                 ErrorHelper.AddErrorMsg($"TokenCacheMiddleware.GetTokenFromCache key (info): {tokenKey}");
 
-                token = (string)PerformanceHelper.GetCache(tokenKey) ?? string.Empty;
+                token = PerformanceHelper.GetCache(tokenKey) as string ?? string.Empty;
 
                 ErrorHelper.AddErrorMsg($"TokenCacheMiddleware.GetTokenFromCache token (info): {TextUtil.Truncate(token ?? "Empty", 30)}");
 

@@ -4360,7 +4360,6 @@ namespace MedRecPro.Models
         /// <summary>
         /// Stores product events like distribution or return quantities ([subjectOf][productEvent]). Based on Section 16.2.9, 16.2.10.
         /// </summary>
-        /// <seealso cref="ProductEventParser"/>
         /// <seealso cref="ProductEventValidationService"/>
         /// <seealso cref="Label"/>
         public class ProductEvent : IValidatableObject

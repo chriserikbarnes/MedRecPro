@@ -222,12 +222,11 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            var hasAuthors = documentDto?.DocumentAuthors?.Any() == true;
-
-            if (!hasAuthors)
+            var documentAuthors = documentDto?.DocumentAuthors;
+            if (documentAuthors is null || !documentAuthors.Any())
                 return null;
 
-            return documentDto.DocumentAuthors
+            return documentAuthors
                 .Where(a => a?.Organization?.OrganizationName != null)
                 .OrderBy(a => a.DocumentAuthorID ?? 0)
                 .ToList();
@@ -247,12 +246,11 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            var hasStructuredBodies = documentDto?.StructuredBodies?.Any() == true;
-
-            if (!hasStructuredBodies)
+            var structuredBodies = documentDto?.StructuredBodies;
+            if (structuredBodies is null || !structuredBodies.Any())
                 return null;
 
-            return documentDto.StructuredBodies
+            return structuredBodies
                 .OrderBy(sb => sb.StructuredBodyID ?? 0)
                 .ToList();
 

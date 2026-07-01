@@ -1,12 +1,10 @@
 ﻿
 /**************************************************************/
-/// <summary>
-/// MedRecPro API Application. 
-/// 
-/// IMPORTANT: When deploying to production, the caching settings
-/// at https://dash.cloudflare.com/{secret}/medrecpro.com/caching/configuration must be purged.
-/// Failing to purge will result in errors when loaging swagger docs.
-/// </summary>
+// MedRecPro API Application.
+//
+// IMPORTANT: When deploying to production, the caching settings
+// at https://dash.cloudflare.com/{secret}/medrecpro.com/caching/configuration must be purged.
+// Failing to purge will result in errors when loading swagger docs.
  /**************************************************************/
 
 using Azure.Identity;
@@ -365,21 +363,8 @@ builder.Services.AddCors(options =>
     #region implementation
 
     /**************************************************************/
-    /// <summary>
-    /// AllowLocalDevelopment - Permits cross-origin requests from localhost
-    /// </summary>
-    /// <remarks>
-    /// This policy allows:
-    /// - HTTP and HTTPS on localhost (various ports)
-    /// - HTTP and HTTPS on 127.0.0.1 (various ports)
-    /// - Local network IPs (192.168.x.x, 10.x.x.x)
-    /// 
-    /// Common development ports included:
-    /// - 5000/5001: Default Kestrel HTTP/HTTPS
-    /// - 7000-7299: Visual Studio HTTPS auto-assigned range
-    /// - 3000: Common for Node.js/React dev servers
-    /// - 8080: Common alternative HTTP port
-    /// </remarks>
+    // AllowLocalDevelopment permits cross-origin requests from local development origins:
+    // localhost, 127.0.0.1, local network IPs, and common Kestrel/Node/HTTP ports.
     /**************************************************************/
     options.AddPolicy("AllowLocalDevelopment", policy =>
     {
@@ -420,14 +405,8 @@ builder.Services.AddCors(options =>
     });
 
     /**************************************************************/
-    /// <summary>
-    /// Production policy for same-origin and trusted domains
-    /// </summary>
-    /// <remarks>
-    /// This policy is more restrictive and used in production.
-    /// Adjust the origins to match your actual deployment domains.
-    /// Note: MCP server is hosted at /mcp path under www.medrecpro.com (same origin).
-    /// </remarks>
+    // Production policy for same-origin and trusted domains.
+    // MCP server is hosted at /mcp under www.medrecpro.com (same origin).
     /**************************************************************/
     options.AddPolicy("Production", policy =>
     {
@@ -498,21 +477,8 @@ builder.Services.AddAuthentication(options =>
 
 #region MCP Server JWT Authentication
 /**************************************************************/
-/// <summary>
-/// Configures JWT Bearer authentication for tokens issued by the MCP Server.
-/// </summary>
-/// <remarks>
-/// This allows the MedRecPro API to accept tokens from the MCP server,
-/// enabling Claude and other MCP clients to access the API through
-/// the MCP gateway while preserving user identity.
-///
-/// The MCP server issues JWTs that contain:
-/// - Standard claims (iss, aud, exp, iat, jti)
-/// - User identity claims from upstream IdP (email, name, sub)
-/// - Encrypted upstream token for pass-through scenarios
-/// </remarks>
-/// <seealso cref="Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions"/>
-/// <seealso cref="Microsoft.IdentityModel.Tokens.TokenValidationParameters"/>
+// Configures JWT Bearer authentication for tokens issued by the MCP Server.
+// This allows MedRecPro API requests through the MCP gateway while preserving user identity.
 /**************************************************************/
 
 // Get MCP server settings from configuration
@@ -607,13 +573,7 @@ builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddAuthorization(options =>
 {
     /**************************************************************/
-    /// <summary>
-    /// BasicAuthPolicy - Requires Basic Authentication scheme.
-    /// </summary>
-    /// <remarks>
-    /// Used for endpoints that specifically require Basic Authentication
-    /// (username:password Base64 encoded in Authorization header).
-    /// </remarks>
+    // BasicAuthPolicy requires the Basic Authentication scheme.
     /**************************************************************/
     options.AddPolicy("BasicAuthPolicy", new AuthorizationPolicyBuilder()
         .AddAuthenticationSchemes("BasicAuthentication") // Ensure this matches the scheme name above
@@ -621,18 +581,7 @@ builder.Services.AddAuthorization(options =>
         .Build());
 
     /**************************************************************/
-    /// <summary>
-    /// ApiAccess - Policy that accepts both Identity cookies and MCP JWT tokens.
-    /// </summary>
-    /// <remarks>
-    /// This policy allows API endpoints to accept authentication from:
-    /// - Identity cookies (IdentityConstants.ApplicationScheme) for browser sessions
-    /// - MCP JWT Bearer tokens (McpBearer) for MCP server requests
-    ///
-    /// Use this policy on API endpoints that need to support both
-    /// direct browser access and MCP client access.
-    /// </remarks>
-    /// <seealso cref="Microsoft.AspNetCore.Identity.IdentityConstants"/>
+    // ApiAccess accepts both Identity cookies for browser sessions and MCP JWT bearer tokens.
     /**************************************************************/
     options.AddPolicy("ApiAccess", new AuthorizationPolicyBuilder()
         .AddAuthenticationSchemes(

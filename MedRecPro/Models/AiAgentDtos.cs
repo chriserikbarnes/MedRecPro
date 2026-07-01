@@ -430,7 +430,6 @@ namespace MedRecPro.Models
 
         /**************************************************************/
         /// <summary>
-        /// <summary>
         /// Step number to check for results before executing this step.
         /// If the referenced step returned data (non-empty array/object), this step is SKIPPED.
         /// Use for fallback/rescue patterns where a secondary query should only run if primary returned empty.

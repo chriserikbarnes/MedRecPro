@@ -192,44 +192,46 @@ namespace MedRecPro.Service
             if (parentProduct == null)
                 throw new ArgumentNullException(nameof(parentProduct));
 
+            var packaging = packagingLevel;
+
             var packageRendering = new PackageRendering
             {
-                PackagingLevelDto = packagingLevel,
+                PackagingLevelDto = packaging,
 
                 // Pre-compute all existing rendering properties
-                DisplayAttributes = GenerateDisplayAttributes(packagingLevel),
-                HasValidData = HasValidData(packagingLevel),
-                OrderedPackageIdentifiers = GetOrderedPackageIdentifiers(packagingLevel),
-                OrderedChildPackaging = GetOrderedChildPackaging(packagingLevel),
+                DisplayAttributes = GenerateDisplayAttributes(packaging),
+                HasValidData = HasValidData(packaging),
+                OrderedPackageIdentifiers = GetOrderedPackageIdentifiers(packaging),
+                OrderedChildPackaging = GetOrderedChildPackaging(packaging),
 
                 // Pre-compute availability flags
-                HasPackageIdentifiers = GetOrderedPackageIdentifiers(packagingLevel)?.Any() == true,
-                HasChildPackaging = GetOrderedChildPackaging(packagingLevel)?.Any() == true,
-                HasMarketing = packagingLevel?.MarketingStatuses?.Any() == true,
+                HasPackageIdentifiers = GetOrderedPackageIdentifiers(packaging)?.Any() == true,
+                HasChildPackaging = GetOrderedChildPackaging(packaging)?.Any() == true,
+                HasMarketing = packaging.MarketingStatuses?.Any() == true,
 
                 // Pre-compute formatted values with translation support
-                FormattedQuantityNumerator = FormatQuantity(packagingLevel.QuantityNumerator),
-                FormattedQuantityDenominator = FormatQuantity(packagingLevel.QuantityDenominator),
+                FormattedQuantityNumerator = FormatQuantity(packaging.QuantityNumerator),
+                FormattedQuantityDenominator = FormatQuantity(packaging.QuantityDenominator),
 
                 // Enhanced unit code information with translation codes from parent product
-                UnitCode = packagingLevel.PackageCode,
-                UnitCodeSystem = packagingLevel.PackageCodeSystem, // UCUM
-                NumeratorUnit = packagingLevel.QuantityNumeratorUnit,
+                UnitCode = packaging.PackageCode,
+                UnitCodeSystem = packaging.PackageCodeSystem, // UCUM
+                NumeratorUnit = packaging.QuantityNumeratorUnit,
 
                 // Enhanced package form information with parent product context
-                PackageFormCode = packagingLevel.PackageFormCode,
-                PackageFormCodeSystem = packagingLevel.PackageFormCodeSystem ?? parentProduct.FormCodeSystem ?? Constant.FDA_SPL_CODE_SYSTEM,
-                PackageFormDisplayName = packagingLevel.PackageFormDisplayName,
+                PackageFormCode = packaging.PackageFormCode,
+                PackageFormCodeSystem = packaging.PackageFormCodeSystem ?? parentProduct.FormCodeSystem ?? Constant.FDA_SPL_CODE_SYSTEM,
+                PackageFormDisplayName = packaging.PackageFormDisplayName,
 
                 // Set translation codes directly from packaging level data
                 // Numerator translation should use package form, not ingredient data
-                NumeratorTranslationCode = packagingLevel.NumeratorTranslationCode,
-                NumeratorCodeSystem = packagingLevel.NumeratorTranslationCodeSystem ?? parentProduct.FormCodeSystem ?? Constant.FDA_SPL_CODE_SYSTEM,
-                NumeratorDisplayName = packagingLevel.NumeratorTranslationDisplayName,
+                NumeratorTranslationCode = packaging.NumeratorTranslationCode,
+                NumeratorCodeSystem = packaging.NumeratorTranslationCodeSystem ?? parentProduct.FormCodeSystem ?? Constant.FDA_SPL_CODE_SYSTEM,
+                NumeratorDisplayName = packaging.NumeratorTranslationDisplayName,
 
                 //  Pre-compute marketing act properties
-                OrderedMarketingStatuses = GetOrderedMarketingStatusesForPackage(parentProduct, packagingLevel.PackagingLevelID),
-                HasMarketingAct = GetOrderedMarketingStatusesForPackage(parentProduct, packagingLevel.PackagingLevelID)?.Any() == true,
+                OrderedMarketingStatuses = GetOrderedMarketingStatusesForPackage(parentProduct, packaging.PackagingLevelID),
+                HasMarketingAct = GetOrderedMarketingStatusesForPackage(parentProduct, packaging.PackagingLevelID)?.Any() == true,
 
                 // Explicitly set denominator properties to null to prevent unwanted XML attributes
                 DenominatorTranslationCode = null,

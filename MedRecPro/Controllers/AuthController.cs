@@ -83,6 +83,7 @@ namespace MedRecPro.Controllers
         /// <param name="logger">Logger for logging information and errors.</param>
         /// <param name="configuration"></param>
         /// <param name="applicationDbContext">Used for waking the database early during authentication</param>
+        /// <param name="serviceScopeFactory">Factory for creating scoped services during authentication workflows.</param>
         public AuthController(SignInManager<User> signInManager,
             UserManager<User> userManager,
             ILogger<AuthController> logger,

@@ -237,7 +237,7 @@ namespace MedRecPro.DataAccess
         /// Runs a lightweight COUNT(*) query against vw_OrangeBookPatent with the same
         /// date range and text filters used by <see cref="SearchOrangeBookPatentsAsync"/>.
         /// Text filters use EF.Functions.Like with '%term%' to match the PartialMatchAny
-        /// behavior of <see cref="SearchFilterExtensions.FilterBySearchTerms{T}"/>.
+        /// behavior of <c>SearchFilterExtensions.FilterBySearchTerms</c>.
         /// </remarks>
         /// <seealso cref="SearchOrangeBookPatentsAsync"/>
         public static async Task<int> CountExpiringPatentsAsync(

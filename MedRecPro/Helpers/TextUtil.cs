@@ -201,8 +201,8 @@ namespace MedRecPro.Helpers
         public static string RemoveTags(this string html)
         {
             #region implementation
-            html = html.RemoveUnwantedTags(new List<string>(), true);
-            html = HttpUtility.HtmlDecode(html);
+            html = html.RemoveUnwantedTags(new List<string>(), true) ?? string.Empty;
+            html = HttpUtility.HtmlDecode(html) ?? string.Empty;
             return html;
             #endregion
         }
@@ -216,7 +216,7 @@ namespace MedRecPro.Helpers
         public static string RemoveUnwantedTags(this string html)
         {
             #region implementation
-            html = html.RemoveUnwantedTags(new List<string>() { "em", "p", "b" }, false);
+            html = html.RemoveUnwantedTags(new List<string>() { "em", "p", "b" }, false) ?? string.Empty;
             return html;
             #endregion
         }
@@ -749,7 +749,7 @@ namespace MedRecPro.Helpers
                 ErrorHelper.AddErrorMsg("FacetData.SanitizeXML: " + e);
             }
 
-            return null;
+            return string.Empty;
             #endregion
         }
 
@@ -770,32 +770,35 @@ namespace MedRecPro.Helpers
         public static List<string> UnpackDelimitedValues(this List<string> values, char delimiter)
         {
             #region implementation
+            if (values == null)
+            {
+                return new List<string>();
+            }
+
             try
             {
                 //break apart any delimiter delimited strings and
                 //use them as individual menu elements
-                if (values != null
-                    && values.Count > 0
+                if (values.Count > 0
                     && values.Any(x => x.Contains(delimiter)))
                 {
                     //split delimited strings and add to list
                     values
-                        ?.Where(x => !string.IsNullOrEmpty(x) && x.Contains(delimiter))
-                        ?.Select(x => x)
-                    ?.ToList()
-                        ?.ForEach(y => values.AddRange(y.Split(delimiter).ToList()));
+                        .Where(x => !string.IsNullOrEmpty(x) && x.Contains(delimiter))
+                        .ToList()
+                        .ForEach(y => values.AddRange(y.Split(delimiter).ToList()));
 
                     //remove delimited strings as they were
                     //parsed and divided above
                     values
-                        ?.RemoveAll(x => x.Contains(delimiter));
+                        .RemoveAll(x => x.Contains(delimiter));
 
                     //order the new values and
                     //create a distinct list
                     values = values
-                        ?.OrderBy(x => x)
-                        ?.Distinct()
-                        ?.ToList();
+                        .OrderBy(x => x)
+                        .Distinct()
+                        .ToList();
                 }
             }
             catch (Exception e)
@@ -803,7 +806,7 @@ namespace MedRecPro.Helpers
                 ErrorHelper.AddErrorMsg("TextUtil.UnpackDelimitedValues (failed string unpacking): " + e.Message);
             }
 
-            return values;
+            return values ?? new List<string>();
             #endregion
         }
 
@@ -823,31 +826,28 @@ namespace MedRecPro.Helpers
 
             Color color = Color.FromKnownColor(knownColor);
 
-            if (color != null)
+            try
             {
-                try
-                {
-                    stringBuilder.Append("rgba(");
-                    stringBuilder.Append(Convert.ToString((int)color.R));
-                    stringBuilder.Append(",");
-                    stringBuilder.Append(Convert.ToString((int)color.G));
-                    stringBuilder.Append(",");
-                    stringBuilder.Append(Convert.ToString((int)color.B));
-                    stringBuilder.Append(",");
-                    if (alpha <= 1.0)
-                        stringBuilder.Append(alpha.ToString("N1"));
-                    else
-                        stringBuilder.Append("1.0");
-                    stringBuilder.Append(")");
+                stringBuilder.Append("rgba(");
+                stringBuilder.Append(Convert.ToString((int)color.R));
+                stringBuilder.Append(",");
+                stringBuilder.Append(Convert.ToString((int)color.G));
+                stringBuilder.Append(",");
+                stringBuilder.Append(Convert.ToString((int)color.B));
+                stringBuilder.Append(",");
+                if (alpha <= 1.0)
+                    stringBuilder.Append(alpha.ToString("N1"));
+                else
+                    stringBuilder.Append("1.0");
+                stringBuilder.Append(")");
 
-
-                    return stringBuilder.ToString();
-                }
-                catch (Exception e)
-                {
-                    ErrorHelper.AddErrorMsg("Util.ToRGBA: " + e);
-                }
+                return stringBuilder.ToString();
             }
+            catch (Exception e)
+            {
+                ErrorHelper.AddErrorMsg("Util.ToRGBA: " + e);
+            }
+
             return string.Empty;
             #endregion
         }
@@ -894,7 +894,7 @@ namespace MedRecPro.Helpers
                 ErrorHelper.AddErrorMsg("TextUtil.GetGuidRowXML: " + e);
             }
 
-            return xml;
+            return xml ?? string.Empty;
 
             #endregion
         }
@@ -914,7 +914,7 @@ namespace MedRecPro.Helpers
         public static string ListToCommaString<T>(this IEnumerable<T> obj)
         {
             #region implementation
-            string ret = null;
+            string ret = string.Empty;
             //List<T> objList;
             ConcurrentBag<string> objVals = new ConcurrentBag<string>();
             //double t1, t2, t3;
@@ -932,12 +932,12 @@ namespace MedRecPro.Helpers
                     {
                         if (objArr[i] != null)
                         {
-                            var props = objArr[i].GetType().GetProperties();
+                            var props = objArr[i]!.GetType().GetProperties();
 
                             for (int k = 0; k < props.Count(); k++)
                             {
                                 string name = props[k].Name;
-                                objVals.Add(name + ":" + objArr[i].GetPropertyValueAsString(name));
+                                objVals.Add(name + ":" + objArr[i]!.GetPropertyValueAsString(name));
                             }
                         }
                     }
@@ -975,7 +975,7 @@ namespace MedRecPro.Helpers
         public static string ToCommaString<T>(this T obj)
         {
             #region implementation
-            string ret = null;
+            string ret = string.Empty;
             List<string> objVals = new List<string>();
 
             try
@@ -984,7 +984,9 @@ namespace MedRecPro.Helpers
                 if (obj != null)
                 {
                     //in case this is a list
-                    ret = ListToCommaString(obj as IEnumerable<T>);
+                    ret = obj is IEnumerable<T> enumerable
+                        ? ListToCommaString(enumerable)
+                        : string.Empty;
 
                     //process if the object wasn't a list
                     if (string.IsNullOrEmpty(ret))
@@ -1056,7 +1058,7 @@ namespace MedRecPro.Helpers
         public static List<string> CommaDelimitedToList(this string txt)
         {
             #region implementation
-            List<string> ret = null;
+            List<string> ret = new List<string>();
 
             try
             {
@@ -1064,14 +1066,11 @@ namespace MedRecPro.Helpers
                 if (txt.Contains(','))
                 {
                     //split to array
-                    string[] ar = txt?.Split(',');
+                    string[] ar = txt.Split(',');
 
                     //if the array has elements then process
                     if (ar != null && ar.Length > 0)
                     {
-                        //initialize list
-                        ret = new List<string>(ar.Length);
-
                         //walk array
                         for (int i = 0; i < ar.Length; i++)
                         {
@@ -1079,15 +1078,14 @@ namespace MedRecPro.Helpers
                             if (!string.IsNullOrEmpty(ar[i]))
                             {
                                 //add trimmed string to list
-                                ret?.Add(ar[i].Trim());
+                                ret.Add(ar[i].Trim());
                             }
                         }
                     }
                 }
                 else if (!string.IsNullOrEmpty(txt))
                 {
-                    ret = new List<string>();
-                    ret?.Add(txt.Trim());
+                    ret.Add(txt.Trim());
                 }
             }
             catch (Exception e)
@@ -1116,7 +1114,7 @@ namespace MedRecPro.Helpers
         public static string RemoveJSONChars(this string txt)
         {
             #region implementation
-            string ret = null;
+            string ret = string.Empty;
 
             /*
              * Removes special characters except whitespace,
@@ -1275,10 +1273,10 @@ namespace MedRecPro.Helpers
            string destinationGUID,
            bool isExternal,
            string category,
-           string newOwner = null,
-           string newOffice = null,
-           string reason = null,
-           string returnToMeBy = null)
+           string? newOwner = null,
+           string? newOffice = null,
+           string? reason = null,
+           string? returnToMeBy = null)
         {
             #region implementation
 
@@ -1416,7 +1414,7 @@ namespace MedRecPro.Helpers
         {
             #region implementation
 
-            Tuple<string, string> ret = new Tuple<string, string>(null, null);
+            Tuple<string, string> ret = new Tuple<string, string>(string.Empty, string.Empty);
 
             //helper to convert text to title case
             TextInfo tc = new CultureInfo("en-US", false).TextInfo;
@@ -1523,7 +1521,7 @@ namespace MedRecPro.Helpers
             }
             else
             {
-                return null;
+                return string.Empty;
             }
 
             #endregion
@@ -1551,7 +1549,7 @@ namespace MedRecPro.Helpers
             }
             else
             {
-                return null;
+                return string.Empty;
             }
             #endregion
         }
@@ -1590,8 +1588,8 @@ namespace MedRecPro.Helpers
                 {
                     //regex is to remove any misplaced returns or tabs that would
                     //really mess up a csv conversion.
-                    str2 = string.Join(separator, fields.Select(f => (Regex.Replace(Convert.ToString(f.GetValue(o)), @"(?!\.)(?!-)(?!\/)(?!\\)([\t|\r|\n|\W+])", @" ") ?? "").Trim())
-                       .Concat(properties.Select(p => (Regex.Replace(Convert.ToString(p.GetValue(o, null)), @"(?!\.)(?!-)(?!\/)(?!\\)([\t|\r|\n|\W+])", @" ") ?? "").Trim())).ToArray());
+                    str2 = string.Join(separator, fields.Select(f => Regex.Replace(Convert.ToString(f.GetValue(o)) ?? string.Empty, @"(?!\.)(?!-)(?!\/)(?!\\)([\t|\r|\n|\W+])", @" ").Trim())
+                       .Concat(properties.Select(p => Regex.Replace(Convert.ToString(p.GetValue(o, null)) ?? string.Empty, @"(?!\.)(?!-)(?!\/)(?!\\)([\t|\r|\n|\W+])", @" ").Trim())).ToArray());
                 }
                 else
                 {
@@ -1616,6 +1614,13 @@ namespace MedRecPro.Helpers
         {
             #region implementation
             XDocument xDoc = XDocument.Parse(xmlString);
+            var root = xDoc.Root;
+            if (root == null || !root.Elements().Any())
+            {
+                return string.Empty;
+            }
+
+            var rootElements = root.Elements().ToList();
 
             string xmlDataString;
 
@@ -1626,16 +1631,14 @@ namespace MedRecPro.Helpers
                 : ",";
 
             // Get title row 
-            var titlesList = xDoc.Root
-                .Elements()
+            var titlesList = rootElements
                 .First()
                 .Elements()
                 .Select(s => s.Name.LocalName)
                 .ToList();
 
             // Get the values
-            var masterValuesList = xDoc.Root
-                .Elements()
+            var masterValuesList = rootElements
                 .Select(e => e
                     .Elements()
                     .Select(c => c.Value)
@@ -1881,7 +1884,7 @@ namespace MedRecPro.Helpers
         {
             #region implementation
             StringBuilder sb = new StringBuilder();
-            string ret = null;
+            string ret = string.Empty;
 
             try
             {
@@ -1944,7 +1947,7 @@ namespace MedRecPro.Helpers
             string name;
             Uri SomeBaseUri = new Uri("http://canbeanything");
 
-            Uri uri;
+            Uri? uri;
             if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
             {
                 uri = new Uri(SomeBaseUri, url);
@@ -1965,7 +1968,6 @@ namespace MedRecPro.Helpers
         /// <summary>
         /// Converts string to title case
         /// </summary>
-        /// <typeparam name="?"></typeparam>
         /// <param name="txt"></param>
         /// <returns></returns>
         public static string ToTitle(this string txt)
@@ -1981,7 +1983,7 @@ namespace MedRecPro.Helpers
                 txt = ti.ToTitleCase(txt);
             }
 
-            ret = txt;
+            ret = txt ?? string.Empty;
 
             return ret;
             #endregion
@@ -2576,7 +2578,7 @@ namespace MedRecPro.Helpers
         /******************************************************/
         public static bool IsUrl(this string input)
         {
-            Uri uriResult;
+            Uri? uriResult;
             return Uri.TryCreate(input, UriKind.Absolute, out uriResult)
                    && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
         }
@@ -2598,7 +2600,7 @@ namespace MedRecPro.Helpers
         /******************************************************/
         public static bool IsIpAddress(this string input)
         {
-            IPAddress ip;
+            IPAddress? ip;
             return IPAddress.TryParse(input, out ip);
         }
 

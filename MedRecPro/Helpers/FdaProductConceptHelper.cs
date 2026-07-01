@@ -331,8 +331,8 @@ namespace MedRecPro.Helpers
 
                 // Normalize strength
                 var (normalizedStrength, combinedUnit) = NormalizeStrength(
-                    ingredient.StrengthNumerator, ingredient.StrengthNumeratorUnit,
-                    ingredient.StrengthDenominator, ingredient.StrengthDenominatorUnit);
+                    ingredient.StrengthNumerator, ingredient.StrengthNumeratorUnit ?? string.Empty,
+                    ingredient.StrengthDenominator, ingredient.StrengthDenominatorUnit ?? string.Empty);
 
                 // Format strength in scientific notation
                 var formattedStrength = FormatScientificNotation(normalizedStrength);
@@ -385,7 +385,7 @@ namespace MedRecPro.Helpers
             foreach (var part in sortedParts)
             {
                 // Normalize quantity (denominator is always 1 for kit parts)
-                var (numFactor, numNormalizedUnit) = NormalizeUnit(part.QuantityNumeratorUnit);
+                var (numFactor, numNormalizedUnit) = NormalizeUnit(part.QuantityNumeratorUnit ?? string.Empty);
                 var normalizedQuantity = part.QuantityNumerator * numFactor;
 
                 // Format quantity in scientific notation

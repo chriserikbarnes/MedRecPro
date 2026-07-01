@@ -577,7 +577,7 @@ namespace MedRecPro.Controllers
             try
             {
                 // Decrypt the user ID
-                string decryptedValue = TextUtil.Decrypt(encryptedUserId, _pkSecret);
+                string? decryptedValue = TextUtil.Decrypt(encryptedUserId, _pkSecret);
 
                 if (string.IsNullOrWhiteSpace(decryptedValue))
                 {
@@ -921,18 +921,17 @@ namespace MedRecPro.Controllers
             }
             catch (FormatException ex) // Catch specific format errors (e.g. from base64 decoding if StringCipher throws it)
             {
-                // Log ex appropriately
+                _logger.LogWarning(ex, "Invalid encrypted user ID format for GetUser");
                 return BadRequest("Invalid encrypted User ID structure.");
             }
             catch (CryptographicException ex) // Catch decryption errors
             {
-                // Log ex (securely, avoid leaking sensitive info)
+                _logger.LogWarning(ex, "Failed to decrypt user ID for GetUser");
                 return BadRequest("Invalid User ID. Decryption failed."); // Generic error for security
             }
             catch (Exception ex) // Catch other potential errors from data access or unexpected issues
             {
-                // Log ex
-                // Consider a more specific logging and error handling strategy
+                _logger.LogError(ex, "Unexpected error retrieving user");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
             }
             #endregion
@@ -1195,7 +1194,7 @@ namespace MedRecPro.Controllers
             }
             catch (Exception ex)
             {
-                // Log ex
+                _logger.LogError(ex, "Unexpected error during user sign-up");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred during user sign-up.");
             }
             #endregion
@@ -1246,6 +1245,12 @@ namespace MedRecPro.Controllers
 
             try
             {
+                if (string.IsNullOrWhiteSpace(loginRequest.Email) ||
+                    string.IsNullOrWhiteSpace(loginRequest.Password))
+                {
+                    return BadRequest("Email and password are required.");
+                }
+
                 var user = await _userDataAccess.AuthenticateAsync(loginRequest.Email, loginRequest.Password);
 
                 if (user == null)
@@ -1393,7 +1398,7 @@ namespace MedRecPro.Controllers
             }
             catch (Exception ex)
             {
-                // Log ex
+                _logger.LogError(ex, "Unexpected error during authentication");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authentication.");
             }
             #endregion
@@ -1609,7 +1614,7 @@ namespace MedRecPro.Controllers
             }
             catch (Exception ex)
             {
-                // Log ex
+                _logger.LogError(ex, "Unexpected error deleting user");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while deleting the user.");
             }
             #endregion
@@ -1698,7 +1703,7 @@ namespace MedRecPro.Controllers
             }
             catch (Exception ex)
             {
-                // Log ex
+                _logger.LogError(ex, "Unexpected error during admin user update");
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during the admin update process.");
             }
             #endregion

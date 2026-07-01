@@ -98,6 +98,7 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="hierarchyService">Service for section hierarchy operations and organization</param>
         /// <param name="structuredBodyService">Service for structured body utility operations</param>
+        /// <param name="logger">Logger for structured body view model diagnostics.</param>
         /// <seealso cref="ISectionHierarchyService"/>
         /// <seealso cref="IStructuredBodyService"/>
         /// <example>
@@ -166,32 +167,33 @@ namespace MedRecPro.Service
         public StructuredBodyViewModel Create(StructuredBodyDto structuredBodyDto)
         {
             #region implementation
+            var body = structuredBodyDto ?? throw new ArgumentNullException(nameof(structuredBodyDto));
 
-            var structuredBodyId = structuredBodyDto?.StructuredBodyID;
+            var structuredBodyId = body.StructuredBodyID;
 
             _logger.LogInformation(
                 "[DUPLICATION_DIAG] Factory.Create START: StructuredBodyID={StructuredBodyId}, TotalSections={SectionCount}",
-                structuredBodyId, structuredBodyDto?.Sections?.Count ?? 0);
+                structuredBodyId, body.Sections?.Count ?? 0);
 
             // Use hierarchy service for core organization logic - separates standalone from hierarchical sections
-            var organizedSections = _hierarchyService.OrganizeSections(structuredBodyDto);
+            OrganizedSectionStructure organizedSections = _hierarchyService.OrganizeSections(body) ?? new OrganizedSectionStructure();
 
             // DIAGNOSTIC: Log organized section counts
             _logger.LogInformation(
                 "[DUPLICATION_DIAG] Factory.Create StructuredBodyID={StructuredBodyId}: OrganizedSections - " +
                 "Standalone={StandaloneCount}, Root={RootCount}",
                 structuredBodyId,
-                organizedSections?.StandaloneSections?.Count ?? 0,
-                organizedSections?.RootSections?.Count ?? 0);
+                organizedSections.StandaloneSections?.Count ?? 0,
+                organizedSections.RootSections?.Count ?? 0);
 
             // Get valid sections and create lookup dictionary for efficient access during context creation
-            var allSections = _hierarchyService.GetValidSections(structuredBodyDto.Sections);
+            var allSections = _hierarchyService.GetValidSections(body.Sections ?? new List<SectionDto>());
             var sectionLookup = _hierarchyService.CreateSectionLookup(allSections);
 
             // Create the base view model with core data and organizational flags
             var viewModel = new StructuredBodyViewModel
             {
-                StructuredBody = structuredBodyDto,
+                StructuredBody = body,
                 OrganizedSections = organizedSections,
                 HasStandaloneSections = _structuredBodyService.HasStandaloneSections(organizedSections),
                 HasHierarchicalSections = _structuredBodyService.HasHierarchicalSections(organizedSections)
@@ -200,11 +202,11 @@ namespace MedRecPro.Service
             // Create pre-computed rendering contexts for efficient UI rendering
             viewModel.StandaloneSectionContexts = createStandaloneSectionContexts(organizedSections);
             viewModel.HierarchicalSectionContexts = createHierarchicalSectionContexts(
-                organizedSections, structuredBodyDto, sectionLookup);
+                organizedSections, body, sectionLookup);
 
             // Create unified section context list preserving original document order
             viewModel.AllSectionContexts = createAllSectionContexts(
-                structuredBodyDto, organizedSections, sectionLookup);
+                body, organizedSections, sectionLookup);
 
             // DIAGNOSTIC: Log created collection details with section IDs
             var standaloneIds = viewModel.StandaloneSectionContexts != null

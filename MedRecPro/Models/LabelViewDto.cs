@@ -3,19 +3,8 @@
 
 namespace MedRecPro.Models
 {
-    /*******************************************************************************/
-    /// <summary>
-    /// Container for all SPL Label navigation view DTOs. These DTOs provide
-    /// a flexible Dictionary-based structure for API responses with encrypted IDs
-    /// for security.
-    /// </summary>
-    /// <remarks>
-    /// All DTOs use the Dictionary&lt;string, object?&gt; pattern for flexible
-    /// serialization. Helper properties with [Newtonsoft.Json.JsonIgnore] provide
-    /// type-safe access to commonly used fields with automatic ID decryption.
-    /// </remarks>
-    /// <seealso cref="LabelView"/>
-    /// <seealso cref="DtoLabelAccess"/>
+    // Container for SPL Label navigation view DTOs. These DTOs provide
+    // Dictionary-based API responses with encrypted IDs for security.
 
     #region Application Number Navigation DTOs
 
@@ -2113,7 +2102,7 @@ namespace MedRecPro.Models
         /// Format in responses as: [View Full Label ({ProductName})]({ViewLabelUrl})
         /// </remarks>
         /// <example>https://medrecpro.example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/false</example>
-        /// <seealso cref="LabelController.OriginalXmlDocument"/>
+        /// Source endpoint: <c>LabelController.OriginalXmlDocument</c>.
         public string? ViewLabelUrl { get; set; }
 
         /**************************************************************/
@@ -2127,7 +2116,7 @@ namespace MedRecPro.Models
         /// whitespace from the XML but renders identically in a browser.
         /// </remarks>
         /// <example>https://medrecpro.example.com/api/Label/original/052493C7-89A3-452E-8140-04DD95F0D9E2/true</example>
-        /// <seealso cref="LabelController.OriginalXmlDocument"/>
+        /// Source endpoint: <c>LabelController.OriginalXmlDocument</c>.
         public string? ViewLabelMinifiedUrl { get; set; }
 
         /**************************************************************/

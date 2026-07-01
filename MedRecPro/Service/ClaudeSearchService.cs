@@ -769,7 +769,7 @@ namespace MedRecPro.Service
                 {
                     foreach (var productName in parsed.productNames)
                     {
-                        string name = productName.ToString()?.Trim();
+                        string? name = productName.ToString()?.Trim();
                         if (!string.IsNullOrWhiteSpace(name))
                         {
                             result.ProductNames.Add(name);

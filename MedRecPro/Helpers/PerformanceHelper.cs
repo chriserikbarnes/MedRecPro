@@ -57,7 +57,7 @@ namespace MedRecPro.Helpers
         public static Random Rnd { get; private set; } = new Random(Guid.NewGuid().GetHashCode());
         public static bool Initialized { get; private set; }
 
-        private static PerformanceProperty p;
+        private static PerformanceProperty p = new PerformanceProperty();
 
         private PerformanceHelper() { }
 
@@ -214,7 +214,7 @@ namespace MedRecPro.Helpers
                     // Log cache counts if the log timer was expired and there are enough items
                     if (isExpired && expirationMap.Count > 2)
                     {
-                        int expiredCount = expirationMap?.Count(kv => kv.Value < DateTimeOffset.Now) ?? 0;
+                        int expiredCount = expirationMap.Count(kv => kv.Value < DateTimeOffset.Now);
                         ErrorHelper.AddErrorMsg($"PerformanceHelper.SetCache (info): Cached count ({expirationMap.Count})");
                         ErrorHelper.AddErrorMsg($"PerformanceHelper.SetCache (info): Expired cached count ({expiredCount})");
                     }
@@ -325,7 +325,9 @@ namespace MedRecPro.Helpers
                     else
                     {
                         //there is an active timer; don't reset.
-                        logTimer = (DateTimeOffset)GetCache(logTimerKey);
+                        logTimer = GetCache(logTimerKey) is DateTimeOffset cachedLogTimer
+                            ? cachedLogTimer
+                            : DateTimeOffset.Now.AddMinutes(3);
                     }
                 }
                 catch
@@ -339,7 +341,7 @@ namespace MedRecPro.Helpers
                 #endregion
 
                 //get the dictionary of cached objects with expirations
-                var tempDict = (Dictionary<string, DateTimeOffset>)cache.Get(p.ExpirationKey);
+                var tempDict = cache.Get(p.ExpirationKey) as Dictionary<string, DateTimeOffset>;
 
                 #endregion
 
@@ -362,7 +364,7 @@ namespace MedRecPro.Helpers
                     }
                     catch
                     {
-                        cacheExpirationsBag = null;
+                        cacheExpirationsBag = new ConcurrentDictionary<string, DateTimeOffset>();
                     }
                 }
 
@@ -417,8 +419,8 @@ namespace MedRecPro.Helpers
                             if (isExpiredTimer && cacheExpirations.Count > 2)
                             {
                                 expiredKeysCount = cacheExpirations
-                                    ?.Where(x => x.Value < DateTimeOffset.Now)
-                                    ?.Count() ?? 0;
+                                    .Where(x => x.Value < DateTimeOffset.Now)
+                                    .Count();
 
                                 ErrorHelper.AddErrorMsg("PerformanceHelper.SetCache (info): Cached count ("
                                     + cacheExpirations.Count
@@ -508,8 +510,9 @@ namespace MedRecPro.Helpers
             try
             {
                 // Retrieve the timer from cache using the generated key.
-                if (GetCache(logTimerKey) == null
-                    || (DateTimeOffset)GetCache(logTimerKey) < DateTimeOffset.Now)
+                var cachedLogTimer = GetCache(logTimerKey);
+                if (cachedLogTimer is not DateTimeOffset cachedDateTimeOffset
+                    || cachedDateTimeOffset < DateTimeOffset.Now)
                 {
                     // If there is no cached timer or it is expired, set a new expiration timer 3 minutes from now.
                     logTimer = DateTimeOffset.Now.AddMinutes(3);
@@ -519,7 +522,7 @@ namespace MedRecPro.Helpers
                 else
                 {
                     // If an active timer exists, retrieve it from the cache without resetting.
-                    logTimer = (DateTimeOffset)GetCache(logTimerKey);
+                    logTimer = cachedDateTimeOffset;
                 }
             }
             catch

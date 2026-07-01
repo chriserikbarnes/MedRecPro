@@ -53,11 +53,11 @@ namespace MedRecPro.Services
         private int _intervalMinutes;
         private int _businessHoursStart;
         private int _businessHoursEnd;
-        private string _timeZoneId;
+        private string _timeZoneId = "Eastern Standard Time";
         private bool _businessDaysOnly;
         private int _maxConsecutiveFailures;
         private int _retryAttempts;
-        private int[] _retryDelaySeconds;
+        private int[] _retryDelaySeconds = new[] { 10, 30, 60 };
         private bool _disposed;
 
         /**************************************************************/

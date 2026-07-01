@@ -478,9 +478,6 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            // Cache key for manifest
-            var cacheKey = "SkillManifest";
-
             // Check cache validity
             if (_manifestCache != null &&
                 DateTime.UtcNow - _manifestCacheTimestamp < _cacheDuration)

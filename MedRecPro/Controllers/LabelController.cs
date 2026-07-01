@@ -566,7 +566,8 @@ namespace MedRecPro.Api.Controllers
             };
 
             // Preserve creation time if status exists using generic extension method
-            if (_statusStore.TryGet<ComparisonOperationStatus>(operationId, out ComparisonOperationStatus? existingStatus))
+            if (_statusStore.TryGet<ComparisonOperationStatus>(operationId, out ComparisonOperationStatus? existingStatus) &&
+                existingStatus is not null)
             {
                 comparisonStatus.CreatedAt = existingStatus.CreatedAt;
             }

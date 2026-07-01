@@ -601,7 +601,7 @@ namespace MedRecPro.DataAccess
                 dtos.Add(new TextListDto
                 {
                     TextList = e.ToEntityWithEncryptedId(pkSecret, logger),
-                    TextListItems = items
+                    TextListItems = items ?? new List<TextListItemDto>()
                 });
             }
 

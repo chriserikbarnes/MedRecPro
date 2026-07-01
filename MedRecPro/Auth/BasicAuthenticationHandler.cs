@@ -64,7 +64,8 @@ namespace MedRecPro.Security
             User? user = null;
             try
             {
-                var authHeader = AuthenticationHeaderValue.Parse(Request.Headers["Authorization"]);
+                var authorizationHeader = Request.Headers.Authorization.ToString();
+                var authHeader = AuthenticationHeaderValue.Parse(authorizationHeader);
 
                 if (authHeader.Scheme.Equals("Basic", StringComparison.OrdinalIgnoreCase) && authHeader.Parameter != null)
                 {

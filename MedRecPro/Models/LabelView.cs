@@ -3603,7 +3603,7 @@ namespace MedRecPro.Models
             /**************************************************************/
             /// <summary>
             /// Provenance link to the source row in tmp_FlattenedStandardizedTable.
-            /// Stored verbatim from <see cref="FlattenedStandardizedTable.Id"/>.
+            /// Stored verbatim from <c>FlattenedStandardizedTable.Id</c>.
             /// </summary>
             [Column("tmp_FlattenedStandardizedTableID")]
             public int FlattenedStandardizedTableId { get; set; }

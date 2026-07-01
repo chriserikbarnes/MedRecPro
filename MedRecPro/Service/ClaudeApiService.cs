@@ -561,12 +561,6 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Cached skills document content.
-        /// </summary>
-        private string? _skillsDocumentCache;
-
-        /**************************************************************/
-        /// <summary>
         /// Timestamp of last skills document cache refresh.
         /// </summary>
         private DateTime _skillsCacheTimestamp = DateTime.MinValue;
@@ -907,21 +901,43 @@ namespace MedRecPro.Service
 
                 // Stage 2: Build the full interpretation prompt with selected skills
                 var prompt = await buildInterpretationPromptAsync(request, skillSelection);
+                if (string.IsNullOrWhiteSpace(prompt))
+                {
+                    return new AiAgentInterpretation
+                    {
+                        ConversationId = conversation.ConversationId,
+                        Success = false,
+                        Error = "Unable to build AI interpretation prompt. Please try rephrasing your request."
+                    };
+                }
+
+                var promptText = prompt!;
 
                 _logger.LogDebug("[INTERPRET DEBUG] Prompt built successfully, length: {Length}", prompt?.Length ?? 0);
 
                 // Call Claude API using existing method
-                var claudeResponse = await GenerateDocumentComparisonAsync(prompt);
+                var claudeResponse = await GenerateDocumentComparisonAsync(promptText);
 
                 _logger.LogInformation("[INTERPRET DEBUG] Claude response received, length: {Length}",
                     claudeResponse?.Length ?? 0);
+                if (string.IsNullOrWhiteSpace(claudeResponse))
+                {
+                    return new AiAgentInterpretation
+                    {
+                        ConversationId = conversation.ConversationId,
+                        Success = false,
+                        Error = "AI response was empty. Please try again."
+                    };
+                }
+
+                var claudeResponseText = claudeResponse!;
 
                 // Log first 500 chars of response for debugging
                 _logger.LogDebug("[INTERPRET DEBUG] Claude response preview: {Preview}",
-                    claudeResponse?.Length > 500 ? claudeResponse[..500] + "..." : claudeResponse);
+                    claudeResponseText.Length > 500 ? claudeResponseText[..500] + "..." : claudeResponseText);
 
                 // Check if response looks like JSON
-                var trimmedResponse = claudeResponse?.Trim() ?? "";
+                var trimmedResponse = claudeResponseText.Trim();
                 if (!trimmedResponse.StartsWith("{"))
                 {
                     _logger.LogError("[INTERPRET DEBUG] Claude response does NOT start with '{{'. " +
@@ -934,7 +950,7 @@ namespace MedRecPro.Service
                 }
 
                 // Parse Claude's response into structured interpretation
-                var interpretation = parseInterpretationResponse(claudeResponse, request.SystemContext);
+                var interpretation = parseInterpretationResponse(claudeResponseText, request.SystemContext);
 
                 _logger.LogInformation("[INTERPRET DEBUG] Parse result - Success: {Success}, Endpoints: {Count}, IsDirectResponse: {IsDirect}",
                     interpretation.Success,
@@ -1720,10 +1736,23 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            _logger.LogDebug("[PARSE DEBUG] Starting to parse response, length: {Length}", response?.Length ?? 0);
+            response ??= string.Empty;
+
+            _logger.LogDebug("[PARSE DEBUG] Starting to parse response, length: {Length}", response.Length);
 
             try
             {
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    return new AiAgentInterpretation
+                    {
+                        Success = false,
+                        Error = "AI response was empty.",
+                        IsDirectResponse = true,
+                        DirectResponse = string.Empty
+                    };
+                }
+
                 // Find JSON in response (may be wrapped in markdown code blocks)
                 var jsonStart = response.IndexOf('{');
                 var jsonEnd = response.LastIndexOf('}');
@@ -1742,8 +1771,10 @@ namespace MedRecPro.Service
 
                     if (interpretation != null)
                     {
+                        interpretation.Endpoints ??= new List<AiEndpointSpecification>();
+
                         _logger.LogInformation("[PARSE DEBUG] Successfully parsed JSON. Endpoints: {Count}",
-                            interpretation.Endpoints?.Count ?? 0);
+                            interpretation.Endpoints.Count);
 
                         // Validate authentication requirements
                         if (interpretation.RequiresAuthentication && context?.IsAuthenticated == false)
@@ -1764,7 +1795,7 @@ namespace MedRecPro.Service
                 {
                     _logger.LogError("[PARSE DEBUG] Could not find valid JSON markers in response. " +
                         "Response preview: {Preview}",
-                        response?.Length > 200 ? response[..200] : response);
+                        response.Length > 200 ? response[..200] : response);
                 }
 
                 // Fallback if parsing fails
@@ -2138,15 +2169,21 @@ namespace MedRecPro.Service
                 sb.AppendLine("*Note: Not all FDA labels contain all section types. This is expected behavior.*");
             }
 
+            var warnings = new List<string>
+            {
+                "AI synthesis unavailable - showing basic summary"
+            };
+
+            if (failedCount > 0)
+            {
+                warnings.Add($"{failedCount} of {request?.ExecutedEndpoints.Count} API calls returned 404 (section not found)");
+            }
+
             return new AiAgentSynthesis
             {
                 Response = sb.ToString(),
                 IsComplete = successResults.Count > 0, // Mark incomplete only if NO successes
-                Warnings = new List<string>
-                {
-                    "AI synthesis unavailable - showing basic summary",
-                    failedCount > 0 ? $"{failedCount} of {request?.ExecutedEndpoints.Count} API calls returned 404 (section not found)" : null
-                }.Where(w => w != null).ToList()!
+                Warnings = warnings
             };
 
             #endregion

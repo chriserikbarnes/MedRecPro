@@ -19,7 +19,7 @@ namespace MedRecPro.Service.ParsingServices
     /// <seealso cref="DosingSpecification"/>
     /// <seealso cref="Label"/>
     /// <seealso cref="ProductRouteOfAdministration"/>
-    /// <seealso cref="ManufacturedProductParser"/>
+    /// Related parser: <c>ManufacturedProductParser</c>.
     public class DosingSpecificationValidationService
     {
         #region implementation
