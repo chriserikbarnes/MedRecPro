@@ -5475,3 +5475,25 @@ Resolved the remaining Visual Studio active compiler warnings that were still vi
 **Verification.** `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecPro.sln --no-restore -t:Rebuild -p:UseAppHost=false` passed with 0 warnings and 0 errors. Parsed [build/medrecpro-warning-pass4-rebuild.log](build/medrecpro-warning-pass4-rebuild.log) and confirmed 0 warning lines. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore -p:UseAppHost=false` passed with 2315 passed, 1 skipped, and 0 failed. `git diff --check` completed with only Git LF-to-CRLF working-copy normalization notices.
 
 ---
+
+### 2026-07-01 4:08 PM EST — MedRecPro Public Method Coverage Plan
+
+Created a saved test-coverage expansion plan for the MedRecPro public method surface under [Plans/(pending) MedRecPro Public Method Test Coverage Expansion Plan.md](Plans/(pending)%20MedRecPro%20Public%20Method%20Test%20Coverage%20Expansion%20Plan.md).
+
+**Planning evidence.** Evaluated the existing [MedRecProTest](MedRecProTest) project, including its MSTest package setup, current test file inventory, and the existing parser public-surface inventory guard pattern. Ran a static inventory over [MedRecPro](MedRecPro) public non-constructor methods, excluding generated/build output, migrations, constructors, property accessors, and compiler-style special members.
+
+**Outcome.** The plan records 638 public non-constructor methods, 239 direct coverage signals, and 399 public methods without direct coverage signals. It groups the gaps by area, prioritizes controller/helper/SPL rendering/security/cloud-service coverage, and includes a full appendix of uncovered method names with source locations plus a phased verification checklist.
+
+**Verification.** Verified the saved plan by direct path metadata and content reads because `Plans/` is ignored in this workspace family. No build or test suite was run because this session created a planning artifact only.
+
+---
+
+### 2026-07-01 5:56 PM EST — Coverage Plan Completeness Review
+
+Evaluated [Plans/(pending) MedRecPro Public Method Test Coverage Expansion Plan.md](Plans/(pending)%20MedRecPro%20Public%20Method%20Test%20Coverage%20Expansion%20Plan.md) for completeness against the MedRecPro codebase and revised it in place.
+
+**Verification of the existing plan.** Confirmed the appendix gap math (399 = 97 controllers + 144 helpers + 123 services + 17 models + 9 filters + 6 data access + 2 context + 1 middleware), the 85-file test inventory, the MSTest/Moq/EF package versions in [MedRecProTest.csproj](MedRecProTest/MedRecProTest.csproj), and spot-checked appendix line references. Verified that the folders absent from the inventory table (Attributes, Auth, Exceptions) genuinely expose no public non-constructor methods — only protected `IsValid`/`HandleAuthenticateAsync` overrides.
+
+**Additions.** (1) Documented the verified folder exclusions with guidance to exercise validation attributes via `Validator.TryValidateObject`. (2) Grounded Phase 1 in the existing `ParsingServicesPublicSurfaceInventoryTests` guard with a concrete CoverageMap/KnownGapMap code example. (3) Pointed Phase 2 at existing patterns (`DtoLabelAccessTestHelper`, `StringCipherTests`, DelegatingHandler approach). (4) Assigned previously orphaned appendix methods to phases: added ErrorHelperTests, PerformanceHelperTests, FdaProductConceptHelperTests, DtoTransformTests, CommonServiceTests, REMSValidationServiceTests (Phase 3), ThrottleStateServiceTests (Phase 4), SplDataServiceTests and ViewRenderServiceTests (Phase 5), and ServiceRegistrationTests for DI/middleware extension methods (Phase 7). (5) Added a house-style MSTest example test. (6) Added a Cross-Cutting Test Risks section covering static shared state (PerformanceHelper static dictionaries, ErrorHelper store, UserLogger accumulation), the absence of MSTest parallelization, time-dependent methods, async wait helpers, HttpContext fakes, and two de-publicization candidates (`PerformanceHelper.depricated_SetCache`, lowercase-named public `Util.parseNullableDecimal`). (7) Extended the Phase 9 dotnet test filters to include all newly added test files.
+
+---
