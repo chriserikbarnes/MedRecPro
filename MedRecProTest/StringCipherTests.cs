@@ -331,6 +331,12 @@ namespace MedRecPro.Service.Test
             var decrypted = encrypted.Decrypt(TestPassphrase);;
 
             // Assert
+            if (decrypted is null)
+            {
+                Assert.Fail("Expected decrypted long string but was null");
+                return;
+            }
+
             Assert.AreEqual(longText, decrypted, "Long string should be preserved");
             Assert.AreEqual(10000, decrypted.Length, "Decrypted length should match original");
 

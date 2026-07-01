@@ -5431,3 +5431,27 @@ Implemented the ParsingServices comprehensive test coverage plan with focused pa
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~ParsingServices"` passed 63/63 tests. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~OrangeBook|FullyQualifiedName~TableParser|FullyQualifiedName~ValueParser|FullyQualifiedName~SplImportService"` passed 397/397 tests with 1 skipped. `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore` ran the full suite with 2299 passed, 1 skipped, and 16 existing `ProductRenderingServiceTests` initialization failures caused by the local missing `Security:DB:PKSecret` user secret. `git diff --check` passed with CRLF conversion warnings only.
 
 ---
+
+### 2026-07-01 1:32 PM EST — Compiler Warning Remediation Plan
+
+Created a saved warning-cleanup handoff for the pasted MedRecPro compiler warning snapshot.
+
+**Planning.** Added [(pending) Compiler Warning Remediation Plan.md](Plans/(pending)%20Compiler%20Warning%20Remediation%20Plan.md) with the 163-warning breakdown, staged true-fix lanes for nullable contracts, XML documentation, platform analyzers, obsolete APIs, unused members, test nullability, and the Roslyn `Microsoft.CodeAnalysis` assembly conflict.
+
+**Verification.** Verified the saved plan by exact `Get-Item`, `Get-Content`, and `Select-String` reads under ignored `Plans/`. No build or test suite was run because this session created a planning artifact only; the plan includes follow-up `dotnet build` and `dotnet test` commands with the existing skipped `TableParserTests` item and local user-secret-dependent `ProductRenderingServiceTests` called out.
+
+---
+
+### 2026-07-01 2:13 PM EST — Compiler Warning Remediation Implementation
+
+Implemented the warning-cleanup handoff against the current MedRecPro solution baseline and brought the build back to zero warnings.
+
+**Test nullability.** Updated [ColumnStandardizationServiceTests.cs](MedRecProTest/ColumnStandardizationServiceTests.cs), [SplImportServiceTests.cs](MedRecProTest/SplImportServiceTests.cs), [TableParserTests.cs](MedRecProTest/TableParserTests.cs), [StringCipherTests.cs](MedRecProTest/StringCipherTests.cs), and [ProductRenderingServiceTests.cs](MedRecProTest/ProductRenderingServiceTests.cs) with explicit assertion guards and production-shaped empty collection setup so nullable flow reflects the real test contracts without weakening assertions.
+
+**Dependency alignment.** Updated [MedRecProTest.csproj](MedRecProTest/MedRecProTest.csproj) with explicit private Roslyn 4.5.0 references for `Microsoft.CodeAnalysis.Common` and `Microsoft.CodeAnalysis.CSharp`, aligning the test project with the app/import project graph and removing the repeated `MSB3277` conflict.
+
+**Plan artifact.** Marked the saved compiler warning remediation plan as done and renamed it to [(done) Compiler Warning Remediation Plan.md](Plans/(done)%20Compiler%20Warning%20Remediation%20Plan.md). The active baseline for this implementation was already reduced from the original pasted 163-warning snapshot to nullable test warnings plus the Roslyn conflict.
+
+**Verification.** `dotnet restore C:\Users\chris\OneDrive\Documents\Repos\MedRecPro.sln` passed. `dotnet build C:\Users\chris\OneDrive\Documents\Repos\MedRecPro.sln --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --no-build --filter "FullyQualifiedName!~ProductRenderingServiceTests"` passed 2299/2299 with 1 existing skipped test. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --no-build --filter "FullyQualifiedName~ProductRenderingServiceTests"` passed 16/16. `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --no-build` passed the full suite with 2315 passed and 1 skipped. `git diff --check` passed with CRLF conversion warnings only.
+
+---

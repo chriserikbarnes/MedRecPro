@@ -258,8 +258,16 @@ namespace MedRecPro.Service.Test
                 Assert.AreEqual("empty.zip", results[0].ZipFileName);
                 Assert.AreEqual(1, results[0].FileResults.Count, "Should have one file result");
                 Assert.IsFalse(results[0].FileResults[0].Success, "Empty ZIP should not succeed");
-                Assert.IsTrue(results[0].FileResults[0].Message.Contains("empty") ||
-                              results[0].FileResults[0].Message.Contains("invalid"),
+
+                var message = results[0].FileResults[0].Message;
+                if (message is null)
+                {
+                    Assert.Fail("Expected empty ZIP error message but was null");
+                    return;
+                }
+
+                Assert.IsTrue(message.Contains("empty") ||
+                              message.Contains("invalid"),
                     "Error message should indicate empty or invalid ZIP");
             }
             finally
@@ -745,7 +753,15 @@ namespace MedRecPro.Service.Test
                 Assert.AreEqual(1, results.Count);
                 Assert.AreEqual(1, results[0].FileResults.Count);
                 Assert.IsFalse(results[0].FileResults[0].Success, "Corrupted ZIP should fail");
-                Assert.IsTrue(results[0].FileResults[0].Message.Contains("Error"),
+
+                var message = results[0].FileResults[0].Message;
+                if (message is null)
+                {
+                    Assert.Fail("Expected corrupted ZIP error message but was null");
+                    return;
+                }
+
+                Assert.IsTrue(message.Contains("Error"),
                     "Error message should indicate ZIP processing error");
             }
             finally

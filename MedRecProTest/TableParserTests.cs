@@ -1069,8 +1069,16 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("Mean", results[0].PrimaryValueType);
             Assert.AreEqual(556.0, results[0].SecondaryValue);
             Assert.AreNotEqual("Percentage", results[0].PrimaryValueType);
-            Assert.IsTrue(results[0].ValidationFlags!.Contains("PCT_GT100_REJECTED:556"));
-            Assert.IsTrue(results[0].ValidationFlags.Contains("PK_PCT_GT100_DEMOTED"));
+
+            var validationFlags = results[0].ValidationFlags;
+            if (validationFlags is null)
+            {
+                Assert.Fail("Expected validation flags for demoted percent-like PK value but was null");
+                return;
+            }
+
+            Assert.IsTrue(validationFlags.Contains("PCT_GT100_REJECTED:556"));
+            Assert.IsTrue(validationFlags.Contains("PK_PCT_GT100_DEMOTED"));
         }
 
         #endregion PkTableParser Compound Layout Tests

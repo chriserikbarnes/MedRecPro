@@ -668,19 +668,19 @@ namespace MedRecPro.Service.Test
         /**************************************************************/
         /// <summary>
         /// Tests GetOrderedTopLevelPackaging with no packaging levels.
-        /// Verifies graceful handling of null or empty packaging collections.
+        /// Verifies graceful handling of empty packaging collections.
         /// </summary>
         /// <seealso cref="IProductRenderingService.GetOrderedTopLevelPackaging"/>
         [TestMethod]
-        public void GetOrderedTopLevelPackaging_WithNoPackaging_ReturnsNull()
+        public void GetOrderedTopLevelPackaging_WithEmptyPackaging_ReturnsNull()
         {
             #region implementation
 
-            // Arrange - Product with null packaging levels
+            // Arrange - Product with the production default empty packaging levels.
             var productDto = new ProductDto
             {
                 Product = new Dictionary<string, object?>(),
-                PackagingLevels = null
+                PackagingLevels = new List<PackagingLevelDto>()
             };
 
             var service = new ProductRenderingService();

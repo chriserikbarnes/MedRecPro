@@ -248,10 +248,35 @@ namespace MedRecProTest
         {
             #region implementation
 
-            Assert.IsNotNull(obs.ValidationFlags,
-                $"Expected ValidationFlags to contain '{expectedFlag}' but was null");
-            Assert.IsTrue(obs.ValidationFlags.Contains(expectedFlag),
-                $"Expected ValidationFlags to contain '{expectedFlag}' but was '{obs.ValidationFlags}'");
+            var validationFlags = obs.ValidationFlags;
+            if (validationFlags is null)
+            {
+                Assert.Fail($"Expected ValidationFlags to contain '{expectedFlag}' but was null");
+                return;
+            }
+
+            Assert.IsTrue(validationFlags.Contains(expectedFlag),
+                $"Expected ValidationFlags to contain '{expectedFlag}' but was '{validationFlags}'");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Asserts that a specific flag is absent when validation flags exist.
+        /// </summary>
+        /// <param name="obs">The observation to check.</param>
+        /// <param name="unexpectedFlag">The flag string that should not be present.</param>
+        /// <param name="message">The assertion message to use if the flag is present.</param>
+        private static void assertFlagAbsent(ParsedObservation obs, string unexpectedFlag, string message)
+        {
+            #region implementation
+
+            var validationFlags = obs.ValidationFlags;
+            if (validationFlags is null)
+                return;
+
+            Assert.IsFalse(validationFlags.Contains(unexpectedFlag), message);
 
             #endregion
         }
@@ -1506,11 +1531,8 @@ namespace MedRecProTest
             Assert.AreEqual("Placebo", result[0].TreatmentArm);
             Assert.AreEqual("Alogliptin", result[0].StudyContext);
             // No swap flag should be set
-            if (result[0].ValidationFlags != null)
-            {
-                Assert.IsFalse(result[0].ValidationFlags.Contains("COL_STD:SWAP_ARM_CTX"),
-                    "Should not swap when both are drug names");
-            }
+            assertFlagAbsent(result[0], "COL_STD:SWAP_ARM_CTX",
+                "Should not swap when both are drug names");
 
             context.Dispose();
             sentinel.Dispose();
@@ -1779,11 +1801,8 @@ namespace MedRecProTest
             Assert.AreEqual("Pimecrolimus Cream; 1%", result[0].TreatmentArm);
             Assert.AreEqual("Numeric", result[0].PrimaryValueType);
             // Should not have Rule 10 flag
-            if (result[0].ValidationFlags != null)
-            {
-                Assert.IsFalse(result[0].ValidationFlags.Contains("COL_STD:ARM_STRIP_PCT"),
-                    "Should not strip % from concentration like '1%'");
-            }
+            assertFlagAbsent(result[0], "COL_STD:ARM_STRIP_PCT",
+                "Should not strip % from concentration like '1%'");
 
             context.Dispose();
             sentinel.Dispose();
@@ -2008,11 +2027,8 @@ namespace MedRecProTest
 
             Assert.AreEqual("Placebo", result[0].TreatmentArm);
             Assert.IsNull(result[0].ArmN);
-            if (result[0].ValidationFlags != null)
-            {
-                Assert.IsFalse(result[0].ValidationFlags.Contains("COL_STD:ARM_BRACKET_N"),
-                    "Rule 11 should not fire without brackets");
-            }
+            assertFlagAbsent(result[0], "COL_STD:ARM_BRACKET_N",
+                "Rule 11 should not fire without brackets");
 
             context.Dispose();
             sentinel.Dispose();
@@ -4711,17 +4727,26 @@ namespace MedRecProTest
 
             var result = service.Standardize(new List<ParsedObservation> { obs });
 
-            Assert.IsNotNull(result[0].ValidationFlags,
-                "Expected ValidationFlags to not be null after standardization");
-            Assert.IsTrue(result[0].ValidationFlags!.Contains("CONFIDENCE:PATTERN:"),
-                $"Expected CONFIDENCE:PATTERN: flag but got: '{result[0].ValidationFlags}'");
+            var validationFlags = result[0].ValidationFlags;
+            if (validationFlags is null)
+            {
+                Assert.Fail("Expected ValidationFlags to not be null after standardization");
+                return;
+            }
+
+            Assert.IsTrue(validationFlags.Contains("CONFIDENCE:PATTERN:"),
+                $"Expected CONFIDENCE:PATTERN: flag but got: '{validationFlags}'");
 
             // Verify format: CONFIDENCE:PATTERN:0.90:clean(0) or similar
-            var flagParts = result[0].ValidationFlags.Split("; ")
+            var flagParts = validationFlags.Split("; ")
                 .FirstOrDefault(f => f.StartsWith("CONFIDENCE:PATTERN:"));
-            Assert.IsNotNull(flagParts, "CONFIDENCE:PATTERN flag should be present");
+            if (flagParts is null)
+            {
+                Assert.Fail("CONFIDENCE:PATTERN flag should be present");
+                return;
+            }
 
-            var segments = flagParts!.Split(':');
+            var segments = flagParts.Split(':');
             Assert.AreEqual(4, segments.Length,
                 $"Expected 4 colon-separated segments in CONFIDENCE:PATTERN flag but got: '{flagParts}'");
 
@@ -4842,9 +4867,7 @@ namespace MedRecProTest
             Assert.AreEqual(1, result.Count);
             Assert.AreEqual("Nervous System Disorders", result[0].ParameterCategory,
                 "Dictionary should not overwrite existing ParameterCategory");
-            Assert.IsTrue(
-                result[0].ValidationFlags == null ||
-                !result[0].ValidationFlags.Contains("DICT:SOC_RESOLVED"),
+            assertFlagAbsent(result[0], "DICT:SOC_RESOLVED",
                 "DICT:SOC_RESOLVED flag should not be present when category was not changed");
 
             context.Dispose();
@@ -5768,9 +5791,7 @@ namespace MedRecProTest
             // Negative case: Efficacy should NOT carry the remap flag.
             if (string.Equals(category, "EFFICACY", StringComparison.OrdinalIgnoreCase))
             {
-                Assert.IsTrue(
-                    result[0].ValidationFlags == null ||
-                    !result[0].ValidationFlags.Contains("COL_STD:PVT_RR_CI_CATEGORY_REMAP"),
+                assertFlagAbsent(result[0], "COL_STD:PVT_RR_CI_CATEGORY_REMAP",
                     "Efficacy should NOT receive the remap flag");
             }
             else
@@ -5832,9 +5853,7 @@ namespace MedRecProTest
             {
                 Assert.AreEqual(input, result[0].DoseRegimen,
                     $"Real dose '{input}' should be preserved");
-                Assert.IsTrue(
-                    result[0].ValidationFlags == null ||
-                    !result[0].ValidationFlags.Contains("COL_STD:DOSEREGIMEN_STAT_ECHO_DROPPED"),
+                assertFlagAbsent(result[0], "COL_STD:DOSEREGIMEN_STAT_ECHO_DROPPED",
                     "Real dose should not carry the echo-dropped flag");
             }
 
@@ -5937,9 +5956,7 @@ namespace MedRecProTest
                 // PK parameter — should remain as ParameterName via fast path.
                 Assert.AreEqual(parameterName, result[0].ParameterName,
                     $"PK parameter '{parameterName}' should remain as ParameterName");
-                Assert.IsTrue(
-                    result[0].ValidationFlags == null ||
-                    !result[0].ValidationFlags.Contains("COL_STD:PK_NAME_ROUTED_STUDY_ID"),
+                assertFlagAbsent(result[0], "COL_STD:PK_NAME_ROUTED_STUDY_ID",
                     "PK parameter should not carry the study-id routed flag");
             }
 
