@@ -5,6 +5,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using System.Drawing;
+using System.Reflection;
+using System.Security.Claims;
 
 namespace MedRecPro.Service.Test
 {
@@ -26,12 +28,25 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Initializes Util with deterministic services before each test.
+        /// Initializes Util with deterministic services before each test and
+        /// clears the process-wide AsyncLocal login-name cache so tests stay
+        /// order-independent.
         /// </summary>
+        /// <remarks>
+        /// Util caches the resolved login name in a private static AsyncLocal;
+        /// without the reflection reset a name resolved by one test could leak
+        /// into subsequent tests running on the same execution context.
+        /// </remarks>
+        /// <seealso cref="Util.Initialize"/>
+        /// <seealso cref="Util.GetLoginName"/>
         [TestInitialize]
         public void TestInitialize()
         {
             #region implementation
+            // Reset the shared login-name cache first so no previously
+            // resolved name leaks into this test's async flow.
+            clearLoginNameCache();
+
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
@@ -141,6 +156,118 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             Assert.IsNull(Util.GetUserName());
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies GetLoginName strips the domain prefix from a
+        /// domain-qualified HTTP context identity name.
+        /// </summary>
+        /// <remarks>
+        /// The helper returns only the portion after the last backslash when
+        /// the identity name follows the DOMAIN\user convention.
+        /// </remarks>
+        /// <seealso cref="Util.GetLoginName"/>
+        [TestMethod]
+        public void GetLoginName_HttpContextIdentityWithDomain_ReturnsUserNameOnly()
+        {
+            #region implementation
+            // Arrange - authenticated identity carrying a DOMAIN\user name.
+            initializeUtilWithIdentityName(@"CONTOSO\fixture.user");
+
+            // Act
+            var result = Util.GetLoginName();
+
+            // Assert - only the text after the last backslash is returned.
+            Assert.AreEqual("fixture.user", result);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies GetLoginName returns the identity name unchanged when no
+        /// domain separator is present.
+        /// </summary>
+        /// <seealso cref="Util.GetLoginName"/>
+        [TestMethod]
+        public void GetLoginName_HttpContextIdentityWithoutDomain_ReturnsIdentityName()
+        {
+            #region implementation
+            // Arrange - authenticated identity with a plain user name.
+            initializeUtilWithIdentityName("fixture.user");
+
+            // Act
+            var result = Util.GetLoginName();
+
+            // Assert - no backslash means the whole name comes back verbatim.
+            Assert.AreEqual("fixture.user", result);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies GetLoginName caches the first resolved name in its
+        /// AsyncLocal store and serves it on subsequent calls without
+        /// re-reading the HTTP context.
+        /// </summary>
+        /// <remarks>
+        /// The second call runs against a different identity; getting the
+        /// original name back proves the cache short-circuits context lookup.
+        /// </remarks>
+        /// <seealso cref="Util.GetLoginName"/>
+        [TestMethod]
+        public void GetLoginName_CachesResolvedNameForSubsequentCall()
+        {
+            #region implementation
+            // Arrange - resolve and cache a name from the first identity.
+            initializeUtilWithIdentityName(@"CONTOSO\cached.user");
+            var first = Util.GetLoginName();
+
+            // Act - swap in a different identity WITHOUT clearing the
+            // AsyncLocal cache, then resolve again.
+            initializeUtilWithIdentityName(@"CONTOSO\other.user");
+            var second = Util.GetLoginName();
+
+            // Assert - the cached name wins over the replacement identity.
+            Assert.AreEqual("cached.user", first);
+            Assert.AreEqual("cached.user", second);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies GetLoginName falls back to the current Windows identity
+        /// when the HTTP context has no authenticated user name.
+        /// </summary>
+        /// <remarks>
+        /// The concrete account name is machine-dependent, so this test
+        /// asserts shape (non-empty, domain stripped) plus case-insensitive
+        /// equality with Environment.UserName. Inconclusive on non-Windows
+        /// hosts where the fallback branch never executes and null returns.
+        /// </remarks>
+        /// <seealso cref="Util.GetLoginName"/>
+        [TestMethod]
+        public void GetLoginName_NoHttpContextUserOnWindows_ReturnsWindowsUserWithoutDomain()
+        {
+            #region implementation
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Inconclusive("Windows identity fallback only executes on Windows hosts.");
+                return;
+            }
+
+            // Arrange - TestInitialize installed a DefaultHttpContext with an
+            // unauthenticated user, so the Windows identity fallback runs.
+
+            // Act - callingMethod exercises the optional log-context argument.
+            var result = Util.GetLoginName(nameof(GetLoginName_NoHttpContextUserOnWindows_ReturnsWindowsUserWithoutDomain));
+
+            // Assert - fallback name is non-empty with the machine prefix removed.
+            Assert.IsFalse(string.IsNullOrEmpty(result));
+            Assert.IsFalse(result!.Contains('\\'));
+            Assert.IsTrue(string.Equals(Environment.UserName, result, StringComparison.OrdinalIgnoreCase),
+                $"Expected '{Environment.UserName}' (ignoring case) but got '{result}'.");
             #endregion
         }
 
@@ -302,6 +429,67 @@ namespace MedRecPro.Service.Test
             Assert.IsTrue(0.IsZero());
             CollectionAssert.AreEqual(list, clone);
             Assert.AreNotSame(cloneableList[0], cloneableCopy[0]);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Clears the process-wide AsyncLocal login-name cache inside Util via
+        /// reflection so GetLoginName tests stay order-independent.
+        /// </summary>
+        /// <remarks>
+        /// Util exposes no public reset seam for the cache; reflecting over
+        /// the private static _userName field is the only deterministic reset.
+        /// </remarks>
+        /// <seealso cref="Util.GetLoginName"/>
+        private static void clearLoginNameCache()
+        {
+            #region implementation
+            var field = typeof(Util).GetField("_userName", BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.IsNotNull(field, "Util private static field '_userName' was not found; the reset seam has moved.");
+
+            // Null the per-async-flow value so the next GetLoginName call
+            // resolves fresh from the configured HTTP context.
+            var asyncLocal = (AsyncLocal<string>)field!.GetValue(null)!;
+            asyncLocal.Value = null!;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes Util with an HttpContext whose user carries the
+        /// supplied identity name claim.
+        /// </summary>
+        /// <param name="identityName">Identity name to expose through HttpContext.User; null or empty leaves the context unauthenticated.</param>
+        /// <remarks>
+        /// ClaimsIdentity resolves Name from the ClaimTypes.Name claim; the
+        /// explicit authentication type marks the identity as authenticated.
+        /// </remarks>
+        /// <seealso cref="Util.Initialize"/>
+        /// <seealso cref="Util.GetLoginName"/>
+        private static void initializeUtilWithIdentityName(string? identityName)
+        {
+            #region implementation
+            var context = new DefaultHttpContext();
+
+            if (!string.IsNullOrEmpty(identityName))
+            {
+                context.User = new ClaimsPrincipal(new ClaimsIdentity(
+                    new[] { new Claim(ClaimTypes.Name, identityName) }, "TestAuth"));
+            }
+
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Security:DB:PKSecret"] = TestSecret
+                })
+                .Build();
+
+            Util.Initialize(
+                new HttpContextAccessor { HttpContext = context },
+                new EncryptionService(configuration),
+                new DictionaryUtilityService());
             #endregion
         }
 

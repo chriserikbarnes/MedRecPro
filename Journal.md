@@ -5577,3 +5577,25 @@ Created [Plans/(pending) MedRecPro Remaining 52 Public Method Test Harness Plan.
 **Verification.** Verified the ignored plan rename and creation with `Get-Item`, `Test-Path`, and `Select-String`. The old `(progress)` path no longer exists, the `(done)` plan contains the done status, and the new pending plan appendix contains exactly 52 method entries. `git diff --check` reported only the existing Git line-ending notices. No build or test suite was run because this session changed saved plan artifacts and the journal only.
 
 ---
+
+---
+
+### 2026-07-02 2:37 PM EST — Public Surface Inventory Guard Authored
+
+Integrator session for the multi-agent MSTest implementation of the pending 52-method plan. All seven implementer agents (phases A-F plus extras) failed in their isolated worktrees and delivered no test files, so no agent code needed integration. The integration build of `MedRecProTest.csproj` was green with zero changes.
+
+Authored `MedRecProTest/MedRecProPublicSurfaceInventoryTests.cs` per the inventory brief: a reflection guard over the MedRecPro assembly (public classes minus delegates, compiler-generated types, Migrations, Controllers namespaces, and ControllerBase descendants; public declared methods minus IsSpecialName, compiler-generated, and object overrides). Keys use Option A format (`TypeSimpleName.MethodName`, generic arity stripped, StringComparer.Ordinal), yielding 513 keys. `CoverageMap` holds 445 keys generated mechanically from the ground-truth classification table (grep-covered methods mapped to their covering test class, plus the 29 Group-1 keys mapped to existing `{Type}Tests` classes such as `AeDashboardDerivationTests` and `UserDataAccessTests`). `KnownGapMap` holds 68 keys: the 51 collapsed keys of the pending-52 plan annotated with their phase, plus 17 triage extras (genuinely dark methods such as `ConnectionString.Get`, `ApplicationNumberSearch.Parse`, `Repository.DeleteAsync`, the `DemoModeService` lifecycle, Moq-only `SplExportService.ExportDocumentToSplAsync` / `ClaudeApiService.GenerateCleanMarkdownAsync`, and the `CharacteristicRenderingService.FormatQuantityValue` bookkeeping error).
+
+**Verification.** `dotnet build MedRecProTest/MedRecProTest.csproj -p:UseAppHost=false` succeeded with 0 warnings / 0 errors. `dotnet test --filter FullyQualifiedName~MedRecProPublicSurfaceInventoryTests` passed on the first run (1 passed, 0 failed): the runtime inventory exactly matches the 513 mapped keys with no unmapped, stale, overlapping, or missing-class entries. The 68 KnownGapMap entries remain open work for a rerun of the phase A-F implementer agents.
+
+---
+
+### 2026-07-02 3:29 PM EST — Remaining 52 Coverage Harness Verification
+
+Verified [Plans/(done) MedRecPro Remaining 52 Public Method Test Harness Plan.md](Plans/%28done%29%20MedRecPro%20Remaining%2052%20Public%20Method%20Test%20Harness%20Plan.md) against the current uncommitted MedRecPro worktree after the Claude Fable implementation pass. The dirty tree contains the expected narrow production changes in [RepositoryDataAccess.cs](MedRecPro/DataAccess/RepositoryDataAccess.cs) and [AzureTokenCredentialService.cs](MedRecPro/Service/AzureTokenCredentialService.cs), expanded helper/model/service-registration tests, and the new deterministic MSTest harness files for repository, filters, SPL data/export/view rendering, Azure, Claude, demo-mode, miscellaneous helper, and public-surface inventory coverage.
+
+**Plan completion.** Confirmed the saved plan is marked `Done`, [MedRecProPublicSurfaceInventoryTests.cs](MedRecProTest/MedRecProPublicSurfaceInventoryTests.cs) has an empty `KnownGapMap`, and the former 52-method tranche plus the inventory-triage extras are mapped into concrete test classes. No outstanding items were found, so no replacement `(pending)` plan was created under [Plans](Plans).
+
+**Verification.** `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~RepositoryDataAccessTests|FullyQualifiedName~ActivityLogActionFilterTests|FullyQualifiedName~AuthorizationFilterTests|FullyQualifiedName~AzureThrottleFilterTests|FullyQualifiedName~OpenApiDocumentFilterTests|FullyQualifiedName~SplDataServiceTests|FullyQualifiedName~SplExportServiceTests|FullyQualifiedName~ViewRenderServiceTests|FullyQualifiedName~AzureTokenCredentialServiceTests|FullyQualifiedName~AzureSqlMetricsServiceTests|FullyQualifiedName~ServiceRegistrationTests|FullyQualifiedName~ClaudeApiServicePublicSurfaceTests|FullyQualifiedName~ClaudeConversationServiceTests|FullyQualifiedName~ClaudeSearchServicePublicSurfaceTests|FullyQualifiedName~DemoModeServiceTests|FullyQualifiedName~MiscHelperCoverageTests|FullyQualifiedName~UtilTests|FullyQualifiedName~ModelPublicSurfaceTests|FullyQualifiedName~SplCharacteristicRenderingServiceTests|FullyQualifiedName~MedRecProPublicSurfaceInventoryTests" -p:UseAppHost=false` passed with 206 tests, 0 failed, 0 skipped. `dotnet build .\MedRecProTest\MedRecProTest.csproj --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. `git diff --check` passed with only Git line-ending notices for already dirty files.
+
+---

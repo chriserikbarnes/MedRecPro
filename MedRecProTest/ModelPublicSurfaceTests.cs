@@ -2,6 +2,7 @@ using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text;
@@ -310,6 +311,108 @@ namespace MedRecPro.Service.Test
 
             Assert.AreEqual(0, empty.GetOrderedChildren().Count);
             Assert.AreSame(children, populated.GetOrderedChildren());
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies ApplicationNumberSearch.Parse decomposes combined,
+        /// numeric-only, prefix-only, and null inputs into normalized search
+        /// terms.
+        /// </summary>
+        /// <seealso cref="ApplicationNumberSearch.Parse"/>
+        [TestMethod]
+        public void ApplicationNumberSearch_Parse_DecomposesInputIntoSearchTerms()
+        {
+            #region implementation
+            var combined = ApplicationNumberSearch.Parse("anda 125669");
+            var numericOnly = ApplicationNumberSearch.Parse("125669");
+            var prefixOnly = ApplicationNumberSearch.Parse(" NDA ");
+            var empty = ApplicationNumberSearch.Parse(null);
+
+            // Combined input normalizes casing/whitespace and splits parts.
+            Assert.AreEqual("ANDA125669", combined.Normalized);
+            Assert.AreEqual("125669", combined.NumericOnly);
+            Assert.AreEqual("ANDA", combined.AlphaOnly);
+            Assert.IsFalse(combined.IsNumericOnly);
+            Assert.IsFalse(combined.IsPrefixOnly);
+
+            // Numeric-only and prefix-only modes.
+            Assert.IsTrue(numericOnly.IsNumericOnly);
+            Assert.IsFalse(numericOnly.IsPrefixOnly);
+            Assert.IsTrue(prefixOnly.IsPrefixOnly);
+            Assert.AreEqual("NDA", prefixOnly.Normalized);
+
+            // Null input yields empty terms with both flags false.
+            Assert.AreEqual(string.Empty, empty.Normalized);
+            Assert.IsFalse(empty.IsNumericOnly);
+            Assert.IsFalse(empty.IsPrefixOnly);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies DosingSpecification.Validate enforces the paired dose
+        /// quantity value/unit rule from SPL IG 16.2.4.3.
+        /// </summary>
+        /// <seealso cref="DosingSpecification"/>
+        [TestMethod]
+        public void DosingSpecification_Validate_EnforcesPairedDoseQuantityValueAndUnit()
+        {
+            #region implementation
+            var valueWithoutUnit = new DosingSpecification { DoseQuantityValue = 5m };
+            var unitWithoutValue = new DosingSpecification { DoseQuantityUnit = "mg" };
+            var paired = new DosingSpecification { DoseQuantityValue = 5m, DoseQuantityUnit = "mg" };
+
+            var missingUnit = valueWithoutUnit.Validate(
+                new System.ComponentModel.DataAnnotations.ValidationContext(valueWithoutUnit)).ToList();
+            var missingValue = unitWithoutValue.Validate(
+                new System.ComponentModel.DataAnnotations.ValidationContext(unitWithoutValue)).ToList();
+            var complete = paired.Validate(
+                new System.ComponentModel.DataAnnotations.ValidationContext(paired)).ToList();
+
+            Assert.AreEqual(1, missingUnit.Count);
+            CollectionAssert.Contains(missingUnit[0].MemberNames.ToList(), nameof(DosingSpecification.DoseQuantityUnit));
+            Assert.AreEqual(1, missingValue.Count);
+            CollectionAssert.Contains(missingValue[0].MemberNames.ToList(), nameof(DosingSpecification.DoseQuantityValue));
+            Assert.AreEqual(0, complete.Count);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies ProductEvent.Validate delegates to the validation service
+        /// when a logger is resolvable from the context and stays silent when
+        /// it is not.
+        /// </summary>
+        /// <remarks>
+        /// The IValidatableObject implementation resolves an
+        /// ILogger&lt;ProductEvent&gt; from the validation context; without one
+        /// it performs no validation and returns an empty result set.
+        /// </remarks>
+        /// <seealso cref="ProductEvent"/>
+        [TestMethod]
+        public void ProductEvent_Validate_UsesValidationServiceOnlyWhenLoggerAvailable()
+        {
+            #region implementation
+            // Arrange - negative quantity violates SPL IG 16.2.9 rules.
+            var invalidEvent = new ProductEvent { QuantityValue = -5 };
+            var provider = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider();
+
+            // Act - without a logger the guard clause returns no results.
+            var withoutLogger = invalidEvent.Validate(
+                new System.ComponentModel.DataAnnotations.ValidationContext(invalidEvent)).ToList();
+
+            // Act - with a logger the validation service reports the violation.
+            var contextWithServices = new System.ComponentModel.DataAnnotations.ValidationContext(
+                invalidEvent, provider, items: null);
+            var withLogger = invalidEvent.Validate(contextWithServices).ToList();
+
+            // Assert
+            Assert.AreEqual(0, withoutLogger.Count, "No logger in the context means the service validation is skipped.");
+            Assert.IsTrue(withLogger.Count > 0, "A negative quantity must produce at least one validation error.");
             #endregion
         }
 

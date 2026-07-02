@@ -91,9 +91,11 @@ public class AzureManagementTokenProvider
     /// <remarks>
     /// Uses the application's service principal to acquire tokens.
     /// Tokens are automatically cached by MSAL and reused until expiration.
+    /// Declared virtual so deterministic test doubles can supply fixture tokens
+    /// without performing network calls; production behavior is unchanged.
     /// </remarks>
     /// <seealso cref="IConfidentialClientApplication.AcquireTokenForClient"/>
-    public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
+    public virtual async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
     {
         #region implementation
 
@@ -113,8 +115,10 @@ public class AzureManagementTokenProvider
     /// <returns>Token expiration datetime, or null if no token has been acquired.</returns>
     /// <remarks>
     /// Used to determine if a cached token is still valid.
+    /// Declared virtual so deterministic test doubles can supply fixed expiration
+    /// values (including null) without network access; production behavior is unchanged.
     /// </remarks>
-    public DateTimeOffset? GetTokenExpiration()
+    public virtual DateTimeOffset? GetTokenExpiration()
     {
         #region implementation
 

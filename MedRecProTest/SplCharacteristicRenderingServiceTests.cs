@@ -84,5 +84,31 @@ namespace MedRecPro.Service.Test
             Assert.IsNull(service.FormatBooleanValue(text));
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies FormatQuantityValue renders the physical quantity with G29
+        /// precision (trailing zeros trimmed) and returns null when no
+        /// quantity value exists.
+        /// </summary>
+        /// <seealso cref="CharacteristicRenderingService.FormatQuantityValue"/>
+        /// <seealso cref="CharacteristicDto.ValuePQ_Value"/>
+        [TestMethod]
+        public void FormatQuantityValue_QuantityAndMissingValues_FormatWithG29OrNull()
+        {
+            #region implementation
+            // Arrange
+            var service = new CharacteristicRenderingService();
+            var quantity = new CharacteristicDto { Characteristic = new Dictionary<string, object?> { [nameof(CharacteristicDto.ValuePQ_Value)] = 12.50m } };
+            var wholeNumber = new CharacteristicDto { Characteristic = new Dictionary<string, object?> { [nameof(CharacteristicDto.ValuePQ_Value)] = 100m } };
+            var noQuantity = new CharacteristicDto { Characteristic = new Dictionary<string, object?>() };
+
+            // Act + Assert - G29 trims trailing zeros; missing values yield null.
+            Assert.AreEqual("12.5", service.FormatQuantityValue(quantity));
+            Assert.AreEqual("100", service.FormatQuantityValue(wholeNumber));
+            Assert.IsNull(service.FormatQuantityValue(noQuantity));
+            Assert.IsNull(service.FormatQuantityValue(null!));
+            #endregion
+        }
     }
 }

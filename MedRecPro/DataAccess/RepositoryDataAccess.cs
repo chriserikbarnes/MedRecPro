@@ -262,6 +262,39 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Converts a decrypted primary key value to the entity's actual primary
+        /// key CLR type so EF Core key lookups match the model metadata.
+        /// </summary>
+        /// <param name="decryptedId">The decrypted primary key value.</param>
+        /// <returns>The key boxed as the primary key property's underlying type.</returns>
+        /// <remarks>
+        /// FindAsync requires the key value's type to match the mapped property
+        /// type exactly. Entities such as SplData use a long primary key; boxing
+        /// the key as int caused an ArgumentException for those entities.
+        /// Nullable key properties (e.g. int?) are unwrapped to their underlying
+        /// type before conversion.
+        /// </remarks>
+        /// <seealso cref="ReadByIdAsync"/>
+        /// <seealso cref="DeleteAsync(string)"/>
+        private object convertToPrimaryKeyType(long decryptedId)
+        {
+            #region implementation
+            var propertyType = _primaryKeyProperty?.PropertyType;
+
+            if (propertyType == null)
+            {
+                // Preserve legacy behavior when the key property is unknown.
+                return Convert.ToInt32(decryptedId);
+            }
+
+            var keyType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+
+            return Convert.ChangeType(decryptedId, keyType);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Reads a single record from the database based on its encrypted primary key ID.
         /// </summary>
         /// <param name="encryptedId">The encrypted primary key ID of the record to retrieve.</param>
@@ -279,7 +312,9 @@ namespace MedRecPro.DataAccess
                 return null;
             }
 
-            return await _dbSet.FindAsync(Convert.ToInt32(decryptedId));
+            // Box the key as the entity's actual PK type (int, long, etc.) so
+            // FindAsync matches the model metadata for every entity shape.
+            return await _dbSet.FindAsync(convertToPrimaryKeyType(decryptedId));
             #endregion
         }
 
@@ -464,7 +499,9 @@ namespace MedRecPro.DataAccess
                 throw new InvalidOperationException($"Failed to decrypt ID for DeleteAsync. Encrypted ID: {encryptedId}");
             }
 
-            var entityToDelete = await _dbSet.FindAsync(Convert.ToInt32(id));
+            // Box the key as the entity's actual PK type (int, long, etc.) so
+            // FindAsync matches the model metadata for every entity shape.
+            var entityToDelete = await _dbSet.FindAsync(convertToPrimaryKeyType(id));
 
             if (entityToDelete == null)
             {
