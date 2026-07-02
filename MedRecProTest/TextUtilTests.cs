@@ -60,6 +60,20 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Verifies email validation accepts normal addresses and rejects malformed text.
+        /// </summary>
+        /// <seealso cref="TextUtil.IsValidEmail"/>
+        [TestMethod]
+        public void IsValidEmail_ValidAndInvalidAddresses_ReturnsExpectedBooleans()
+        {
+            #region implementation
+            Assert.IsTrue(TextUtil.IsValidEmail("person@example.test"));
+            Assert.IsFalse(TextUtil.IsValidEmail("not an email"));
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies RemoveUnwantedTags preserves allowed tags while removing wrappers.
         /// </summary>
         /// <seealso cref="TextUtil.RemoveUnwantedTags(string, List{string}, bool)"/>
@@ -349,15 +363,56 @@ namespace MedRecPro.Service.Test
             #region implementation
             var records = new[] { new SampleTextUtilDto { Name = "Alpha", Count = 2 } };
             var csv = TextUtil.ToCsv(records).ToList();
+            var checkedEncoded = "Already Encoded".Base64Encode(isChecked: true);
             var textEncoded = "Alpha".Base64Encode();
             var intEncoded = 42.Base64Encode();
             var xml = new[] { "a", "b" }.ToXML("item");
 
             Assert.AreEqual("Name,Count", csv[0].TrimEnd());
             Assert.AreEqual("Alpha,2", csv[1].TrimEnd());
+            Assert.AreEqual("Already Encoded", checkedEncoded.Base64Decode());
             Assert.AreEqual("Alpha", textEncoded.Base64Decode());
             Assert.AreEqual("42", intEncoded.Base64Decode());
             Assert.AreEqual("<itemRoot><item>a</item><item>b</item></itemRoot>", xml);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies document GUID XML rows and long date formatting.
+        /// </summary>
+        /// <seealso cref="TextUtil.GetDocumentGuidRowXML"/>
+        /// <seealso cref="TextUtil.GetLongDateTime"/>
+        [TestMethod]
+        public void GetDocumentGuidRowXML_GetLongDateTime_CommonInputs_ReturnExpectedText()
+        {
+            #region implementation
+            Guid? documentGuid = Guid.Parse("53566d4f-ff40-4815-b922-3416cde56fb1");
+            var xml = documentGuid.GetDocumentGuidRowXML();
+            var localDate = TextUtil.GetLongDateTime("Eastern Standard Time", new DateTime(2026, 7, 2, 16, 0, 0, DateTimeKind.Utc));
+
+            Assert.AreEqual("<rows><row DocumentGUID=\"53566d4f-ff40-4815-b922-3416cde56fb1\" /></rows>", xml);
+            Assert.AreEqual(string.Empty, ((Guid?)null).GetDocumentGuidRowXML());
+            StringAssert.Contains(localDate, "2026");
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies XML-to-CSV conversion emits headers and row values.
+        /// </summary>
+        /// <seealso cref="TextUtil.ToCsvFromXml"/>
+        [TestMethod]
+        public void ToCsvFromXml_RowXml_ReturnsHeaderAndRows()
+        {
+            #region implementation
+            var xml = "<rows><row><Name>Alpha</Name><Count>2</Count></row><row><Name>Beta</Name><Count>3</Count></row></rows>";
+
+            var result = TextUtil.ToCsvFromXml(xml, "unused.csv", isTabDelimited: false);
+
+            StringAssert.Contains(result, "Name,Count");
+            StringAssert.Contains(result, "Alpha,2");
+            StringAssert.Contains(result, "Beta,3");
             #endregion
         }
 

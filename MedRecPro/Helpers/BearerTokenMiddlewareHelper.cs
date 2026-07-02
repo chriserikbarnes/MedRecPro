@@ -41,6 +41,29 @@ namespace MedRecPro.Helpers
         }
 
         /**************************************************************/
+        /// <summary>
+        /// Processes the current HTTP request and continues the middleware pipeline.
+        /// </summary>
+        /// <param name="context">The current HTTP context.</param>
+        /// <returns>A task representing the asynchronous middleware operation.</returns>
+        /// <remarks>
+        /// The token cache helper methods remain static and are used by downstream
+        /// callers. This middleware keeps the registration path valid while preserving
+        /// the current pass-through request behavior.
+        /// </remarks>
+        /// <seealso cref="GetTokenFromCache"/>
+        /// <seealso cref="GetTokenCacheKey"/>
+        public async Task InvokeAsync(HttpContext context)
+        {
+            #region implementation
+            _httpContext.HttpContext ??= context;
+            _logger.LogDebug("TokenCacheMiddleware processing request for {Path}", context.Request.Path);
+
+            await _next(context);
+            #endregion
+        }
+
+        /**************************************************************/
         public static string GetTokenFromCache(string? tokenKey)
         {
             #region implementation

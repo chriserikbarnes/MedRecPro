@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text;
+using static MedRecPro.Models.Constant;
 using static MedRecPro.Models.Label;
 
 namespace MedRecPro.Service.Test
@@ -258,6 +259,57 @@ namespace MedRecPro.Service.Test
 
             Assert.AreSame(productInfo, productInfo.ValidateAll());
             Assert.AreSame(warningDate, warningDate.ValidateAll());
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies Permission.New maps all supplied permission fields.
+        /// </summary>
+        /// <seealso cref="Permission.New"/>
+        [TestMethod]
+        public void New_PermissionFields_ReturnsInitializedPermission()
+        {
+            #region implementation
+            var permission = Permission.New(
+                ActorType.LabelAdmin,
+                "labels",
+                PermissionType.Write,
+                maskedPII: false);
+
+            Assert.AreEqual(ActorType.LabelAdmin, permission.Actor);
+            Assert.AreEqual("labels", permission.Resource);
+            Assert.AreEqual(PermissionType.Write, permission.Type);
+            Assert.IsFalse(permission.MaskedPII);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies SectionRendering returns child sections as ordered by the hierarchy service.
+        /// </summary>
+        /// <seealso cref="SectionRendering.GetOrderedChildren"/>
+        [TestMethod]
+        public void GetOrderedChildren_NoChildrenAndExistingChildren_ReturnsExpectedLists()
+        {
+            #region implementation
+            var empty = new SectionRendering
+            {
+                Section = new SectionDto { Section = new Dictionary<string, object?>() }
+            };
+            var children = new List<SectionDto>
+            {
+                new() { Section = new Dictionary<string, object?> { [nameof(SectionDto.Title)] = "First" } },
+                new() { Section = new Dictionary<string, object?> { [nameof(SectionDto.Title)] = "Second" } }
+            };
+            var populated = new SectionRendering
+            {
+                Section = new SectionDto { Section = new Dictionary<string, object?>() },
+                Children = children
+            };
+
+            Assert.AreEqual(0, empty.GetOrderedChildren().Count);
+            Assert.AreSame(children, populated.GetOrderedChildren());
             #endregion
         }
 

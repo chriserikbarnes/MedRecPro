@@ -677,14 +677,7 @@ public class ThrottleStateService : IThrottleStateService, IDisposable
             _lock.EnterReadLock();
             try
             {
-                // Calculate overage beyond free tier
-                var usedVCoreSeconds = FreeTierLimit - _remainingVCoreSeconds;
-                var overage = usedVCoreSeconds - FreeTierLimit;
-
-                if (overage <= 0)
-                    return 0;
-
-                return overage * CostPerVCoreSecond;
+                return calculateEstimatedMonthlyCost(_remainingVCoreSeconds);
             }
             finally
             {
@@ -727,8 +720,9 @@ public class ThrottleStateService : IThrottleStateService, IDisposable
                 _ => "Unknown state."
             };
 
+            var estimatedMonthlyCost = calculateEstimatedMonthlyCost(_remainingVCoreSeconds);
             var costInfo = _percentUsed > 100
-                ? $" Estimated cost: ${EstimatedMonthlyCost:F2}"
+                ? $" Estimated cost: ${estimatedMonthlyCost:F2}"
                 : "";
 
             return $"{_currentLevel}: {_percentUsed:F1}% of free tier consumed " +
@@ -743,6 +737,31 @@ public class ThrottleStateService : IThrottleStateService, IDisposable
     }
 
     #endregion
+
+    /**************************************************************/
+    /// <summary>
+    /// Calculates estimated monthly overage cost from remaining free-tier vCore seconds.
+    /// </summary>
+    /// <param name="remainingVCoreSeconds">Remaining vCore seconds in the free-tier allocation.</param>
+    /// <returns>The estimated monthly cost above the free-tier limit.</returns>
+    /// <remarks>
+    /// This helper is intentionally lock-free so callers that already hold the
+    /// throttle-state read lock can compute cost text without recursive lock entry.
+    /// </remarks>
+    /// <seealso cref="EstimatedMonthlyCost"/>
+    /// <seealso cref="GetStateDescription"/>
+    private static double calculateEstimatedMonthlyCost(double remainingVCoreSeconds)
+    {
+        #region implementation
+        var usedVCoreSeconds = FreeTierLimit - remainingVCoreSeconds;
+        var overage = usedVCoreSeconds - FreeTierLimit;
+
+        if (overage <= 0)
+            return 0;
+
+        return overage * CostPerVCoreSecond;
+        #endregion
+    }
 
     #region Internal Methods (for DatabaseUsageMonitorService)
 

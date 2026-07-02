@@ -82,6 +82,35 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Verifies default and legacy cache-set overloads store retrievable values.
+        /// </summary>
+        /// <seealso cref="PerformanceHelper.SetCache(string, object)"/>
+        /// <seealso cref="PerformanceHelper.depricated_SetCache"/>
+        [TestMethod]
+        public void SetCache_DefaultAndDeprecatedOverloads_StoreRetrievableValues()
+        {
+            #region implementation
+            var defaultKey = $"PerformanceHelperTests:default:{Guid.NewGuid():N}";
+            var deprecatedKey = $"PerformanceHelperTests:deprecated:{Guid.NewGuid():N}";
+
+            try
+            {
+                PerformanceHelper.SetCache(defaultKey, "default-value");
+                PerformanceHelper.depricated_SetCache(deprecatedKey, "deprecated-value", 1.0);
+
+                Assert.AreEqual("default-value", PerformanceHelper.GetCache(defaultKey));
+                Assert.AreEqual("deprecated-value", PerformanceHelper.GetCache(deprecatedKey));
+            }
+            finally
+            {
+                PerformanceHelper.RemoveCache(defaultKey);
+                PerformanceHelper.RemoveCache(deprecatedKey);
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies invalid JSON cache keys throw the documented exception.
         /// </summary>
         /// <seealso cref="PerformanceHelper.GetCachedJson{T}"/>

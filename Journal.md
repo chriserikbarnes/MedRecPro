@@ -5533,3 +5533,47 @@ Updated [Plans/(progress) MedRecPro Public Method Test Coverage Expansion Plan.m
 **Verification.** Verified the plan by direct `Select-String` and section-count checks because `Plans/` is ignored. The appendix marker totals match the refreshed coverage math. No build or test suite was rerun because this session updated the saved plan inventory and journal only.
 
 ---
+
+### 2026-07-02 11:20 AM EST — SPL Rendering Test Coverage Tranche
+
+Continued [Plans/(progress) MedRecPro Public Method Test Coverage Expansion Plan.md](Plans/%28progress%29%20MedRecPro%20Public%20Method%20Test%20Coverage%20Expansion%20Plan.md) with a deterministic SPL rendering-service coverage tranche using the supplied amlodipine/benazepril label fixtures. Copied the XML and JSON fixtures into [MedRecProTest/TestData/SPL](MedRecProTest/TestData/SPL), updated [MedRecProTest.csproj](MedRecProTest/MedRecProTest.csproj) to copy JSON test data, and added [SplRenderingFixtureHelper.cs](MedRecProTest/SplRenderingFixtureHelper.cs) to normalize fixture JSON, initialize deterministic encryption helpers, and keep rendering-service setup reusable.
+
+Added focused MSTest coverage for SPL author, characteristic, document, ingredient, package, section hierarchy, section rendering, structured body, and text-content rendering services through [SplAuthorRenderingServiceTests.cs](MedRecProTest/SplAuthorRenderingServiceTests.cs), [SplCharacteristicRenderingServiceTests.cs](MedRecProTest/SplCharacteristicRenderingServiceTests.cs), [SplDocumentRenderingServiceTests.cs](MedRecProTest/SplDocumentRenderingServiceTests.cs), [SplIngredientRenderingServiceTests.cs](MedRecProTest/SplIngredientRenderingServiceTests.cs), [SplPackageRenderingServiceTests.cs](MedRecProTest/SplPackageRenderingServiceTests.cs), [SplSectionHierarchyServiceTests.cs](MedRecProTest/SplSectionHierarchyServiceTests.cs), [SplSectionRenderingServiceTests.cs](MedRecProTest/SplSectionRenderingServiceTests.cs), [SplStructuredBodyRenderingServiceTests.cs](MedRecProTest/SplStructuredBodyRenderingServiceTests.cs), and [SplTextContentRenderingServiceTests.cs](MedRecProTest/SplTextContentRenderingServiceTests.cs). These tests add direct coverage signals for 59 service appendix rows without production code changes, live SQL Server, Azure, AI, network calls, or user secrets.
+
+Updated the saved plan with a 2026-07-02 progress ledger, marked the newly covered service rows complete, changed the inventory estimate to 408 directly signaled / 230 remaining gaps, and documented remaining data needs for controller/repository outcomes, upload ZIP/progress tests, SPL export/data/view tests, fake AI/Azure payloads, and the existing full-suite secret dependency. Verification passed with `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter FullyQualifiedName~Spl -p:UseAppHost=false` (82 passed, 0 failed, 0 skipped). `git diff --check` only reported the existing Git line-ending warning for `MedRecProTest/MedRecProTest.csproj`. Earlier custom `OutDir` verification generated recursive `TestResults/codex-spl-rendering-*` output folders under referenced projects; those generated folders were removed before the final normal-output test run.
+
+---
+
+### 2026-07-02 11:53 AM EST — Coverage Plan Downstream Scope Revision
+
+Revised [Plans/(progress) MedRecPro Public Method Test Coverage Expansion Plan.md](Plans/%28progress%29%20MedRecPro%20Public%20Method%20Test%20Coverage%20Expansion%20Plan.md) in place rather than closing it and creating a replacement plan. The artifact is now titled as a downstream public-method coverage plan, and controller action-method tests are explicitly out of scope for this tranche.
+
+**Inventory revision.** Removed controller endpoint coverage from the active scope and rebased the inventory by excluding 120 controller public methods, 23 existing direct controller signals, and 97 former controller gaps. The active downstream inventory now records 518 public methods, 385 directly signaled methods, and 133 remaining gaps. The appendix was revised to remove the controller method sections and now checks out at 133 open downstream rows and 169 completed downstream rows.
+
+**Plan focus.** Removed the controller testing phase, controller-focused test command, and controller definition-of-done criteria. Renumbered the remaining AI/cloud/background, repository/data-access, and verification phases, updated the public-surface guard example to exclude controllers, and replaced controller helper guidance with downstream `HttpContextTestHelper` guidance for filters/helpers.
+
+**Verification.** Verified the ignored plan artifact directly with `Get-Item`, `Select-String`, and an appendix row-count check because `Plans/` is ignored. No build or test suite was run because this session changed only the saved plan and journal.
+
+---
+
+### 2026-07-02 12:21 PM EST — Downstream Coverage Helper and Service Tranche
+
+Continued [Plans/(progress) MedRecPro Public Method Test Coverage Expansion Plan.md](Plans/%28progress%29%20MedRecPro%20Public%20Method%20Test%20Coverage%20Expansion%20Plan.md) with the next deterministic downstream public-method tranche. Added MSTest coverage for SPL template helpers, JSON piping, entity search, claims, permissions, token-cache middleware helper behavior, logging, background task queue behavior, Claude conversation storage, throttle-state descriptions, and SPL rendering service registration.
+
+Expanded existing public-surface tests in [ModelPublicSurfaceTests.cs](MedRecProTest/ModelPublicSurfaceTests.cs), [TextUtilTests.cs](MedRecProTest/TextUtilTests.cs), [PerformanceHelperTests.cs](MedRecProTest/PerformanceHelperTests.cs), and [UtilTests.cs](MedRecProTest/UtilTests.cs). Added a pass-through [BearerTokenMiddlewareHelper.InvokeAsync](MedRecPro/Helpers/BearerTokenMiddlewareHelper.cs) so `UseTokenCache()` registers as valid middleware, and changed [AzureThrottleStateService](MedRecPro/Service/AzureThrottleStateService.cs) to compute estimated overage cost through a lock-free helper when building state descriptions.
+
+Updated the ignored plan artifact to record 116 C# test files, 1,953 `[TestMethod]` methods, and 519 downstream public methods with 467 directly signaled and 52 remaining gaps. Phase notes now mark helper/policy/service-registration progress while leaving the outstanding filter, data-access, SPL export/data/view, AI/cloud, and remaining service gaps for later focused tranches.
+
+**Verification.** `dotnet build MedRecProTest\MedRecProTest.csproj --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. Focused `dotnet test C:\Users\chris\OneDrive\Documents\Repos\MedRecProTest\MedRecProTest.csproj --no-restore --filter 'FullyQualifiedName~SplTemplateHelperTests|FullyQualifiedName~JsonPipeHelperTests|FullyQualifiedName~EntitySearchHelperTests|FullyQualifiedName~ClaimHelperTests|FullyQualifiedName~PermissionServiceTests|FullyQualifiedName~TokenCacheMiddlewareHelperTests|FullyQualifiedName~LogHelperTests|FullyQualifiedName~BackgroundTaskQueueServiceTests|FullyQualifiedName~ClaudeConversationStoreTests|FullyQualifiedName~ThrottleStateServiceTests|FullyQualifiedName~ServiceRegistrationTests|FullyQualifiedName~ModelPublicSurfaceTests|FullyQualifiedName~TextUtilTests|FullyQualifiedName~PerformanceHelperTests|FullyQualifiedName~UtilTests' -p:UseAppHost=false` passed with 80 tests. `git diff --check` passed with only Git line-ending notices.
+
+---
+
+### 2026-07-02 12:33 PM EST — Remaining 52 Coverage Harness Plan Split
+
+Marked [Plans/(done) MedRecPro Public Method Test Coverage Expansion Plan.md](Plans/%28done%29%20MedRecPro%20Public%20Method%20Test%20Coverage%20Expansion%20Plan.md) as complete and renamed it from the previous `(progress)` artifact. The completed plan now records that the downstream expansion reached 467 of 519 directly signaled public methods and points to the new focused follow-up plan for the remaining work.
+
+Created [Plans/(pending) MedRecPro Remaining 52 Public Method Test Harness Plan.md](Plans/%28pending%29%20MedRecPro%20Remaining%2052%20Public%20Method%20Test%20Harness%20Plan.md) as a fresh handoff limited to the 52 open downstream methods. The new plan breaks the work into repository/data-access, filters, helper/model, SPL data/export/view rendering, Azure token/metrics/monitoring, and Claude API/conversation/search phases, with harness details, seed data needs, fake dependency requirements, and focused verification commands for each cluster.
+
+**Verification.** Verified the ignored plan rename and creation with `Get-Item`, `Test-Path`, and `Select-String`. The old `(progress)` path no longer exists, the `(done)` plan contains the done status, and the new pending plan appendix contains exactly 52 method entries. `git diff --check` reported only the existing Git line-ending notices. No build or test suite was run because this session changed saved plan artifacts and the journal only.
+
+---

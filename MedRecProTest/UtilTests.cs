@@ -133,6 +133,19 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Verifies GetUserName keeps the current no-lookup behavior null-safe.
+        /// </summary>
+        /// <seealso cref="Util.GetUserName"/>
+        [TestMethod]
+        public void GetUserName_NoLookupConfigured_ReturnsNull()
+        {
+            #region implementation
+            Assert.IsNull(Util.GetUserName());
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies IsNullOrEmpty handles null, empty, and populated sequences.
         /// </summary>
         /// <seealso cref="Util.IsNullOrEmpty{T}"/>
