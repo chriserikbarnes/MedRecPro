@@ -3,7 +3,6 @@ using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
-using MedRecPro.Mappers;
 using MedRecPro.Models;
 using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
@@ -13,6 +12,9 @@ using Newtonsoft.Json;
 using System.Reflection;
 using System.Security.Claims;
 using static MedRecPro.Models.UserRole;
+using ImportOperationStatus = MedRecProImportClass.Models.ImportOperationStatus;
+using ImportSplZipImportResult = MedRecProImportClass.Models.SplZipImportResult;
+using WebImportOperationStatus = MedRecPro.Models.ImportOperationStatus;
 
 namespace MedRecPro.Api.Controllers
 {
@@ -64,8 +66,8 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Store for import operation progress state.
         /// </summary>
-        /// <seealso cref="IOperationStatusStore"/>
-        private readonly IOperationStatusStore _statusStore;
+        /// <seealso cref="IImportOperationStatusStore"/>
+        private readonly IImportOperationStatusStore _statusStore;
 
         /**************************************************************/
         /// <summary>
@@ -83,7 +85,7 @@ namespace MedRecPro.Api.Controllers
             ILogger<LabelImportController> logger,
             SplImportService splImportService,
             IBackgroundTaskQueueService queue,
-            IOperationStatusStore statusStore)
+            IImportOperationStatusStore statusStore)
         {
             #region implementation
 
@@ -124,14 +126,14 @@ namespace MedRecPro.Api.Controllers
         /// </code>
         /// </example>
         /// <seealso cref="SplImportService"/>
-        /// <seealso cref="ImportOperationStatus"/>
+        /// <seealso cref="WebImportOperationStatus"/>
         /// <seealso cref="SplZipImportResult"/>
         /// <seealso cref="Label"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpPost("import")]
         [Authorize]
-        [ProducesResponseType(typeof(ImportOperationStatus), StatusCodes.Status202Accepted)]
+        [ProducesResponseType(typeof(WebImportOperationStatus), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status499ClientClosedRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -218,7 +220,7 @@ namespace MedRecPro.Api.Controllers
                         int currentFileIndex = 0;
 
                         // Process ZIP files with progress and status callbacks
-                        List<MedRecProImportClass.Models.SplZipImportResult> results = await _splImportService.ProcessZipFilesAsync(
+                        List<ImportSplZipImportResult> results = await _splImportService.ProcessZipFilesAsync(
                             bufferedFiles,
                             currentUserId,
                             source.Token,
@@ -249,7 +251,7 @@ namespace MedRecPro.Api.Controllers
                             results =>
                             {
                                 // Store results when processing is complete
-                                status.Results = ImportResultMapper.ToWebResults(results);
+                                status.Results = results;
                                 status.OperationId = operationId;
                                 status.ProgressUrl = progressUrl;
                                 _statusStore.Set(operationId, status);
@@ -259,7 +261,7 @@ namespace MedRecPro.Api.Controllers
                         // Mark operation as completed and store results
                         status.Status = "Completed";
                         status.PercentComplete = 100;
-                        status.Results = ImportResultMapper.ToWebResults(results);
+                        status.Results = results;
                     }
                     catch (OperationCanceledException)
                     {
@@ -325,10 +327,10 @@ namespace MedRecPro.Api.Controllers
         /// // { "Status": "Running", "PercentComplete": 45, "Results": null, "Error": null }
         /// </code>
         /// </example>
-        /// <seealso cref="ImportOperationStatus"/>
+        /// <seealso cref="WebImportOperationStatus"/>
         /// <seealso cref="SplZipImportResult"/>
         /// <seealso cref="Label"/>
-        [ProducesResponseType(typeof(ImportOperationStatus), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(WebImportOperationStatus), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [HttpGet("import/progress/{operationId}")]
         public IActionResult GetImportProgress(string operationId)

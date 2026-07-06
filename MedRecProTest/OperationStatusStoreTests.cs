@@ -1,6 +1,9 @@
 using MedRecPro.Models;
 using MedRecPro.Models.Extensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ImportImportOperationStatus = MedRecProImportClass.Models.ImportOperationStatus;
+using ImportSplFileImportResult = MedRecProImportClass.Models.SplFileImportResult;
+using ImportSplZipImportResult = MedRecProImportClass.Models.SplZipImportResult;
 
 namespace MedRecProTest
 {
@@ -73,6 +76,67 @@ namespace MedRecProTest
             Assert.AreEqual(expected.CurrentFile, actual.CurrentFile);
             Assert.AreEqual(expected.TotalFiles, actual.TotalFiles);
             Assert.AreEqual("labels.zip", actual.Results?.Single().ZipFileName);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stores import-library import status and retrieves the mapped web API progress status.
+        /// </summary>
+        /// <remarks>
+        /// Guards the import-boundary cleanup so the background import runtime can own
+        /// import status while the progress endpoint still reads the web DTO shape.
+        /// </remarks>
+        /// <seealso cref="IImportOperationStatusStore"/>
+        /// <seealso cref="ImportImportOperationStatus"/>
+        /// <seealso cref="ImportOperationStatus"/>
+        [TestMethod]
+        public void TryGet_ImportLibraryStatus_ReturnsMappedWebStatus()
+        {
+            #region implementation
+            IImportOperationStatusStore store = new InMemoryOperationStatusStore();
+            var operationId = Guid.NewGuid().ToString();
+            var expected = new ImportImportOperationStatus
+            {
+                OperationId = operationId,
+                ProgressUrl = $"/api/Label/import/progress/{operationId}",
+                Status = "Completed",
+                PercentComplete = 100,
+                CurrentFile = 1,
+                TotalFiles = 1,
+                Results = new List<ImportSplZipImportResult>
+                {
+                    new ImportSplZipImportResult
+                    {
+                        ZipFileName = "library-owned.zip",
+                        FileResults = new List<ImportSplFileImportResult>
+                        {
+                            new ImportSplFileImportResult
+                            {
+                                FileName = "library-owned.xml",
+                                Success = true,
+                                Message = "Imported successfully.",
+                                DocumentsCreated = 1
+                            }
+                        }
+                    }
+                }
+            };
+
+            store.Set(operationId, expected);
+            var found = store.TryGet(operationId, out var actual);
+
+            Assert.IsTrue(found);
+            Assert.IsNotNull(actual);
+            Assert.AreEqual(expected.OperationId, actual.OperationId);
+            Assert.AreEqual(expected.ProgressUrl, actual.ProgressUrl);
+            Assert.AreEqual(expected.Status, actual.Status);
+            Assert.AreEqual(expected.PercentComplete, actual.PercentComplete);
+            Assert.AreEqual(expected.CurrentFile, actual.CurrentFile);
+            Assert.AreEqual(expected.TotalFiles, actual.TotalFiles);
+            Assert.AreEqual("library-owned.zip", actual.Results?.Single().ZipFileName);
+            Assert.AreEqual("library-owned.xml", actual.Results?.Single().FileResults.Single().FileName);
+            Assert.AreEqual(1, actual.Results?.Single().FileResults.Single().DocumentsCreated);
             #endregion
         }
 

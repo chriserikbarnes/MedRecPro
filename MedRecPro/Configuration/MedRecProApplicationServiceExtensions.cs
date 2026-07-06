@@ -395,7 +395,11 @@ namespace MedRecPro.Configuration
             if (configuration.GetValue<bool>("FeatureFlags:BackgroundProcessingEnabled", true))
                 services.AddSingleton<IBackgroundTaskQueueService, BackgroundTaskQueueService>();
 
-            services.AddSingleton<IOperationStatusStore, InMemoryOperationStatusStore>();
+            services.AddSingleton<InMemoryOperationStatusStore>();
+
+            services.AddSingleton<IOperationStatusStore>(provider => provider.GetRequiredService<InMemoryOperationStatusStore>());
+
+            services.AddSingleton<IImportOperationStatusStore>(provider => provider.GetRequiredService<InMemoryOperationStatusStore>());
 
             services.AddHostedService<ZipImportWorkerService>();
 

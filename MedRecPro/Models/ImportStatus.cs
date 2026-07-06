@@ -1,5 +1,7 @@
 ﻿using MedRecPro.Helpers;
+using MedRecPro.Mappers;
 using static MedRecPro.Models.Label;
+using ImportImportOperationStatus = MedRecProImportClass.Models.ImportOperationStatus;
 
 namespace MedRecPro.Models
 {
@@ -28,6 +30,43 @@ namespace MedRecPro.Models
         /// </summary>
         /// <param name="opId">The unique operation identifier to look up.</param>
         /// <param name="status">The retrieved status information, or null if not found.</param>
+        /// <returns>True if the operation status was found, false otherwise.</returns>
+        /// <seealso cref="ImportOperationStatus"/>
+        /// <seealso cref="Label"/>
+        bool TryGet(string opId, out ImportOperationStatus? status);
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Defines the web API progress-store contract for import-library operation statuses.
+    /// </summary>
+    /// <remarks>
+    /// The import library owns import runtime contracts. The web API stores mapped
+    /// progress DTOs so existing polling responses remain compatible.
+    /// </remarks>
+    /// <seealso cref="ImportImportOperationStatus"/>
+    /// <seealso cref="ImportOperationStatus"/>
+    /// <seealso cref="InMemoryOperationStatusStore"/>
+    /// <seealso cref="Label"/>
+    public interface IImportOperationStatusStore
+    {
+        /**************************************************************/
+        /// <summary>
+        /// Stores or updates an import-library operation status for web progress polling.
+        /// </summary>
+        /// <param name="opId">The unique operation identifier.</param>
+        /// <param name="status">The import-library status to map and store.</param>
+        /// <seealso cref="ImportImportOperationStatus"/>
+        /// <seealso cref="ImportOperationStatus"/>
+        /// <seealso cref="Label"/>
+        void Set(string opId, ImportImportOperationStatus status);
+
+        /**************************************************************/
+        /// <summary>
+        /// Attempts to retrieve the mapped web API progress status for a specific import operation.
+        /// </summary>
+        /// <param name="opId">The unique operation identifier to look up.</param>
+        /// <param name="status">The retrieved web API progress status, or null if not found.</param>
         /// <returns>True if the operation status was found, false otherwise.</returns>
         /// <seealso cref="ImportOperationStatus"/>
         /// <seealso cref="Label"/>
@@ -125,7 +164,7 @@ namespace MedRecPro.Models
     /// <seealso cref="ImportOperationStatus"/>
     /// <seealso cref="PerformanceHelper"/>
     /// <seealso cref="Label"/>
-    public class InMemoryOperationStatusStore : IOperationStatusStore
+    public class InMemoryOperationStatusStore : IOperationStatusStore, IImportOperationStatusStore
     {
         #region implementation
 
@@ -157,6 +196,27 @@ namespace MedRecPro.Models
             #region implementation
             // Cache for 1 hour. You can adjust this as needed.
             PerformanceHelper.SetCacheManageKey(getCacheKey(opId), status, 1.0);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Stores import-library status information after mapping it to the web API progress DTO.
+        /// </summary>
+        /// <param name="opId">The unique operation identifier.</param>
+        /// <param name="status">The import-library status to map and store.</param>
+        /// <remarks>
+        /// This keeps import runtime state owned by <c>MedRecProImportClass</c> while the
+        /// progress endpoint continues returning the existing web DTO shape.
+        /// </remarks>
+        /// <seealso cref="ImportResultMapper.ToWebStatus"/>
+        /// <seealso cref="ImportImportOperationStatus"/>
+        /// <seealso cref="ImportOperationStatus"/>
+        /// <seealso cref="Label"/>
+        public void Set(string opId, ImportImportOperationStatus status)
+        {
+            #region implementation
+            Set(opId, ImportResultMapper.ToWebStatus(status));
             #endregion
         }
 

@@ -1,6 +1,7 @@
 using MedRecPro.Mappers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using WebSplZipImportResult = MedRecPro.Models.SplZipImportResult;
+using ImportImportOperationStatus = MedRecProImportClass.Models.ImportOperationStatus;
 using ImportSplFileImportResult = MedRecProImportClass.Models.SplFileImportResult;
 using ImportSplZipImportResult = MedRecProImportClass.Models.SplZipImportResult;
 
@@ -164,6 +165,59 @@ namespace MedRecProTest
             Assert.IsFalse(result.OverallSuccess);
             Assert.AreEqual(2, result.TotalFilesProcessed);
             Assert.AreEqual(1, result.TotalFilesSucceeded);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Maps an import-library operation status into the web API progress response.
+        /// </summary>
+        /// <remarks>
+        /// Covers the Phase 5 import-boundary seam where runtime import status remains
+        /// library-owned but polling responses stay web DTO compatible.
+        /// </remarks>
+        /// <seealso cref="ImportResultMapper.ToWebStatus"/>
+        [TestMethod]
+        public void ToWebStatus_ImportLibraryStatus_CopiesProgressAndMapsResults()
+        {
+            #region implementation
+            var source = new ImportImportOperationStatus
+            {
+                OperationId = "operation-1",
+                ProgressUrl = "/api/Label/import/progress/operation-1",
+                Status = "Completed",
+                PercentComplete = 100,
+                CurrentFile = 1,
+                TotalFiles = 1,
+                Results = new List<ImportSplZipImportResult>
+                {
+                    new ImportSplZipImportResult
+                    {
+                        ZipFileName = "labels.zip",
+                        FileResults = new List<ImportSplFileImportResult>
+                        {
+                            new ImportSplFileImportResult
+                            {
+                                FileName = "label.xml",
+                                Success = true,
+                                DocumentsCreated = 1
+                            }
+                        }
+                    }
+                }
+            };
+
+            var result = ImportResultMapper.ToWebStatus(source);
+
+            Assert.AreEqual(source.OperationId, result.OperationId);
+            Assert.AreEqual(source.ProgressUrl, result.ProgressUrl);
+            Assert.AreEqual(source.Status, result.Status);
+            Assert.AreEqual(source.PercentComplete, result.PercentComplete);
+            Assert.AreEqual(source.CurrentFile, result.CurrentFile);
+            Assert.AreEqual(source.TotalFiles, result.TotalFiles);
+            Assert.AreEqual("labels.zip", result.Results?.Single().ZipFileName);
+            Assert.AreEqual("label.xml", result.Results?.Single().FileResults.Single().FileName);
+            Assert.AreEqual(1, result.Results?.Single().FileResults.Single().DocumentsCreated);
             #endregion
         }
 

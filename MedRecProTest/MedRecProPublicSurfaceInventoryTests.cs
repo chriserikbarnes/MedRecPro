@@ -270,6 +270,7 @@ namespace MedRecPro.Service.Test
             ["FdaProductConceptHelper.GenerateProductConceptCode"] = nameof(FdaProductConceptHelperTests),
             ["FdaProductConceptHelper.ValidateConceptCodeFormat"] = nameof(FdaProductConceptHelperTests),
             ["ImportResultMapper.ToWebResults"] = nameof(ImportResultMapperTests),
+            ["ImportResultMapper.ToWebStatus"] = nameof(ImportResultMapperTests),
             ["InMemoryOperationStatusStore.Set"] = nameof(OperationStatusStoreTests),
             ["InMemoryOperationStatusStore.TryGet"] = nameof(OperationStatusStoreTests),
             ["IngredientRenderingService.FormatSubstanceName"] = nameof(SplIngredientRenderingServiceTests),

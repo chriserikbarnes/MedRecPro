@@ -256,6 +256,7 @@ namespace MedRecPro.Service.Test
             assertService<IPermissionService>(builder.Services, ServiceLifetime.Scoped);
             assertService<IBackgroundTaskQueueService>(builder.Services, ServiceLifetime.Singleton);
             assertService<IOperationStatusStore>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IImportOperationStatusStore>(builder.Services, ServiceLifetime.Singleton);
             assertService<IEncryptionService>(builder.Services, ServiceLifetime.Singleton);
             assertService<IDictionaryUtilityService>(builder.Services, ServiceLifetime.Singleton);
             assertService<IPasswordHasher<User>>(builder.Services, ServiceLifetime.Scoped);

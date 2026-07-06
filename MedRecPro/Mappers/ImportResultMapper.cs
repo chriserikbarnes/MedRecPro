@@ -1,5 +1,7 @@
 using WebSplFileImportResult = MedRecPro.Models.SplFileImportResult;
+using WebImportOperationStatus = MedRecPro.Models.ImportOperationStatus;
 using WebSplZipImportResult = MedRecPro.Models.SplZipImportResult;
+using ImportImportOperationStatus = MedRecProImportClass.Models.ImportOperationStatus;
 using ImportSplFileImportResult = MedRecProImportClass.Models.SplFileImportResult;
 using ImportSplZipImportResult = MedRecProImportClass.Models.SplZipImportResult;
 
@@ -45,6 +47,43 @@ namespace MedRecPro.Mappers
             }
 
             return sourceResults.Select(toWebZipResult).ToList();
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Converts an import-library operation status into the web API progress response shape.
+        /// </summary>
+        /// <param name="sourceStatus">Import-library operation status produced by the SPL import runtime.</param>
+        /// <returns>A web API operation status with mapped result DTOs.</returns>
+        /// <remarks>
+        /// The import library owns runtime import state while the web API keeps its existing
+        /// progress DTO contract. This method is the single mapping boundary between those types.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var webStatus = ImportResultMapper.ToWebStatus(importStatus);
+        /// </code>
+        /// </example>
+        /// <exception cref="ArgumentNullException">Thrown when sourceStatus is null.</exception>
+        /// <seealso cref="WebImportOperationStatus"/>
+        /// <seealso cref="ImportImportOperationStatus"/>
+        public static WebImportOperationStatus ToWebStatus(ImportImportOperationStatus sourceStatus)
+        {
+            #region implementation
+            ArgumentNullException.ThrowIfNull(sourceStatus);
+
+            return new WebImportOperationStatus
+            {
+                Status = sourceStatus.Status,
+                PercentComplete = sourceStatus.PercentComplete,
+                Results = ToWebResults(sourceStatus.Results),
+                OperationId = sourceStatus.OperationId,
+                ProgressUrl = sourceStatus.ProgressUrl,
+                Error = sourceStatus.Error,
+                CurrentFile = sourceStatus.CurrentFile,
+                TotalFiles = sourceStatus.TotalFiles
+            };
             #endregion
         }
 
