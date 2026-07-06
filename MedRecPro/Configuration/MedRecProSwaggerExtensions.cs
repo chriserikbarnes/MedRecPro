@@ -1,4 +1,5 @@
 using MedRecPro.Filters;
+using MedRecPro.Api.Controllers;
 using MedRecPro.Models;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
@@ -79,6 +80,7 @@ namespace MedRecPro.Configuration
                 #endregion
 
                 c.DocumentFilter<IncludeLabelNestedTypesDocumentFilter>();
+                c.OperationFilter<LabelFeatureSwaggerTagOperationFilter>();
 
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
@@ -96,19 +98,19 @@ Reference: https://www.fda.gov/media/84201/download?attachment
 ## 📋 General Information
 
 ### Data Access
-The API utilizes a generic repository pattern (`Repository<T>`) implemented in `MedRecPro.DataAccess` for database operations. 
-It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention. 
+The API utilizes a generic repository pattern (`Repository<T>`) implemented in `MedRecPro.DataAccess` for database operations.
+It assumes table names match class names and primary keys follow the `[ClassName]ID` naming convention.
 EntityFramework is used for object-relational mapping.
 
 ### Data Models
-Data structures corresponding to the database tables (e.g., `Document`, `Organization`) are defined in 
+Data structures corresponding to the database tables (e.g., `Document`, `Organization`) are defined in
 `MedRecPro.Models` (`Labels.cs`).
 
 ### Database Schema
 The underlying database schema is defined in `MedRecPro.sql`.
 
 ### Security
-All primary/foriegn keys are encrypted using a secure cipher. Encrypted IDs must be provided in requests and will be 
+All primary/foriegn keys are encrypted using a secure cipher. Encrypted IDs must be provided in requests and will be
 returned in responses for security purposes.
 
 ---
@@ -124,7 +126,7 @@ The authentication system uses ASP.NET Core Identity with cookie-based authentic
   * **Example:** `GET /api/auth/login/Google`
 
 * **`GET /api/auth/external-logincallback`**: OAuth callback endpoint
-  * **Parameters:** 
+  * **Parameters:**
     - `returnUrl` (string, query, optional) - URL to redirect after successful login
     - `remoteError` (string, query, optional) - Error message from provider
   * **Responses:**
@@ -365,7 +367,7 @@ Manages user accounts, authentication, activity tracking, and administrative ope
 The system implements both timer-based and managed caching for database requests to optimize performance.
 Retrieving data from cache is significantly faster than querying the database directly.
 
-When you need to ensure fresh data from the database, use the `/API/Settings/ClearManagedCache` endpoint 
+When you need to ensure fresh data from the database, use the `/API/Settings/ClearManagedCache` endpoint
 to clear the managed cache before making your request.
 
 ---

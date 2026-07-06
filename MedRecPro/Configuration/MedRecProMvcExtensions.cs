@@ -1,4 +1,5 @@
 using MedRecPro.Data;
+using MedRecPro.Api.Controllers;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
@@ -74,8 +75,11 @@ namespace MedRecPro.Configuration
             #region Newtonsoft Options
             services.AddControllers(options =>
             {
+                // Split Label feature controllers keep the original public route name through this convention.
+                options.Conventions.Add(new LabelFeatureControllerModelConvention());
+
                 // Register the authorization exception filter globally
-                // This catches AuthorizationException, UserRoleAuthorizationException, 
+                // This catches AuthorizationException, UserRoleAuthorizationException,
                 // and ActorAuthorizationException thrown by the authorization filters
                 options.Filters.Add<AuthorizationExceptionFilter>();
             })
