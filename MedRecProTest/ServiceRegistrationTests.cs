@@ -1,14 +1,24 @@
 using MedRecPro.Configuration;
+using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Middleware;
 using MedRecPro.Models;
+using MedRecPro.Security;
+using MedRecPro.Service.Common;
+using MedRecPro.Services;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ImportApplicationDbContext = MedRecProImportClass.Data.ApplicationDbContext;
 
 namespace MedRecPro.Service.Test
 {
@@ -185,6 +195,117 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Verifies the extracted MedRecPro startup service-registration extensions add the expected representative descriptors.
+        /// </summary>
+        /// <remarks>
+        /// This test keeps configuration isolated from production fallbacks while exercising the Phase 2 composition-root extension methods.
+        /// </remarks>
+        /// <seealso cref="MedRecProApplicationServiceExtensions"/>
+        /// <seealso cref="MedRecProAuthenticationExtensions"/>
+        /// <seealso cref="MedRecProMvcExtensions"/>
+        /// <seealso cref="MedRecProSwaggerExtensions"/>
+        [TestMethod]
+        public void MedRecProStartupExtensions_ServiceRegistrations_AddExpectedDescriptors()
+        {
+            #region implementation
+            // Arrange
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                EnvironmentName = Environments.Development
+            });
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Server=(localdb)\\MSSQLLocalDB;Database=MedRecProStartupExtensionTest;Trusted_Connection=True;",
+                ["Security:DB:PKSecret"] = "startup-extension-test-secret",
+                ["ClaudeApiSettings:ApiKey"] = "test-api-key",
+                ["Authentication:Google:ClientId"] = "google-client-id",
+                ["Authentication:Google:ClientSecret"] = "google-client-secret",
+                ["Authentication:Microsoft:ClientId"] = "microsoft-client-id",
+                ["Authentication:Microsoft:ClientSecret:Dev"] = "microsoft-client-secret",
+                ["FeatureFlags:BackgroundProcessingEnabled"] = "true",
+                ["TarpitSettings:Enabled"] = "false",
+                ["IgnoreEmptyObjectsWhenSerializing"] = "false",
+                ["Version"] = "test"
+            });
+
+            // Act
+            builder.AddMedRecProKeyVault();
+            builder.AddMedRecProDataAccess();
+            builder.AddMedRecProConfigurationSettings();
+            builder.Services.AddMedRecProPlatformServices(builder.Configuration);
+            builder.Services.AddMedRecProAi();
+            builder.Services.AddMedRecProUserServices();
+            builder.Services.AddMedRecProImport();
+            builder.Services.AddMedRecProBackgroundServices(builder.Configuration);
+            builder.Services.AddMedRecProRendering();
+            builder.Services.AddMedRecProSession();
+            builder.Services.AddMedRecProAuth(builder.Configuration);
+            builder.Services.AddMedRecProApiControllers(builder.Configuration);
+            builder.Services.AddMedRecProSwagger(builder.Configuration);
+            builder.Services.AddMedRecProRequestLimits();
+            builder.Services.AddMedRecProViews(builder.Configuration);
+
+            // Assert - representative registrations from each extracted startup capability.
+            assertService<DbContextOptions<ApplicationDbContext>>(builder.Services, ServiceLifetime.Scoped);
+            assertService<DbContextOptions<ImportApplicationDbContext>>(builder.Services, ServiceLifetime.Scoped);
+            assertService<UserDataAccess>(builder.Services, ServiceLifetime.Scoped);
+            assertService<TarpitService>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IClaudeSkillService>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IComparisonService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<IActivityLogService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<IPermissionService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<IBackgroundTaskQueueService>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IOperationStatusStore>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IEncryptionService>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IDictionaryUtilityService>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IPasswordHasher<User>>(builder.Services, ServiceLifetime.Scoped);
+            assertService<IViewRenderService>(builder.Services, ServiceLifetime.Scoped);
+            assertOpenGeneric(typeof(Repository<>), builder.Services, ServiceLifetime.Scoped);
+            assertOpenGeneric(typeof(MedRecProImportClass.DataAccess.Repository<>), builder.Services, ServiceLifetime.Scoped);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the extracted MedRecPro middleware extension methods attach to a minimal web application.
+        /// </summary>
+        /// <remarks>
+        /// The test does not start a server; it only proves the extension methods return the same pipeline instance after registration.
+        /// </remarks>
+        /// <seealso cref="MedRecProMiddlewareExtensions"/>
+        /// <seealso cref="MedRecProSwaggerExtensions.UseMedRecProSwagger(WebApplication)"/>
+        [TestMethod]
+        public void MedRecProStartupExtensions_MiddlewareRegistration_ReturnsApplication()
+        {
+            #region implementation
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                EnvironmentName = Environments.Development
+            });
+            builder.Services.AddLogging();
+            builder.Services.AddRouting();
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddControllers();
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("AllowLocalDevelopment", policy =>
+                    policy.AllowAnyOrigin()
+                        .AllowAnyMethod()
+                        .AllowAnyHeader());
+            });
+            builder.Services.AddSwaggerGen();
+
+            var app = builder.Build();
+
+            Assert.AreSame(app, app.UseMedRecProExceptionHandling());
+            Assert.AreSame(app, app.UseMedRecProSwagger());
+            Assert.AreSame(app, app.UseMedRecProSplStaticFiles());
+            Assert.AreSame(app, app.UseMedRecProCors());
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Asserts that a service descriptor exists with the expected implementation and lifetime.
         /// </summary>
         /// <typeparam name="TService">Service contract type.</typeparam>
@@ -200,6 +321,44 @@ namespace MedRecPro.Service.Test
 
             Assert.IsNotNull(descriptor, $"Missing registration for {typeof(TService).Name}.");
             Assert.AreEqual(ServiceLifetime.Scoped, descriptor.Lifetime);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Asserts that a service descriptor exists with the expected service type and lifetime.
+        /// </summary>
+        /// <typeparam name="TService">Service contract type.</typeparam>
+        /// <param name="services">Service collection to inspect.</param>
+        /// <param name="lifetime">Expected service lifetime.</param>
+        /// <seealso cref="ServiceDescriptor"/>
+        private static void assertService<TService>(IServiceCollection services, ServiceLifetime lifetime)
+        {
+            #region implementation
+            var descriptor = services.LastOrDefault(service =>
+                service.ServiceType == typeof(TService));
+
+            Assert.IsNotNull(descriptor, $"Missing registration for {typeof(TService).Name}.");
+            Assert.AreEqual(lifetime, descriptor!.Lifetime);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Asserts that an open generic service descriptor exists with the expected lifetime.
+        /// </summary>
+        /// <param name="serviceType">Open generic service type to inspect.</param>
+        /// <param name="services">Service collection to inspect.</param>
+        /// <param name="lifetime">Expected service lifetime.</param>
+        /// <seealso cref="ServiceDescriptor"/>
+        private static void assertOpenGeneric(Type serviceType, IServiceCollection services, ServiceLifetime lifetime)
+        {
+            #region implementation
+            var descriptor = services.SingleOrDefault(service =>
+                service.ServiceType == serviceType);
+
+            Assert.IsNotNull(descriptor, $"Missing registration for {serviceType.Name}.");
+            Assert.AreEqual(lifetime, descriptor!.Lifetime);
             #endregion
         }
 

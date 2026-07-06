@@ -5641,3 +5641,17 @@ Completed Phase 1 of [Plans/(pending) MedRecPro Technical Debt and DRY Remediati
 **Verification.** `dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. `dotnet build .\MedRecProStatic\MedRecProStatic.csproj --no-restore -p:UseAppHost=false` passed with one existing nullable Razor warning in `MedRecProStatic\Views\Home\Index.cshtml`, not generated `bin` output. `dotnet build .\MedRecProMCP\MedRecProMCP.csproj --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. `git diff --check` reported no whitespace errors, only Git LF-to-CRLF normalization notices for touched files.
 
 ---
+
+### 2026-07-06 9:18 AM EST — Technical Debt Phase 2 Composition Root Decomposition
+
+Completed Phase 2 of [Plans/(pending) MedRecPro Technical Debt and DRY Remediation Plan.md](Plans/%28pending%29%20MedRecPro%20Technical%20Debt%20and%20DRY%20Remediation%20Plan.md) and paused before Phase 3 as requested. The work kept controller routes untouched and preserved the Debug/production compiler-directive branches called out in the plan.
+
+**Composition root.** Replaced the large [Program.cs](MedRecPro/Program.cs) startup body with an ordered orchestration shell. Added capability-focused extension files under [MedRecPro/Configuration](MedRecPro/Configuration): application/data/import/background/rendering registration, identity/auth/CORS setup, MVC/JSON/RazorLight setup, Swagger setup, and exception/static-file/CORS middleware setup. `Util.Initialize(...)` remains immediately after `app.MapControllers()`.
+
+**Routing and directives.** Preserved the existing `#if DEBUG` database fallback, `#if DEBUG` Microsoft auth-secret selection, Swagger `#if DEBUG || DEV` / `#elif RELEASE` environment-label branch, and Release-only root endpoint. Swagger server URL selection still uses runtime `app.Environment.IsDevelopment()` and was not unified with compile-time controller routing. SPL stylesheet aliases remain `/api/stylesheets` and `/stylesheets`.
+
+**Tests and plan.** Added startup-extension coverage to [ServiceRegistrationTests.cs](MedRecProTest/ServiceRegistrationTests.cs) and mapped the new public extension methods in [MedRecProPublicSurfaceInventoryTests.cs](MedRecProTest/MedRecProPublicSurfaceInventoryTests.cs). Updated the ignored pending plan artifact in place to mark Phase 2 complete and record the Phase 0 WebApplicationFactory route/startup smoke harness as still pending.
+
+**Verification.** `dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false -p:UseSharedCompilation=false` passed with 0 warnings and 0 errors. `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~ServiceRegistrationTests" -p:UseAppHost=false -p:UseSharedCompilation=false` passed: 7 passed, 0 failed, 0 skipped. `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~MedRecProPublicSurfaceInventoryTests" -p:UseAppHost=false -p:UseSharedCompilation=false` passed: 1 passed, 0 failed, 0 skipped. `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~ControllerTests" -p:UseAppHost=false -p:UseSharedCompilation=false` passed: 15 passed, 0 failed, 0 skipped. `git diff --check` reported no whitespace errors, only Git LF-to-CRLF normalization notices for touched files.
+
+---
