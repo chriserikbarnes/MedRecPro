@@ -5,6 +5,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -825,11 +826,30 @@ namespace MedRecProTest
 
             var logger = new Mock<ILogger<AdverseEventController>>();
             var userDataAccess = createUserDataAccess(context, configuration);
+            var productCatalogService = new AeDashboardProductCatalogService(
+                context,
+                new Mock<ILogger<AeDashboardProductCatalogService>>().Object);
+            var productDetailService = new AeDashboardProductDetailService(
+                context,
+                new Mock<ILogger<AeDashboardProductDetailService>>().Object);
+            var favoriteService = new AeDashboardFavoriteService(
+                context,
+                new Mock<ILogger<AeDashboardFavoriteService>>().Object);
+            var classCorrelationService = new AeDashboardClassCorrelationService(
+                context,
+                new Mock<ILogger<AeDashboardClassCorrelationService>>().Object);
+            var systemCorrelationService = new AeDashboardSystemCorrelationService(
+                context,
+                new Mock<ILogger<AeDashboardSystemCorrelationService>>().Object);
             var controller = new AdverseEventController(
                 configuration,
                 logger.Object,
-                context,
-                userDataAccess);
+                userDataAccess,
+                productCatalogService,
+                productDetailService,
+                favoriteService,
+                classCorrelationService,
+                systemCorrelationService);
 
             controller.ControllerContext = new ControllerContext
             {

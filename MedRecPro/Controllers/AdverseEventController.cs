@@ -4,6 +4,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,9 +16,11 @@ namespace MedRecPro.Api.Controllers
     /// </summary>
     /// <remarks>
     /// This controller is intentionally thin: it validates HTTP inputs, enforces feature and user gates, and delegates all AE dashboard query,
-    /// derivation, sorting, score, comparator, and favorite persistence behavior to <see cref="DtoLabelAccess"/>.
+    /// derivation, sorting, score, comparator, and favorite persistence behavior to AE dashboard feature services.
     /// </remarks>
-    /// <seealso cref="DtoLabelAccess"/>
+    /// <seealso cref="IAeDashboardProductCatalogService"/>
+    /// <seealso cref="IAeDashboardProductDetailService"/>
+    /// <seealso cref="IAeDashboardFavoriteService"/>
     /// <seealso cref="AeDrugSummaryDto"/>
     /// <seealso cref="AspNetUserFavorite"/>
     [ApiController]
@@ -39,9 +42,33 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Entity Framework context used by dashboard data-access methods.
+        /// Product catalog service used by picker and inventory endpoints.
         /// </summary>
-        private readonly ApplicationDbContext _dbContext;
+        private readonly IAeDashboardProductCatalogService _productCatalogService;
+
+        /**************************************************************/
+        /// <summary>
+        /// Product-detail service used by signal, visualization, reverse-lookup, and interchange endpoints.
+        /// </summary>
+        private readonly IAeDashboardProductDetailService _productDetailService;
+
+        /**************************************************************/
+        /// <summary>
+        /// Favorite service used by authenticated favorite read and mutation endpoints.
+        /// </summary>
+        private readonly IAeDashboardFavoriteService _favoriteService;
+
+        /**************************************************************/
+        /// <summary>
+        /// Class-first correlation service used by pharmacologic-class correlation endpoints.
+        /// </summary>
+        private readonly IAeDashboardClassCorrelationService _classCorrelationService;
+
+        /**************************************************************/
+        /// <summary>
+        /// System-first correlation service used by MedDRA system correlation endpoints.
+        /// </summary>
+        private readonly IAeDashboardSystemCorrelationService _systemCorrelationService;
 
         /**************************************************************/
         /// <summary>
@@ -65,24 +92,36 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         /// <param name="configuration">Configuration provider for feature flags and encryption settings.</param>
         /// <param name="logger">Logger instance for controller diagnostics.</param>
-        /// <param name="applicationDbContext">Application database context used by dashboard queries.</param>
         /// <param name="userDataAccess">User data-access service used to resolve authenticated claims users.</param>
+        /// <param name="productCatalogService">Product catalog service used by picker and inventory endpoints.</param>
+        /// <param name="productDetailService">Product-detail service used by signal and visualization endpoints.</param>
+        /// <param name="favoriteService">Favorite service used by authenticated favorite endpoints.</param>
+        /// <param name="classCorrelationService">Class-first correlation service used by pharmacologic-class endpoints.</param>
+        /// <param name="systemCorrelationService">System-first correlation service used by MedDRA system endpoints.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is not supplied.</exception>
         /// <exception cref="InvalidOperationException">Thrown when <c>Security:DB:PKSecret</c> is missing or whitespace.</exception>
-        /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="UserDataAccess"/>
+        /// <seealso cref="IAeDashboardProductCatalogService"/>
         public AdverseEventController(
             IConfiguration configuration,
             ILogger<AdverseEventController> logger,
-            ApplicationDbContext applicationDbContext,
-            UserDataAccess userDataAccess)
+            UserDataAccess userDataAccess,
+            IAeDashboardProductCatalogService productCatalogService,
+            IAeDashboardProductDetailService productDetailService,
+            IAeDashboardFavoriteService favoriteService,
+            IAeDashboardClassCorrelationService classCorrelationService,
+            IAeDashboardSystemCorrelationService systemCorrelationService)
         {
             #region implementation
 
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _userDataAccess = userDataAccess ?? throw new ArgumentNullException(nameof(userDataAccess));
+            _productCatalogService = productCatalogService ?? throw new ArgumentNullException(nameof(productCatalogService));
+            _productDetailService = productDetailService ?? throw new ArgumentNullException(nameof(productDetailService));
+            _favoriteService = favoriteService ?? throw new ArgumentNullException(nameof(favoriteService));
+            _classCorrelationService = classCorrelationService ?? throw new ArgumentNullException(nameof(classCorrelationService));
+            _systemCorrelationService = systemCorrelationService ?? throw new ArgumentNullException(nameof(systemCorrelationService));
 
             _pkSecret = _configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
@@ -163,10 +202,8 @@ namespace MedRecPro.Api.Controllers
                     return optionalUser.ErrorResult;
                 }
 
-                var results = await DtoLabelAccess.GetAeDrugSummariesAsync(
-                    _dbContext,
+                var results = await _productCatalogService.GetDrugSummariesAsync(
                     _pkSecret,
-                    _logger,
                     productSearch,
                     optionalUser.UserId,
                     pageNumber,
@@ -249,10 +286,8 @@ namespace MedRecPro.Api.Controllers
                     return optionalUser.ErrorResult;
                 }
 
-                var results = await DtoLabelAccess.GetAeProductCatalogAsync(
-                    _dbContext,
+                var results = await _productCatalogService.GetProductCatalogAsync(
                     _pkSecret,
-                    _logger,
                     productSearch,
                     optionalUser.UserId,
                     pageNumber,
@@ -312,7 +347,7 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var count = await DtoLabelAccess.GetAeProductCountAsync(_dbContext, _logger);
+                var count = await _productCatalogService.GetProductCountAsync();
                 return Ok(count);
             }
             catch (Exception ex)
@@ -385,11 +420,9 @@ namespace MedRecPro.Api.Controllers
                     return authenticatedUser.ErrorResult;
                 }
 
-                var results = await DtoLabelAccess.GetAeFavoriteDrugSummariesAsync(
-                    _dbContext,
+                var results = await _favoriteService.GetFavoriteDrugSummariesAsync(
                     authenticatedUser.DashboardUser!.Id,
                     _pkSecret,
-                    _logger,
                     pageNumber,
                     pageSize);
 
@@ -551,11 +584,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeTriageViewAsync(
-                    _dbContext,
+                var result = await _productDetailService.GetTriageViewAsync(
                     documentGuid,
                     _pkSecret,
-                    _logger,
                     comparator,
                     includeFragile);
 
@@ -631,11 +662,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeForestPlotAsync(
-                    _dbContext,
+                var result = await _productDetailService.GetForestPlotAsync(
                     documentGuid,
                     _pkSecret,
-                    _logger,
                     comparator,
                     includeFragile);
 
@@ -711,11 +740,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeQuadrantViewAsync(
-                    _dbContext,
+                var result = await _productDetailService.GetQuadrantViewAsync(
                     documentGuid,
                     _pkSecret,
-                    _logger,
                     comparator,
                     includeFragile);
 
@@ -789,11 +816,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeReverseLookupAsync(
-                    _dbContext,
+                var result = await _productDetailService.GetReverseLookupAsync(
                     symptom,
                     _pkSecret,
-                    _logger,
                     documentGuids);
 
                 return Ok(result);
@@ -875,12 +900,10 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeInterchangeAsync(
-                    _dbContext,
+                var result = await _productDetailService.GetInterchangeAsync(
                     documentGuidA,
                     documentGuidB,
                     _pkSecret,
-                    _logger,
                     differencesOnly,
                     sharedSignalsOnly,
                     comparator);
@@ -994,11 +1017,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeCorrelationMapAsync(
-                    _dbContext,
+                var result = await _classCorrelationService.GetCorrelationMapAsync(
                     pharmClassCode.Trim(),
                     _pkSecret,
-                    _logger,
                     comparator ?? AeComparatorMix.Placebo,
                     includeNonSignificant,
                     excludeFragile,
@@ -1105,10 +1126,8 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var results = await DtoLabelAccess.GetAeCorrelationClassesAsync(
-                    _dbContext,
+                var results = await _classCorrelationService.GetCorrelationClassesAsync(
                     _pkSecret,
-                    _logger,
                     classSearch,
                     pageNumber,
                     pageSize,
@@ -1205,10 +1224,8 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var results = await DtoLabelAccess.GetAeCorrelationSystemsAsync(
-                    _dbContext,
+                var results = await _systemCorrelationService.GetCorrelationSystemsAsync(
                     _pkSecret,
-                    _logger,
                     systemSearch,
                     pageNumber,
                     pageSize,
@@ -1337,11 +1354,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeSystemCorrelationMapAsync(
-                    _dbContext,
+                var result = await _systemCorrelationService.GetSystemCorrelationMapAsync(
                     selectedSystems,
                     _pkSecret,
-                    _logger,
                     classSearch,
                     classPageNumber!.Value,
                     classPageSize!.Value,
@@ -1472,11 +1487,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeSystemCorrelationHeatmapAsync(
-                    _dbContext,
+                var result = await _systemCorrelationService.GetSystemCorrelationHeatmapAsync(
                     selectedSystems,
                     _pkSecret,
-                    _logger,
                     classSearch,
                     drugSearch,
                     classPageNumber!.Value,
@@ -1602,13 +1615,11 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeSystemCorrelationCellDetailAsync(
-                    _dbContext,
+                var result = await _systemCorrelationService.GetSystemCorrelationCellDetailAsync(
                     selectedSystems,
                     classX.Trim(),
                     classY.Trim(),
                     _pkSecret,
-                    _logger,
                     comparator ?? AeComparatorMix.Placebo,
                     includeNonSignificant,
                     excludeFragile,
@@ -1722,11 +1733,9 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeCorrelationHeatmapAsync(
-                    _dbContext,
+                var result = await _classCorrelationService.GetCorrelationHeatmapAsync(
                     pharmClassCode.Trim(),
                     _pkSecret,
-                    _logger,
                     comparator ?? AeComparatorMix.Placebo,
                     includeNonSignificant,
                     excludeFragile,
@@ -1846,13 +1855,11 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                var result = await DtoLabelAccess.GetAeCorrelationCellDetailAsync(
-                    _dbContext,
+                var result = await _classCorrelationService.GetCorrelationCellDetailAsync(
                     pharmClassCode.Trim(),
                     socX.Trim(),
                     socY.Trim(),
                     _pkSecret,
-                    _logger,
                     comparator ?? AeComparatorMix.Placebo,
                     includeNonSignificant,
                     excludeFragile,
@@ -2250,12 +2257,10 @@ namespace MedRecPro.Api.Controllers
                     return authenticatedUser.ErrorResult;
                 }
 
-                var saved = await DtoLabelAccess.SetAeProductFavoriteAsync(
-                    _dbContext,
+                var saved = await _favoriteService.SetProductFavoriteAsync(
                     authenticatedUser.DashboardUser!.Id,
                     documentGuid,
-                    isFavorite,
-                    _logger);
+                    isFavorite);
 
                 if (!saved)
                 {

@@ -1,6 +1,7 @@
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
+using MedRecPro.Service;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -48,6 +49,57 @@ namespace MedRecProTest
         }
 
         #endregion initialization
+
+        #region policy tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies AE dashboard cache keys keep the legacy DtoLabelAccess prefix after service extraction.
+        /// </summary>
+        /// <seealso cref="AeDashboardCachePolicy.GenerateKey(string, string?, int?, int?)"/>
+        [TestMethod]
+        public void AeDashboardCachePolicy_GenerateKey_PreservesLegacyDtoLabelAccessPrefix()
+        {
+            #region implementation
+
+            var cacheKey = AeDashboardCachePolicy.Shared.GenerateKey(
+                nameof(DtoLabelAccess.GetAeProductDetailDataAsync),
+                "document guid",
+                1,
+                25);
+
+            Assert.AreEqual(
+                "RHRvTGFiZWxBY2Nlc3MuR2V0QWVQcm9kdWN0RGV0YWlsRGF0YUFzeW5jX2RvY3VtZW50X2d1aWRfMV8yNQ==",
+                cacheKey);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the AE dashboard ID mapper decrypts a captured pre-refactor fast encrypted identifier.
+        /// </summary>
+        /// <seealso cref="AeDashboardEncryptedIdMapper.DecryptNullableInt(string?, string, Microsoft.Extensions.Logging.ILogger, string)"/>
+        [TestMethod]
+        public void AeDashboardEncryptedIdMapper_CapturedFastToken_DecryptsToOriginalId()
+        {
+            #region implementation
+
+            const string capturedPreRefactorId = "F-AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyBLjjQW1p8HoYG7I6eDRbBb";
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+
+            var value = AeDashboardEncryptedIdMapper.Shared.DecryptNullableInt(
+                capturedPreRefactorId,
+                PkSecret,
+                logger,
+                nameof(AeDrugSummaryDto.EncryptedPharmacologicClassID));
+
+            Assert.AreEqual(30, value);
+
+            #endregion
+        }
+
+        #endregion policy tests
 
         #region product catalog tests
 

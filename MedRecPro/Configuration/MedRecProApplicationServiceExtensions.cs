@@ -206,6 +206,22 @@ namespace MedRecPro.Configuration
 
             services.AddMemoryCache();
 
+            services.AddSingleton<IAeDashboardCachePolicy, AeDashboardCachePolicy>();
+
+            services.AddSingleton<IAeDashboardEncryptedIdMapper, AeDashboardEncryptedIdMapper>();
+
+            services.AddSingleton<IAeDashboardCorrelationPolicy, AeDashboardCorrelationPolicy>();
+
+            services.AddScoped<IAeDashboardProductCatalogService, AeDashboardProductCatalogService>();
+
+            services.AddScoped<IAeDashboardProductDetailService, AeDashboardProductDetailService>();
+
+            services.AddScoped<IAeDashboardFavoriteService, AeDashboardFavoriteService>();
+
+            services.AddScoped<IAeDashboardClassCorrelationService, AeDashboardClassCorrelationService>();
+
+            services.AddScoped<IAeDashboardSystemCorrelationService, AeDashboardSystemCorrelationService>();
+
             services.AddSingleton<AzureAppTokenProvider>();
 
             services.AddSingleton<AzureManagementTokenProvider>();

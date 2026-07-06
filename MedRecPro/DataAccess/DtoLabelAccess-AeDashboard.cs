@@ -1,10 +1,10 @@
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Diagnostics;
-using Cached = MedRecPro.Helpers.PerformanceHelper;
 
 namespace MedRecPro.DataAccess
 {
@@ -354,13 +354,13 @@ namespace MedRecPro.DataAccess
             }
 
             var versionToken = await getAeProductDetailVersionTokenAsync(db, documentGuid);
-            var cacheKey = generateCacheKey(
+            var cacheKey = AeDashboardCachePolicy.Shared.GenerateKey(
                 nameof(GetAeProductDetailDataAsync),
                 $"{documentGuid:N}:{comparator?.ToString() ?? "all"}:{includeFragile}:{versionToken}",
                 null,
                 null);
 
-            var cached = Cached.GetCache<AeDashboardProductDetailData>(cacheKey);
+            var cached = AeDashboardCachePolicy.Shared.Get<AeDashboardProductDetailData>(cacheKey);
             if (cached != null)
             {
                 stopwatch.Stop();
@@ -381,7 +381,7 @@ namespace MedRecPro.DataAccess
 
             if (signals.Count > 0)
             {
-                Cached.SetCacheManageKey(cacheKey, cloneProductDetailData(payload), 1.0);
+                AeDashboardCachePolicy.Shared.Set(cacheKey, cloneProductDetailData(payload), 1.0);
             }
 
             stopwatch.Stop();
@@ -1813,10 +1813,10 @@ namespace MedRecPro.DataAccess
 
             // A new version token keeps this per-document shape from colliding with
             // any older per-stratum cache entry.
-            var cacheKey = generateCacheKey(nameof(getCachedAeProductCatalogAsync), "anonymous-catalog-by-document-v1", null, null);
+            var cacheKey = AeDashboardCachePolicy.Shared.GenerateKey(nameof(getCachedAeProductCatalogAsync), "anonymous-catalog-by-document-v1", null, null);
 
             // Return the shared catalog when present. Callers clone before mutating.
-            var cached = Cached.GetCache<List<AeDrugSummaryDto>>(cacheKey);
+            var cached = AeDashboardCachePolicy.Shared.Get<List<AeDrugSummaryDto>>(cacheKey);
             if (cached != null)
             {
                 logger.LogDebug("AE dashboard product catalog cache hit for {CacheKey} with {Count} rows.", cacheKey, cached.Count);
@@ -1863,7 +1863,7 @@ namespace MedRecPro.DataAccess
             // transient database or import states.
             if (catalog.Count > 0)
             {
-                Cached.SetCacheManageKey(cacheKey, catalog, 1.0);
+                AeDashboardCachePolicy.Shared.Set(cacheKey, catalog, 1.0);
                 logger.LogDebug("AE dashboard product catalog cache set for {CacheKey} with {Count} rows.", cacheKey, catalog.Count);
             }
 
@@ -2275,20 +2275,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            if (!Enum.IsDefined(typeof(AeComparatorMix), comparator))
-            {
-                throw new ArgumentOutOfRangeException(nameof(comparator), comparator, "Unsupported comparator mix.");
-            }
-
-            if (!Enum.IsDefined(typeof(AeCorrelationAggregation), aggregation))
-            {
-                throw new ArgumentOutOfRangeException(nameof(aggregation), aggregation, "Unsupported correlation aggregation.");
-            }
-
-            if (method.HasValue && !Enum.IsDefined(typeof(AeCorrelationMethod), method.Value))
-            {
-                throw new ArgumentOutOfRangeException(nameof(method), method.Value, "Unsupported correlation method.");
-            }
+            AeDashboardCorrelationPolicy.Shared.ValidateCorrelationEnums(comparator, aggregation, method);
 
             #endregion
         }
@@ -2558,23 +2545,15 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            validateCorrelationEnums(comparator, aggregation, method);
-            if (minEvents < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(minEvents), minEvents, "Minimum events cannot be negative.");
-            }
-
-            return new AeSystemCorrelationFilters
-            {
-                Comparator = comparator,
-                IncludeNonSignificant = includeNonSignificant,
-                ExcludeFragile = excludeFragile,
-                MinTermsPerCell = Math.Max(minTermsPerCell, 3),
-                Method = method,
-                Aggregation = aggregation,
-                ExcludeCombos = excludeCombos,
-                MinEvents = minEvents
-            };
+            return AeDashboardCorrelationPolicy.Shared.BuildSystemCorrelationFilters(
+                comparator,
+                includeNonSignificant,
+                excludeFragile,
+                minTermsPerCell,
+                method,
+                aggregation,
+                excludeCombos,
+                minEvents);
 
             #endregion
         }
@@ -2979,16 +2958,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            if (systems == null)
-            {
-                return new List<string>();
-            }
-
-            return systems
-                .Select(system => (system ?? string.Empty).Trim())
-                .Where(system => !string.IsNullOrWhiteSpace(system))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return AeDashboardCorrelationPolicy.Shared.NormalizeSystemInputs(systems);
 
             #endregion
         }
@@ -3006,26 +2976,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            var canonicalByKey = observations
-                .GroupBy(observation => observation.SystemOrganClass, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    group => group.Key.ToLowerInvariant(),
-                    group => group.First().SystemOrganClass,
-                    StringComparer.OrdinalIgnoreCase);
-
-            if (requestedSystems.Count == 0)
-            {
-                return canonicalByKey.Values
-                    .OrderBy(system => system, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-            }
-
-            return requestedSystems
-                .Select(system => canonicalByKey.TryGetValue(system.ToLowerInvariant(), out var canonical) ? canonical : null)
-                .Where(system => !string.IsNullOrWhiteSpace(system))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Cast<string>()
-                .ToList();
+            return AeDashboardCorrelationPolicy.Shared.CanonicalizeSelectedSystems(requestedSystems, observations);
 
             #endregion
         }
@@ -3063,24 +3014,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            if (string.IsNullOrWhiteSpace(soc))
-            {
-                return false;
-            }
-
-            foreach (var token in AeDashboardMetadata.SocSerious)
-            {
-                var keyword = token
-                    .Split(new[] { ' ', '&' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .FirstOrDefault();
-                if (!string.IsNullOrEmpty(keyword)
-                    && soc.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            return AeDashboardCorrelationPolicy.Shared.IsSeriousCorrelationSoc(soc);
 
             #endregion
         }
@@ -3629,29 +3563,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            // Null source IDs stay null on the DTO so callers can distinguish
-            // absent relationships from encryption failures.
-            if (!value.HasValue)
-            {
-                return null;
-            }
-
-            // Encryption can fail if the secret is invalid; isolate that failure to
-            // the affected field and log the identifier name for diagnostics.
-            try
-            {
-                // Fast strength matches the existing DTO ID masking convention.
-                return StringCipher.Encrypt(value.Value.ToString(), pkSecret, StringCipher.EncryptionStrength.Fast);
-            }
-            // Encryption failures are caught per field so one bad ID does not fail
-            // the entire AE dashboard payload.
-            catch (Exception ex)
-            {
-                // Returning null prevents a bad identifier from breaking the whole
-                // dashboard response while still preserving an error log.
-                logger.LogError(ex, "Failed to encrypt AE dashboard identifier {FieldName} with value {Value}.", fieldName, value.Value);
-                return null;
-            }
+            return AeDashboardEncryptedIdMapper.Shared.EncryptNullableInt(value, pkSecret, logger, fieldName);
 
             #endregion
         }
