@@ -56,6 +56,18 @@ The solution's three web projects are deployed to a single Azure App Service usi
 | _(prototypes)_ | **MedRecProPrototypes** | Standalone HTML/JS prototypes (e.g. the AE dashboard) that seed production UI work |
 | _(test)_ | **MedRecProTest** | Unit and integration tests |
 
+### Build and Solution Boundary
+
+`MedRecPro.sln` is the focused API/import/test solution. It intentionally contains `MedRecPro`, `MedRecProImportClass`, and `MedRecProTest`; the test project references `MedRecProConsole`, so the CLI stays in the regular regression build without making the solution responsible for every deployed app. `MedRecProStatic` and `MedRecProMCP` are separately deployed IIS virtual applications and should be built or published explicitly when their code changes:
+
+```bash
+dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false
+dotnet build .\MedRecProStatic\MedRecProStatic.csproj --no-restore -p:UseAppHost=false
+dotnet build .\MedRecProMCP\MedRecProMCP.csproj --no-restore -p:UseAppHost=false
+```
+
+If a local apphost executable is locked by a running process, keep output inside the workspace and disable apphost generation for the verification pass, for example `dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false -p:BaseOutputPath=.\MedRecPro\.codex-build\`. The API project excludes `bin/**` and `.codex-build/**` from default item globbing so copied RazorLight templates from generated output cannot re-enter compilation when `BaseOutputPath` is redirected.
+
 ### How the Projects Relate
 
 **MedRecProStatic** is the user-facing front end. Its AI chat interface (`/Home/Chat`) communicates with the API using a request-interpret-execute-synthesize pattern: user queries are sent to the API's AI endpoints, which use Claude to map natural language to API calls. The static site also serves OAuth/MCP discovery metadata (`/.well-known/*`) at the domain root on behalf of the MCP server, because the MCP SDK resolves discovery URLs relative to the domain root rather than the `/mcp` path.

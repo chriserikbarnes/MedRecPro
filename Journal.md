@@ -5627,3 +5627,17 @@ Second follow-up: a risk review found gaps the plan had not addressed, now folde
 **Verification.** Claims checked with `Select-String`/grep counts, `Measure-Object` line counts, and direct reads of `ApiControllerBase.cs`, `Program.cs` (Swagger `PreSerializeFilters`, endpoint setup, and connection-string selection), `MedRecPro.csproj`, `MedRecPro.sln`, `MedRecProTest.csproj`, `ApplicationDbContext.cs`, and `SplContextService.cs`; plus `#if DEBUG` occurrence counts across `MedRecPro` and a negative search for `WebApplicationFactory`/`Mvc.Testing` in `MedRecProTest`. No build or test suite was run because only the plan document and journal changed.
 
 ---
+
+### 2026-07-06 8:51 AM EST — Technical Debt Phase 1 Build Hygiene
+
+Completed Phase 1 of [Plans/(pending) MedRecPro Technical Debt and DRY Remediation Plan.md](Plans/%28pending%29%20MedRecPro%20Technical%20Debt%20and%20DRY%20Remediation%20Plan.md) and paused before Phase 2 as requested. The route/compiler-directive surfaces were not changed.
+
+**Build hygiene.** Added a stable `DefaultItemExcludes` rule in [MedRecPro.csproj](MedRecPro/MedRecPro.csproj) for `bin/**` and `.codex-build/**`, then removed the stale generated output folders `MedRecPro/bin/codex-ae-risk-build` and `MedRecPro/bin/codex-build` after guarding the recursive delete inside the repository's API `bin` folder.
+
+**Solution boundary.** Documented the Phase 1 solution-membership decision in [README.md](README.md): [MedRecPro.sln](MedRecPro.sln) remains the focused API/import/test solution, [MedRecProConsole](MedRecProConsole) continues to build transitively through [MedRecProTest.csproj](MedRecProTest/MedRecProTest.csproj), and [MedRecProStatic](MedRecProStatic) plus [MedRecProMCP](MedRecProMCP) are built explicitly as separately deployed IIS virtual applications. Added the workspace-local `UseAppHost=false` / `.codex-build` note for apphost-lock verification.
+
+**Plan update.** Updated the ignored pending plan artifact directly to mark Phase 1 complete, record the package-drift audit (`Microsoft.Extensions.*` 9.x in net8 projects, plus both SQL client families), and leave the Phase 0 integration-test harness pending for a later one-phase pass.
+
+**Verification.** `dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. `dotnet build .\MedRecProStatic\MedRecProStatic.csproj --no-restore -p:UseAppHost=false` passed with one existing nullable Razor warning in `MedRecProStatic\Views\Home\Index.cshtml`, not generated `bin` output. `dotnet build .\MedRecProMCP\MedRecProMCP.csproj --no-restore -p:UseAppHost=false` passed with 0 warnings and 0 errors. `git diff --check` reported no whitespace errors, only Git LF-to-CRLF normalization notices for touched files.
+
+---

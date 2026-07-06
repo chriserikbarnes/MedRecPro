@@ -15,6 +15,7 @@
 		<PublishDocumentationFile>true</PublishDocumentationFile>
 		<CopyDocumentationFilesFromPackages>true</CopyDocumentationFilesFromPackages>
 		<AspNetCoreHostingModel>OutOfProcess</AspNetCoreHostingModel>
+		<DefaultItemExcludes>$(DefaultItemExcludes);bin/**;.codex-build/**</DefaultItemExcludes>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="AspNet.Security.OAuth.Apple" Version="8.3.0" />
