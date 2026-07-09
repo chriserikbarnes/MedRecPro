@@ -1,9 +1,9 @@
 using MedRecPro.Data;
+using MedRecPro.Features.AeDashboard.Mapping;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service;
 using Microsoft.EntityFrameworkCore;
-using Newtonsoft.Json;
 using System.Diagnostics;
 
 namespace MedRecPro.DataAccess
@@ -286,7 +286,7 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Map rows into API-safe DTOs before running pure derivation logic.
-            var signals = buildAeRiskSignalDtos(entities, pkSecret, logger);
+            var signals = AeDashboardDtoMapper.ToRiskSignalDtos(entities, pkSecret, logger);
 
             // Derive typed significance, flags, precision, and counseling tier for
             // every signal in the returned list.
@@ -602,7 +602,7 @@ namespace MedRecPro.DataAccess
 
             // Build DTOs only after materialization because encrypted identifiers
             // and derivation helpers cannot be translated into SQL.
-            var signals = buildAeRiskSignalDtos(signalEntities, pkSecret, logger);
+            var signals = AeDashboardDtoMapper.ToRiskSignalDtos(signalEntities, pkSecret, logger);
 
             // Extract the matched document set so product summaries can be loaded
             // only for products that actually had the searched AE term.
@@ -888,7 +888,7 @@ namespace MedRecPro.DataAccess
                     continue;
                 }
 
-                var signal = AeDashboardDerivation.DeriveSignal(buildAeRiskSignalDto(entity, pkSecret, logger));
+                var signal = AeDashboardDerivation.DeriveSignal(AeDashboardDtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
                 var precision = signal.PrecisionClass ?? AePrecisionClass.Fragile;
                 var riskSignificance = signal.RiskSignificance ?? AeRiskSignificance.NotSignificant;
                 var events = (entity.EventsTreatment ?? 0.0) + (entity.EventsComparator ?? 0.0);
@@ -1663,7 +1663,7 @@ namespace MedRecPro.DataAccess
             query = applyProductCatalogPagination(query, page, size);
 
             var entities = await query.ToListAsync();
-            return buildAeDashboardProductCatalogDtos(entities, pkSecret, logger);
+            return AeDashboardDtoMapper.ToProductCatalogDtos(entities, pkSecret, logger);
 
             #endregion
         }
@@ -1691,7 +1691,7 @@ namespace MedRecPro.DataAccess
                 .Where(summary => guidList.Contains(summary.DocumentGUID))
                 .ToListAsync();
 
-            return buildAeDashboardProductCatalogDtos(entities, pkSecret, logger);
+            return AeDashboardDtoMapper.ToProductCatalogDtos(entities, pkSecret, logger);
 
             #endregion
         }
@@ -1714,7 +1714,7 @@ namespace MedRecPro.DataAccess
 
             return entity == null
                 ? null
-                : buildAeDashboardProductCatalogDto(entity, pkSecret, logger);
+                : AeDashboardDtoMapper.ToProductCatalogDto(entity, pkSecret, logger);
 
             #endregion
         }
@@ -1827,7 +1827,7 @@ namespace MedRecPro.DataAccess
             var entities = await db.Set<LabelView.AeDrugSummary>()
                 .AsNoTracking()
                 .ToListAsync();
-            var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
+            var summaries = AeDashboardDtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
 
             // Add risk-table fallback summaries so null-class products (absent from
             // the summary view) remain discoverable and loadable.
@@ -2316,7 +2316,7 @@ namespace MedRecPro.DataAccess
             {
                 // Map, collapse to a single per-document row with ActiveIngredients,
                 // then derive score fields for the product-level view builder.
-                var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
+                var summaries = AeDashboardDtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
                 var collapsed = collapseToOneRowPerDocument(summaries).FirstOrDefault();
                 return collapsed != null ? AeDashboardDerivation.DeriveProduct(collapsed) : null;
             }
@@ -2390,7 +2390,7 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Convert rows to encrypted DTOs and calculate product score fields.
-            var summaries = buildAeDrugSummaryDtos(entities, pkSecret, logger);
+            var summaries = AeDashboardDtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
             var representedDocumentGuids = summaries
                 .Where(summary => summary.DocumentGUID.HasValue)
                 .Select(summary => summary.DocumentGUID!.Value)
@@ -2466,7 +2466,7 @@ namespace MedRecPro.DataAccess
             // The aggregate projection includes encrypted IDs and enum parsing, so
             // materialize the filtered rows and aggregate in memory.
             var entities = await query.ToListAsync();
-            return buildFallbackAeDrugSummaryDtos(entities, pkSecret, logger);
+            return AeDashboardDtoMapper.ToFallbackDrugSummaryDtos(entities, pkSecret, logger);
 
             #endregion
         }
@@ -2658,7 +2658,7 @@ namespace MedRecPro.DataAccess
                     continue;
                 }
 
-                var signal = AeDashboardDerivation.DeriveSignal(buildAeRiskSignalDto(entity, pkSecret, logger));
+                var signal = AeDashboardDerivation.DeriveSignal(AeDashboardDtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
                 var precision = signal.PrecisionClass ?? AePrecisionClass.Fragile;
                 var riskSignificance = signal.RiskSignificance ?? AeRiskSignificance.NotSignificant;
                 var events = (entity.EventsTreatment ?? 0.0) + (entity.EventsComparator ?? 0.0);
@@ -2754,7 +2754,7 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// This is the single source for all four correlation read methods. It reuses
         /// <see cref="applyComparatorFilter"/>, <see cref="collapseToMostPoweredStratum"/>, and
-        /// <see cref="buildAeRiskSignalDto"/>, then runs each surviving row through
+        /// <see cref="AeDashboardDtoMapper.ToRiskSignalDto(LabelView.FlattenedAdverseEventRiskTable, string, ILogger)"/>, then runs each surviving row through
         /// <see cref="AeDashboardDerivation.DeriveSignal"/> to get precision and significance.
         /// LogRR is computed in memory as <c>entity.LogRR ?? Math.Log(entity.RR)</c> because the
         /// persisted log column is null in seeded rows; rows with a non-positive RR are skipped.
@@ -2816,7 +2816,7 @@ namespace MedRecPro.DataAccess
                 }
 
                 // DeriveSignal reuses ClassifyPrecision/ParseRiskSignificance off the mapped DTO.
-                var signal = AeDashboardDerivation.DeriveSignal(buildAeRiskSignalDto(entity, pkSecret, logger));
+                var signal = AeDashboardDerivation.DeriveSignal(AeDashboardDtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
 
                 observations.Add(new AeCorrelationObservation
                 {
@@ -3060,322 +3060,6 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Builds product summary DTOs from materialized catalog rows.
-        /// </summary>
-        private static List<AeDrugSummaryDto> buildAeDashboardProductCatalogDtos(
-            IEnumerable<LabelView.AeDashboardProductCatalog> entities,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            return entities
-                .Select(entity => buildAeDashboardProductCatalogDto(entity, pkSecret, logger))
-                .ToList();
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds one product summary DTO from a materialized catalog row.
-        /// </summary>
-        private static AeDrugSummaryDto buildAeDashboardProductCatalogDto(
-            LabelView.AeDashboardProductCatalog entity,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            var dto = new AeDrugSummaryDto
-            {
-                EncryptedActiveMoietyID = encryptNullableInt(entity.ActiveMoietyID, pkSecret, logger, nameof(entity.ActiveMoietyID)),
-                EncryptedIngredientSubstanceID = encryptNullableInt(entity.IngredientSubstanceID, pkSecret, logger, nameof(entity.IngredientSubstanceID)),
-                EncryptedPharmacologicClassID = encryptNullableInt(entity.PharmacologicClassID, pkSecret, logger, nameof(entity.PharmacologicClassID)),
-                DocumentGUID = entity.DocumentGUID,
-                ProductName = entity.ProductName,
-                SubstanceName = entity.PrimarySubstanceName,
-                UNII = entity.PrimaryUNII,
-                PharmClassCode = entity.PrimaryPharmClassCode,
-                PharmClassName = entity.PrimaryPharmClassName,
-                ActiveIngredients = parseCatalogActiveIngredients(entity.ActiveIngredientsJson, logger),
-                ArmN = entity.ArmN,
-                ComparatorN = entity.ComparatorN,
-                RowCount = entity.RowCount,
-                SignificantCount = entity.SignificantCount,
-                SignificantProtectiveCount = entity.SignificantProtectiveCount,
-                SignificantElevatedCount = entity.SignificantElevatedCount,
-                PlaceboCoverage = entity.PlaceboCoverage,
-                ActiveCoverage = entity.ActiveCoverage,
-                DoseCoverage = entity.DoseCoverage,
-                SocBreadth = entity.SocBreadth,
-                SocTotal = entity.SocTotal > 0 ? entity.SocTotal : AeDashboardMetadata.SocTotal,
-                MonoComboMix = parseMonoComboMix(entity.MonoComboMix),
-                Score = entity.Score,
-                ScoreReason = entity.ScoreReason
-            };
-
-            return dto.Score.HasValue && !string.IsNullOrWhiteSpace(dto.ScoreReason)
-                ? dto
-                : AeDashboardDerivation.DeriveProduct(dto);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Parses catalog ingredient JSON into dashboard ingredient DTOs.
-        /// </summary>
-        private static List<AeActiveIngredientDto>? parseCatalogActiveIngredients(
-            string? activeIngredientsJson,
-            ILogger logger)
-        {
-            #region implementation
-
-            if (string.IsNullOrWhiteSpace(activeIngredientsJson))
-            {
-                return null;
-            }
-
-            try
-            {
-                return JsonConvert.DeserializeObject<List<AeActiveIngredientDto>>(activeIngredientsJson);
-            }
-            catch (JsonException ex)
-            {
-                logger.LogWarning(ex, "Unable to parse AE dashboard product catalog active ingredients JSON.");
-                return null;
-            }
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds mapped AE product summary DTOs from EF rows.
-        /// </summary>
-        private static List<AeDrugSummaryDto> buildAeDrugSummaryDtos(
-            IEnumerable<LabelView.AeDrugSummary> entities,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            // Map each EF product summary row through the single-row mapper so
-            // encryption and default handling stay centralized.
-            return entities
-                .Select(entity => buildAeDrugSummaryDto(entity, pkSecret, logger))
-                .ToList();
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds fallback AE product summary DTOs from risk-table rows.
-        /// </summary>
-        private static List<AeDrugSummaryDto> buildFallbackAeDrugSummaryDtos(
-            IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            // Match vw_AeDrugSummary grouping so fallback rows have the same
-            // product/substance/class grain as refreshed summary-view rows.
-            return entities
-                .GroupBy(entity => (
-                    DocumentGUID: entity.DocumentGUID,
-                    ProductName: entity.ProductName,
-                    SubstanceName: entity.SubstanceName,
-                    UNII: entity.UNII,
-                    PharmClassCode: entity.PharmClassCode,
-                    PharmClassName: entity.PharmClassName,
-                    ActiveMoietyID: entity.ActiveMoietyID,
-                    IngredientSubstanceID: entity.IngredientSubstanceID,
-                    PharmacologicClassID: entity.PharmacologicClassID))
-                .Select(group => buildFallbackAeDrugSummaryDto(group, pkSecret, logger))
-                .ToList();
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds one fallback AE product summary DTO from grouped risk-table rows.
-        /// </summary>
-        private static AeDrugSummaryDto buildFallbackAeDrugSummaryDto(
-            IGrouping<(Guid? DocumentGUID, string? ProductName, string? SubstanceName, string? UNII, string? PharmClassCode, string? PharmClassName, int? ActiveMoietyID, int? IngredientSubstanceID, int? PharmacologicClassID), LabelView.FlattenedAdverseEventRiskTable> group,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            // Materialize the grouping once so aggregate helpers do not repeatedly
-            // enumerate the same in-memory rows.
-            var rows = group.ToList();
-            var key = group.Key;
-            var rowCount = rows.Count;
-
-            // Fallback summaries intentionally mirror vw_AeDrugSummary aggregate
-            // columns, while preserving null pharmacologic-class identifiers.
-            return new AeDrugSummaryDto
-            {
-                EncryptedActiveMoietyID = encryptNullableInt(key.ActiveMoietyID, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.ActiveMoietyID)),
-                EncryptedIngredientSubstanceID = encryptNullableInt(key.IngredientSubstanceID, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.IngredientSubstanceID)),
-                EncryptedPharmacologicClassID = encryptNullableInt(key.PharmacologicClassID, pkSecret, logger, nameof(LabelView.FlattenedAdverseEventRiskTable.PharmacologicClassID)),
-                DocumentGUID = key.DocumentGUID,
-                ProductName = key.ProductName,
-                SubstanceName = key.SubstanceName,
-                UNII = key.UNII,
-                PharmClassCode = key.PharmClassCode,
-                PharmClassName = key.PharmClassName,
-                ArmN = rows.Max(row => row.ArmN),
-                ComparatorN = rows.Max(row => row.ComparatorN),
-                RowCount = rowCount,
-                SignificantCount = rows.Count(row => isSignificantAeSignal(row.Significance)),
-                SignificantProtectiveCount = rows.Count(row => string.Equals(row.Significance, "protective", StringComparison.OrdinalIgnoreCase)),
-                SignificantElevatedCount = rows.Count(row => string.Equals(row.Significance, "elevated", StringComparison.OrdinalIgnoreCase)),
-                PlaceboCoverage = rows.Any(row => row.IsPlaceboControlled),
-                ActiveCoverage = rows.Any(row => !row.IsPlaceboControlled),
-                DoseCoverage = rowCount > 0
-                    ? rows.Count(row => row.Dose.HasValue) / (double)rowCount
-                    : 0.0,
-                SocBreadth = rows
-                    .Select(row => row.ParameterCategory)
-                    .Where(category => !string.IsNullOrWhiteSpace(category))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count(),
-                SocTotal = AeDashboardMetadata.SocTotal,
-                MonoComboMix = getMonoComboMix(rows)
-            };
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds one mapped AE product summary DTO from an EF row.
-        /// </summary>
-        private static AeDrugSummaryDto buildAeDrugSummaryDto(
-            LabelView.AeDrugSummary entity,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            // Build the client DTO directly from the summary view. Integer database
-            // identifiers are encrypted before they leave the data-access layer.
-            return new AeDrugSummaryDto
-            {
-                // Active moiety, ingredient, and pharmacologic-class IDs are masked
-                // according to the existing DTO encrypted-ID convention.
-                EncryptedActiveMoietyID = encryptNullableInt(entity.ActiveMoietyID, pkSecret, logger, nameof(entity.ActiveMoietyID)),
-                EncryptedIngredientSubstanceID = encryptNullableInt(entity.IngredientSubstanceID, pkSecret, logger, nameof(entity.IngredientSubstanceID)),
-                EncryptedPharmacologicClassID = encryptNullableInt(entity.PharmacologicClassID, pkSecret, logger, nameof(entity.PharmacologicClassID)),
-
-                // Document and product identity fields remain readable because they
-                // are already public dashboard keys or display text.
-                DocumentGUID = entity.DocumentGUID,
-                ProductName = entity.ProductName,
-                SubstanceName = entity.SubstanceName,
-                UNII = entity.UNII,
-                PharmClassCode = entity.PharmClassCode,
-                PharmClassName = entity.PharmClassName,
-
-                // Denominator and row-count fields are numeric metrics, not raw row
-                // identifiers, so they stay visible in the client DTO.
-                ArmN = entity.ArmN,
-                ComparatorN = entity.ComparatorN,
-                RowCount = entity.RowCount,
-                SignificantCount = entity.SignificantCount,
-                SignificantProtectiveCount = entity.SignificantProtectiveCount,
-                SignificantElevatedCount = entity.SignificantElevatedCount,
-
-                // Coverage values are consumed by score derivation and product
-                // picker filtering.
-                PlaceboCoverage = entity.PlaceboCoverage,
-                ActiveCoverage = entity.ActiveCoverage,
-                DoseCoverage = (double)entity.DoseCoverage,
-                SocBreadth = entity.SocBreadth,
-
-                // Fall back to dashboard metadata when the view does not provide a
-                // positive SOC total.
-                SocTotal = entity.SocTotal > 0 ? entity.SocTotal : AeDashboardMetadata.SocTotal,
-
-                // Convert the view's text classification into the dashboard enum.
-                MonoComboMix = parseMonoComboMix(entity.MonoComboMix)
-            };
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Determines whether a raw significance value contributes to summary counts.
-        /// </summary>
-        private static bool isSignificantAeSignal(string? significance)
-        {
-            #region implementation
-
-            // The summary view counts elevated and protective intervals as
-            // significant; fallback aggregation keeps the same interpretation.
-            return string.Equals(significance, "elevated", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(significance, "protective", StringComparison.OrdinalIgnoreCase);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Derives the mono/combo mix from materialized risk-table rows.
-        /// </summary>
-        private static AeMonoComboMix getMonoComboMix(
-            IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities)
-        {
-            #region implementation
-
-            // Match vw_AeDrugSummary: all combo rows produce Combo, all mono rows
-            // produce Mono, and mixed source rows produce Mixed.
-            var hasCombo = entities.Any(entity => entity.IsCombo);
-            var hasMono = entities.Any(entity => !entity.IsCombo);
-
-            return hasCombo && hasMono
-                ? AeMonoComboMix.Mixed
-                : hasCombo
-                    ? AeMonoComboMix.Combo
-                    : AeMonoComboMix.Mono;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds mapped AE risk signal DTOs from EF rows.
-        /// </summary>
-        private static List<AeRiskSignalDto> buildAeRiskSignalDtos(
-            IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            // Collapse duplicate risk rows to one signal per viewer-visible clinical stratum
-            // before mapping. This removes both the pharmacologic-class fan-out from
-            // class-enriched vw_AeRisk rows (the product/substance context is stable, but a
-            // substance can still map to N pharmacologic classes) and the multi-arm
-            // duplication where the same term/dose/comparator is reported for both a pooled arm
-            // and a smaller, unlabeled subgroup arm. Collapsing at the entity grain also avoids
-            // encrypting throwaway rows.
-            return collapseToMostPoweredStratum(entities)
-                .Select(entity => buildAeRiskSignalDto(entity, pkSecret, logger))
-                .ToList();
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Collapses duplicate AE risk rows to one representative per clinical stratum.
         /// </summary>
         /// <param name="entities">Materialized risk-table rows for one or more documents.</param>
@@ -3398,7 +3082,7 @@ namespace MedRecPro.DataAccess
         /// (largest treatment denominator), preferring a significant, tighter-CI row on ties,
         /// with the source row identifier as a final deterministic tiebreaker.
         /// </remarks>
-        /// <seealso cref="buildAeRiskSignalDtos"/>
+        /// <seealso cref="AeDashboardDtoMapper.ToRiskSignalDtos(IEnumerable{LabelView.FlattenedAdverseEventRiskTable}, string, ILogger)"/>
         /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
         private static List<LabelView.FlattenedAdverseEventRiskTable> collapseToMostPoweredStratum(
             IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities)
@@ -3483,76 +3167,6 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Builds one mapped AE risk signal DTO from an EF row.
-        /// </summary>
-        private static AeRiskSignalDto buildAeRiskSignalDto(
-            LabelView.FlattenedAdverseEventRiskTable entity,
-            string pkSecret,
-            ILogger logger)
-        {
-            #region implementation
-
-            // Build the risk-signal DTO directly from the risk table row. Raw
-            // integer table IDs are encrypted while statistical and context fields
-            // remain readable for dashboard rendering.
-            return new AeRiskSignalDto
-            {
-                // These encrypted identifiers let clients request detail/drill-in
-                // later without exposing database integer keys.
-                EncryptedFlattenedAdverseEventRiskTableID = encryptNullableInt(entity.Id, pkSecret, logger, nameof(entity.Id)),
-                EncryptedFlattenedAdverseEventTableID = encryptNullableInt(entity.FlattenedAdverseEventTableId, pkSecret, logger, nameof(entity.FlattenedAdverseEventTableId)),
-                EncryptedFlattenedStandardizedTableID = encryptNullableInt(entity.FlattenedStandardizedTableId, pkSecret, logger, nameof(entity.FlattenedStandardizedTableId)),
-
-                // AE term and product context identify what the row means.
-                ParameterName = entity.ParameterName,
-                ParameterCategory = entity.ParameterCategory,
-                Significance = entity.Significance,
-                NumberNeededType = entity.NumberNeededType,
-                UNII = entity.UNII,
-                ProductName = entity.ProductName,
-                DocumentGUID = entity.DocumentGUID,
-
-                // Denominators and event counts support downstream precision,
-                // number-needed, and bubble-size derivation.
-                ArmN = entity.ArmN,
-                ComparatorN = entity.ComparatorN,
-                EventsTreatment = entity.EventsTreatment,
-                EventsComparator = entity.EventsComparator,
-
-                // Relative-risk statistics are copied as calculated by Stage 5 so
-                // derivation can classify direction and chart coordinates.
-                RR = entity.RR,
-                RRLowerBound = entity.RRLowerBound,
-                RRUpperBound = entity.RRUpperBound,
-                LogRR = entity.LogRR,
-                LogRRLowerBound = entity.LogRRLowerBound,
-                LogRRUpperBound = entity.LogRRUpperBound,
-
-                // Number-needed fields are displayed after the derivation layer
-                // classifies NNH versus NNT.
-                NumberNeeded = entity.NumberNeeded,
-                NumberNeededLowerBound = entity.NumberNeededLowerBound,
-                NumberNeededUpperBound = entity.NumberNeededUpperBound,
-
-                // Comparator and combo flags drive filtering and product summaries.
-                IsPlaceboControlled = entity.IsPlaceboControlled,
-                IsCombo = entity.IsCombo,
-                CalculationFlags = entity.CalculationFlags,
-
-                // Study, population, and dose context remain display metadata for
-                // signal detail panels.
-                StudyContext = entity.StudyContext,
-                Population = entity.Population,
-                Subpopulation = entity.Subpopulation,
-                Dose = entity.Dose,
-                DoseUnit = entity.DoseUnit
-            };
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Encrypts a nullable integer identifier for client-safe DTO exposure.
         /// </summary>
         private static string? encryptNullableInt(
@@ -3564,27 +3178,6 @@ namespace MedRecPro.DataAccess
             #region implementation
 
             return AeDashboardEncryptedIdMapper.Shared.EncryptNullableInt(value, pkSecret, logger, fieldName);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Parses the mono/combo text persisted by the product summary view.
-        /// </summary>
-        private static AeMonoComboMix? parseMonoComboMix(string? monoComboMix)
-        {
-            #region implementation
-
-            // Normalize the view text before matching so casing and surrounding
-            // whitespace do not change the enum result.
-            return monoComboMix?.Trim().ToLowerInvariant() switch
-            {
-                "mono" => AeMonoComboMix.Mono,
-                "combo" => AeMonoComboMix.Combo,
-                "mixed" => AeMonoComboMix.Mixed,
-                _ => null
-            };
 
             #endregion
         }

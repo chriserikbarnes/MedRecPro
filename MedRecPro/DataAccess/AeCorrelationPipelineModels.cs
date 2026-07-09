@@ -11,7 +11,7 @@ namespace MedRecPro.DataAccess
     /// This record is backend derivation plumbing: it is produced by
     /// <see cref="DtoLabelAccess"/> from materialized risk rows and consumed by
     /// <see cref="AeDashboardDerivation"/>. It is **never serialized to clients** and is
-    /// intentionally kept out of <c>Models/AeDashboardDto.cs</c> so the Swagger-facing
+    /// intentionally kept out of <c>Features/AeDashboard/Models/AeDashboardDto.cs</c> so the Swagger-facing
     /// response contract stays free of backend plumbing. It is public only because the
     /// public derivation methods that accept it (for example
     /// <see cref="AeDashboardDerivation.BuildCorrelationMap"/>) and the focused pure tests
@@ -84,7 +84,7 @@ namespace MedRecPro.DataAccess
     /// This record is backend derivation plumbing produced by
     /// <see cref="AeDashboardDerivation.AggregatePerDrugSoc"/> and consumed only within the
     /// derivation layer; it is **never serialized to clients** and is intentionally kept out
-    /// of <c>Models/AeDashboardDto.cs</c>. <see cref="Value"/> is the median or mean LogRR
+    /// of <c>Features/AeDashboard/Models/AeDashboardDto.cs</c>. <see cref="Value"/> is the median or mean LogRR
     /// across a drug's terms in one SOC; <see cref="Precision"/> and
     /// <see cref="Significance"/> come from the strongest-magnitude term for display;
     /// <see cref="AnyFragile"/> is true when any contributing term is fragile, which a

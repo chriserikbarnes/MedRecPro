@@ -1,4 +1,5 @@
 ﻿using MedRecPro.DataAccess;
+using MedRecPro.Features.AeDashboard.Persistence;
 using MedRecPro.Filters;
 using MedRecPro.Models;
 using Microsoft.AspNetCore.Identity;
@@ -145,79 +146,8 @@ namespace MedRecPro.Data
             {
                 foreach (var entityType in nestedViewEntityTypes)
                 {
-                    // FlattenedAdverseEventTable (Stage 5 Phase 2 output) has a surrogate
-                    // IDENTITY PK and is a regular table, not a keyless view. The six Log*
-                    // properties are PERSISTED computed columns; the entity declares them
-                    // with [DatabaseGenerated(Computed)] so EF Core knows not to write them.
-                    if (entityType == typeof(LabelView.FlattenedAdverseEventTable))
+                    if (AeDashboardModelConfigurations.ConfiguredTypes.Contains(entityType))
                     {
-                        builder.Entity<LabelView.FlattenedAdverseEventTable>(e =>
-                        {
-                            e.ToTable("tmp_FlattenedAdverseEventTable");
-                            e.HasKey(x => x.Id);
-                            e.Property(x => x.Id)
-                                .HasColumnName("tmp_FlattenedAdverseEventTableID")
-                                .ValueGeneratedOnAdd();
-
-                            // Match DDL DECIMAL(18,6).
-                            e.Property(x => x.Dose)
-                                .HasColumnType("decimal(18, 6)");
-                        });
-                        continue;
-                    }
-
-                    // FlattenedAdverseEventCoverageTable is the durable Stage 5 audit
-                    // companion for RR-ready and non-RR AE source-row coverage.
-                    if (entityType == typeof(LabelView.FlattenedAdverseEventCoverageTable))
-                    {
-                        builder.Entity<LabelView.FlattenedAdverseEventCoverageTable>(e =>
-                        {
-                            e.ToTable("tmp_FlattenedAdverseEventCoverageTable");
-                            e.HasKey(x => x.Id);
-                            e.Property(x => x.Id)
-                                .HasColumnName("tmp_FlattenedAdverseEventCoverageTableID")
-                                .ValueGeneratedOnAdd();
-
-                            // Match DDL DECIMAL(18,6).
-                            e.Property(x => x.Dose)
-                                .HasColumnType("decimal(18, 6)");
-                            e.Property(x => x.ComparatorDose)
-                                .HasColumnType("decimal(18, 6)");
-                        });
-                        continue;
-                    }
-
-                    // FlattenedAdverseEventRiskTable is the materialized dbo.vw_AeRisk
-                    // projection refreshed at the end of Stage 5.
-                    if (entityType == typeof(LabelView.FlattenedAdverseEventRiskTable))
-                    {
-                        builder.Entity<LabelView.FlattenedAdverseEventRiskTable>(e =>
-                        {
-                            e.ToTable("tmp_FlattenedAdverseEventRiskTable");
-                            e.HasKey(x => x.Id);
-                            e.Property(x => x.Id)
-                                .HasColumnName("tmp_FlattenedAdverseEventRiskTableID")
-                                .ValueGeneratedOnAdd();
-
-                            // Match DDL DECIMAL(18,6).
-                            e.Property(x => x.Dose)
-                                .HasColumnType("decimal(18, 6)");
-                        });
-                        continue;
-                    }
-
-                    // AeDashboardProductCatalog is the one-row-per-document Stage 5
-                    // product picker surface refreshed after the risk snapshot.
-                    if (entityType == typeof(LabelView.AeDashboardProductCatalog))
-                    {
-                        builder.Entity<LabelView.AeDashboardProductCatalog>(e =>
-                        {
-                            e.ToTable("tmp_AeDashboardProductCatalog");
-                            e.HasKey(x => x.Id);
-                            e.Property(x => x.Id)
-                                .HasColumnName("AeDashboardProductCatalogID")
-                                .ValueGeneratedOnAdd();
-                        });
                         continue;
                     }
 
@@ -234,6 +164,8 @@ namespace MedRecPro.Data
                     entityBuilder.ToView(viewName);
                 }
             }
+
+            AeDashboardModelConfigurations.Apply(builder);
 
             // CONFIGURE SPECIFIC ENTITIES AFTER REFLECTION REGISTRATION
             configureDocumentRelationshipIdentifier(builder);
