@@ -1,5 +1,7 @@
 using MedRecPro.Filters;
+using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -239,7 +241,8 @@ namespace MedRecPro.Service.Test
 
             var filter = new ActivityLogActionFilter(
                 scopeFactory.Object,
-                new Mock<IHttpContextAccessor>().Object,
+                new TestUserContextAccessor(),
+                TimeProvider.System,
                 logger.Object);
 
             var actionContext = FilterContextTestHelper.CreateActionContext(
@@ -307,7 +310,8 @@ namespace MedRecPro.Service.Test
 
                 Filter = new ActivityLogActionFilter(
                     scopeFactory.Object,
-                    new Mock<IHttpContextAccessor>().Object,
+                    new TestUserContextAccessor(),
+                    TimeProvider.System,
                     new Mock<ILogger<ActivityLogActionFilter>>().Object);
                 #endregion
             }
@@ -325,6 +329,31 @@ namespace MedRecPro.Service.Test
                 Assert.AreSame(_logSaved.Task, completed, "Timed out waiting for the fire-and-forget activity log save.");
 
                 return await _logSaved.Task;
+                #endregion
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Test implementation of the current-user accessor that uses the same claim helper as production.
+        /// </summary>
+        /// <seealso cref="IUserContextAccessor"/>
+        private sealed class TestUserContextAccessor : IUserContextAccessor
+        {
+            #region implementation
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public long? GetCurrentUserId(HttpContext? httpContext = null)
+            {
+                #region implementation
+
+                return httpContext?.User != null
+                    ? ClaimHelper.GetUserIdFromClaims(httpContext.User.Claims)
+                    : null;
+
                 #endregion
             }
 

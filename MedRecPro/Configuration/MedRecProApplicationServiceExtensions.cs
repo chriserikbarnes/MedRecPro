@@ -201,6 +201,12 @@ namespace MedRecPro.Configuration
 
             services.AddHttpContextAccessor();
 
+            services.AddSingleton(TimeProvider.System);
+
+            services.AddSingleton<IAppCache, PerformanceAppCache>();
+
+            services.AddScoped<IUserContextAccessor, HttpUserContextAccessor>();
+
             // --- Custom Services ---
             services.AddScoped<UserDataAccess>();
 

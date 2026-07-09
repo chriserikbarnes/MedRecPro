@@ -46,6 +46,12 @@ namespace MedRecPro.Helpers
     /// on screen needs to be consistent with the database
     /// change e.g. change in assignment owner.
     /// </summary>
+    /// <remarks>
+    /// Static access is retained for legacy compatibility. New injectable service
+    /// code should depend on <see cref="MedRecPro.Service.Common.IAppCache"/> so
+    /// cache behavior can be substituted in focused tests.
+    /// </remarks>
+    /// <seealso cref="MedRecPro.Service.Common.IAppCache"/>
     public sealed class PerformanceHelper
     {
 

@@ -59,7 +59,8 @@ public class TarpitService : IDisposable
     private readonly ConcurrentDictionary<string, EndpointAbuseEntry> _endpointTracker = new();
     private readonly IOptionsMonitor<TarpitSettings> _settingsMonitor;
     private readonly ILogger<TarpitService> _logger;
-    private Timer? _cleanupTimer;
+    private readonly TimeProvider _timeProvider;
+    private ITimer? _cleanupTimer;
     private bool _disposed;
 
     #endregion
@@ -76,20 +77,44 @@ public class TarpitService : IDisposable
     public TarpitService(
         IOptionsMonitor<TarpitSettings> settingsMonitor,
         ILogger<TarpitService> logger)
+        : this(settingsMonitor, logger, TimeProvider.System)
+    {
+        #region implementation
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TarpitService"/> class with a configurable clock.
+    /// </summary>
+    /// <param name="settingsMonitor">Options monitor for hot-reloadable tarpit configuration.</param>
+    /// <param name="logger">Logger instance for this service.</param>
+    /// <param name="timeProvider">Clock and timer provider used for hit windows and cleanup scheduling.</param>
+    /// <remarks>
+    /// New tests can supply a deterministic <see cref="TimeProvider"/> instead
+    /// of waiting for wall-clock expiration.
+    /// </remarks>
+    /// <seealso cref="TimeProvider"/>
+    /// <seealso cref="TarpitSettings"/>
+    public TarpitService(
+        IOptionsMonitor<TarpitSettings> settingsMonitor,
+        ILogger<TarpitService> logger,
+        TimeProvider timeProvider)
     {
         #region implementation
 
         _settingsMonitor = settingsMonitor ?? throw new ArgumentNullException(nameof(settingsMonitor));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
 
         var settings = _settingsMonitor.CurrentValue;
-        var intervalMs = Math.Max(1, settings.CleanupIntervalMinutes) * 60_000;
+        var interval = TimeSpan.FromMinutes(Math.Max(1, settings.CleanupIntervalMinutes));
 
-        _cleanupTimer = new Timer(
+        _cleanupTimer = _timeProvider.CreateTimer(
             purgeStaleEntries,
             state: null,
-            dueTime: intervalMs,
-            period: intervalMs);
+            dueTime: interval,
+            period: interval);
 
         _logger.LogInformation(
             "TarpitService initialized — Enabled: {Enabled}, Threshold: {Threshold}, " +
@@ -145,8 +170,8 @@ public class TarpitService : IDisposable
 
         _tracker.AddOrUpdate(
             clientIp,
-            _ => new TarpitEntry(1, DateTime.UtcNow),
-            (_, existing) => new TarpitEntry(existing.Count + 1, DateTime.UtcNow));
+            _ => new TarpitEntry(1, getUtcNow()),
+            (_, existing) => new TarpitEntry(existing.Count + 1, getUtcNow()));
 
         var settings = _settingsMonitor.CurrentValue;
         if (_tracker.Count + _endpointTracker.Count > settings.MaxTrackedIps)
@@ -254,7 +279,7 @@ public class TarpitService : IDisposable
         var key = createEndpointTrackerKey(clientIp, policy);
         var settings = _settingsMonitor.CurrentValue;
         var windowDuration = TimeSpan.FromSeconds(Math.Max(1, policy.WindowSeconds));
-        var now = DateTime.UtcNow;
+        var now = getUtcNow();
 
         _endpointTracker.AddOrUpdate(
             key,
@@ -323,7 +348,7 @@ public class TarpitService : IDisposable
         var windowDuration = TimeSpan.FromSeconds(Math.Max(1, policy.WindowSeconds));
 
         // If the policy-specific window expired, the count is effectively 0.
-        if (DateTime.UtcNow - entry.WindowStart >= windowDuration)
+        if (getUtcNow() - entry.WindowStart >= windowDuration)
             return 0;
 
         return entry.Count;
@@ -433,6 +458,21 @@ public class TarpitService : IDisposable
 
     /**************************************************************/
     /// <summary>
+    /// Gets the current UTC time from the configured time provider.
+    /// </summary>
+    /// <returns>The current UTC timestamp as a <see cref="DateTime"/>.</returns>
+    /// <seealso cref="TimeProvider.GetUtcNow"/>
+    private DateTime getUtcNow()
+    {
+        #region implementation
+
+        return _timeProvider.GetUtcNow().UtcDateTime;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
     /// Builds the composite endpoint tracker key from a client identifier and policy.
     /// </summary>
     /// <param name="clientIp">The client IP or stable client identifier.</param>
@@ -499,7 +539,7 @@ public class TarpitService : IDisposable
         try
         {
             var settings = _settingsMonitor.CurrentValue;
-            var cutoff = DateTime.UtcNow.AddMinutes(-settings.StaleEntryTimeoutMinutes);
+            var cutoff = getUtcNow().AddMinutes(-settings.StaleEntryTimeoutMinutes);
             var purgedCount = 0;
 
             // Sweep 404 tracker

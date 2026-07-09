@@ -1,4 +1,8 @@
 using MedRecPro.Helpers;
+using MedRecPro.Configuration;
+using MedRecPro.Service.Common;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 
@@ -119,6 +123,62 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             Assert.ThrowsException<InvalidOperationException>(() => PerformanceHelper.GetCachedJson<CachePayload>(""));
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the injectable app-cache seam delegates to the legacy cache behavior.
+        /// </summary>
+        /// <seealso cref="IAppCache"/>
+        /// <seealso cref="MedRecProApplicationServiceExtensions.AddMedRecProPlatformServices(IServiceCollection, IConfiguration)"/>
+        [TestMethod]
+        public void AppCache_RegisteredInterface_RoundTripsManagedValue()
+        {
+            #region implementation
+            var key = $"AppCacheTests:managed:{Guid.NewGuid():N}";
+            var provider = createPlatformProvider();
+            var appCache = provider.GetRequiredService<IAppCache>();
+
+            try
+            {
+                appCache.SetManaged(key, "managed-value", 1.0);
+
+                Assert.AreEqual("managed-value", appCache.Get<string>(key));
+
+                appCache.ResetManaged();
+
+                Assert.IsNull(appCache.Get<string>(key));
+            }
+            finally
+            {
+                appCache.Remove(key);
+                provider.Dispose();
+            }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates the platform service provider needed to resolve the app-cache seam.
+        /// </summary>
+        /// <returns>A service provider with platform services registered.</returns>
+        /// <seealso cref="MedRecProApplicationServiceExtensions.AddMedRecProPlatformServices(IServiceCollection, IConfiguration)"/>
+        private static ServiceProvider createPlatformProvider()
+        {
+            #region implementation
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["TarpitSettings:Enabled"] = "false"
+                })
+                .Build();
+
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddMedRecProPlatformServices(configuration);
+
+            return services.BuildServiceProvider();
             #endregion
         }
 

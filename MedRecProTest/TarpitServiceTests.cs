@@ -56,13 +56,13 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Creates a TarpitService instance with optional custom settings.
         /// </summary>
-        private static TarpitService CreateService(TarpitSettings? settings = null)
+        private static TarpitService CreateService(TarpitSettings? settings = null, TimeProvider? timeProvider = null)
         {
             #region implementation
 
             var monitor = CreateSettingsMonitor(settings);
             var logger = new Mock<ILogger<TarpitService>>();
-            return new TarpitService(monitor, logger.Object);
+            return new TarpitService(monitor, logger.Object, timeProvider ?? TimeProvider.System);
 
             #endregion
         }
@@ -88,6 +88,167 @@ namespace MedRecPro.Service.Test
                 WindowSeconds = windowSeconds,
                 MaxDelayMs = maxDelayMs
             };
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Manual clock and timer source used to test time-window behavior without real sleeps.
+        /// </summary>
+        /// <seealso cref="TimeProvider"/>
+        private sealed class ManualTimeProvider : TimeProvider
+        {
+            #region implementation
+
+            private readonly List<ManualTimer> _timers = new();
+            private DateTimeOffset _utcNow;
+
+            /*************************************************************/
+            /// <summary>
+            /// Initializes a new instance of the <see cref="ManualTimeProvider"/> class.
+            /// </summary>
+            public ManualTimeProvider()
+            {
+                #region implementation
+
+                _utcNow = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+                #endregion
+            }
+
+            /*************************************************************/
+            /// <inheritdoc/>
+            public override DateTimeOffset GetUtcNow()
+            {
+                #region implementation
+
+                return _utcNow;
+
+                #endregion
+            }
+
+            /*************************************************************/
+            /// <inheritdoc/>
+            public override System.Threading.ITimer CreateTimer(
+                System.Threading.TimerCallback callback,
+                object? state,
+                TimeSpan dueTime,
+                TimeSpan period)
+            {
+                #region implementation
+
+                var timer = new ManualTimer(callback, state);
+                _timers.Add(timer);
+                return timer;
+
+                #endregion
+            }
+
+            /*************************************************************/
+            /// <summary>
+            /// Advances the manual UTC clock.
+            /// </summary>
+            /// <param name="duration">Duration to add to the current UTC time.</param>
+            public void Advance(TimeSpan duration)
+            {
+                #region implementation
+
+                _utcNow = _utcNow.Add(duration);
+
+                #endregion
+            }
+
+            /*************************************************************/
+            /// <summary>
+            /// Fires all active manual timers once.
+            /// </summary>
+            public void FireTimers()
+            {
+                #region implementation
+
+                foreach (var timer in _timers.ToArray())
+                {
+                    timer.Fire();
+                }
+
+                #endregion
+            }
+
+            /*************************************************************/
+            /// <summary>
+            /// In-memory timer controlled by <see cref="ManualTimeProvider"/>.
+            /// </summary>
+            private sealed class ManualTimer : System.Threading.ITimer
+            {
+                private readonly System.Threading.TimerCallback _callback;
+                private readonly object? _state;
+                private bool _disposed;
+
+                /*************************************************************/
+                /// <summary>
+                /// Initializes a new instance of the <see cref="ManualTimer"/> class.
+                /// </summary>
+                public ManualTimer(System.Threading.TimerCallback callback, object? state)
+                {
+                    #region implementation
+
+                    _callback = callback ?? throw new ArgumentNullException(nameof(callback));
+                    _state = state;
+
+                    #endregion
+                }
+
+                /*************************************************************/
+                /// <inheritdoc/>
+                public bool Change(TimeSpan dueTime, TimeSpan period)
+                {
+                    #region implementation
+
+                    return !_disposed;
+
+                    #endregion
+                }
+
+                /*************************************************************/
+                /// <inheritdoc/>
+                public void Dispose()
+                {
+                    #region implementation
+
+                    _disposed = true;
+
+                    #endregion
+                }
+
+                /*************************************************************/
+                /// <inheritdoc/>
+                public ValueTask DisposeAsync()
+                {
+                    #region implementation
+
+                    Dispose();
+                    return ValueTask.CompletedTask;
+
+                    #endregion
+                }
+
+                /*************************************************************/
+                /// <summary>
+                /// Invokes the timer callback if the timer is active.
+                /// </summary>
+                public void Fire()
+                {
+                    #region implementation
+
+                    if (!_disposed)
+                    {
+                        _callback(_state);
+                    }
+
+                    #endregion
+                }
+            }
 
             #endregion
         }
@@ -327,7 +488,7 @@ namespace MedRecPro.Service.Test
         /// new service instance with a short interval, then waits for the timer to fire.
         /// </remarks>
         [TestMethod]
-        public async Task PurgeStaleEntries_RemovesOldEntries()
+        public void PurgeStaleEntries_RemovesOldEntries()
         {
             #region implementation
 
@@ -337,7 +498,7 @@ namespace MedRecPro.Service.Test
                 Enabled = true,
                 TriggerThreshold = 5,
                 MaxDelayMs = 30_000,
-                StaleEntryTimeoutMinutes = 0, // 0 minutes = immediate staleness
+                StaleEntryTimeoutMinutes = 1,
                 CleanupIntervalMinutes = 1,   // Minimum interval
                 MaxTrackedIps = 10_000,
                 ResetOnSuccess = true
@@ -345,7 +506,8 @@ namespace MedRecPro.Service.Test
 
             // Use a very short stale timeout — we need entries to be "old"
             // Override to use seconds-based staleness for testing
-            using var service = CreateService(settings);
+            var timeProvider = new ManualTimeProvider();
+            using var service = CreateService(settings, timeProvider);
             service.RecordHit("192.168.1.1");
             service.RecordHit("192.168.1.2");
 
@@ -357,14 +519,15 @@ namespace MedRecPro.Service.Test
             // Timer fires at CleanupIntervalMinutes = 1 min, which is too long for a test.
             // Instead, we verify the entries exist and then wait for timer
             // For practical testing, we'll use a short delay and check
-            await Task.Delay(TimeSpan.FromSeconds(2));
+            timeProvider.Advance(TimeSpan.FromMinutes(2));
+            timeProvider.FireTimers();
 
             // The timer fires at 1 minute intervals which is too long for unit tests.
             // Instead, verify that TrackedIpCount reflects the entries are present.
             // The purge test validates the concept — in production the timer handles this.
             // We verify the entries were recorded correctly.
-            Assert.IsTrue(service.TrackedIpCount >= 0,
-                "After potential cleanup, tracked count should be non-negative");
+            Assert.AreEqual(0, service.TrackedIpCount,
+                "Manual timer cleanup should remove stale entries deterministically.");
 
             #endregion
         }
@@ -390,10 +553,12 @@ namespace MedRecPro.Service.Test
                 ResetOnSuccess = true
             };
 
-            using var service = CreateService(settings);
+            var timeProvider = new ManualTimeProvider();
+            using var service = CreateService(settings, timeProvider);
             service.RecordHit("192.168.1.1");
             service.RecordHit("192.168.1.2");
             service.RecordHit("192.168.1.3");
+            timeProvider.FireTimers();
 
             // Assert — entries should survive because stale timeout is 60 minutes
             Assert.AreEqual(3, service.TrackedIpCount,
@@ -427,12 +592,16 @@ namespace MedRecPro.Service.Test
                 ResetOnSuccess = true
             };
 
-            using var service = CreateService(settings);
+            var timeProvider = new ManualTimeProvider();
+            using var service = CreateService(settings, timeProvider);
 
             // Act — add entries with slight delays to ensure ordering
             service.RecordHit("192.168.1.1"); // Oldest
+            timeProvider.Advance(TimeSpan.FromSeconds(1));
             service.RecordHit("192.168.1.2");
+            timeProvider.Advance(TimeSpan.FromSeconds(1));
             service.RecordHit("192.168.1.3");
+            timeProvider.Advance(TimeSpan.FromSeconds(1));
             service.RecordHit("192.168.1.4"); // This should trigger eviction
 
             // Assert — should have at most 3 entries
@@ -556,7 +725,8 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 1 // 1-second window
             };
 
-            using var service = CreateService(settings);
+            var timeProvider = new ManualTimeProvider();
+            using var service = CreateService(settings, timeProvider);
 
             // Act — record hits, wait for window to expire, then record again
             service.RecordEndpointHit("192.168.1.1", "/api/");
@@ -566,8 +736,7 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(3, service.GetEndpointHitCount("192.168.1.1", "/api/"),
                 "Precondition: Should have 3 hits before window expires");
 
-            // Wait for the 1-second window to expire
-            System.Threading.Thread.Sleep(1200);
+            timeProvider.Advance(TimeSpan.FromMilliseconds(1200));
 
             // GetEndpointHitCount should now return 0 (window expired)
             Assert.AreEqual(0, service.GetEndpointHitCount("192.168.1.1", "/api/"),
@@ -662,11 +831,11 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 1
             };
 
-            using var service = CreateService(settings);
+            var timeProvider = new ManualTimeProvider();
+            using var service = CreateService(settings, timeProvider);
             service.RecordEndpointHit("192.168.1.1", "/api/");
 
-            // Wait for window to expire
-            System.Threading.Thread.Sleep(1200);
+            timeProvider.Advance(TimeSpan.FromMilliseconds(1200));
 
             // Act
             var count = service.GetEndpointHitCount("192.168.1.1", "/api/");
@@ -700,7 +869,8 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 300
             };
 
-            using var service = CreateService(settings);
+            var timeProvider = new ManualTimeProvider();
+            using var service = CreateService(settings, timeProvider);
             var policy = CreateEndpointPolicy(windowSeconds: 1);
 
             service.RecordEndpointHit("192.168.1.1", policy);
@@ -708,7 +878,7 @@ namespace MedRecPro.Service.Test
                 "Precondition: policy should have one active hit");
 
             // Act
-            System.Threading.Thread.Sleep(1200);
+            timeProvider.Advance(TimeSpan.FromMilliseconds(1200));
 
             // Assert
             Assert.AreEqual(0, service.GetEndpointHitCount("192.168.1.1", policy),

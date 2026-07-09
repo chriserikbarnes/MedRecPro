@@ -1,6 +1,7 @@
 using MedRecPro.Configuration;
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
+using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Middleware;
 using MedRecPro.Models;
@@ -248,8 +249,12 @@ namespace MedRecPro.Service.Test
             // Assert - representative registrations from each extracted startup capability.
             assertService<DbContextOptions<ApplicationDbContext>>(builder.Services, ServiceLifetime.Scoped);
             assertService<DbContextOptions<ImportApplicationDbContext>>(builder.Services, ServiceLifetime.Scoped);
+            assertService<TimeProvider>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IAppCache>(builder.Services, ServiceLifetime.Singleton);
+            assertService<IUserContextAccessor>(builder.Services, ServiceLifetime.Scoped);
             assertService<UserDataAccess>(builder.Services, ServiceLifetime.Scoped);
             assertService<TarpitService>(builder.Services, ServiceLifetime.Singleton);
+            assertService<ActivityLogActionFilter>(builder.Services, ServiceLifetime.Scoped);
             assertService<IClaudeSkillService>(builder.Services, ServiceLifetime.Singleton);
             assertService<IComparisonService>(builder.Services, ServiceLifetime.Scoped);
             assertService<IActivityLogService>(builder.Services, ServiceLifetime.Scoped);
@@ -263,6 +268,15 @@ namespace MedRecPro.Service.Test
             assertService<IViewRenderService>(builder.Services, ServiceLifetime.Scoped);
             assertOpenGeneric(typeof(Repository<>), builder.Services, ServiceLifetime.Scoped);
             assertOpenGeneric(typeof(MedRecProImportClass.DataAccess.Repository<>), builder.Services, ServiceLifetime.Scoped);
+
+            using var provider = builder.Services.BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+            using var scope = provider.CreateScope();
+
+            Assert.IsNotNull(scope.ServiceProvider.GetRequiredService<ActivityLogActionFilter>());
             #endregion
         }
 

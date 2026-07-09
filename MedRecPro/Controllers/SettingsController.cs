@@ -4,9 +4,9 @@ using Azure.Identity;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Service;
+using MedRecPro.Service.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Memory;
 using static MedRecPro.Models.UserRole;
 using System.Net;
 
@@ -31,7 +31,7 @@ namespace MedRecPro.Controllers
 
         private readonly IConfiguration _configuration;
         private readonly ILogger<SettingsController> _logger;
-        private readonly IMemoryCache _cache;
+        private readonly IAppCache _appCache;
         private readonly AzureSqlMetricsService _metricsService;
         private readonly AzureAppTokenProvider _appTokenProvider;
         private readonly UserLoggerProvider _loggerProvider;
@@ -47,21 +47,22 @@ namespace MedRecPro.Controllers
         /// <param name="configuration">Application configuration.</param>
         /// <param name="logger">Logger instance for this controller.</param>
         /// <param name="sqlMetricsService">Azure SQL metrics service.</param>
-        /// <param name="cache">Memory cache instance.</param>
+        /// <param name="appCache">Application cache abstraction for managed cache operations.</param>
         /// <param name="appTokenProvider">Azure app token provider.</param>
         /// <param name="loggerProvider">User logger provider for log access.</param>
         /// <seealso cref="UserLoggerProvider"/>
+        /// <seealso cref="IAppCache"/>
         public SettingsController(
             IConfiguration configuration,
             ILogger<SettingsController> logger,
             AzureSqlMetricsService sqlMetricsService,
-            IMemoryCache cache,
+            IAppCache appCache,
             AzureAppTokenProvider appTokenProvider,
             UserLoggerProvider loggerProvider)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+            _appCache = appCache ?? throw new ArgumentNullException(nameof(appCache));
             _metricsService = sqlMetricsService ?? throw new ArgumentNullException(nameof(sqlMetricsService));
             _appTokenProvider = appTokenProvider ?? throw new ArgumentNullException(nameof(appTokenProvider));
             _loggerProvider = loggerProvider ?? throw new ArgumentNullException(nameof(loggerProvider));
@@ -865,33 +866,20 @@ namespace MedRecPro.Controllers
         /// <response code="200">Cache was successfully cleared.</response>
         /// <response code="400">If cache operation parameters are invalid.</response>
         /// <response code="500">If the cache operation failed.</response>
-        /// <response code="503">If the cache service is not available.</response>
-        /// <seealso cref="PerformanceHelper.ResetManagedCache"/>
+        /// <seealso cref="IAppCache.ResetManaged"/>
         /// <seealso cref="IConfiguration"/>
         [HttpPost("clearmanagedcache")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public IActionResult ClearManagedCache()
         {
             #region implementation
 
             try
             {
-                // Validate that the performance helper is available
-                if (!PerformanceHelper.Initialized)
-                {
-                    _logger.LogWarning("Performance helper instance is not available");
-                    return StatusCode(503, new
-                    {
-                        success = false,
-                        error = "Cache service is not available"
-                    });
-                }
-
-                // Call the performance helper to reset the managed cache
-                PerformanceHelper.ResetManagedCache();
+                // Use the injectable cache seam so controller availability follows DI registration.
+                _appCache.ResetManaged();
 
                 _logger.LogInformation("Managed cache successfully cleared");
 

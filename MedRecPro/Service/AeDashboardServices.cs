@@ -2,6 +2,7 @@ using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.Common;
 
 namespace MedRecPro.Service
 {
@@ -543,11 +544,44 @@ namespace MedRecPro.Service
     /// <seealso cref="IAeDashboardCachePolicy"/>
     public sealed class AeDashboardCachePolicy : IAeDashboardCachePolicy
     {
+        private readonly IAppCache _appCache;
+
         /**************************************************************/
         /// <summary>
         /// Gets a reusable shared cache policy for static compatibility paths.
         /// </summary>
-        public static AeDashboardCachePolicy Shared { get; } = new();
+        public static AeDashboardCachePolicy Shared { get; } = new(new PerformanceAppCache());
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AeDashboardCachePolicy"/> class.
+        /// </summary>
+        /// <remarks>
+        /// This constructor preserves compatibility for static callers while
+        /// new code should use the DI constructor that accepts <see cref="IAppCache"/>.
+        /// </remarks>
+        /// <seealso cref="IAppCache"/>
+        public AeDashboardCachePolicy()
+            : this(new PerformanceAppCache())
+        {
+            #region implementation
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AeDashboardCachePolicy"/> class with an injectable cache seam.
+        /// </summary>
+        /// <param name="appCache">Application cache abstraction used for dashboard cache reads and writes.</param>
+        /// <seealso cref="IAppCache"/>
+        public AeDashboardCachePolicy(IAppCache appCache)
+        {
+            #region implementation
+
+            _appCache = appCache ?? throw new ArgumentNullException(nameof(appCache));
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <inheritdoc/>
@@ -569,7 +603,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return PerformanceHelper.GetCache<T>(key);
+            return _appCache.Get<T>(key);
 
             #endregion
         }
@@ -580,7 +614,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            PerformanceHelper.SetCacheManageKey(key, value, duration);
+            _appCache.SetManaged(key, value, duration);
 
             #endregion
         }

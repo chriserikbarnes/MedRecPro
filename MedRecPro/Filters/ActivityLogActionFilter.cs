@@ -1,9 +1,9 @@
 ﻿using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service;
+using MedRecPro.Service.Common;
 using Microsoft.AspNetCore.Mvc.Filters;
 using System.Diagnostics;
-using System.Security.Claims;
 using System.Text.Json;
 
 namespace MedRecPro.Filters
@@ -38,7 +38,8 @@ namespace MedRecPro.Filters
         #region Fields
 
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IUserContextAccessor _userContextAccessor;
+        private readonly TimeProvider _timeProvider;
         private readonly ILogger<ActivityLogActionFilter> _logger;
 
         #endregion
@@ -47,20 +48,29 @@ namespace MedRecPro.Filters
 
         /*************************************************************/
         /// <summary>
-        /// Initializes a new instance of the ActivityLogActionFilter class.
+        /// Initializes a new instance of the ActivityLogActionFilter class with injectable user and time seams.
         /// </summary>
         /// <param name="serviceScopeFactory">Factory for creating service scopes for background logging.</param>
-        /// <param name="httpContextAccessor">Accessor for HTTP context information.</param>
+        /// <param name="userContextAccessor">Accessor for the current request user.</param>
+        /// <param name="timeProvider">Clock used when stamping activity log entries.</param>
         /// <param name="logger">Logger for filter-level events and errors.</param>
+        /// <remarks>
+        /// This constructor keeps request-user and wall-clock dependencies explicit
+        /// so focused tests do not need ambient static state or real time.
+        /// </remarks>
+        /// <seealso cref="IUserContextAccessor"/>
+        /// <seealso cref="TimeProvider"/>
         public ActivityLogActionFilter(
             IServiceScopeFactory serviceScopeFactory,
-            IHttpContextAccessor httpContextAccessor,
+            IUserContextAccessor userContextAccessor,
+            TimeProvider timeProvider,
             ILogger<ActivityLogActionFilter> logger)
         {
             #region Implementation
-            _serviceScopeFactory = serviceScopeFactory;
-            _httpContextAccessor = httpContextAccessor;
-            _logger = logger;
+            _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+            _userContextAccessor = userContextAccessor ?? throw new ArgumentNullException(nameof(userContextAccessor));
+            _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             #endregion
         }
 
@@ -91,9 +101,7 @@ namespace MedRecPro.Filters
             var httpContext = context.HttpContext;
 
             // Get user ID (handle both authenticated and anonymous)
-            long? userId = httpContext.User != null
-                ? ClaimHelper.GetUserIdFromClaims(httpContext.User.Claims)
-                : null;
+            long? userId = _userContextAccessor.GetCurrentUserId(httpContext);
 
             // Execute the action
             var resultContext = await next();
@@ -105,7 +113,7 @@ namespace MedRecPro.Filters
             {
                 UserId = userId,  // Will be null for anonymous users
                 ActivityType = getActivityType(context, resultContext),
-                ActivityTimestamp = DateTime.UtcNow,
+                ActivityTimestamp = _timeProvider.GetUtcNow().UtcDateTime,
 
                 // Request Details
                 IpAddress = getClientIpAddress(httpContext),
