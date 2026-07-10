@@ -10,6 +10,7 @@ using Color = System.Drawing.Color;
 using System.Drawing;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Principal;
@@ -39,15 +40,39 @@ namespace MedRecPro.Helpers
 
         private static IDictionaryUtilityService? _dictionaryUtilityService;
 
-        // Initialize this once in your application startup:
-        // Util.Initialize(httpContextAccessor, encryptionService);
+        /**************************************************************/
+        /// <summary>
+        /// Logger used by legacy static helper paths after application startup has supplied one.
+        /// </summary>
+        /// <remarks>
+        /// Static access is retained only for compatibility with existing callers. New code should receive
+        /// <see cref="ILogger"/> through constructor injection instead.
+        /// </remarks>
+        private static ILogger? _logger;
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes legacy static helper dependencies during application startup.
+        /// </summary>
+        /// <param name="httpContextAccessor">Accessor used to obtain the current HTTP context for legacy callers.</param>
+        /// <param name="encryptionService">Encryption service used by legacy ID conversion helpers.</param>
+        /// <param name="dictionaryUtilityService">Dictionary helper used by legacy lookup helpers.</param>
+        /// <param name="logger">Optional structured logger for compatibility paths that cannot yet use constructor injection.</param>
+        /// <seealso cref="IEncryptionService"/>
+        /// <seealso cref="IDictionaryUtilityService"/>
         public static void Initialize(IHttpContextAccessor httpContextAccessor,
             IEncryptionService encryptionService,
-            IDictionaryUtilityService dictionaryUtilityService)
+            IDictionaryUtilityService dictionaryUtilityService,
+            ILogger? logger = null)
         {
+            #region implementation
+
             _httpContextAccessor = httpContextAccessor;
             _encryptionService = encryptionService;
             _dictionaryUtilityService = dictionaryUtilityService;
+            _logger = logger;
+
+            #endregion
         }
 
         /**************************************************************/
@@ -1019,8 +1044,10 @@ namespace MedRecPro.Helpers
                 }
                 catch (Exception e)
                 {
-                    // ErrorHelper.AddErrorMsg("Util.GetHashString: " + e.ToString()); // Log the full exception
-                    Console.WriteLine("Util.GetHashString: " + e.ToString());
+                    _logger?.LogError(
+                        e,
+                        "Failed to create a SHA-256 hash for a value of type {ValueType}",
+                        obj?.GetType().FullName ?? "null");
                 }
             } // `alg` is disposed here
 

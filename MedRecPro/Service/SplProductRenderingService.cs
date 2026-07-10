@@ -1,6 +1,7 @@
 ﻿using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service.Common;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using static MedRecPro.Models.Label;
 
@@ -197,14 +198,34 @@ namespace MedRecPro.Service
 
         private ICharacteristicRenderingService? _characteristicRenderingService;
 
+        /**************************************************************/
+        /// <summary>
+        /// Logger used for structured rendering diagnostics when this service is resolved through dependency injection.
+        /// </summary>
+        /// <seealso cref="ILogger"/>
+        private readonly ILogger<ProductRenderingService>? _logger;
+
         #endregion
 
         #region initialization
-        //public ProductRenderingService(IPackageRenderingService packageRenderingService, IDictionaryUtilityService dictionaryUtilityService)
-        //{
-        //    _packageRenderingService = packageRenderingService ?? new PackageRenderingService();
-        //    _dictionaryUtilityService = dictionaryUtilityService ?? new DictionaryUtilityService();
-        //}
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ProductRenderingService"/> class.
+        /// </summary>
+        /// <param name="logger">Optional logger that receives rendering diagnostics for DI-created instances.</param>
+        /// <remarks>
+        /// The optional parameter retains compatibility with existing direct construction in legacy callers and focused tests.
+        /// </remarks>
+        /// <seealso cref="ILogger"/>
+        public ProductRenderingService(ILogger<ProductRenderingService>? logger = null)
+        {
+            #region implementation
+
+            _logger = logger;
+
+            #endregion
+        }
 
         #endregion
 
@@ -840,10 +861,12 @@ namespace MedRecPro.Service
                 .Select(p => p.PackagingLevelID));
             var topLevelIds = string.Join(", ", topLevelPackaging.Select(p => p.PackagingLevelID));
 
-            System.Diagnostics.Debug.WriteLine($"All Packaging IDs in product: [{allPackagingIds}]");
-            System.Diagnostics.Debug.WriteLine($"Child IDs (hierarchy filtered): [{childIds}]");
-            System.Diagnostics.Debug.WriteLine($"Business duplicate IDs (filtered): [{businessDuplicateIds}]");
-            System.Diagnostics.Debug.WriteLine($"Final top-level IDs: [{topLevelIds}]");
+            _logger?.LogDebug(
+                "Filtered product packaging levels. All IDs {AllPackagingIds}; child IDs {ChildPackagingIds}; business duplicate IDs {BusinessDuplicatePackagingIds}; final top-level IDs {TopLevelPackagingIds}",
+                allPackagingIds,
+                childIds,
+                businessDuplicateIds,
+                topLevelIds);
 
             return topLevelPackaging.Any() ? topLevelPackaging : null;
             #endregion

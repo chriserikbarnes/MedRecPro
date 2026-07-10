@@ -378,7 +378,7 @@ namespace MedRecPro.Configuration
             {
                 if (string.IsNullOrWhiteSpace(googleClientId) || string.IsNullOrWhiteSpace(googleClientSecret))
                 {
-                    Console.WriteLine("Google ClientId or ClientSecret not configured. Google authentication will be disabled.");
+                    // The built application records this configuration state through ILogger startup diagnostics.
                     return;
                 }
                 options.ClientId = googleClientId;
@@ -391,7 +391,7 @@ namespace MedRecPro.Configuration
             {
                 if (string.IsNullOrWhiteSpace(microsoftClientId) || string.IsNullOrWhiteSpace(microsoftClientSecret))
                 {
-                    Console.WriteLine("Microsoft ClientId or ClientSecret not configured. Microsoft authentication will be disabled.");
+                    // The built application records this configuration state through ILogger startup diagnostics.
                     return;
                 }
                 options.ClientId = microsoftClientId;
@@ -507,12 +507,11 @@ namespace MedRecPro.Configuration
                         };
                     });
 
-                Console.WriteLine($"[Startup] MCP JWT authentication enabled for issuer: {mcpServerUrl}");
                 #endregion
             }
             else
             {
-                Console.WriteLine("[Startup] MCP JWT authentication not configured (McpServer:Url or McpServer:JwtSigningKey missing)");
+                // The built application records this configuration state through ILogger startup diagnostics.
             }
 
             #endregion

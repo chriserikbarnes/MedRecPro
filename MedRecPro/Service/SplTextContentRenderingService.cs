@@ -2,6 +2,7 @@
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using static MedRecPro.Models.Label;
 
@@ -158,6 +159,13 @@ namespace MedRecPro.Service
 
         private readonly IConfiguration _configuration;
 
+        /**************************************************************/
+        /// <summary>
+        /// Logger used for structured rendering diagnostics when enhanced debugging is enabled.
+        /// </summary>
+        /// <seealso cref="ILogger"/>
+        private readonly ILogger<TextContentRenderingService>? _logger;
+
         private static bool useExpandedDebugLog;
 
         #region constructors
@@ -167,14 +175,24 @@ namespace MedRecPro.Service
         /// Initializes a new instance of the TextContentRenderingService class.
         /// </summary>
         /// <param name="dbContext">The database context for accessing observation media data.</param>
-        /// <param name="configuration"></param>
+        /// <param name="configuration">Configuration containing the enhanced-debugging feature flag.</param>
+        /// <param name="logger">Optional logger used for structured rendering diagnostics.</param>
         /// <exception cref="ArgumentNullException">Thrown if dbContext is null.</exception>
-        public TextContentRenderingService(ApplicationDbContext dbContext, IConfiguration configuration)
+        /// <seealso cref="ILogger"/>
+        public TextContentRenderingService(
+            ApplicationDbContext dbContext,
+            IConfiguration configuration,
+            ILogger<TextContentRenderingService>? logger = null)
         {
+            #region implementation
+
             _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _configuration = configuration ?? throw new ArgumentException(nameof(configuration));
+            _logger = logger;
 
             useExpandedDebugLog = _configuration.GetValue<bool>("FeatureFlags:UseEnhancedDebugging");
+
+            #endregion
         }
 
         #endregion
@@ -289,7 +307,9 @@ namespace MedRecPro.Service
 
             if (useExpandedDebugLog)
             {
-                Debug.WriteLine($"=== End PrepareTextContentForRendering ===\n");
+                _logger?.LogDebug(
+                    "Completed text content rendering with {RenderedContentCount} rendered items",
+                    renderedContents.Count);
             }
 
             return renderedContents;

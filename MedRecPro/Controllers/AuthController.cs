@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using System.Diagnostics;
 using System.Security.Claims;
 
 namespace MedRecPro.Controllers
@@ -493,7 +492,7 @@ namespace MedRecPro.Controllers
                     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                     await dbContext.Database.ExecuteSqlRawAsync("SELECT 1", cancellationToken: cts.Token);
 #if DEBUG
-                    Debug.WriteLine("=== Database has woken up ===");
+                    _logger.LogDebug("Database wake-up completed");
 #else
                     _logger.LogInformation("Database wake-up completed");
 #endif
@@ -501,7 +500,7 @@ namespace MedRecPro.Controllers
                 catch (Exception ex)
                 {
 #if DEBUG
-                    Debug.WriteLine($"=== Database wake-up failed: {ex.Message} ===");
+                    _logger.LogDebug(ex, "Database wake-up failed");
 #else
                     _logger.LogWarning(ex, "Database wake-up failed");
 #endif
@@ -515,22 +514,23 @@ namespace MedRecPro.Controllers
 #if DEBUG
         /**************************************************************/
         /// <summary>
-        /// Logs all claims from external login provider for debugging purposes.
+        /// Logs external-login claim types for debugging purposes without emitting claim values.
         /// </summary>
         /// <param name="info">External login information containing claims to log.</param>
         /// <remarks>
         /// This method is only available in DEBUG builds and helps troubleshoot
-        /// claim-related issues with external authentication providers.
+        /// claim-related issues with external authentication providers while avoiding PII and token values in logs.
         /// </remarks>
         private void logExternalClaims(ExternalLoginInfo info)
         {
             #region implementation
-            // Log all external claims for debugging
-            System.Diagnostics.Debug.WriteLine("External Login Claims:");
-            foreach (var claim in info.Principal.Claims)
-            {
-                System.Diagnostics.Debug.WriteLine($"Claim Type: {claim.Type}, Value: {claim.Value}");
-            }
+            // Claim values can contain PII or tokens, so retain only claim types in diagnostic output.
+            _logger.LogDebug(
+                "External login claims received from {LoginProvider}. Claim types: {ClaimTypes}",
+                info.LoginProvider,
+                string.Join(", ", info.Principal.Claims
+                    .Select(claim => claim.Type)
+                    .Distinct(StringComparer.Ordinal)));
             #endregion
         }
 #endif

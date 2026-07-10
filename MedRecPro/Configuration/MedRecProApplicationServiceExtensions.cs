@@ -119,8 +119,7 @@ namespace MedRecPro.Configuration
                         maxRetryDelay: TimeSpan.FromSeconds(30),
                         errorNumbersToAdd: null);
                     sqlOptions.CommandTimeout(60);
-                })
-                 .LogTo(Console.WriteLine, LogLevel.Error));
+                }));
 
             builder.Services.AddDbContext<ImportApplicationDbContext>(options =>
                 options.UseSqlServer(connectionString, sqlOptions =>
@@ -130,8 +129,7 @@ namespace MedRecPro.Configuration
                         maxRetryDelay: TimeSpan.FromSeconds(30),
                         errorNumbersToAdd: null);
                     sqlOptions.CommandTimeout(60);
-                })
-                 .LogTo(Console.WriteLine, LogLevel.Error));
+                }));
 
             return builder;
 
@@ -143,7 +141,8 @@ namespace MedRecPro.Configuration
         /// Registers settings objects and startup diagnostics that must run before feature services are added.
         /// </summary>
         /// <remarks>
-        /// The Debug-only API-key diagnostic and EF logging filter are preserved as compile-time conditional behavior.
+        /// The Debug-only EF logging filter is preserved as compile-time conditional behavior without exposing
+        /// configuration-secret metadata through direct console output.
         /// </remarks>
         /// <example>
         /// <code>
@@ -162,10 +161,7 @@ namespace MedRecPro.Configuration
             builder.Services.Configure<ClaudeApiSettings>(builder.Configuration.GetSection("ClaudeApiSettings"));
 
 #if DEBUG
-            // Debug logging.
-            var apiKey = builder.Configuration["ClaudeApiSettings:ApiKey"];
-            Console.WriteLine($"=== DEBUG: ApiKey from config: {(string.IsNullOrEmpty(apiKey) ? "EMPTY/NULL" : "LOADED (length: " + apiKey.Length + ")")}");
-
+            // Preserve the Debug-only EF Core connection diagnostic filter.
             builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Connection", LogLevel.Debug);
 #endif
 

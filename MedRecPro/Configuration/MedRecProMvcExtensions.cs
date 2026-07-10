@@ -1,12 +1,16 @@
 using MedRecPro.Data;
 using MedRecPro.Api.Controllers;
+using MedRecPro.Exceptions;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using RazorLight;
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 
 namespace MedRecPro.Configuration
@@ -35,7 +39,8 @@ namespace MedRecPro.Configuration
         /// Registers JSON serialization settings and API controller services.
         /// </summary>
         /// <remarks>
-        /// The ignore-empty-collections setting and global authorization exception filter preserve the existing API serialization and error behavior.
+        /// The ignore-empty-collections setting, global authorization exception filter, and shared problem-details policy
+        /// preserve API serialization while normalizing validation and unexpected-error responses.
         /// </remarks>
         /// <example>
         /// <code>
@@ -55,6 +60,17 @@ namespace MedRecPro.Configuration
 
             Boolean.TryParse(configuration["IgnoreEmptyObjectsWhenSerializing"], out ignoreEmptyCollections);
 
+            services.AddProblemDetails(options =>
+            {
+                options.CustomizeProblemDetails = context =>
+                {
+                    context.ProblemDetails.Extensions["traceId"] =
+                        Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+                };
+            });
+
+            services.AddExceptionHandler<MedRecProExceptionHandler>();
+
             #region Ignore Empty Fields When Serializing
             // Configure JSON options
             services.ConfigureHttpJsonOptions(options =>
@@ -64,7 +80,7 @@ namespace MedRecPro.Configuration
             });
 
             // For controllers/API endpoints, also configure:
-            services.Configure<JsonOptions>(options =>
+            services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
             {
                 options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault;
                 options.SerializerOptions.WriteIndented = true;
@@ -109,6 +125,30 @@ namespace MedRecPro.Configuration
                 options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
             });
             #endregion
+
+            /**************************************************************/
+            // Explicitly retain the standard HTTP 400 outcome while making MVC validation responses
+            // use the same RFC 7807 media type and correlation data as unexpected request failures.
+            services.Configure<ApiBehaviorOptions>(options =>
+            {
+                options.InvalidModelStateResponseFactory = actionContext =>
+                {
+                    var problemDetails = new ValidationProblemDetails(actionContext.ModelState)
+                    {
+                        Status = StatusCodes.Status400BadRequest,
+                        Title = "One or more validation errors occurred.",
+                        Type = "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1",
+                        Instance = actionContext.HttpContext.Request.Path.Value
+                    };
+
+                    problemDetails.Extensions["traceId"] =
+                        Activity.Current?.Id ?? actionContext.HttpContext.TraceIdentifier;
+
+                    var result = new BadRequestObjectResult(problemDetails);
+                    result.ContentTypes.Add("application/problem+json");
+                    return result;
+                };
+            });
 
             return services;
 

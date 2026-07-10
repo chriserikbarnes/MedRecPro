@@ -37,6 +37,8 @@ builder.Services.AddMedRecProViews(builder.Configuration);
 
 var app = builder.Build();
 
+app.LogMedRecProStartupDiagnostics();
+
 /**************************************************************/
 // ---Middleware Pipeline---
 app.UseMedRecProExceptionHandling();
@@ -64,7 +66,8 @@ app.MapControllers();
 
 Util.Initialize(httpContextAccessor: app.Services.GetRequiredService<IHttpContextAccessor>(),
     encryptionService: app.Services.GetRequiredService<IEncryptionService>(),
-    dictionaryUtilityService: app.Services.GetRequiredService<IDictionaryUtilityService>());
+    dictionaryUtilityService: app.Services.GetRequiredService<IDictionaryUtilityService>(),
+    logger: app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MedRecPro.Helpers.Util"));
 
 #if !DEBUG
 // Add a root endpoint

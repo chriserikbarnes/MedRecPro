@@ -3,8 +3,8 @@ using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Serialization;
 using System.Text;
-using System.Diagnostics;
 using System.Reflection;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Globalization;
 
@@ -1242,13 +1242,11 @@ namespace MedRecPro.Helpers
             }
             catch (TimeZoneNotFoundException)
             {
-                Debug.Write("The registry does not define the " + timezone + " zone.");
                 return utcTime.ToLocalTime().ToString("f");
 
             }
             catch (InvalidTimeZoneException)
             {
-                Debug.Write("Registry data on the " + timezone + " zone has been corrupted.");
                 return utcTime.ToLocalTime().ToString("f");
             }
 

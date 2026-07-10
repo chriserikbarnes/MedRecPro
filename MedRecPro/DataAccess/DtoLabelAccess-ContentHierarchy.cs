@@ -5,7 +5,6 @@ using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Collections.Generic;
-using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
@@ -83,12 +82,6 @@ namespace MedRecPro.DataAccess
 
                 var warningLetterInfos = await buildWarningLetterProductInfosAsync(db, section.SectionID, pkSecret, logger);
 
-
-#if DEBUG
-                //logSectionTextContentDebugInfo(content);
-                //logSectionObservationMediaDebugInfo(media);
-#endif
-
                 // Assemble complete section DTO with all nested data
                 sectionDtos.Add(new SectionDto(pkSecret)
                 {
@@ -112,67 +105,6 @@ namespace MedRecPro.DataAccess
                 });
             }
             return sectionDtos;
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Diagnostic logging for SectionTextContentDto and its RenderedMedias.
-        /// </summary>
-        /// <param name="content"></param>
-        private static void logSectionTextContentDebugInfo(List<SectionTextContentDto> content)
-        {
-            #region implementation
-            // DIAGNOSTIC: Log what was built
-            if (content != null && content.Any())
-            {
-                Debug.WriteLine($"=== buildSectionTextContentDtoAsync Results ===");
-                Debug.WriteLine($"Total TextContent records: {content.Count}");
-
-                foreach (var tc in content)
-                {
-                    Debug.WriteLine($"\nTextContent ID={tc.SectionTextContentID}");
-                    Debug.WriteLine($"  ContentType: {tc.ContentType}");
-                    Debug.WriteLine($"  SequenceNumber: {tc.SequenceNumber}");
-                    Debug.WriteLine($"  RenderedMedias count: {tc.RenderedMedias?.Count ?? 0}");
-
-                    if (tc.RenderedMedias?.Any() == true)
-                    {
-                        foreach (var rm in tc.RenderedMedias)
-                        {
-                            Debug.WriteLine($"    RenderedMedia ID={rm.RenderedMediaID}");
-                            Debug.WriteLine($"      ObservationMediaID={rm.ObservationMediaID}");
-                            Debug.WriteLine($"      SequenceInContent={rm.SequenceInContent}");
-                        }
-                    }
-                }
-                Debug.WriteLine($"=== End buildSectionTextContentDtoAsync ===");
-            }
-            #endregion
-
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Debug logging for ObservationMediaDto list.
-        /// </summary>
-        /// <param name="media"></param>
-        private static void logSectionObservationMediaDebugInfo(List<ObservationMediaDto> media)
-        {
-            #region implementation
-            // DIAGNOSTIC: Log what was built
-            if (media != null && media.Any())
-            {
-                Debug.WriteLine($"=== buildObservationMediaAsync Results ===");
-                Debug.WriteLine($"Total ObservationMedia records: {media.Count}");
-                foreach (var om in media)
-                {
-                    Debug.WriteLine($"\nObservationMedia ID={om.ObservationMediaID}");
-                    Debug.WriteLine($"  MediaID: {om.MediaID}");
-                    Debug.WriteLine($"  FileName: {om.FileName}");
-                }
-                Debug.WriteLine($"=== End buildObservationMediaAsync ===");
-            }
             #endregion
         }
 

@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Web;
-using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Diagnostics;
 
 namespace MedRecPro.Helpers
 {
@@ -71,9 +71,9 @@ namespace MedRecPro.Helpers
                     PerformanceHelper.SetCache(key, errorMsg, 0.16);
                 }
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                Debug.Write("AddErrorMsg: " + e.Message);
+                // Error recording must never replace the caller's original failure with another logging failure.
             }
 
             #endregion

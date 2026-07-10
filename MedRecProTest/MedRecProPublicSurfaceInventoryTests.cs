@@ -300,6 +300,7 @@ namespace MedRecPro.Service.Test
             ["MedRecProApplicationServiceExtensions.AddMedRecProUserServices"] = nameof(ServiceRegistrationTests),
             ["MedRecProAuthenticationExtensions.AddMedRecProAuth"] = nameof(ServiceRegistrationTests),
             ["MedRecProAuthenticationExtensions.AddMedRecProSession"] = nameof(ServiceRegistrationTests),
+            ["MedRecProExceptionHandler.TryHandleAsync"] = nameof(MedRecProExceptionHandlerTests),
             ["MedRecProMiddlewareExtensions.UseMedRecProCors"] = nameof(ServiceRegistrationTests),
             ["MedRecProMiddlewareExtensions.UseMedRecProExceptionHandling"] = nameof(ServiceRegistrationTests),
             ["MedRecProMiddlewareExtensions.UseMedRecProSplStaticFiles"] = nameof(ServiceRegistrationTests),

@@ -420,8 +420,7 @@ For detailed examples of request/response formats, refer to the XML comments wit
                 }
                 else
                 {
-                    // Log a warning if the XML file is missing, as summaries won't appear
-                    Console.WriteLine($"Warning: XML documentation file not found for DataModels: {dataModelsXmlPath}");
+                    // The built application records missing XML documentation through ILogger startup diagnostics.
                 }
 
                 var apiXmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
@@ -433,7 +432,7 @@ For detailed examples of request/response formats, refer to the XML comments wit
                 }
                 else
                 {
-                    Console.WriteLine($"Warning: XML documentation file not found for API: {apiXmlPath}");
+                    // The built application records missing XML documentation through ILogger startup diagnostics.
                 }
             });
 

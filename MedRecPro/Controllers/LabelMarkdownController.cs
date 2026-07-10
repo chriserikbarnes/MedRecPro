@@ -171,41 +171,32 @@ namespace MedRecPro.Api.Controllers
         {
             #region implementation
 
-            try
+            if (string.IsNullOrWhiteSpace(sectionCode))
             {
-                if (string.IsNullOrWhiteSpace(sectionCode))
-                {
-                    _logger.LogInformation("Getting all markdown sections for DocumentGUID: {DocumentGuid}", documentGuid);
-                }
-                else
-                {
-                    _logger.LogInformation("Getting markdown section {SectionCode} for DocumentGUID: {DocumentGuid}", sectionCode, documentGuid);
-                }
-
-                var results = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
-                    _dbContext,
-                    documentGuid,
-                    _pkEncryptionSecret,
-                    _logger,
-                    sectionCode);
-
-                // Return 404 if no sections found.
-                if (results == null || results.Count == 0)
-                {
-                    var message = string.IsNullOrWhiteSpace(sectionCode)
-                        ? $"No sections found for DocumentGUID {documentGuid}."
-                        : $"No sections found for DocumentGUID {documentGuid} with SectionCode {sectionCode}.";
-                    return NotFound(message);
-                }
-
-                return Ok(results);
+                _logger.LogInformation("Getting all markdown sections for DocumentGUID: {DocumentGuid}", documentGuid);
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex, "Error retrieving markdown sections for DocumentGUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving markdown sections.");
+                _logger.LogInformation("Getting markdown section {SectionCode} for DocumentGUID: {DocumentGuid}", sectionCode, documentGuid);
             }
+
+            var results = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
+                _dbContext,
+                documentGuid,
+                _pkEncryptionSecret,
+                _logger,
+                sectionCode);
+
+            // Return 404 if no sections found.
+            if (results == null || results.Count == 0)
+            {
+                var message = string.IsNullOrWhiteSpace(sectionCode)
+                    ? $"No sections found for DocumentGUID {documentGuid}."
+                    : $"No sections found for DocumentGUID {documentGuid} with SectionCode {sectionCode}.";
+                return NotFound(message);
+            }
+
+            return Ok(results);
 
             #endregion
         }
@@ -284,30 +275,21 @@ namespace MedRecPro.Api.Controllers
         {
             #region implementation
 
-            try
+            _logger.LogInformation("Generating markdown export for DocumentGUID: {DocumentGuid}", documentGuid);
+
+            var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
+                _dbContext,
+                documentGuid,
+                _pkEncryptionSecret,
+                _logger);
+
+            // Return 404 if no content generated (empty document).
+            if (result == null || result.SectionCount == 0)
             {
-                _logger.LogInformation("Generating markdown export for DocumentGUID: {DocumentGuid}", documentGuid);
-
-                var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
-                    _dbContext,
-                    documentGuid,
-                    _pkEncryptionSecret,
-                    _logger);
-
-                // Return 404 if no content generated (empty document).
-                if (result == null || result.SectionCount == 0)
-                {
-                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
-                }
-
-                return Ok(result);
+                return NotFound($"No sections found for DocumentGUID {documentGuid}.");
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating markdown export for DocumentGUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while generating markdown export.");
-            }
+
+            return Ok(result);
 
             #endregion
         }
@@ -366,47 +348,38 @@ namespace MedRecPro.Api.Controllers
         {
             #region implementation
 
-            try
+            _logger.LogInformation("Downloading markdown for DocumentGUID: {DocumentGuid}", documentGuid);
+
+            var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
+                _dbContext,
+                documentGuid,
+                _pkEncryptionSecret,
+                _logger);
+
+            // Return 404 if no content generated (empty document).
+            if (result == null || result.SectionCount == 0)
             {
-                _logger.LogInformation("Downloading markdown for DocumentGUID: {DocumentGuid}", documentGuid);
-
-                var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
-                    _dbContext,
-                    documentGuid,
-                    _pkEncryptionSecret,
-                    _logger);
-
-                // Return 404 if no content generated (empty document).
-                if (result == null || result.SectionCount == 0)
-                {
-                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
-                }
-
-                // Generate safe filename from document title.
-                var safeTitle = result.DocumentTitle?.Replace(" ", "-")
-                    .Replace(",", "")
-                    .Replace("/", "-")
-                    .Replace("\\", "-")
-                    ?? "drug-label";
-
-                // Truncate if too long.
-                if (safeTitle.Length > 50)
-                {
-                    safeTitle = safeTitle.Substring(0, 50);
-                }
-
-                var fileName = $"{safeTitle}-label.md";
-
-                // Return as file download.
-                var bytes = System.Text.Encoding.UTF8.GetBytes(result.FullMarkdown ?? "");
-                return File(bytes, "text/markdown", fileName);
+                return NotFound($"No sections found for DocumentGUID {documentGuid}.");
             }
-            catch (Exception ex)
+
+            // Generate safe filename from document title.
+            var safeTitle = result.DocumentTitle?.Replace(" ", "-")
+                .Replace(",", "")
+                .Replace("/", "-")
+                .Replace("\\", "-")
+                ?? "drug-label";
+
+            // Truncate if too long.
+            if (safeTitle.Length > 50)
             {
-                _logger.LogError(ex, "Error downloading markdown for DocumentGUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while downloading markdown.");
+                safeTitle = safeTitle.Substring(0, 50);
             }
+
+            var fileName = $"{safeTitle}-label.md";
+
+            // Return as file download.
+            var bytes = System.Text.Encoding.UTF8.GetBytes(result.FullMarkdown ?? "");
+            return File(bytes, "text/markdown", fileName);
 
             #endregion
         }
@@ -486,32 +459,23 @@ namespace MedRecPro.Api.Controllers
         {
             #region implementation
 
-            try
+            _logger.LogInformation("Generating clean display markdown for DocumentGUID: {DocumentGuid}", documentGuid);
+
+            var cleanMarkdown = await DtoLabelAccess.GenerateCleanLabelMarkdownAsync(
+                _dbContext,
+                documentGuid,
+                _claudeApiService,
+                _pkEncryptionSecret,
+                _logger);
+
+            // Return 404 if no content generated (empty document).
+            if (string.IsNullOrWhiteSpace(cleanMarkdown))
             {
-                _logger.LogInformation("Generating clean display markdown for DocumentGUID: {DocumentGuid}", documentGuid);
-
-                var cleanMarkdown = await DtoLabelAccess.GenerateCleanLabelMarkdownAsync(
-                    _dbContext,
-                    documentGuid,
-                    _claudeApiService,
-                    _pkEncryptionSecret,
-                    _logger);
-
-                // Return 404 if no content generated (empty document).
-                if (string.IsNullOrWhiteSpace(cleanMarkdown))
-                {
-                    return NotFound($"No sections found for DocumentGUID {documentGuid}.");
-                }
-
-                // Return as text/markdown content.
-                return Content(cleanMarkdown, "text/markdown", System.Text.Encoding.UTF8);
+                return NotFound($"No sections found for DocumentGUID {documentGuid}.");
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating clean markdown for DocumentGUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while generating clean markdown.");
-            }
+
+            // Return as text/markdown content.
+            return Content(cleanMarkdown, "text/markdown", System.Text.Encoding.UTF8);
 
             #endregion
         }

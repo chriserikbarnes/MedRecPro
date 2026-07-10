@@ -26,7 +26,8 @@ namespace MedRecPro.Configuration
         /// Registers development or production exception handling middleware.
         /// </summary>
         /// <remarks>
-        /// The environment branch preserves the previous developer exception page, exception handler path, and HSTS behavior.
+        /// Development retains the developer exception page. Non-development environments use the registered
+        /// route-independent exception handler so API failures do not depend on a controller or view route.
         /// </remarks>
         /// <example>
         /// <code>
@@ -36,6 +37,7 @@ namespace MedRecPro.Configuration
         /// <param name="app">The web application pipeline to configure.</param>
         /// <returns>The same web application for chaining.</returns>
         /// <seealso cref="DeveloperExceptionPageExtensions"/>
+        /// <seealso cref="ExceptionHandlerExtensions"/>
         /// <seealso cref="HstsBuilderExtensions"/>
         public static WebApplication UseMedRecProExceptionHandling(this WebApplication app)
         {
@@ -47,7 +49,9 @@ namespace MedRecPro.Configuration
             }
             else
             {
-                app.UseExceptionHandler("/Error"); // You'll need an Error handling page/endpoint
+                // MedRecProExceptionHandler is registered through AddMedRecProApiControllers.
+                // The pathless overload avoids routing errors through a nonexistent /Error endpoint.
+                app.UseExceptionHandler();
                 app.UseHsts();
             }
 
