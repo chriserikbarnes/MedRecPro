@@ -28,14 +28,7 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            return new TableParserRouter(new List<ITableParser>
-            {
-                new PkTableParser(),
-                new SimpleArmTableParser(),
-                new MultilevelAeTableParser(),
-                new AeWithSocTableParser(),
-                new EfficacyMultilevelTableParser(),
-            });
+            return new TableParserRouter(TableParserTestHelper.CreateProductionParsers());
 
             #endregion
         }

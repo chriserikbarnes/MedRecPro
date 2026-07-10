@@ -18,6 +18,9 @@
 		<DefaultItemExcludes>$(DefaultItemExcludes);bin/**;.codex-build/**</DefaultItemExcludes>
 	</PropertyGroup>
 	<ItemGroup>
+		<InternalsVisibleTo Include="MedRecProTest" />
+	</ItemGroup>
+	<ItemGroup>
 		<PackageReference Include="AspNet.Security.OAuth.Apple" Version="8.3.0" />
 		<PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.4.0" />
 		<PackageReference Include="Azure.Identity" Version="1.17.1" />

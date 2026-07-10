@@ -2144,7 +2144,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public void Router_CategorizesByParentSectionCode()
         {
-            var parsers = createAllParsers();
+            var parsers = TableParserTestHelper.CreateProductionParsers();
             var router = new TableParserRouter(parsers);
 
             var pkTable = createTestTable(
@@ -2165,7 +2165,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public void Router_SkipsPatientInfoTables()
         {
-            var parsers = createAllParsers();
+            var parsers = TableParserTestHelper.CreateProductionParsers();
             var router = new TableParserRouter(parsers);
 
             var table = createTestTable(
@@ -2185,7 +2185,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public void Router_SkipsSingleColumnTables()
         {
-            var parsers = createAllParsers();
+            var parsers = TableParserTestHelper.CreateProductionParsers();
             var router = new TableParserRouter(parsers);
 
             var table = createTestTable(
@@ -2204,7 +2204,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public void Router_SkipsNdcCaptionTables()
         {
-            var parsers = createAllParsers();
+            var parsers = TableParserTestHelper.CreateProductionParsers();
             var router = new TableParserRouter(parsers);
 
             var table = createTestTable(
@@ -2223,7 +2223,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public void Router_SelectsMultilevelAeForTwoRowHeader()
         {
-            var parsers = createAllParsers();
+            var parsers = TableParserTestHelper.CreateProductionParsers();
             var router = new TableParserRouter(parsers);
 
             var table = createMultilevelTable(
@@ -2243,7 +2243,7 @@ namespace MedRecPro.Service.Test
         [TestMethod]
         public void Router_FallsBackToSectionTitle()
         {
-            var parsers = createAllParsers();
+            var parsers = TableParserTestHelper.CreateProductionParsers();
             var router = new TableParserRouter(parsers);
 
             var table = createTestTable(
@@ -2256,22 +2256,6 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(TableCategory.PK, category);
         }
 
-
-        /**************************************************************/
-        /// <summary>
-        /// Creates one instance of every parser for router tests.
-        /// </summary>
-        private static List<ITableParser> createAllParsers()
-        {
-            return new List<ITableParser>
-            {
-                new PkTableParser(),
-                new SimpleArmTableParser(),
-                new MultilevelAeTableParser(),
-                new AeWithSocTableParser(),
-                new EfficacyMultilevelTableParser()
-            };
-        }
 
         #endregion TableParserRouter Tests
 

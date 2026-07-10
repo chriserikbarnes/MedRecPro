@@ -47,14 +47,7 @@ namespace MedRecPro.Service.Test
             var mockLogger = new Mock<ILogger<TableParsingOrchestrator>>();
 
             // Create real parsers and router for integration testing
-            var parsers = new List<ITableParser>
-            {
-                new PkTableParser(),
-                new SimpleArmTableParser(),
-                new MultilevelAeTableParser(),
-                new AeWithSocTableParser(),
-                new EfficacyMultilevelTableParser()
-            };
+            var parsers = TableParserTestHelper.CreateProductionParsers();
             var router = new TableParserRouter(parsers);
 
             // DbContext is null — these methods don't use it

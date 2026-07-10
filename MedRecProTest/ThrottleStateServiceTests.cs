@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Reflection;
 
 namespace MedRecPro.Service.Test
 {
@@ -10,8 +9,8 @@ namespace MedRecPro.Service.Test
     /// Tests public throttle-state description output for each throttle level.
     /// </summary>
     /// <remarks>
-    /// The state update method is internal to the production assembly, so these tests
-    /// set private state through reflection and assert the public description contract.
+    /// The test project uses the service's existing internal state-update boundary through
+    /// an explicit friend-assembly relationship, then asserts the public description contract.
     /// </remarks>
     /// <seealso cref="ThrottleStateService"/>
     /// <seealso cref="ThrottleLevel"/>
@@ -42,7 +41,7 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Asserts the public description for a reflected state.
+        /// Asserts the public description after the production state-update boundary applies metrics.
         /// </summary>
         /// <param name="sut">Service under test.</param>
         /// <param name="level">Throttle level to set.</param>
@@ -58,32 +57,14 @@ namespace MedRecPro.Service.Test
             string expectedText)
         {
             #region implementation
-            setField(sut, "_currentLevel", level);
-            setField(sut, "_percentUsed", percentUsed);
-            setField(sut, "_remainingVCoreSeconds", remaining);
+            sut.UpdateState(percentUsed, remaining);
 
             var description = sut.GetStateDescription();
 
+            Assert.AreEqual(level, sut.CurrentLevel);
             StringAssert.Contains(description, level.ToString());
             StringAssert.Contains(description, $"{percentUsed:F1}%");
             StringAssert.Contains(description, expectedText);
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Sets a private throttle-state field for public contract testing.
-        /// </summary>
-        /// <param name="target">Target service.</param>
-        /// <param name="fieldName">Private field name.</param>
-        /// <param name="value">Value to set.</param>
-        /// <seealso cref="FieldInfo"/>
-        private static void setField(object target, string fieldName, object value)
-        {
-            #region implementation
-            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(field, $"Expected private field {fieldName} to exist.");
-            field.SetValue(target, value);
             #endregion
         }
 
