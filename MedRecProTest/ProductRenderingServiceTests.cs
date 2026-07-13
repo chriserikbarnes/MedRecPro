@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.TestTools.UnitTesting.Logging;
+using MedRecProTest.TestInfrastructure;
 using Moq;
 using static MedRecPro.Models.Label;
 
@@ -59,8 +60,8 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Gets the configuration with user secrets for testing.
-        /// Lazy-loads configuration on first access to avoid overhead.
+        /// Gets deterministic in-memory configuration for testing.
+        /// Lazy-loads the shared non-production configuration on first access to avoid overhead.
         /// </summary>
         private static IConfiguration Configuration
         {
@@ -68,9 +69,7 @@ namespace MedRecPro.Service.Test
             {
                 if (_configuration == null)
                 {
-                    _configuration = new ConfigurationBuilder()
-                        .AddUserSecrets<ProductRenderingServiceTests>()
-                        .Build();
+                    _configuration = MedRecProTestConfiguration.Create();
                 }
                 return _configuration;
             }

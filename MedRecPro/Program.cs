@@ -82,3 +82,13 @@ app.MapGet("/", () => Results.Ok(new
 #endif
 
 app.Run();
+
+/**************************************************************/
+/// <summary>
+/// Exposes the top-level application entry point to the integration-test host.
+/// </summary>
+/// <remarks>
+/// This partial declaration does not alter startup, middleware, route mappings, or the existing
+/// Debug/Release compiler directives; it only makes <c>WebApplicationFactory&lt;Program&gt;</c> possible.
+/// </remarks>
+public partial class Program { }

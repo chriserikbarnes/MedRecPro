@@ -2,6 +2,7 @@ using MedRecPro.Api.Controllers;
 using MedRecPro.Configuration;
 using MedRecPro.Controllers;
 using MedRecPro.Filters;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.Routing;
@@ -317,6 +318,47 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Verifies the reflected Label metadata inventory retains contract-critical binding, authorization, filter, and response details.
+        /// </summary>
+        /// <remarks>
+        /// The complete generated OpenAPI snapshots own the 51-operation wire contract. This companion reflection inventory
+        /// protects metadata that Swagger does not necessarily export, including database operation filters and role requirements.
+        /// </remarks>
+        /// <seealso cref="LabelRoutes_AllPublicActions_MatchGoldenMasterInventory"/>
+        /// <seealso cref="MedRecProTest.Contracts.LabelOpenApiContractTests"/>
+        [TestMethod]
+        public void LabelRoutes_MetadataInventory_CapturesBindingDefaultsAuthorizationFiltersAndResponses()
+        {
+            #region implementation
+
+            var inventory = getLabelActionMetadataInventory();
+
+            Assert.AreEqual(51, inventory.Length, "Every public Label action must participate in metadata inventory coverage.");
+
+            var completeLabels = inventory.Single(value => value.StartsWith(
+                "LabelDocumentController.GetCompleteLabels ::", StringComparison.Ordinal));
+            StringAssert.Contains(completeLabels, "pageNumber:Int32:optional=True:default=1:binding=inferred");
+            StringAssert.Contains(completeLabels, "pageSize:Int32:optional=True:default=10:binding=inferred");
+
+            var markdownDownload = inventory.Single(value => value.StartsWith(
+                "LabelMarkdownController.DownloadLabelMarkdown ::", StringComparison.Ordinal));
+            StringAssert.Contains(markdownDownload, "documentGuid:Guid:optional=False:default=<none>:binding=FromRouteAttribute");
+            StringAssert.Contains(markdownDownload, "DatabaseLimitAttribute");
+            StringAssert.Contains(markdownDownload, "DatabaseIntensiveAttribute");
+            StringAssert.Contains(markdownDownload, "text/markdown");
+            StringAssert.Contains(markdownDownload, "200:FileContentResult");
+
+            var queueComparison = inventory.Single(value => value.StartsWith(
+                "LabelComparisonController.QueueDocumentComparisonAnalysis ::", StringComparison.Ordinal));
+            StringAssert.Contains(queueComparison, "AuthorizeAttribute");
+            StringAssert.Contains(queueComparison, "RequireUserRoleAttribute");
+            StringAssert.Contains(queueComparison, "202:ComparisonOperationStatus");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Builds one golden-master route inventory row.
         /// </summary>
         /// <param name="verb">HTTP verb.</param>
@@ -328,6 +370,79 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             return $"{verb} {LabelRoutePrefix}/{template} :: {signature}";
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Builds one deterministic inventory row containing reflected public-contract metadata for a Label action.
+        /// </summary>
+        /// <returns>All Label action metadata rows sorted by declaring type and method name.</returns>
+        /// <remarks>
+        /// This retains reflection only for public metadata inspection. It never invokes or mutates production members.
+        /// </remarks>
+        /// <seealso cref="getLabelActionMethods"/>
+        private static string[] getLabelActionMetadataInventory()
+        {
+            #region implementation
+
+            return getLabelActionMethods()
+                .Select(method =>
+                {
+                    var parameters = string.Join(", ", method.GetParameters().Select(formatParameterMetadata));
+                    var attributes = method.GetCustomAttributes(inherit: true).ToArray();
+                    var authorization = string.Join(", ", attributes
+                        .Where(attribute => attribute is IAuthorizeData ||
+                                            attribute.GetType().Name == "AllowAnonymousAttribute")
+                        .Select(attribute => attribute.GetType().Name)
+                        .OrderBy(name => name, StringComparer.Ordinal));
+                    var filters = string.Join(", ", attributes
+                        .Where(attribute => attribute.GetType().Name.Contains("Database", StringComparison.Ordinal) ||
+                                            attribute.GetType().Name.Contains("Feature", StringComparison.Ordinal) ||
+                                            attribute.GetType().Name.Contains("RequireUserRole", StringComparison.Ordinal))
+                        .Select(attribute => attribute.GetType().Name)
+                        .OrderBy(name => name, StringComparer.Ordinal));
+                    var produces = string.Join(", ", attributes
+                        .OfType<ProducesAttribute>()
+                        .SelectMany(attribute => attribute.ContentTypes.Select(contentType => contentType.ToString()))
+                        .OrderBy(contentType => contentType, StringComparer.Ordinal));
+                    var responses = string.Join(", ", attributes
+                        .OfType<ProducesResponseTypeAttribute>()
+                        .Select(attribute => $"{attribute.StatusCode}:{attribute.Type?.Name ?? "<none>"}")
+                        .OrderBy(value => value, StringComparer.Ordinal));
+
+                    return $"{method.DeclaringType!.Name}.{method.Name} :: " +
+                           $"parameters=[{parameters}] | authorization=[{authorization}] | filters=[{filters}] | " +
+                           $"produces=[{produces}] | responses=[{responses}]";
+                })
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Formats one action parameter's public binding and default-value metadata.
+        /// </summary>
+        /// <param name="parameter">Reflected action parameter to describe.</param>
+        /// <returns>A stable inventory fragment for the action parameter.</returns>
+        /// <seealso cref="getLabelActionMetadataInventory"/>
+        private static string formatParameterMetadata(ParameterInfo parameter)
+        {
+            #region implementation
+
+            var binding = parameter.GetCustomAttributes(inherit: true)
+                .Select(attribute => attribute.GetType().Name)
+                .FirstOrDefault(name => name.StartsWith("From", StringComparison.Ordinal) &&
+                                        name.EndsWith("Attribute", StringComparison.Ordinal))
+                ?? "inferred";
+            var defaultValue = parameter.HasDefaultValue
+                ? Convert.ToString(parameter.DefaultValue, System.Globalization.CultureInfo.InvariantCulture)
+                : "<none>";
+
+            return $"{parameter.Name}:{parameter.ParameterType.Name}:optional={parameter.IsOptional}:default={defaultValue}:binding={binding}";
+
             #endregion
         }
 

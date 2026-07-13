@@ -5,6 +5,7 @@ using MedRecPro.Service.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using MedRecProTest.TestInfrastructure;
 using System.Globalization;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -54,7 +55,7 @@ namespace MedRecPro.Service.Test
         /// <seealso cref="LoadFixtureXml"/>
         public const string FixtureXmlFileName = "53566d4f-ff40-4815-b922-3416cde56fb1.xml";
 
-        private const string TestSecret = "SplRenderingFixture-Fixed-Secret";
+        private const string TestSecret = MedRecProTestConfiguration.PkSecret;
 
         #endregion
 
@@ -77,18 +78,12 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Creates deterministic in-memory configuration for fixture tests.
         /// </summary>
-        /// <returns>Configuration containing a fixed encryption secret and disabled debug flag.</returns>
+        /// <returns>Configuration containing all fixed non-production test values.</returns>
         /// <seealso cref="IConfiguration"/>
         public static IConfiguration CreateConfiguration()
         {
             #region implementation
-            return new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Security:DB:PKSecret"] = TestSecret,
-                    ["FeatureFlags:UseEnhancedDebugging"] = "false"
-                })
-                .Build();
+            return MedRecProTestConfiguration.Create();
             #endregion
         }
 
