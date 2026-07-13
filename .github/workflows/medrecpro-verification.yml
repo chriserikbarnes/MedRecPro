@@ -1,0 +1,33 @@
+name: MedRecPro Verification
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  medrecpro-verification:
+    name: Debug, Release, contract, and full suite
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore .\MedRecPro.sln
+
+      - name: Run verification gates
+        shell: pwsh
+        run: .\scripts\Invoke-MedRecProVerification.ps1 -Gate All -SkipRestore

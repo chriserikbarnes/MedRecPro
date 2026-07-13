@@ -579,20 +579,48 @@ namespace MedRecPro.Helpers
         {
             #region implementation
 
-            using (var timeoutCancellationTokenSource = new CancellationTokenSource())
-            {
+            return await timeoutAfter(task, timeout, TimeProvider.System);
 
-                var completedTask = await Task.WhenAny(task, Task.Delay(timeout, timeoutCancellationTokenSource.Token));
-                if (completedTask == task)
-                {
-                    timeoutCancellationTokenSource.Cancel();
-                    return await task;  // Very important in order to propagate exceptions
-                }
-                else
-                {
-                    throw new TimeoutException("The operation has timed out.");
-                }
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies a timeout using a caller-supplied clock.
+        /// </summary>
+        /// <remarks>
+        /// This internal friend-assembly seam keeps the public timeout API unchanged while allowing
+        /// deterministic timeout tests to advance a <see cref="TimeProvider"/> rather than wait on wall-clock time.
+        /// Production callers use <see cref="TimeoutAfter{TResult}(Task{TResult}, TimeSpan)"/>, which supplies
+        /// <see cref="TimeProvider.System"/>.
+        /// </remarks>
+        /// <typeparam name="TResult">The result type produced by the operation.</typeparam>
+        /// <param name="task">Operation to await.</param>
+        /// <param name="timeout">Maximum amount of time the operation may take.</param>
+        /// <param name="timeProvider">Clock used to schedule the timeout.</param>
+        /// <returns>The operation result when it completes before the timeout.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="task"/> or <paramref name="timeProvider"/> is null.</exception>
+        /// <exception cref="TimeoutException">Thrown when the timeout completes first.</exception>
+        /// <seealso cref="TimeoutAfter{TResult}(Task{TResult}, TimeSpan)"/>
+        internal static async Task<TResult> timeoutAfter<TResult>(Task<TResult> task, TimeSpan timeout, TimeProvider timeProvider)
+        {
+            #region implementation
+
+            ArgumentNullException.ThrowIfNull(task);
+            ArgumentNullException.ThrowIfNull(timeProvider);
+
+            using var timeoutCancellationTokenSource = new CancellationTokenSource();
+            var completedTask = await Task.WhenAny(
+                task,
+                Task.Delay(timeout, timeProvider, timeoutCancellationTokenSource.Token));
+
+            if (completedTask == task)
+            {
+                timeoutCancellationTokenSource.Cancel();
+                return await task;
             }
+
+            throw new TimeoutException("The operation has timed out.");
 
             #endregion
         }

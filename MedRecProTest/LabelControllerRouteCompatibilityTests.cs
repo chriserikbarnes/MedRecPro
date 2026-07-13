@@ -25,6 +25,7 @@ namespace MedRecPro.Service.Test
     /// <seealso cref="ApiControllerBase"/>
     /// <seealso cref="LabelFeatureControllerModelConvention"/>
     [TestClass]
+    [TestCategory("Contract")]
     public class LabelControllerRouteCompatibilityTests
     {
         #region implementation

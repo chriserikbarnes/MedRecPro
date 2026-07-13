@@ -2,6 +2,7 @@ using MedRecPro.Helpers;
 using MedRecPro.Service.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using System.Drawing;
@@ -20,6 +21,7 @@ namespace MedRecPro.Service.Test
     /// </remarks>
     /// <seealso cref="Util"/>
     [TestClass]
+    [TestCategory("Unit")]
     public class UtilTests
     {
         #region implementation
@@ -311,7 +313,7 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Verifies wait helpers complete and time out on deterministic conditions.
+        /// Verifies immediate wait helpers and timeout behavior without wall-clock delays.
         /// </summary>
         /// <seealso cref="Util.WaitWhile"/>
         /// <seealso cref="Util.WaitUntil"/>
@@ -324,10 +326,17 @@ namespace MedRecPro.Service.Test
             await Util.WaitUntil(() => true, frequency: 1, timeout: 50);
             Assert.AreEqual(7, await Task.FromResult(7).TimeoutAfter(TimeSpan.FromMilliseconds(50)));
 
+            var timeProvider = new FakeTimeProvider();
+            var pendingOperation = new TaskCompletionSource<int>();
+            var timeout = Util.timeoutAfter(
+                pendingOperation.Task,
+                TimeSpan.FromSeconds(30),
+                timeProvider);
+
+            timeProvider.Advance(TimeSpan.FromSeconds(30));
+
             await Assert.ThrowsExceptionAsync<TimeoutException>(
-                () => Util.WaitUntil(() => false, frequency: 1, timeout: 10));
-            await Assert.ThrowsExceptionAsync<TimeoutException>(
-                () => Task.Delay(50).ContinueWith(_ => 1).TimeoutAfter(TimeSpan.FromMilliseconds(1)));
+                () => timeout);
             #endregion
         }
 
