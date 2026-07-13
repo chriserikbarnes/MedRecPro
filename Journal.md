@@ -5903,3 +5903,14 @@ Completed every phase of [the logging and error handling remediation plan](Plans
 **Verification.** `dotnet build .\\MedRecPro.sln --no-restore --verbosity minimal` and the isolated Release test-project build both passed with 0 warnings and 0 errors. The focused Debug error/logging/contract slice passed 23/23; the isolated Release error/OpenAPI/route slice passed 14/14. The full Debug suite passed 2,632/2,633 tests with 0 failures and the one reviewed pre-existing `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip (6 minutes 23 seconds). Static guards found 0 direct controller 500 returns, 0 non-`ProblemDetails` 500 metadata entries, and 0 interpolated production logger calls. `git diff --check` passed; its only output was baseline LF-to-CRLF normalization warnings.
 
 ---
+
+### 2026-07-13 6:21 PM EST — DtoLabelAccess Decomposition Phases 0-2
+Completed Phases 0-2 of [the DtoLabelAccess decomposition plan](Plans/%28pending%29%20MedRecPro%20DtoLabelAccess%20Decomposition%20Remediation%20Plan.md), marking those phases complete in the ignored handoff while leaving Phases 3-6 pending.
+
+**Contract and policy baselines.** Added a full 58-overload `DtoLabelAccess` signature snapshot, a 45-entry executable first-party caller inventory, relational command counting, decoded legacy cache-key fixtures, managed TTL coverage (one, five, and ten hours), and captured-token/null/invalid encrypted-ID checks. [LegacyDtoLabelCacheKeyBuilder.cs](MedRecPro/Service/Label/Common/LegacyDtoLabelCacheKeyBuilder.cs) and [LabelQueryCachePolicy.cs](MedRecPro/Service/Label/Common/LabelQueryCachePolicy.cs) use the injectable cache seam while preserving legacy key text.
+
+**AE ownership reversal.** Converted [AeDashboardDtoMapper.cs](MedRecPro/Features/AeDashboard/Mapping/AeDashboardDtoMapper.cs) into an instance mapper with injected encrypted-ID policy. Moved AE query, favorite, detail, and correlation execution into injected `AeDashboardDataAccess`; the five controller-facing services now delegate there rather than to `DtoLabelAccess`. [DtoLabelAccess-AeDashboardCompatibility.cs](MedRecPro/DataAccess/DtoLabelAccess-AeDashboardCompatibility.cs) is a forwarding-only static boundary with the only short-lived legacy construction path. The real host validates the explicit DI registrations.
+
+**Verification.** Debug build passed with 0 warnings/errors; Release build passed with only the existing `CS0168` warning in `SplParseContextExtensions.cs`. Focused DtoLabelAccess/AE/controller tests passed 251/251; signature/public-surface/architecture/policy/query guards passed 11/11; Debug and isolated Release route/OpenAPI/HTTP contracts each passed 15/15. The full suite passed 2,642/2,643 with 0 failures and the existing `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip in 6 minutes 46 seconds. `git diff --check` passed (LF-to-CRLF notices only).
+
+---

@@ -24,6 +24,7 @@ public class ReflectionUsageArchitectureTests
         "AdverseEventControllerTests.cs",
         "ApplicationDbContextFunctionTests.cs",
         "DtoLabelAccessTestHelper.cs",
+        "DtoLabelAccessSignatureCompatibilityTests.cs",
         "LabelControllerRouteCompatibilityTests.cs",
         "MedRecProPublicSurfaceInventoryTests.cs",
         "ParsingServicesPublicSurfaceInventoryTests.cs"

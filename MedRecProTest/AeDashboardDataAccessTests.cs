@@ -2,6 +2,7 @@ using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Models;
 using MedRecPro.Service;
+using MedRecPro.Service.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -62,7 +63,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var cacheKey = AeDashboardCachePolicy.Shared.GenerateKey(
+            var cacheKey = new AeDashboardCachePolicy(new PerformanceAppCache()).GenerateKey(
                 nameof(DtoLabelAccess.GetAeProductDetailDataAsync),
                 "document guid",
                 1,
@@ -88,7 +89,7 @@ namespace MedRecProTest
             const string capturedPreRefactorId = "F-AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyBLjjQW1p8HoYG7I6eDRbBb";
             var logger = DtoLabelAccessTestHelper.CreateTestLogger();
 
-            var value = AeDashboardEncryptedIdMapper.Shared.DecryptNullableInt(
+            var value = new AeDashboardEncryptedIdMapper().DecryptNullableInt(
                 capturedPreRefactorId,
                 PkSecret,
                 logger,

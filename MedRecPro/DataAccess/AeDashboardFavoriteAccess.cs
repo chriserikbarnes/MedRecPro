@@ -21,7 +21,7 @@ namespace MedRecPro.DataAccess
     /// </remarks>
     /// <seealso cref="DtoLabelAccess"/>
     /// <seealso cref="AspNetUserFavorite"/>
-    public static partial class DtoLabelAccess
+    public sealed partial class AeDashboardDataAccess
     {
         #region AE Dashboard Favorite Public Methods
 
@@ -48,7 +48,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="SetAeProductFavoriteAsync(ApplicationDbContext, long, Guid, bool, ILogger)"/>
         /// <seealso cref="AspNetUserFavorite"/>
-        public static async Task<List<AeDrugSummaryDto>> GetAeFavoriteDrugSummariesAsync(
+        internal async Task<List<AeDrugSummaryDto>> GetAeFavoriteDrugSummariesAsync(
             ApplicationDbContext db,
             long userId,
             string pkSecret,
@@ -74,7 +74,7 @@ namespace MedRecPro.DataAccess
 
             // Page favorite rows, not product summaries, because the user's
             // favorite timeline is the source order.
-            query = applyPagination(query, page, size);
+            query = applyFavoritePagination(query, page, size);
 
             // Materialize favorite rows before loading product summary DTOs.
             var favorites = await query.ToListAsync();
@@ -137,7 +137,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="GetAeFavoriteDrugSummariesAsync(ApplicationDbContext, long, string, ILogger, int?, int?)"/>
         /// <seealso cref="AspNetUserFavorite"/>
-        public static async Task<bool> SetAeProductFavoriteAsync(
+        internal async Task<bool> SetAeProductFavoriteAsync(
             ApplicationDbContext db,
             long userId,
             Guid documentGuid,
@@ -242,6 +242,27 @@ namespace MedRecPro.DataAccess
             return query
                 .OrderByDescending(favorite => favorite.CreatedAt)
                 .ThenBy(favorite => favorite.DocumentGUID);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Applies legacy optional paging to a user-scoped favorite query.
+        /// </summary>
+        /// <typeparam name="T">The favorite query element type.</typeparam>
+        /// <param name="query">The ordered favorite query.</param>
+        /// <param name="page">Optional 1-based page number.</param>
+        /// <param name="size">Optional page size.</param>
+        /// <returns>The query with paging applied only for positive values.</returns>
+        /// <seealso cref="applyFavoriteOrdering"/>
+        private static IQueryable<T> applyFavoritePagination<T>(IQueryable<T> query, int? page, int? size)
+        {
+            #region implementation
+
+            return page.HasValue && size.HasValue && page.Value > 0 && size.Value > 0
+                ? query.Skip((page.Value - 1) * size.Value).Take(size.Value)
+                : query;
 
             #endregion
         }

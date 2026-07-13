@@ -3,6 +3,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery.Common;
 
 namespace MedRecPro.Service
 {
@@ -545,28 +546,7 @@ namespace MedRecPro.Service
     public sealed class AeDashboardCachePolicy : IAeDashboardCachePolicy
     {
         private readonly IAppCache _appCache;
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets a reusable shared cache policy for static compatibility paths.
-        /// </summary>
-        public static AeDashboardCachePolicy Shared { get; } = new(new PerformanceAppCache());
-
-        /**************************************************************/
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AeDashboardCachePolicy"/> class.
-        /// </summary>
-        /// <remarks>
-        /// This constructor preserves compatibility for static callers while
-        /// new code should use the DI constructor that accepts <see cref="IAppCache"/>.
-        /// </remarks>
-        /// <seealso cref="IAppCache"/>
-        public AeDashboardCachePolicy()
-            : this(new PerformanceAppCache())
-        {
-            #region implementation
-            #endregion
-        }
+        private readonly LegacyDtoLabelCacheKeyBuilder _keyBuilder = new();
 
         /**************************************************************/
         /// <summary>
@@ -589,10 +569,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            searchTerm = searchTerm?.Replace(" ", "_");
-            var keyParts = $"{nameof(DtoLabelAccess)}.{viewName}_{searchTerm ?? "all"}_{page}_{size}";
-
-            return keyParts.Base64Encode();
+            return _keyBuilder.BuildQueryKey(viewName, searchTerm, page, size);
 
             #endregion
         }
@@ -631,12 +608,6 @@ namespace MedRecPro.Service
     /// <seealso cref="IAeDashboardEncryptedIdMapper"/>
     public sealed class AeDashboardEncryptedIdMapper : IAeDashboardEncryptedIdMapper
     {
-        /**************************************************************/
-        /// <summary>
-        /// Gets a reusable shared mapper for static compatibility paths.
-        /// </summary>
-        public static AeDashboardEncryptedIdMapper Shared { get; } = new();
-
         /**************************************************************/
         /// <inheritdoc/>
         public string? EncryptNullableInt(int? value, string pkSecret, ILogger logger, string fieldName)
@@ -697,12 +668,6 @@ namespace MedRecPro.Service
     /// <seealso cref="IAeDashboardCorrelationPolicy"/>
     public sealed class AeDashboardCorrelationPolicy : IAeDashboardCorrelationPolicy
     {
-        /**************************************************************/
-        /// <summary>
-        /// Gets a reusable shared policy for static compatibility paths.
-        /// </summary>
-        public static AeDashboardCorrelationPolicy Shared { get; } = new();
-
         /**************************************************************/
         /// <inheritdoc/>
         public void ValidateCorrelationEnums(
@@ -859,6 +824,7 @@ namespace MedRecPro.Service
     {
         private readonly ApplicationDbContext _db;
         private readonly ILogger _logger;
+        private readonly AeDashboardDataAccess _dataAccess;
 
         /**************************************************************/
         /// <summary>
@@ -866,8 +832,9 @@ namespace MedRecPro.Service
         /// </summary>
         public AeDashboardProductCatalogService(
             ApplicationDbContext db,
-            ILogger<AeDashboardProductCatalogService> logger)
-            : this(db, (ILogger)logger)
+            ILogger<AeDashboardProductCatalogService> logger,
+            AeDashboardDataAccess dataAccess)
+            : this(db, (ILogger)logger, dataAccess)
         {
             #region implementation
             #endregion
@@ -878,11 +845,27 @@ namespace MedRecPro.Service
         /// Initializes a new instance of the <see cref="AeDashboardProductCatalogService"/> class for compatibility callers.
         /// </summary>
         internal AeDashboardProductCatalogService(ApplicationDbContext db, ILogger logger)
+            : this(db, logger, AeDashboardLegacyCompatibility.CreateDataAccess())
+        {
+            #region implementation
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a product catalog service with the supplied feature implementation.
+        /// </summary>
+        /// <param name="db">The scoped application database context.</param>
+        /// <param name="logger">The caller-owned diagnostics logger.</param>
+        /// <param name="dataAccess">The injected AE feature implementation.</param>
+        /// <seealso cref="AeDashboardDataAccess"/>
+        internal AeDashboardProductCatalogService(ApplicationDbContext db, ILogger logger, AeDashboardDataAccess dataAccess)
         {
             #region implementation
 
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _dataAccess = dataAccess ?? throw new ArgumentNullException(nameof(dataAccess));
 
             #endregion
         }
@@ -898,7 +881,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeDrugSummariesAsync(_db, pkSecret, _logger, productSearch, userId, page, size);
+            return _dataAccess.GetAeDrugSummariesAsync(_db, pkSecret, _logger, productSearch, userId, page, size);
 
             #endregion
         }
@@ -914,7 +897,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeProductCatalogAsync(_db, pkSecret, _logger, productSearch, userId, page, size);
+            return _dataAccess.GetAeProductCatalogAsync(_db, pkSecret, _logger, productSearch, userId, page, size);
 
             #endregion
         }
@@ -925,7 +908,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeProductCountAsync(_db, _logger);
+            return _dataAccess.GetAeProductCountAsync(_db, _logger);
 
             #endregion
         }
@@ -940,6 +923,7 @@ namespace MedRecPro.Service
     {
         private readonly ApplicationDbContext _db;
         private readonly ILogger _logger;
+        private readonly AeDashboardDataAccess _dataAccess;
 
         /**************************************************************/
         /// <summary>
@@ -947,8 +931,9 @@ namespace MedRecPro.Service
         /// </summary>
         public AeDashboardProductDetailService(
             ApplicationDbContext db,
-            ILogger<AeDashboardProductDetailService> logger)
-            : this(db, (ILogger)logger)
+            ILogger<AeDashboardProductDetailService> logger,
+            AeDashboardDataAccess dataAccess)
+            : this(db, (ILogger)logger, dataAccess)
         {
             #region implementation
             #endregion
@@ -959,11 +944,27 @@ namespace MedRecPro.Service
         /// Initializes a new instance of the <see cref="AeDashboardProductDetailService"/> class for compatibility callers.
         /// </summary>
         internal AeDashboardProductDetailService(ApplicationDbContext db, ILogger logger)
+            : this(db, logger, AeDashboardLegacyCompatibility.CreateDataAccess())
+        {
+            #region implementation
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a product-detail service with the supplied feature implementation.
+        /// </summary>
+        /// <param name="db">The scoped application database context.</param>
+        /// <param name="logger">The caller-owned diagnostics logger.</param>
+        /// <param name="dataAccess">The injected AE feature implementation.</param>
+        /// <seealso cref="AeDashboardDataAccess"/>
+        internal AeDashboardProductDetailService(ApplicationDbContext db, ILogger logger, AeDashboardDataAccess dataAccess)
         {
             #region implementation
 
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _dataAccess = dataAccess ?? throw new ArgumentNullException(nameof(dataAccess));
 
             #endregion
         }
@@ -978,7 +979,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeRiskSignalsByDocumentAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
+            return _dataAccess.GetAeRiskSignalsByDocumentAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
 
             #endregion
         }
@@ -993,7 +994,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeProductDetailDataAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
+            return _dataAccess.GetAeProductDetailDataAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
 
             #endregion
         }
@@ -1008,7 +1009,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeTriageViewAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
+            return _dataAccess.GetAeTriageViewAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
 
             #endregion
         }
@@ -1023,7 +1024,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeForestPlotAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
+            return _dataAccess.GetAeForestPlotAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
 
             #endregion
         }
@@ -1038,7 +1039,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeQuadrantViewAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
+            return _dataAccess.GetAeQuadrantViewAsync(_db, documentGuid, pkSecret, _logger, comparator, includeFragile);
 
             #endregion
         }
@@ -1052,7 +1053,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeReverseLookupAsync(_db, symptom, pkSecret, _logger, documentGuids);
+            return _dataAccess.GetAeReverseLookupAsync(_db, symptom, pkSecret, _logger, documentGuids);
 
             #endregion
         }
@@ -1069,7 +1070,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeInterchangeAsync(_db, documentGuidA, documentGuidB, pkSecret, _logger, differencesOnly, sharedSignalsOnly, comparator);
+            return _dataAccess.GetAeInterchangeAsync(_db, documentGuidA, documentGuidB, pkSecret, _logger, differencesOnly, sharedSignalsOnly, comparator);
 
             #endregion
         }
@@ -1084,6 +1085,7 @@ namespace MedRecPro.Service
     {
         private readonly ApplicationDbContext _db;
         private readonly ILogger _logger;
+        private readonly AeDashboardDataAccess _dataAccess;
 
         /**************************************************************/
         /// <summary>
@@ -1091,8 +1093,9 @@ namespace MedRecPro.Service
         /// </summary>
         public AeDashboardFavoriteService(
             ApplicationDbContext db,
-            ILogger<AeDashboardFavoriteService> logger)
-            : this(db, (ILogger)logger)
+            ILogger<AeDashboardFavoriteService> logger,
+            AeDashboardDataAccess dataAccess)
+            : this(db, (ILogger)logger, dataAccess)
         {
             #region implementation
             #endregion
@@ -1103,11 +1106,27 @@ namespace MedRecPro.Service
         /// Initializes a new instance of the <see cref="AeDashboardFavoriteService"/> class for compatibility callers.
         /// </summary>
         internal AeDashboardFavoriteService(ApplicationDbContext db, ILogger logger)
+            : this(db, logger, AeDashboardLegacyCompatibility.CreateDataAccess())
+        {
+            #region implementation
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a favorite service with the supplied feature implementation.
+        /// </summary>
+        /// <param name="db">The scoped application database context.</param>
+        /// <param name="logger">The caller-owned diagnostics logger.</param>
+        /// <param name="dataAccess">The injected AE feature implementation.</param>
+        /// <seealso cref="AeDashboardDataAccess"/>
+        internal AeDashboardFavoriteService(ApplicationDbContext db, ILogger logger, AeDashboardDataAccess dataAccess)
         {
             #region implementation
 
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _dataAccess = dataAccess ?? throw new ArgumentNullException(nameof(dataAccess));
 
             #endregion
         }
@@ -1122,7 +1141,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeFavoriteDrugSummariesAsync(_db, userId, pkSecret, _logger, page, size);
+            return _dataAccess.GetAeFavoriteDrugSummariesAsync(_db, userId, pkSecret, _logger, page, size);
 
             #endregion
         }
@@ -1133,7 +1152,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.SetAeProductFavoriteAsync(_db, userId, documentGuid, isFavorite, _logger);
+            return _dataAccess.SetAeProductFavoriteAsync(_db, userId, documentGuid, isFavorite, _logger);
 
             #endregion
         }
@@ -1148,6 +1167,7 @@ namespace MedRecPro.Service
     {
         private readonly ApplicationDbContext _db;
         private readonly ILogger _logger;
+        private readonly AeDashboardDataAccess _dataAccess;
 
         /**************************************************************/
         /// <summary>
@@ -1155,8 +1175,9 @@ namespace MedRecPro.Service
         /// </summary>
         public AeDashboardClassCorrelationService(
             ApplicationDbContext db,
-            ILogger<AeDashboardClassCorrelationService> logger)
-            : this(db, (ILogger)logger)
+            ILogger<AeDashboardClassCorrelationService> logger,
+            AeDashboardDataAccess dataAccess)
+            : this(db, (ILogger)logger, dataAccess)
         {
             #region implementation
             #endregion
@@ -1167,11 +1188,27 @@ namespace MedRecPro.Service
         /// Initializes a new instance of the <see cref="AeDashboardClassCorrelationService"/> class for compatibility callers.
         /// </summary>
         internal AeDashboardClassCorrelationService(ApplicationDbContext db, ILogger logger)
+            : this(db, logger, AeDashboardLegacyCompatibility.CreateDataAccess())
+        {
+            #region implementation
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a class-correlation service with the supplied feature implementation.
+        /// </summary>
+        /// <param name="db">The scoped application database context.</param>
+        /// <param name="logger">The caller-owned diagnostics logger.</param>
+        /// <param name="dataAccess">The injected AE feature implementation.</param>
+        /// <seealso cref="AeDashboardDataAccess"/>
+        internal AeDashboardClassCorrelationService(ApplicationDbContext db, ILogger logger, AeDashboardDataAccess dataAccess)
         {
             #region implementation
 
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _dataAccess = dataAccess ?? throw new ArgumentNullException(nameof(dataAccess));
 
             #endregion
         }
@@ -1193,7 +1230,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeCorrelationMapAsync(_db, pharmClassCode, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, minDrugsPerCell, method, aggregation, seriousSocOnly, excludeCombos, minEvents);
+            return _dataAccess.GetAeCorrelationMapAsync(_db, pharmClassCode, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, minDrugsPerCell, method, aggregation, seriousSocOnly, excludeCombos, minEvents);
 
             #endregion
         }
@@ -1215,7 +1252,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeCorrelationClassesAsync(_db, pkSecret, _logger, classSearch, page, size, comparator, includeNonSignificant, excludeFragile, excludeCombos, minEvents, minDrugsPerCell, seriousSocOnly);
+            return _dataAccess.GetAeCorrelationClassesAsync(_db, pkSecret, _logger, classSearch, page, size, comparator, includeNonSignificant, excludeFragile, excludeCombos, minEvents, minDrugsPerCell, seriousSocOnly);
 
             #endregion
         }
@@ -1235,7 +1272,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeCorrelationHeatmapAsync(_db, pharmClassCode, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, aggregation, seriousSocOnly, excludeCombos, minEvents);
+            return _dataAccess.GetAeCorrelationHeatmapAsync(_db, pharmClassCode, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, aggregation, seriousSocOnly, excludeCombos, minEvents);
 
             #endregion
         }
@@ -1259,7 +1296,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeCorrelationCellDetailAsync(_db, pharmClassCode, socX, socY, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, minDrugsPerCell, method, aggregation, seriousSocOnly, excludeCombos, minEvents);
+            return _dataAccess.GetAeCorrelationCellDetailAsync(_db, pharmClassCode, socX, socY, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, minDrugsPerCell, method, aggregation, seriousSocOnly, excludeCombos, minEvents);
 
             #endregion
         }
@@ -1274,6 +1311,7 @@ namespace MedRecPro.Service
     {
         private readonly ApplicationDbContext _db;
         private readonly ILogger _logger;
+        private readonly AeDashboardDataAccess _dataAccess;
 
         /**************************************************************/
         /// <summary>
@@ -1281,8 +1319,9 @@ namespace MedRecPro.Service
         /// </summary>
         public AeDashboardSystemCorrelationService(
             ApplicationDbContext db,
-            ILogger<AeDashboardSystemCorrelationService> logger)
-            : this(db, (ILogger)logger)
+            ILogger<AeDashboardSystemCorrelationService> logger,
+            AeDashboardDataAccess dataAccess)
+            : this(db, (ILogger)logger, dataAccess)
         {
             #region implementation
             #endregion
@@ -1293,11 +1332,27 @@ namespace MedRecPro.Service
         /// Initializes a new instance of the <see cref="AeDashboardSystemCorrelationService"/> class for compatibility callers.
         /// </summary>
         internal AeDashboardSystemCorrelationService(ApplicationDbContext db, ILogger logger)
+            : this(db, logger, AeDashboardLegacyCompatibility.CreateDataAccess())
+        {
+            #region implementation
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a system-correlation service with the supplied feature implementation.
+        /// </summary>
+        /// <param name="db">The scoped application database context.</param>
+        /// <param name="logger">The caller-owned diagnostics logger.</param>
+        /// <param name="dataAccess">The injected AE feature implementation.</param>
+        /// <seealso cref="AeDashboardDataAccess"/>
+        internal AeDashboardSystemCorrelationService(ApplicationDbContext db, ILogger logger, AeDashboardDataAccess dataAccess)
         {
             #region implementation
 
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _dataAccess = dataAccess ?? throw new ArgumentNullException(nameof(dataAccess));
 
             #endregion
         }
@@ -1319,7 +1374,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeCorrelationSystemsAsync(_db, pkSecret, _logger, systemSearch, page, size, comparator, includeNonSignificant, excludeFragile, excludeCombos, minEvents, minTermsPerCell);
+            return _dataAccess.GetAeCorrelationSystemsAsync(_db, pkSecret, _logger, systemSearch, page, size, comparator, includeNonSignificant, excludeFragile, excludeCombos, minEvents, minTermsPerCell);
 
             #endregion
         }
@@ -1345,7 +1400,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeSystemCorrelationMapAsync(_db, systems, pkSecret, _logger, classSearch, classPageNumber, classPageSize, comparator, includeNonSignificant, excludeFragile, minTermsPerCell, method, aggregation, excludeCombos, minEvents, includeFullMatrix, classType);
+            return _dataAccess.GetAeSystemCorrelationMapAsync(_db, systems, pkSecret, _logger, classSearch, classPageNumber, classPageSize, comparator, includeNonSignificant, excludeFragile, minTermsPerCell, method, aggregation, excludeCombos, minEvents, includeFullMatrix, classType);
 
             #endregion
         }
@@ -1371,7 +1426,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeSystemCorrelationHeatmapAsync(
+            return _dataAccess.GetAeSystemCorrelationHeatmapAsync(
                 _db,
                 systems,
                 pkSecret,
@@ -1414,7 +1469,7 @@ namespace MedRecPro.Service
         {
             #region implementation
 
-            return DtoLabelAccess.GetAeSystemCorrelationCellDetailAsync(_db, systems, classX, classY, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, minTermsPerCell, method, aggregation, excludeCombos, minEvents, pageNumber, pageSize);
+            return _dataAccess.GetAeSystemCorrelationCellDetailAsync(_db, systems, classX, classY, pkSecret, _logger, comparator, includeNonSignificant, excludeFragile, minTermsPerCell, method, aggregation, excludeCombos, minEvents, pageNumber, pageSize);
 
             #endregion
         }

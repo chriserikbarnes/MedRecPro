@@ -18,9 +18,46 @@ namespace MedRecPro.Features.AeDashboard.Mapping
     /// <seealso cref="DtoLabelAccess"/>
     /// <seealso cref="AeDrugSummaryDto"/>
     /// <seealso cref="AeRiskSignalDto"/>
-    internal static class AeDashboardDtoMapper
+    internal interface IAeDashboardDtoMapper
+    {
+        List<AeDrugSummaryDto> ToProductCatalogDtos(IEnumerable<LabelView.AeDashboardProductCatalog> entities, string pkSecret, ILogger logger);
+        AeDrugSummaryDto ToProductCatalogDto(LabelView.AeDashboardProductCatalog entity, string pkSecret, ILogger logger);
+        List<AeDrugSummaryDto> ToDrugSummaryDtos(IEnumerable<LabelView.AeDrugSummary> entities, string pkSecret, ILogger logger);
+        AeDrugSummaryDto ToDrugSummaryDto(LabelView.AeDrugSummary entity, string pkSecret, ILogger logger);
+        List<AeDrugSummaryDto> ToFallbackDrugSummaryDtos(IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities, string pkSecret, ILogger logger);
+        List<AeRiskSignalDto> ToRiskSignalDtos(IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities, string pkSecret, ILogger logger);
+        AeRiskSignalDto ToRiskSignalDto(LabelView.FlattenedAdverseEventRiskTable entity, string pkSecret, ILogger logger);
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Maps AE dashboard persistence rows into API-safe dashboard DTOs.
+    /// </summary>
+    /// <remarks>
+    /// Encryption is supplied through an injected policy so mapping remains a
+    /// feature-owned instance operation instead of reaching into shared state.
+    /// </remarks>
+    /// <seealso cref="IAeDashboardEncryptedIdMapper"/>
+    internal sealed class AeDashboardDtoMapper : IAeDashboardDtoMapper
     {
         #region implementation
+
+        private readonly IAeDashboardEncryptedIdMapper _encryptedIdMapper;
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AeDashboardDtoMapper"/> class.
+        /// </summary>
+        /// <param name="encryptedIdMapper">Policy used to project encrypted identifiers.</param>
+        /// <seealso cref="IAeDashboardEncryptedIdMapper"/>
+        internal AeDashboardDtoMapper(IAeDashboardEncryptedIdMapper encryptedIdMapper)
+        {
+            #region implementation
+
+            _encryptedIdMapper = encryptedIdMapper ?? throw new ArgumentNullException(nameof(encryptedIdMapper));
+
+            #endregion
+        }
 
         /**************************************************************/
         /// <summary>
@@ -32,7 +69,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <returns>API-safe product summary DTOs.</returns>
         /// <seealso cref="LabelView.AeDashboardProductCatalog"/>
         /// <seealso cref="AeDrugSummaryDto"/>
-        internal static List<AeDrugSummaryDto> ToProductCatalogDtos(
+        List<AeDrugSummaryDto> IAeDashboardDtoMapper.ToProductCatalogDtos(
             IEnumerable<LabelView.AeDashboardProductCatalog> entities,
             string pkSecret,
             ILogger logger)
@@ -40,7 +77,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
             #region implementation
 
             return entities
-                .Select(entity => ToProductCatalogDto(entity, pkSecret, logger))
+                .Select(entity => ((IAeDashboardDtoMapper)this).ToProductCatalogDto(entity, pkSecret, logger))
                 .ToList();
 
             #endregion
@@ -56,7 +93,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <returns>An API-safe product summary DTO.</returns>
         /// <seealso cref="LabelView.AeDashboardProductCatalog"/>
         /// <seealso cref="AeDrugSummaryDto"/>
-        internal static AeDrugSummaryDto ToProductCatalogDto(
+        AeDrugSummaryDto IAeDashboardDtoMapper.ToProductCatalogDto(
             LabelView.AeDashboardProductCatalog entity,
             string pkSecret,
             ILogger logger)
@@ -108,7 +145,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <returns>API-safe product summary DTOs.</returns>
         /// <seealso cref="LabelView.AeDrugSummary"/>
         /// <seealso cref="AeDrugSummaryDto"/>
-        internal static List<AeDrugSummaryDto> ToDrugSummaryDtos(
+        List<AeDrugSummaryDto> IAeDashboardDtoMapper.ToDrugSummaryDtos(
             IEnumerable<LabelView.AeDrugSummary> entities,
             string pkSecret,
             ILogger logger)
@@ -116,7 +153,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
             #region implementation
 
             return entities
-                .Select(entity => ToDrugSummaryDto(entity, pkSecret, logger))
+                .Select(entity => ((IAeDashboardDtoMapper)this).ToDrugSummaryDto(entity, pkSecret, logger))
                 .ToList();
 
             #endregion
@@ -132,7 +169,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <returns>An API-safe product summary DTO.</returns>
         /// <seealso cref="LabelView.AeDrugSummary"/>
         /// <seealso cref="AeDrugSummaryDto"/>
-        internal static AeDrugSummaryDto ToDrugSummaryDto(
+        AeDrugSummaryDto IAeDashboardDtoMapper.ToDrugSummaryDto(
             LabelView.AeDrugSummary entity,
             string pkSecret,
             ILogger logger)
@@ -177,7 +214,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <returns>Product summary DTOs matching the summary-view grain.</returns>
         /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
         /// <seealso cref="AeDrugSummaryDto"/>
-        internal static List<AeDrugSummaryDto> ToFallbackDrugSummaryDtos(
+        List<AeDrugSummaryDto> IAeDashboardDtoMapper.ToFallbackDrugSummaryDtos(
             IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities,
             string pkSecret,
             ILogger logger)
@@ -213,7 +250,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <returns>API-safe risk signal DTOs collapsed to visible clinical strata.</returns>
         /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
         /// <seealso cref="AeRiskSignalDto"/>
-        internal static List<AeRiskSignalDto> ToRiskSignalDtos(
+        List<AeRiskSignalDto> IAeDashboardDtoMapper.ToRiskSignalDtos(
             IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities,
             string pkSecret,
             ILogger logger)
@@ -225,7 +262,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
             // class-enriched vw_AeRisk rows and the multi-arm duplication where the same
             // term/dose/comparator is reported for both pooled and unlabeled subgroup arms.
             return collapseToMostPoweredStratum(entities)
-                .Select(entity => ToRiskSignalDto(entity, pkSecret, logger))
+                .Select(entity => ((IAeDashboardDtoMapper)this).ToRiskSignalDto(entity, pkSecret, logger))
                 .ToList();
 
             #endregion
@@ -241,7 +278,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <returns>An API-safe risk signal DTO.</returns>
         /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
         /// <seealso cref="AeRiskSignalDto"/>
-        internal static AeRiskSignalDto ToRiskSignalDto(
+        AeRiskSignalDto IAeDashboardDtoMapper.ToRiskSignalDto(
             LabelView.FlattenedAdverseEventRiskTable entity,
             string pkSecret,
             ILogger logger)
@@ -290,7 +327,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <summary>
         /// Builds one fallback AE product summary DTO from grouped risk-table rows.
         /// </summary>
-        private static AeDrugSummaryDto toFallbackDrugSummaryDto(
+        private AeDrugSummaryDto toFallbackDrugSummaryDto(
             IGrouping<(Guid? DocumentGUID, string? ProductName, string? SubstanceName, string? UNII, string? PharmClassCode, string? PharmClassName, int? ActiveMoietyID, int? IngredientSubstanceID, int? PharmacologicClassID), LabelView.FlattenedAdverseEventRiskTable> group,
             string pkSecret,
             ILogger logger)
@@ -436,7 +473,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         /// <summary>
         /// Encrypts a nullable integer identifier for client-safe DTO exposure.
         /// </summary>
-        private static string? encryptNullableInt(
+        private string? encryptNullableInt(
             int? value,
             string pkSecret,
             ILogger logger,
@@ -444,7 +481,7 @@ namespace MedRecPro.Features.AeDashboard.Mapping
         {
             #region implementation
 
-            return AeDashboardEncryptedIdMapper.Shared.EncryptNullableInt(value, pkSecret, logger, fieldName);
+            return _encryptedIdMapper.EncryptNullableInt(value, pkSecret, logger, fieldName);
 
             #endregion
         }

@@ -771,8 +771,8 @@ namespace MedRecPro.Service
                 var comparisonEnabled = _configuration.GetValue<bool>("FeatureFlags:ComparisonAnalysisEnabled", true);
 
                 //// Query document and product counts
-                var documentCount = _dbContext.Set<Label.Document>().Count();
-                var productCount = _dbContext.Set<Label.Product>().Count();
+                var documentCount = _dbContext.Set<MedRecPro.Models.Label.Document>().Count();
+                var productCount = _dbContext.Set<MedRecPro.Models.Label.Product>().Count();
 
                 // Build list of available sections (entity types)
                 var availableSections = getAvailableSections();

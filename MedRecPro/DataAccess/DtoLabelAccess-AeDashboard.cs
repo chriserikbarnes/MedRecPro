@@ -25,8 +25,43 @@ namespace MedRecPro.DataAccess
     /// </remarks>
     /// <seealso cref="DtoLabelAccess"/>
     /// <seealso cref="AeDashboardDerivation"/>
-    public static partial class DtoLabelAccess
+    public sealed partial class AeDashboardDataAccess
     {
+        private readonly IAeDashboardCachePolicy _cachePolicy;
+        private readonly IAeDashboardEncryptedIdMapper _encryptedIdMapper;
+        private readonly IAeDashboardCorrelationPolicy _correlationPolicy;
+        private readonly IAeDashboardDtoMapper _dtoMapper;
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes the AE dashboard feature data implementation.
+        /// </summary>
+        /// <remarks>
+        /// The implementation is instantiated through dependency injection for
+        /// request paths and by the isolated legacy adapter for static callers.
+        /// It does not retain an <see cref="ApplicationDbContext"/> or logger.
+        /// </remarks>
+        /// <param name="cachePolicy">The injected AE cache policy.</param>
+        /// <param name="encryptedIdMapper">The injected encrypted-ID policy.</param>
+        /// <param name="correlationPolicy">The injected correlation policy.</param>
+        /// <param name="dtoMapper">The feature-owned DTO mapper.</param>
+        /// <seealso cref="IAeDashboardCachePolicy"/>
+        internal AeDashboardDataAccess(
+            IAeDashboardCachePolicy cachePolicy,
+            IAeDashboardEncryptedIdMapper encryptedIdMapper,
+            IAeDashboardCorrelationPolicy correlationPolicy,
+            IAeDashboardDtoMapper dtoMapper)
+        {
+            #region implementation
+
+            _cachePolicy = cachePolicy ?? throw new ArgumentNullException(nameof(cachePolicy));
+            _encryptedIdMapper = encryptedIdMapper ?? throw new ArgumentNullException(nameof(encryptedIdMapper));
+            _correlationPolicy = correlationPolicy ?? throw new ArgumentNullException(nameof(correlationPolicy));
+            _dtoMapper = dtoMapper ?? throw new ArgumentNullException(nameof(dtoMapper));
+
+            #endregion
+        }
+
         #region AE Dashboard Public Read Methods
 
         /**************************************************************/
@@ -53,7 +88,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.AeDrugSummary"/>
         /// <seealso cref="AeDrugSummaryDto"/>
-        public static async Task<List<AeDrugSummaryDto>> GetAeDrugSummariesAsync(
+        internal async Task<List<AeDrugSummaryDto>> GetAeDrugSummariesAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -151,7 +186,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="GetAeDrugSummariesAsync"/>
         /// <seealso cref="AeProductCatalogItemDto"/>
-        public static async Task<List<AeProductCatalogItemDto>> GetAeProductCatalogAsync(
+        internal async Task<List<AeProductCatalogItemDto>> GetAeProductCatalogAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -199,7 +234,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="GetAeProductCatalogAsync"/>
         /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
-        public static async Task<int> GetAeProductCountAsync(
+        internal async Task<int> GetAeProductCountAsync(
             ApplicationDbContext db,
             ILogger logger)
         {
@@ -256,7 +291,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
         /// <seealso cref="AeRiskSignalDto"/>
-        public static async Task<List<AeRiskSignalDto>> GetAeRiskSignalsByDocumentAsync(
+        internal async Task<List<AeRiskSignalDto>> GetAeRiskSignalsByDocumentAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -286,7 +321,7 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Map rows into API-safe DTOs before running pure derivation logic.
-            var signals = AeDashboardDtoMapper.ToRiskSignalDtos(entities, pkSecret, logger);
+            var signals = _dtoMapper.ToRiskSignalDtos(entities, pkSecret, logger);
 
             // Derive typed significance, flags, precision, and counseling tier for
             // every signal in the returned list.
@@ -332,7 +367,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="GetAeRiskSignalsByDocumentAsync(ApplicationDbContext, Guid, string, ILogger, AeComparatorMix?, bool)"/>
         /// <seealso cref="AeDashboardProductDetailData"/>
-        public static async Task<AeDashboardProductDetailData?> GetAeProductDetailDataAsync(
+        internal async Task<AeDashboardProductDetailData?> GetAeProductDetailDataAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -354,13 +389,13 @@ namespace MedRecPro.DataAccess
             }
 
             var versionToken = await getAeProductDetailVersionTokenAsync(db, documentGuid);
-            var cacheKey = AeDashboardCachePolicy.Shared.GenerateKey(
+            var cacheKey = _cachePolicy.GenerateKey(
                 nameof(GetAeProductDetailDataAsync),
                 $"{documentGuid:N}:{comparator?.ToString() ?? "all"}:{includeFragile}:{versionToken}",
                 null,
                 null);
 
-            var cached = AeDashboardCachePolicy.Shared.Get<AeDashboardProductDetailData>(cacheKey);
+            var cached = _cachePolicy.Get<AeDashboardProductDetailData>(cacheKey);
             if (cached != null)
             {
                 stopwatch.Stop();
@@ -381,7 +416,7 @@ namespace MedRecPro.DataAccess
 
             if (signals.Count > 0)
             {
-                AeDashboardCachePolicy.Shared.Set(cacheKey, cloneProductDetailData(payload), 1.0);
+                _cachePolicy.Set(cacheKey, cloneProductDetailData(payload), 1.0);
             }
 
             stopwatch.Stop();
@@ -418,7 +453,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="GetAeRiskSignalsByDocumentAsync(ApplicationDbContext, Guid, string, ILogger, AeComparatorMix?, bool)"/>
         /// <seealso cref="AeTriageViewDto"/>
-        public static async Task<AeTriageViewDto?> GetAeTriageViewAsync(
+        internal async Task<AeTriageViewDto?> GetAeTriageViewAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -467,7 +502,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="AeForestPlotDto"/>
-        public static async Task<AeForestPlotDto?> GetAeForestPlotAsync(
+        internal async Task<AeForestPlotDto?> GetAeForestPlotAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -514,7 +549,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="AeQuadrantViewDto"/>
-        public static async Task<AeQuadrantViewDto?> GetAeQuadrantViewAsync(
+        internal async Task<AeQuadrantViewDto?> GetAeQuadrantViewAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -561,7 +596,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="AeReverseLookupResultDto"/>
-        public static async Task<AeReverseLookupResultDto> GetAeReverseLookupAsync(
+        internal async Task<AeReverseLookupResultDto> GetAeReverseLookupAsync(
             ApplicationDbContext db,
             string symptom,
             string pkSecret,
@@ -602,7 +637,7 @@ namespace MedRecPro.DataAccess
 
             // Build DTOs only after materialization because encrypted identifiers
             // and derivation helpers cannot be translated into SQL.
-            var signals = AeDashboardDtoMapper.ToRiskSignalDtos(signalEntities, pkSecret, logger);
+            var signals = _dtoMapper.ToRiskSignalDtos(signalEntities, pkSecret, logger);
 
             // Extract the matched document set so product summaries can be loaded
             // only for products that actually had the searched AE term.
@@ -646,7 +681,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="AeInterchangeComparisonDto"/>
-        public static async Task<AeInterchangeComparisonDto?> GetAeInterchangeAsync(
+        internal async Task<AeInterchangeComparisonDto?> GetAeInterchangeAsync(
             ApplicationDbContext db,
             Guid documentGuidA,
             Guid documentGuidB,
@@ -732,7 +767,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="AeCorrelationMapDto"/>
         /// <seealso cref="AeDashboardDerivation.BuildCorrelationMap"/>
-        public static async Task<AeCorrelationMapDto?> GetAeCorrelationMapAsync(
+        internal async Task<AeCorrelationMapDto?> GetAeCorrelationMapAsync(
             ApplicationDbContext db,
             string pharmClassCode,
             string pkSecret,
@@ -819,7 +854,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="AePharmClassPickerItemDto"/>
         /// <seealso cref="AeCorrelationClassPickerPage"/>
-        public static async Task<AeCorrelationClassPickerPage> GetAeCorrelationClassesAsync(
+        internal async Task<AeCorrelationClassPickerPage> GetAeCorrelationClassesAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -888,7 +923,7 @@ namespace MedRecPro.DataAccess
                     continue;
                 }
 
-                var signal = AeDashboardDerivation.DeriveSignal(AeDashboardDtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
+                var signal = AeDashboardDerivation.DeriveSignal(_dtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
                 var precision = signal.PrecisionClass ?? AePrecisionClass.Fragile;
                 var riskSignificance = signal.RiskSignificance ?? AeRiskSignificance.NotSignificant;
                 var events = (entity.EventsTreatment ?? 0.0) + (entity.EventsComparator ?? 0.0);
@@ -1060,7 +1095,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="AeCorrelationHeatmapDto"/>
-        public static async Task<AeCorrelationHeatmapDto?> GetAeCorrelationHeatmapAsync(
+        internal async Task<AeCorrelationHeatmapDto?> GetAeCorrelationHeatmapAsync(
             ApplicationDbContext db,
             string pharmClassCode,
             string pkSecret,
@@ -1137,7 +1172,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="AeCorrelationCellDetailDto"/>
-        public static async Task<AeCorrelationCellDetailDto?> GetAeCorrelationCellDetailAsync(
+        internal async Task<AeCorrelationCellDetailDto?> GetAeCorrelationCellDetailAsync(
             ApplicationDbContext db,
             string pharmClassCode,
             string socX,
@@ -1222,7 +1257,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="AeMeddraSystemPickerItemDto"/>
         /// <seealso cref="AeSystemPickerPage"/>
-        public static async Task<AeSystemPickerPage> GetAeCorrelationSystemsAsync(
+        internal async Task<AeSystemPickerPage> GetAeCorrelationSystemsAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -1364,7 +1399,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="AeDashboardDerivation.BuildSystemClassCorrelationMap"/>
         /// <seealso cref="AeSystemClassCorrelationMapDto"/>
-        public static async Task<AeSystemClassCorrelationMapDto?> GetAeSystemCorrelationMapAsync(
+        internal async Task<AeSystemClassCorrelationMapDto?> GetAeSystemCorrelationMapAsync(
             ApplicationDbContext db,
             IEnumerable<string> systems,
             string pkSecret,
@@ -1445,7 +1480,7 @@ namespace MedRecPro.DataAccess
         /// <returns>The sparse heatmap, or null when the selected system has no usable rows.</returns>
         /// <seealso cref="AeDashboardDerivation.BuildSystemClassHeatmap"/>
         /// <seealso cref="AeSystemClassHeatmapDto"/>
-        public static async Task<AeSystemClassHeatmapDto?> GetAeSystemCorrelationHeatmapAsync(
+        internal async Task<AeSystemClassHeatmapDto?> GetAeSystemCorrelationHeatmapAsync(
             ApplicationDbContext db,
             IEnumerable<string> systems,
             string pkSecret,
@@ -1526,7 +1561,7 @@ namespace MedRecPro.DataAccess
         /// <returns>The class-pair cell detail, or null when the selected system has no usable rows.</returns>
         /// <seealso cref="AeDashboardDerivation.BuildSystemClassCellDetail"/>
         /// <seealso cref="AeSystemClassCorrelationCellDetailDto"/>
-        public static async Task<AeSystemClassCorrelationCellDetailDto?> GetAeSystemCorrelationCellDetailAsync(
+        internal async Task<AeSystemClassCorrelationCellDetailDto?> GetAeSystemCorrelationCellDetailAsync(
             ApplicationDbContext db,
             IEnumerable<string> systems,
             string classX,
@@ -1645,7 +1680,7 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Gets provider-filtered and provider-paged product summaries from the catalog table.
         /// </summary>
-        private static async Task<List<AeDrugSummaryDto>> getMaterializedProductCatalogSummariesAsync(
+        private async Task<List<AeDrugSummaryDto>> getMaterializedProductCatalogSummariesAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -1663,7 +1698,7 @@ namespace MedRecPro.DataAccess
             query = applyProductCatalogPagination(query, page, size);
 
             var entities = await query.ToListAsync();
-            return AeDashboardDtoMapper.ToProductCatalogDtos(entities, pkSecret, logger);
+            return _dtoMapper.ToProductCatalogDtos(entities, pkSecret, logger);
 
             #endregion
         }
@@ -1672,7 +1707,7 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Gets catalog-backed product summaries for a document GUID set.
         /// </summary>
-        private static async Task<List<AeDrugSummaryDto>> getMaterializedProductCatalogSummariesByDocumentGuidsAsync(
+        private async Task<List<AeDrugSummaryDto>> getMaterializedProductCatalogSummariesByDocumentGuidsAsync(
             ApplicationDbContext db,
             IEnumerable<Guid> documentGuids,
             string pkSecret,
@@ -1691,7 +1726,7 @@ namespace MedRecPro.DataAccess
                 .Where(summary => guidList.Contains(summary.DocumentGUID))
                 .ToListAsync();
 
-            return AeDashboardDtoMapper.ToProductCatalogDtos(entities, pkSecret, logger);
+            return _dtoMapper.ToProductCatalogDtos(entities, pkSecret, logger);
 
             #endregion
         }
@@ -1700,7 +1735,7 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Gets one catalog-backed product summary by document GUID.
         /// </summary>
-        private static async Task<AeDrugSummaryDto?> getMaterializedProductCatalogSummaryAsync(
+        private async Task<AeDrugSummaryDto?> getMaterializedProductCatalogSummaryAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -1714,7 +1749,7 @@ namespace MedRecPro.DataAccess
 
             return entity == null
                 ? null
-                : AeDashboardDtoMapper.ToProductCatalogDto(entity, pkSecret, logger);
+                : _dtoMapper.ToProductCatalogDto(entity, pkSecret, logger);
 
             #endregion
         }
@@ -1804,7 +1839,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="collapseToOneRowPerDocument"/>
         /// <seealso cref="cloneSummaries"/>
-        private static async Task<List<AeDrugSummaryDto>> getCachedAeProductCatalogAsync(
+        private async Task<List<AeDrugSummaryDto>> getCachedAeProductCatalogAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger)
@@ -1813,10 +1848,10 @@ namespace MedRecPro.DataAccess
 
             // A new version token keeps this per-document shape from colliding with
             // any older per-stratum cache entry.
-            var cacheKey = AeDashboardCachePolicy.Shared.GenerateKey(nameof(getCachedAeProductCatalogAsync), "anonymous-catalog-by-document-v1", null, null);
+            var cacheKey = _cachePolicy.GenerateKey(nameof(getCachedAeProductCatalogAsync), "anonymous-catalog-by-document-v1", null, null);
 
             // Return the shared catalog when present. Callers clone before mutating.
-            var cached = AeDashboardCachePolicy.Shared.Get<List<AeDrugSummaryDto>>(cacheKey);
+            var cached = _cachePolicy.Get<List<AeDrugSummaryDto>>(cacheKey);
             if (cached != null)
             {
                 logger.LogDebug("AE dashboard product catalog cache hit for {CacheKey} with {Count} rows.", cacheKey, cached.Count);
@@ -1827,7 +1862,7 @@ namespace MedRecPro.DataAccess
             var entities = await db.Set<LabelView.AeDrugSummary>()
                 .AsNoTracking()
                 .ToListAsync();
-            var summaries = AeDashboardDtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
+            var summaries = _dtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
 
             // Add risk-table fallback summaries so null-class products (absent from
             // the summary view) remain discoverable and loadable.
@@ -1863,7 +1898,7 @@ namespace MedRecPro.DataAccess
             // transient database or import states.
             if (catalog.Count > 0)
             {
-                AeDashboardCachePolicy.Shared.Set(cacheKey, catalog, 1.0);
+                _cachePolicy.Set(cacheKey, catalog, 1.0);
                 logger.LogDebug("AE dashboard product catalog cache set for {CacheKey} with {Count} rows.", cacheKey, catalog.Count);
             }
 
@@ -2268,14 +2303,14 @@ namespace MedRecPro.DataAccess
         /// reaching <see cref="applyComparatorFilter"/> or the derivation layer with bad input.
         /// </remarks>
         /// <seealso cref="applyComparatorFilter"/>
-        private static void validateCorrelationEnums(
+        private void validateCorrelationEnums(
             AeComparatorMix comparator,
             AeCorrelationAggregation aggregation,
             AeCorrelationMethod? method = null)
         {
             #region implementation
 
-            AeDashboardCorrelationPolicy.Shared.ValidateCorrelationEnums(comparator, aggregation, method);
+            _correlationPolicy.ValidateCorrelationEnums(comparator, aggregation, method);
 
             #endregion
         }
@@ -2291,7 +2326,7 @@ namespace MedRecPro.DataAccess
         /// the triage/forest/quadrant header every ingredient and the preferred
         /// ("[EPC]") class.
         /// </remarks>
-        private static async Task<AeDrugSummaryDto?> getAeDrugSummaryByDocumentGuidAsync(
+        private async Task<AeDrugSummaryDto?> getAeDrugSummaryByDocumentGuidAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -2316,7 +2351,7 @@ namespace MedRecPro.DataAccess
             {
                 // Map, collapse to a single per-document row with ActiveIngredients,
                 // then derive score fields for the product-level view builder.
-                var summaries = AeDashboardDtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
+                var summaries = _dtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
                 var collapsed = collapseToOneRowPerDocument(summaries).FirstOrDefault();
                 return collapsed != null ? AeDashboardDerivation.DeriveProduct(collapsed) : null;
             }
@@ -2346,7 +2381,7 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Gets mapped AE product summaries by document GUID set.
         /// </summary>
-        private static async Task<List<AeDrugSummaryDto>> getProductSummariesByDocumentGuidsAsync(
+        private async Task<List<AeDrugSummaryDto>> getProductSummariesByDocumentGuidsAsync(
             ApplicationDbContext db,
             IEnumerable<Guid> documentGuids,
             string pkSecret,
@@ -2390,7 +2425,7 @@ namespace MedRecPro.DataAccess
                 .ToListAsync();
 
             // Convert rows to encrypted DTOs and calculate product score fields.
-            var summaries = AeDashboardDtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
+            var summaries = _dtoMapper.ToDrugSummaryDtos(entities, pkSecret, logger);
             var representedDocumentGuids = summaries
                 .Where(summary => summary.DocumentGUID.HasValue)
                 .Select(summary => summary.DocumentGUID!.Value)
@@ -2425,7 +2460,7 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Builds product summary DTOs directly from materialized risk rows.
         /// </summary>
-        private static async Task<List<AeDrugSummaryDto>> getRiskTableDrugSummariesAsync(
+        private async Task<List<AeDrugSummaryDto>> getRiskTableDrugSummariesAsync(
             ApplicationDbContext db,
             IEnumerable<Guid>? documentGuids,
             IReadOnlySet<Guid>? excludedDocumentGuids,
@@ -2466,7 +2501,7 @@ namespace MedRecPro.DataAccess
             // The aggregate projection includes encrypted IDs and enum parsing, so
             // materialize the filtered rows and aggregate in memory.
             var entities = await query.ToListAsync();
-            return AeDashboardDtoMapper.ToFallbackDrugSummaryDtos(entities, pkSecret, logger);
+            return _dtoMapper.ToFallbackDrugSummaryDtos(entities, pkSecret, logger);
 
             #endregion
         }
@@ -2533,7 +2568,7 @@ namespace MedRecPro.DataAccess
         /// <returns>A normalized <see cref="AeSystemCorrelationFilters"/> instance.</returns>
         /// <exception cref="ArgumentOutOfRangeException">When enum or numeric filters are invalid.</exception>
         /// <seealso cref="validateCorrelationEnums"/>
-        private static AeSystemCorrelationFilters buildSystemCorrelationFilters(
+        private AeSystemCorrelationFilters buildSystemCorrelationFilters(
             AeComparatorMix comparator,
             bool includeNonSignificant,
             bool excludeFragile,
@@ -2545,7 +2580,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            return AeDashboardCorrelationPolicy.Shared.BuildSystemCorrelationFilters(
+            return _correlationPolicy.BuildSystemCorrelationFilters(
                 comparator,
                 includeNonSignificant,
                 excludeFragile,
@@ -2578,7 +2613,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="AeSystemCorrelationObservation"/>
         /// <seealso cref="AeDashboardDerivation.BuildSystemClassCorrelationMap"/>
-        private static async Task<(List<AeSystemCorrelationObservation> Observations, List<string> SelectedSystems, List<string> Warnings)?> buildSystemCorrelationObservationsAsync(
+        private async Task<(List<AeSystemCorrelationObservation> Observations, List<string> SelectedSystems, List<string> Warnings)?> buildSystemCorrelationObservationsAsync(
             ApplicationDbContext db,
             IEnumerable<string>? selectedSystems,
             string pkSecret,
@@ -2658,7 +2693,7 @@ namespace MedRecPro.DataAccess
                     continue;
                 }
 
-                var signal = AeDashboardDerivation.DeriveSignal(AeDashboardDtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
+                var signal = AeDashboardDerivation.DeriveSignal(_dtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
                 var precision = signal.PrecisionClass ?? AePrecisionClass.Fragile;
                 var riskSignificance = signal.RiskSignificance ?? AeRiskSignificance.NotSignificant;
                 var events = (entity.EventsTreatment ?? 0.0) + (entity.EventsComparator ?? 0.0);
@@ -2754,14 +2789,14 @@ namespace MedRecPro.DataAccess
         /// <remarks>
         /// This is the single source for all four correlation read methods. It reuses
         /// <see cref="applyComparatorFilter"/>, <see cref="collapseToMostPoweredStratum"/>, and
-        /// <see cref="AeDashboardDtoMapper.ToRiskSignalDto(LabelView.FlattenedAdverseEventRiskTable, string, ILogger)"/>, then runs each surviving row through
+        /// <see cref="IAeDashboardDtoMapper.ToRiskSignalDto(LabelView.FlattenedAdverseEventRiskTable, string, ILogger)"/>, then runs each surviving row through
         /// <see cref="AeDashboardDerivation.DeriveSignal"/> to get precision and significance.
         /// LogRR is computed in memory as <c>entity.LogRR ?? Math.Log(entity.RR)</c> because the
         /// persisted log column is null in seeded rows; rows with a non-positive RR are skipped.
         /// </remarks>
         /// <seealso cref="AeCorrelationObservation"/>
         /// <seealso cref="GetAeCorrelationMapAsync"/>
-        private static async Task<(List<AeCorrelationObservation> Observations, string? PharmClassName, string? EncryptedPharmacologicClassID, List<string> Warnings)?> buildCorrelationObservationsAsync(
+        private async Task<(List<AeCorrelationObservation> Observations, string? PharmClassName, string? EncryptedPharmacologicClassID, List<string> Warnings)?> buildCorrelationObservationsAsync(
             ApplicationDbContext db,
             string pharmClassCode,
             string pkSecret,
@@ -2816,7 +2851,7 @@ namespace MedRecPro.DataAccess
                 }
 
                 // DeriveSignal reuses ClassifyPrecision/ParseRiskSignificance off the mapped DTO.
-                var signal = AeDashboardDerivation.DeriveSignal(AeDashboardDtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
+                var signal = AeDashboardDerivation.DeriveSignal(_dtoMapper.ToRiskSignalDto(entity, pkSecret, logger));
 
                 observations.Add(new AeCorrelationObservation
                 {
@@ -2954,11 +2989,11 @@ namespace MedRecPro.DataAccess
         /// ASP.NET Core binds repeated query keys naturally. MedDRA System Organ Class names
         /// may contain commas, so each supplied value is preserved as one literal system name.
         /// </remarks>
-        private static List<string> normalizeSystemInputs(IEnumerable<string>? systems)
+        private List<string> normalizeSystemInputs(IEnumerable<string>? systems)
         {
             #region implementation
 
-            return AeDashboardCorrelationPolicy.Shared.NormalizeSystemInputs(systems);
+            return _correlationPolicy.NormalizeSystemInputs(systems);
 
             #endregion
         }
@@ -2970,13 +3005,13 @@ namespace MedRecPro.DataAccess
         /// <param name="requestedSystems">Normalized caller-provided systems, or empty for all systems.</param>
         /// <param name="observations">Surviving system correlation observations.</param>
         /// <returns>Canonical system names ordered by request order or display name.</returns>
-        private static List<string> canonicalizeSelectedSystems(
+        private List<string> canonicalizeSelectedSystems(
             IReadOnlyList<string> requestedSystems,
             IReadOnlyList<AeSystemCorrelationObservation> observations)
         {
             #region implementation
 
-            return AeDashboardCorrelationPolicy.Shared.CanonicalizeSelectedSystems(requestedSystems, observations);
+            return _correlationPolicy.CanonicalizeSelectedSystems(requestedSystems, observations);
 
             #endregion
         }
@@ -3010,11 +3045,11 @@ namespace MedRecPro.DataAccess
         /// full SOC names (e.g. "Cardiac Disorders"), so the first keyword of each token is matched
         /// as a substring.
         /// </remarks>
-        private static bool isSeriousCorrelationSoc(string? soc)
+        private bool isSeriousCorrelationSoc(string? soc)
         {
             #region implementation
 
-            return AeDashboardCorrelationPolicy.Shared.IsSeriousCorrelationSoc(soc);
+            return _correlationPolicy.IsSeriousCorrelationSoc(soc);
 
             #endregion
         }
@@ -3082,7 +3117,7 @@ namespace MedRecPro.DataAccess
         /// (largest treatment denominator), preferring a significant, tighter-CI row on ties,
         /// with the source row identifier as a final deterministic tiebreaker.
         /// </remarks>
-        /// <seealso cref="AeDashboardDtoMapper.ToRiskSignalDtos(IEnumerable{LabelView.FlattenedAdverseEventRiskTable}, string, ILogger)"/>
+        /// <seealso cref="IAeDashboardDtoMapper.ToRiskSignalDtos(IEnumerable{LabelView.FlattenedAdverseEventRiskTable}, string, ILogger)"/>
         /// <seealso cref="LabelView.FlattenedAdverseEventRiskTable"/>
         private static List<LabelView.FlattenedAdverseEventRiskTable> collapseToMostPoweredStratum(
             IEnumerable<LabelView.FlattenedAdverseEventRiskTable> entities)
@@ -3169,7 +3204,7 @@ namespace MedRecPro.DataAccess
         /// <summary>
         /// Encrypts a nullable integer identifier for client-safe DTO exposure.
         /// </summary>
-        private static string? encryptNullableInt(
+        private string? encryptNullableInt(
             int? value,
             string pkSecret,
             ILogger logger,
@@ -3177,7 +3212,7 @@ namespace MedRecPro.DataAccess
         {
             #region implementation
 
-            return AeDashboardEncryptedIdMapper.Shared.EncryptNullableInt(value, pkSecret, logger, fieldName);
+            return _encryptedIdMapper.EncryptNullableInt(value, pkSecret, logger, fieldName);
 
             #endregion
         }

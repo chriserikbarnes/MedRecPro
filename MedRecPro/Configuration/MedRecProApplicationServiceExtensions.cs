@@ -1,12 +1,14 @@
 using Azure.Identity;
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
+using MedRecPro.Features.AeDashboard.Mapping;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Security;
 using MedRecPro.Service;
 using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery.Common;
 using MedRecPro.Services;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -200,6 +202,10 @@ namespace MedRecPro.Configuration
             services.AddSingleton(TimeProvider.System);
 
             services.AddSingleton<IAppCache, PerformanceAppCache>();
+            services.AddSingleton<LegacyDtoLabelCacheKeyBuilder>(_ => new LegacyDtoLabelCacheKeyBuilder());
+            services.AddSingleton<LabelQueryCachePolicy>(serviceProvider => new LabelQueryCachePolicy(
+                serviceProvider.GetRequiredService<IAppCache>(),
+                serviceProvider.GetRequiredService<LegacyDtoLabelCacheKeyBuilder>()));
 
             services.AddScoped<IUserContextAccessor, HttpUserContextAccessor>();
 
@@ -213,6 +219,15 @@ namespace MedRecPro.Configuration
             services.AddSingleton<IAeDashboardEncryptedIdMapper, AeDashboardEncryptedIdMapper>();
 
             services.AddSingleton<IAeDashboardCorrelationPolicy, AeDashboardCorrelationPolicy>();
+
+            services.AddSingleton<IAeDashboardDtoMapper>(serviceProvider => new AeDashboardDtoMapper(
+                serviceProvider.GetRequiredService<IAeDashboardEncryptedIdMapper>()));
+
+            services.AddScoped<AeDashboardDataAccess>(serviceProvider => new AeDashboardDataAccess(
+                serviceProvider.GetRequiredService<IAeDashboardCachePolicy>(),
+                serviceProvider.GetRequiredService<IAeDashboardEncryptedIdMapper>(),
+                serviceProvider.GetRequiredService<IAeDashboardCorrelationPolicy>(),
+                serviceProvider.GetRequiredService<IAeDashboardDtoMapper>()));
 
             services.AddScoped<IAeDashboardProductCatalogService, AeDashboardProductCatalogService>();
 
