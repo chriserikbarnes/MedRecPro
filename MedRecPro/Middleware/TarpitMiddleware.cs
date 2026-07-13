@@ -46,6 +46,7 @@ public class TarpitMiddleware
     private readonly TarpitService _tarpitService;
     private readonly IOptionsMonitor<TarpitSettings> _settingsMonitor;
     private readonly ILogger<TarpitMiddleware> _logger;
+    private readonly TimeProvider _timeProvider;
 
     /**************************************************************/
     /// <summary>
@@ -77,12 +78,14 @@ public class TarpitMiddleware
     /// <param name="tarpitService">Singleton service managing IP tracking and delay calculation.</param>
     /// <param name="settingsMonitor">Options monitor for hot-reloadable tarpit configuration.</param>
     /// <param name="logger">Logger instance for this middleware.</param>
+    /// <param name="timeProvider">Clock used to schedule cancelable tarpit delays.</param>
     /// <seealso cref="TarpitService"/>
     public TarpitMiddleware(
         RequestDelegate next,
         TarpitService tarpitService,
         IOptionsMonitor<TarpitSettings> settingsMonitor,
-        ILogger<TarpitMiddleware> logger)
+        ILogger<TarpitMiddleware> logger,
+        TimeProvider timeProvider)
     {
         #region implementation
 
@@ -90,6 +93,7 @@ public class TarpitMiddleware
         _tarpitService = tarpitService ?? throw new ArgumentNullException(nameof(tarpitService));
         _settingsMonitor = settingsMonitor ?? throw new ArgumentNullException(nameof(settingsMonitor));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
 
         #endregion
     }
@@ -233,7 +237,10 @@ public class TarpitMiddleware
                     "Tarpit: Delaying {ClientId} (IP: {IP}) {Delay}ms before processing — {Path}",
                     resolvedId, clientIp ?? resolvedId, delayMs, requestPath);
 
-                await Task.Delay(delayMs, context.RequestAborted);
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(delayMs),
+                    _timeProvider,
+                    context.RequestAborted);
             }
         }
         catch (OperationCanceledException)

@@ -26,7 +26,7 @@ namespace MedRecPro.Helpers
         private static readonly object lockObj = new object();
 
         // Replaces CallContext usage with AsyncLocal.
-        private static readonly AsyncLocal<string> _userName = new AsyncLocal<string>();
+        private static readonly AsyncLocal<string?> _userName = new AsyncLocal<string?>();
 
         // IHttpContextAccessor should be injected via DI.
         // You can assign it via a static property for legacy static code usage, 
@@ -362,6 +362,26 @@ namespace MedRecPro.Helpers
             }
 
             return result; 
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Clears the AsyncLocal login-name cache for the current execution flow.
+        /// </summary>
+        /// <remarks>
+        /// This internal, friend-assembly seam keeps legacy static cache tests
+        /// isolated without exposing or mutating the cache through reflection.
+        /// Production callers should continue to obtain login names through
+        /// <see cref="GetLoginName"/>.
+        /// </remarks>
+        /// <seealso cref="GetLoginName"/>
+        internal static void resetUserNameForTests()
+        {
+            #region implementation
+
+            _userName.Value = null;
+
             #endregion
         }
 

@@ -1537,7 +1537,7 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="content">Raw file content.</param>
         /// <returns>List of parsed entries.</returns>
-        private List<IndicationReferenceEntry> parseIndicationReferenceFile(string content)
+        internal List<IndicationReferenceEntry> parseIndicationReferenceFile(string content)
         {
             #region implementation
 
@@ -1615,7 +1615,7 @@ namespace MedRecPro.Service
         /// <param name="userQuery">User's natural language query.</param>
         /// <param name="allEntries">All indication reference entries.</param>
         /// <returns>Filtered and scored entries, capped at <see cref="MaxCandidatesForClaude"/>.</returns>
-        private List<IndicationReferenceEntry> preFilterIndicationsByKeyword(
+        internal List<IndicationReferenceEntry> preFilterIndicationsByKeyword(
             string userQuery,
             List<IndicationReferenceEntry> allEntries)
         {
@@ -1811,7 +1811,7 @@ namespace MedRecPro.Service
         /// <param name="aiResponse">Raw AI response string.</param>
         /// <param name="candidates">Original candidate list for UNII validation.</param>
         /// <returns>Parsed match result.</returns>
-        private IndicationMatchResult parseIndicationMatchResponse(
+        internal IndicationMatchResult parseIndicationMatchResponse(
             string aiResponse,
             List<IndicationReferenceEntry> candidates)
         {
@@ -2153,7 +2153,7 @@ namespace MedRecPro.Service
         /// </summary>
         /// <param name="aiResponse">Raw AI response string.</param>
         /// <returns>Parsed validation result.</returns>
-        private IndicationValidationResult parseIndicationValidationResponse(string aiResponse)
+        internal IndicationValidationResult parseIndicationValidationResponse(string aiResponse)
         {
             #region implementation
 

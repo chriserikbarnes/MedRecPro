@@ -2,6 +2,7 @@ using MedRecPro.Models;
 using MedRecPro.Service;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -88,167 +89,6 @@ namespace MedRecPro.Service.Test
                 WindowSeconds = windowSeconds,
                 MaxDelayMs = maxDelayMs
             };
-
-            #endregion
-        }
-
-        /*************************************************************/
-        /// <summary>
-        /// Manual clock and timer source used to test time-window behavior without real sleeps.
-        /// </summary>
-        /// <seealso cref="TimeProvider"/>
-        private sealed class ManualTimeProvider : TimeProvider
-        {
-            #region implementation
-
-            private readonly List<ManualTimer> _timers = new();
-            private DateTimeOffset _utcNow;
-
-            /*************************************************************/
-            /// <summary>
-            /// Initializes a new instance of the <see cref="ManualTimeProvider"/> class.
-            /// </summary>
-            public ManualTimeProvider()
-            {
-                #region implementation
-
-                _utcNow = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-
-                #endregion
-            }
-
-            /*************************************************************/
-            /// <inheritdoc/>
-            public override DateTimeOffset GetUtcNow()
-            {
-                #region implementation
-
-                return _utcNow;
-
-                #endregion
-            }
-
-            /*************************************************************/
-            /// <inheritdoc/>
-            public override System.Threading.ITimer CreateTimer(
-                System.Threading.TimerCallback callback,
-                object? state,
-                TimeSpan dueTime,
-                TimeSpan period)
-            {
-                #region implementation
-
-                var timer = new ManualTimer(callback, state);
-                _timers.Add(timer);
-                return timer;
-
-                #endregion
-            }
-
-            /*************************************************************/
-            /// <summary>
-            /// Advances the manual UTC clock.
-            /// </summary>
-            /// <param name="duration">Duration to add to the current UTC time.</param>
-            public void Advance(TimeSpan duration)
-            {
-                #region implementation
-
-                _utcNow = _utcNow.Add(duration);
-
-                #endregion
-            }
-
-            /*************************************************************/
-            /// <summary>
-            /// Fires all active manual timers once.
-            /// </summary>
-            public void FireTimers()
-            {
-                #region implementation
-
-                foreach (var timer in _timers.ToArray())
-                {
-                    timer.Fire();
-                }
-
-                #endregion
-            }
-
-            /*************************************************************/
-            /// <summary>
-            /// In-memory timer controlled by <see cref="ManualTimeProvider"/>.
-            /// </summary>
-            private sealed class ManualTimer : System.Threading.ITimer
-            {
-                private readonly System.Threading.TimerCallback _callback;
-                private readonly object? _state;
-                private bool _disposed;
-
-                /*************************************************************/
-                /// <summary>
-                /// Initializes a new instance of the <see cref="ManualTimer"/> class.
-                /// </summary>
-                public ManualTimer(System.Threading.TimerCallback callback, object? state)
-                {
-                    #region implementation
-
-                    _callback = callback ?? throw new ArgumentNullException(nameof(callback));
-                    _state = state;
-
-                    #endregion
-                }
-
-                /*************************************************************/
-                /// <inheritdoc/>
-                public bool Change(TimeSpan dueTime, TimeSpan period)
-                {
-                    #region implementation
-
-                    return !_disposed;
-
-                    #endregion
-                }
-
-                /*************************************************************/
-                /// <inheritdoc/>
-                public void Dispose()
-                {
-                    #region implementation
-
-                    _disposed = true;
-
-                    #endregion
-                }
-
-                /*************************************************************/
-                /// <inheritdoc/>
-                public ValueTask DisposeAsync()
-                {
-                    #region implementation
-
-                    Dispose();
-                    return ValueTask.CompletedTask;
-
-                    #endregion
-                }
-
-                /*************************************************************/
-                /// <summary>
-                /// Invokes the timer callback if the timer is active.
-                /// </summary>
-                public void Fire()
-                {
-                    #region implementation
-
-                    if (!_disposed)
-                    {
-                        _callback(_state);
-                    }
-
-                    #endregion
-                }
-            }
 
             #endregion
         }
@@ -506,7 +346,7 @@ namespace MedRecPro.Service.Test
 
             // Use a very short stale timeout — we need entries to be "old"
             // Override to use seconds-based staleness for testing
-            var timeProvider = new ManualTimeProvider();
+            var timeProvider = new FakeTimeProvider();
             using var service = CreateService(settings, timeProvider);
             service.RecordHit("192.168.1.1");
             service.RecordHit("192.168.1.2");
@@ -520,7 +360,6 @@ namespace MedRecPro.Service.Test
             // Instead, we verify the entries exist and then wait for timer
             // For practical testing, we'll use a short delay and check
             timeProvider.Advance(TimeSpan.FromMinutes(2));
-            timeProvider.FireTimers();
 
             // The timer fires at 1 minute intervals which is too long for unit tests.
             // Instead, verify that TrackedIpCount reflects the entries are present.
@@ -553,12 +392,11 @@ namespace MedRecPro.Service.Test
                 ResetOnSuccess = true
             };
 
-            var timeProvider = new ManualTimeProvider();
+            var timeProvider = new FakeTimeProvider();
             using var service = CreateService(settings, timeProvider);
             service.RecordHit("192.168.1.1");
             service.RecordHit("192.168.1.2");
             service.RecordHit("192.168.1.3");
-            timeProvider.FireTimers();
 
             // Assert — entries should survive because stale timeout is 60 minutes
             Assert.AreEqual(3, service.TrackedIpCount,
@@ -592,7 +430,7 @@ namespace MedRecPro.Service.Test
                 ResetOnSuccess = true
             };
 
-            var timeProvider = new ManualTimeProvider();
+            var timeProvider = new FakeTimeProvider();
             using var service = CreateService(settings, timeProvider);
 
             // Act — add entries with slight delays to ensure ordering
@@ -725,7 +563,7 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 1 // 1-second window
             };
 
-            var timeProvider = new ManualTimeProvider();
+            var timeProvider = new FakeTimeProvider();
             using var service = CreateService(settings, timeProvider);
 
             // Act — record hits, wait for window to expire, then record again
@@ -831,7 +669,7 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 1
             };
 
-            var timeProvider = new ManualTimeProvider();
+            var timeProvider = new FakeTimeProvider();
             using var service = CreateService(settings, timeProvider);
             service.RecordEndpointHit("192.168.1.1", "/api/");
 
@@ -869,7 +707,7 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 300
             };
 
-            var timeProvider = new ManualTimeProvider();
+            var timeProvider = new FakeTimeProvider();
             using var service = CreateService(settings, timeProvider);
             var policy = CreateEndpointPolicy(windowSeconds: 1);
 

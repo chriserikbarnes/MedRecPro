@@ -121,6 +121,8 @@ public sealed class MedRecProWebApplicationFactory : WebApplicationFactory<Progr
             removeHostedService<DemoModeService>(services);
             removeHostedService<DatabaseKeepAliveService>(services);
             removeHostedService<DatabaseUsageMonitorService>(services);
+            // Activity persistence is covered by focused dispatcher tests, not shared HTTP-host execution.
+            removeHostedService<ActivityLogDispatcherHostedService>(services);
 
             replaceWithSqlite<ApplicationDbContext>(services, applicationDatabaseConnection);
             replaceWithSqlite<ImportApplicationDbContext>(services, importDatabaseConnection);

@@ -1352,6 +1352,16 @@ namespace MedRecProImportClass.Service.TransformationServices
                 ["Liver Function Tests Abnormal"] = "Liver function test abnormal",
             };
 
+        /**************************************************************/
+        /// <summary>
+        /// Gets the immutable parameter-name normalization policy for internal validation.
+        /// </summary>
+        /// <remarks>
+        /// The friend test assembly uses this read-only view to validate map
+        /// invariants without reflecting over private implementation fields.
+        /// </remarks>
+        internal static IReadOnlyDictionary<string, string> NormalizationMap => _parameterNameCanonicalMap;
+
         #endregion Static Dictionary
 
         #region IAeParameterCategoryDictionaryService Implementation

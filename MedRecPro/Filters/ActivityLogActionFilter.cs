@@ -37,7 +37,7 @@ namespace MedRecPro.Filters
     {
         #region Fields
 
-        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly IActivityLogDispatcher _activityLogDispatcher;
         private readonly IUserContextAccessor _userContextAccessor;
         private readonly TimeProvider _timeProvider;
         private readonly ILogger<ActivityLogActionFilter> _logger;
@@ -50,7 +50,7 @@ namespace MedRecPro.Filters
         /// <summary>
         /// Initializes a new instance of the ActivityLogActionFilter class with injectable user and time seams.
         /// </summary>
-        /// <param name="serviceScopeFactory">Factory for creating service scopes for background logging.</param>
+        /// <param name="activityLogDispatcher">Dispatcher that persists the completed request log.</param>
         /// <param name="userContextAccessor">Accessor for the current request user.</param>
         /// <param name="timeProvider">Clock used when stamping activity log entries.</param>
         /// <param name="logger">Logger for filter-level events and errors.</param>
@@ -61,13 +61,13 @@ namespace MedRecPro.Filters
         /// <seealso cref="IUserContextAccessor"/>
         /// <seealso cref="TimeProvider"/>
         public ActivityLogActionFilter(
-            IServiceScopeFactory serviceScopeFactory,
+            IActivityLogDispatcher activityLogDispatcher,
             IUserContextAccessor userContextAccessor,
             TimeProvider timeProvider,
             ILogger<ActivityLogActionFilter> logger)
         {
             #region Implementation
-            _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+            _activityLogDispatcher = activityLogDispatcher ?? throw new ArgumentNullException(nameof(activityLogDispatcher));
             _userContextAccessor = userContextAccessor ?? throw new ArgumentNullException(nameof(userContextAccessor));
             _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -88,8 +88,8 @@ namespace MedRecPro.Filters
         /// <remarks>
         /// Measures execution time using Stopwatch, captures request/response details,
         /// and handles both successful executions and exceptions. Logging is performed
-        /// asynchronously via fire-and-forget with a new DI scope to prevent disposed
-        /// context issues.
+        /// asynchronously through an injected dispatcher that owns the independent
+        /// queue and persistence scope required after request execution.
         /// </remarks>
         /// <seealso cref="ActivityLog"/>
         public async Task OnActionExecutionAsync(
@@ -146,26 +146,9 @@ namespace MedRecPro.Filters
             // Set description
             log.Description = $"{log.HttpMethod} {log.ControllerName}/{log.ActionName}";
 
-            // Log asynchronously with a new scope (fire and forget)
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    // Create a new scope to get fresh service instances
-                    // This prevents disposed DbContext issues
-                    using (var scope = _serviceScopeFactory.CreateScope())
-                    {
-                        var activityLogService = scope.ServiceProvider
-                            .GetRequiredService<IActivityLogService>();
-
-                        await activityLogService.LogActivityAsync(log);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to persist activity log asynchronously");
-                }
-            });
+            // Dispatch without extending the originating request. The production
+            // dispatcher owns a fresh scope; tests can substitute an immediate dispatcher.
+            _activityLogDispatcher.Dispatch(log);
             #endregion
         }
 

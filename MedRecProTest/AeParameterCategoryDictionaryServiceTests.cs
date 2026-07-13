@@ -784,18 +784,12 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Reflection helper: expose the private static <c>_parameterNameCanonicalMap</c>
-        /// so integrity tests can iterate every (variant, canonical) pair.
+        /// Returns the internal normalization policy so integrity tests can
+        /// iterate every (variant, canonical) pair without reflection.
         /// </summary>
         private static IReadOnlyDictionary<string, string> getNormalizationMap()
         {
-            var field = typeof(AeParameterCategoryDictionaryService)
-                .GetField("_parameterNameCanonicalMap",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            Assert.IsNotNull(field, "_parameterNameCanonicalMap field not found via reflection");
-            var value = field!.GetValue(null) as IReadOnlyDictionary<string, string>;
-            Assert.IsNotNull(value, "_parameterNameCanonicalMap field is not a dictionary");
-            return value!;
+            return AeParameterCategoryDictionaryService.NormalizationMap;
         }
 
         /**************************************************************/

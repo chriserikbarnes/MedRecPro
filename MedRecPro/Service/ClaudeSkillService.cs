@@ -630,7 +630,7 @@ namespace MedRecPro.Service
             }
 
             // Map AI skill names to internal skill names
-            List<string>? mappedSkills = mapAiSkillNamesToInternal(aiResult.SelectedSkills);
+            List<string>? mappedSkills = ClaudeSkillNameMapper.Map(aiResult.SelectedSkills);
 
             _logger.LogInformation("[AI SKILL SELECTION] Selected skills: [{Skills}]",
                 string.Join(", ", mappedSkills));
@@ -643,70 +643,6 @@ namespace MedRecPro.Service
                 DirectResponse = aiResult.DirectResponse,
                 Explanation = aiResult.Explanation ?? $"AI selected {mappedSkills.Count} skill(s)."
             };
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Maps AI-selected skill names from selectors.md to internal skill configuration keys.
-        /// </summary>
-        /// <param name="aiSkillNames">Skill names as returned by AI selection.</param>
-        /// <returns>Mapped skill names compatible with internal skill loading.</returns>
-        /// <remarks>
-        /// The selectors.md uses skill names like "indicationDiscovery" and "labelContent",
-        /// while the internal configuration uses keys like "labelIndicationWorkflow" and "label".
-        /// This method performs the necessary mapping.
-        /// </remarks>
-        private List<string> mapAiSkillNamesToInternal(List<string> aiSkillNames)
-        {
-            #region implementation
-
-            // Mapping from selectors.md skill names to internal config keys
-            var skillNameMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                { "indicationDiscovery", "labelIndicationWorkflow" },
-                { "labelContent", "label" },
-                { "inventorySummary", "label" },  // Maps to label interface which contains inventory summary section
-                { "equianalgesicConversion", "equianalgesicConversion" },
-                { "userActivity", "userActivity" },
-                { "cacheManagement", "settings" },
-                { "sessionManagement", "sessionManagement" },
-                { "dataRescue", "rescueWorkflow" },
-                { "retryFallback", "retry" },
-                { "pharmacologicClass", "pharmacologicClassSearch" },
-                { "pharmacologicClassSearch", "pharmacologicClassSearch" },
-                { "orangeBookPatents", "orangeBookPatents" }
-            };
-
-            var mappedSkills = new List<string>();
-
-            foreach (var aiName in aiSkillNames)
-            {
-                if (skillNameMapping.TryGetValue(aiName, out var internalName))
-                {
-                    if (!mappedSkills.Contains(internalName))
-                    {
-                        mappedSkills.Add(internalName);
-                    }
-                }
-                else
-                {
-                    // If no mapping found, use as-is (might be a direct match)
-                    if (!mappedSkills.Contains(aiName))
-                    {
-                        mappedSkills.Add(aiName);
-                    }
-                }
-            }
-
-            // Ensure at least one skill is selected
-            if (mappedSkills.Count == 0)
-            {
-                mappedSkills.Add("label");
-            }
-
-            return mappedSkills;
 
             #endregion
         }

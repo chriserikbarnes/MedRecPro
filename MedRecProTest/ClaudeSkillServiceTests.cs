@@ -922,16 +922,10 @@ namespace MedRecPro.Service.Test
             #region implementation
 
             // Arrange — Use reflection to invoke the private method
-            var method = typeof(ClaudeSkillService).GetMethod(
-                "mapAiSkillNamesToInternal",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-
-            Assert.IsNotNull(method, "mapAiSkillNamesToInternal method not found via reflection.");
-
             var aiNames = new List<string> { "orangeBookPatents" };
 
             // Act
-            var result = (List<string>)method.Invoke(_sut, new object[] { aiNames })!;
+            var result = ClaudeSkillNameMapper.Map(aiNames);
 
             // Assert
             Assert.IsTrue(
@@ -956,13 +950,8 @@ namespace MedRecPro.Service.Test
             #region implementation
 
             // Arrange
-            var method = typeof(ClaudeSkillService).GetMethod(
-                "mapAiSkillNamesToInternal",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            Assert.IsNotNull(method);
-
             // Act
-            var result = (List<string>)method.Invoke(_sut, new object[] { new List<string>() })!;
+            var result = ClaudeSkillNameMapper.Map(new List<string>());
 
             // Assert — empty input should produce ["label"] as default
             Assert.IsTrue(result.Count >= 1,
@@ -984,15 +973,10 @@ namespace MedRecPro.Service.Test
             #region implementation
 
             // Arrange — "labelContent" and "inventorySummary" both map to "label"
-            var method = typeof(ClaudeSkillService).GetMethod(
-                "mapAiSkillNamesToInternal",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            Assert.IsNotNull(method);
-
             var aiNames = new List<string> { "labelContent", "inventorySummary" };
 
             // Act
-            var result = (List<string>)method.Invoke(_sut, new object[] { aiNames })!;
+            var result = ClaudeSkillNameMapper.Map(aiNames);
 
             // Assert — both map to "label", should appear only once
             var labelCount = result.Count(s => s == "label");
@@ -1012,15 +996,10 @@ namespace MedRecPro.Service.Test
             #region implementation
 
             // Arrange
-            var method = typeof(ClaudeSkillService).GetMethod(
-                "mapAiSkillNamesToInternal",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            Assert.IsNotNull(method);
-
             var aiNames = new List<string> { "someUnknownSkill" };
 
             // Act
-            var result = (List<string>)method.Invoke(_sut, new object[] { aiNames })!;
+            var result = ClaudeSkillNameMapper.Map(aiNames);
 
             // Assert — unknown names pass through as-is
             CollectionAssert.Contains(result, "someUnknownSkill",
@@ -1077,12 +1056,6 @@ namespace MedRecPro.Service.Test
             #region implementation
 
             // Arrange — Get the AI-to-internal mapping dictionary via reflection
-            var method = typeof(ClaudeSkillService).GetMethod(
-                "mapAiSkillNamesToInternal",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-
-            Assert.IsNotNull(method, "mapAiSkillNamesToInternal method not found via reflection.");
-
             var availableSkills = await _sut.GetAvailableSkillsAsync();
 
             // Known AI skill names from selectors.md
@@ -1104,7 +1077,7 @@ namespace MedRecPro.Service.Test
             // Act & Assert — Each AI name should map to an internal name that exists
             foreach (var aiName in aiSkillNames)
             {
-                var mapped = (List<string>)method.Invoke(_sut, new object[] { new List<string> { aiName } })!;
+                var mapped = ClaudeSkillNameMapper.Map(new List<string> { aiName });
 
                 Assert.IsTrue(
                     mapped.Count > 0,

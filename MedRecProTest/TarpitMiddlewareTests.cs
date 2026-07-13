@@ -4,6 +4,7 @@ using MedRecPro.Service;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using System.Net;
@@ -81,13 +82,15 @@ namespace MedRecPro.Service.Test
         /// <summary>
         /// Creates a TarpitService instance for use in middleware tests.
         /// </summary>
-        private static TarpitService CreateTarpitService(TarpitSettings? settings = null)
+        private static TarpitService CreateTarpitService(
+            TarpitSettings? settings = null,
+            TimeProvider? timeProvider = null)
         {
             #region implementation
 
             var monitor = CreateSettingsMonitor(settings);
             var logger = new Mock<ILogger<TarpitService>>();
-            return new TarpitService(monitor, logger.Object);
+            return new TarpitService(monitor, logger.Object, timeProvider ?? TimeProvider.System);
 
             #endregion
         }
@@ -99,13 +102,19 @@ namespace MedRecPro.Service.Test
         private static TarpitMiddleware CreateMiddleware(
             RequestDelegate next,
             TarpitService tarpitService,
-            TarpitSettings? settings = null)
+            TarpitSettings? settings = null,
+            TimeProvider? timeProvider = null)
         {
             #region implementation
 
             var monitor = CreateSettingsMonitor(settings);
             var logger = new Mock<ILogger<TarpitMiddleware>>();
-            return new TarpitMiddleware(next, tarpitService, monitor, logger.Object);
+            return new TarpitMiddleware(
+                next,
+                tarpitService,
+                monitor,
+                logger.Object,
+                timeProvider ?? TimeProvider.System);
 
             #endregion
         }
@@ -190,8 +199,9 @@ namespace MedRecPro.Service.Test
 
             // Arrange
             var settings = new TarpitSettings { Enabled = false, CleanupIntervalMinutes = 60 };
-            using var tarpitService = CreateTarpitService(settings);
-            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService, settings);
+            var timeProvider = new FakeTimeProvider();
+            using var tarpitService = CreateTarpitService(settings, timeProvider);
+            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService, settings, timeProvider);
             var context = CreateHttpContext();
 
             // Act
@@ -251,15 +261,13 @@ namespace MedRecPro.Service.Test
             var context = CreateHttpContext();
 
             // Act
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            await middleware.InvokeAsync(context);
-            sw.Stop();
+            var invocation = middleware.InvokeAsync(context);
+            Assert.IsTrue(invocation.IsCompleted, "The first request has no prior abuse history to delay.");
+            await invocation;
 
             // Assert
             Assert.AreEqual(1, tarpitService.GetHitCount("127.0.0.1"),
                 "First 404 should record 1 hit");
-            Assert.IsTrue(sw.ElapsedMilliseconds < 500,
-                $"First 404 should not delay (took {sw.ElapsedMilliseconds}ms)");
 
             #endregion
         }
@@ -296,9 +304,7 @@ namespace MedRecPro.Service.Test
         /// Verifies that at the trigger threshold, a delay is applied.
         /// </summary>
         /// <remarks>
-        /// Validates by checking the service state (hit count at threshold)
-        /// and verifying the delay calculation returns a non-zero value.
-        /// Actual Task.Delay timing is not precisely testable in unit tests.
+        /// Advances a fake clock through the request that follows the recorded threshold.
         /// </remarks>
         [TestMethod]
         public async Task InvokeAsync_404AtThreshold_AppliesDelay()
@@ -317,8 +323,9 @@ namespace MedRecPro.Service.Test
                 ResetOnSuccess = true
             };
 
-            using var tarpitService = CreateTarpitService(settings);
-            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService, settings);
+            var timeProvider = new FakeTimeProvider();
+            using var tarpitService = CreateTarpitService(settings, timeProvider);
+            var middleware = CreateMiddleware(CreateNextDelegate(404), tarpitService, settings, timeProvider);
 
             // Act — hit threshold (3) times
             for (int i = 0; i < 3; i++)
@@ -327,11 +334,13 @@ namespace MedRecPro.Service.Test
                 await middleware.InvokeAsync(context);
             }
 
+            var delayedRequest = middleware.InvokeAsync(CreateHttpContext());
+            Assert.IsFalse(delayedRequest.IsCompleted, "The request after the threshold should wait.");
+            timeProvider.Advance(TimeSpan.FromMilliseconds(100));
+            await delayedRequest;
+
             // Assert
-            Assert.AreEqual(3, tarpitService.GetHitCount("127.0.0.1"),
-                "Should have 3 hits at threshold");
-            Assert.IsTrue(tarpitService.CalculateDelay(3) > 0,
-                "Delay at threshold should be > 0");
+            Assert.AreEqual(4, tarpitService.GetHitCount("127.0.0.1"));
 
             #endregion
         }
@@ -684,22 +693,21 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 60
             };
 
-            using var tarpitService = CreateTarpitService(settings);
-            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings);
+            var timeProvider = new FakeTimeProvider();
+            using var tarpitService = CreateTarpitService(settings, timeProvider);
+            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings, timeProvider);
 
             // Act — hit 5 times (below endpoint threshold of 10)
-            var sw = System.Diagnostics.Stopwatch.StartNew();
             for (int i = 0; i < 5; i++)
             {
-                await middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/api/data"));
+                var invocation = middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/api/data"));
+                Assert.IsTrue(invocation.IsCompleted, "Below-threshold requests should not delay.");
+                await invocation;
             }
-            sw.Stop();
 
             // Assert — no delay should be applied
             Assert.AreEqual(5, tarpitService.GetEndpointHitCount("127.0.0.1", "/api/"),
                 "Should have 5 endpoint hits");
-            Assert.IsTrue(sw.ElapsedMilliseconds < 500,
-                $"Below threshold — should not delay (took {sw.ElapsedMilliseconds}ms)");
 
             #endregion
         }
@@ -728,8 +736,9 @@ namespace MedRecPro.Service.Test
                 EndpointWindowSeconds = 60
             };
 
-            using var tarpitService = CreateTarpitService(settings);
-            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings);
+            var timeProvider = new FakeTimeProvider();
+            using var tarpitService = CreateTarpitService(settings, timeProvider);
+            var middleware = CreateMiddleware(CreateNextDelegate(200), tarpitService, settings, timeProvider);
 
             // Act — hit threshold (3) times
             for (int i = 0; i < 3; i++)
@@ -737,11 +746,13 @@ namespace MedRecPro.Service.Test
                 await middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/api/data"));
             }
 
+            var delayedRequest = middleware.InvokeAsync(CreateHttpContext("127.0.0.1", "/api/data"));
+            Assert.IsFalse(delayedRequest.IsCompleted, "The request after the endpoint threshold should wait.");
+            timeProvider.Advance(TimeSpan.FromMilliseconds(100));
+            await delayedRequest;
+
             // Assert
-            Assert.AreEqual(3, tarpitService.GetEndpointHitCount("127.0.0.1", "/api/"),
-                "Should have 3 endpoint hits at threshold");
-            Assert.IsTrue(tarpitService.CalculateEndpointDelay(3) > 0,
-                "Delay at endpoint threshold should be > 0");
+            Assert.AreEqual(4, tarpitService.GetEndpointHitCount("127.0.0.1", "/api/"));
 
             #endregion
         }

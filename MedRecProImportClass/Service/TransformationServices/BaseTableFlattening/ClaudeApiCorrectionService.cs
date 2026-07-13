@@ -124,20 +124,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Set of field names that the AI is allowed to correct.
-        /// Corrections targeting other fields are silently ignored.
-        /// Derived from the correctable-field list in the table-parser-data-dictionary skill.
-        /// </summary>
-        private static readonly HashSet<string> CorrectableFields = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "ParameterName", "PrimaryValueType", "SecondaryValueType",
-            "TreatmentArm", "DoseRegimen", "Dose", "DoseUnit", "Population", "Subpopulation", "Unit",
-            "ParameterCategory", "ParameterSubtype", "Timepoint", "TimeUnit",
-            "StudyContext", "BoundType"
-        };
-
-        /**************************************************************/
-        /// <summary>
         /// Regex used to recognize simple numeric source cells under percent headers.
         /// </summary>
         private static readonly Regex SimpleNumericCellPattern = new(
@@ -346,7 +332,7 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             ensureSkillFilesLoaded();
 
-            var payload = buildCompactPayload(observations);
+            var payload = ClaudeCorrectionPayloadBuilder.Build(observations);
 
             // Build structured context header so Claude can apply the right per-category
             // rules without reading each observation's TableCategory field individually.
@@ -491,57 +477,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
         /**************************************************************/
         /// <summary>
-        /// Builds a compact JSON payload containing only correction-relevant fields
-        /// to minimize token usage. Includes bounds, timepoint, and study context
-        /// fields so Claude can apply BoundType inference and timepoint triage rules.
-        /// </summary>
-        /// <param name="observations">Observations to serialize.</param>
-        /// <returns>JSON string of trimmed observation data.</returns>
-        private static string buildCompactPayload(List<ParsedObservation> observations)
-        {
-            #region implementation
-
-            // Include all fields the system prompt references for correction decisions.
-            // Omit large provenance fields (DocumentGUID, LabelerName, etc.) to save tokens.
-            var compact = observations.Select(o => new
-            {
-                o.SourceRowSeq,
-                o.SourceCellSeq,
-                o.ParameterName,
-                o.ParameterCategory,
-                o.ParameterSubtype,
-                o.TreatmentArm,
-                o.ArmN,
-                o.StudyContext,
-                o.DoseRegimen,
-                o.Dose,
-                o.DoseUnit,
-                o.Population,
-                o.Subpopulation,
-                o.Timepoint,
-                o.TimeUnit,
-                o.RawValue,
-                o.PrimaryValue,
-                o.PrimaryValueType,
-                o.SecondaryValue,
-                o.SecondaryValueType,
-                o.LowerBound,
-                o.UpperBound,
-                o.BoundType,
-                o.Unit,
-                o.TableCategory,
-                o.ParseConfidence,
-                o.ParseRule,
-                o.Caption
-            });
-
-            return JsonConvert.SerializeObject(compact, Formatting.None);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// Applies validated corrections to in-memory observations and returns the count
         /// of accepted field mutations.
         /// </summary>
@@ -561,7 +496,7 @@ namespace MedRecProImportClass.Service.TransformationServices
             foreach (var correction in corrections.OrderBy(c =>
                          string.Equals(c.Field, "Unit", StringComparison.OrdinalIgnoreCase) ? 1 : 0))
             {
-                if (!CorrectableFields.Contains(correction.Field ?? string.Empty))
+                if (!ClaudeCorrectionPayloadBuilder.CorrectableFields.Contains(correction.Field ?? string.Empty))
                 {
                     _logger.LogDebug("Ignoring correction for non-correctable field: {Field}", correction.Field);
                     continue;
@@ -593,7 +528,7 @@ namespace MedRecProImportClass.Service.TransformationServices
                     continue;
                 }
 
-                if (setFieldValue(target, field, proposedValue))
+                if (ClaudeCorrectionPayloadBuilder.TrySetField(target, field, proposedValue))
                 {
                     appendFlag(target, $"AI_CORRECTED:{field}");
 
@@ -738,26 +673,6 @@ namespace MedRecProImportClass.Service.TransformationServices
 
             #endregion
         }
-        /**************************************************************/
-        /// <summary>
-        /// Sets a string field on a ParsedObservation by field name.
-        /// Returns true if the field was set, false if the field name is unrecognized.
-        /// All fields listed in <see cref="CorrectableFields"/> must have a case here.
-        /// </summary>
-        /// <param name="obs">Target observation.</param>
-        /// <param name="fieldName">Field to set (case-insensitive).</param>
-        /// <param name="value">New value (null clears the field).</param>
-        /// <returns>True if set successfully.</returns>
-        /// <seealso cref="CorrectableFields"/>
-        private static bool setFieldValue(ParsedObservation obs, string fieldName, string? value)
-        {
-            #region implementation
-
-            return ParsedObservationFieldAccess.SetFromString(obs, fieldName, value);
-
-            #endregion
-        }
-
         /**************************************************************/
         /// <summary>
         /// Determines whether an observation's parse-quality score is below the configured

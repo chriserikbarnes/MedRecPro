@@ -19,11 +19,9 @@ namespace MedRecPro.Service.Test
     /// contract of the fire-and-forget persistence path.
     /// </summary>
     /// <remarks>
-    /// The filter persists through <see cref="IServiceScopeFactory"/> inside an
-    /// unawaited <c>Task.Run</c>. Tests synchronize deterministically by having
-    /// the mocked <see cref="IActivityLogService"/> complete a
-    /// <see cref="TaskCompletionSource{TResult}"/> that the test awaits with a
-    /// timeout, so no sleeps or polling are involved.
+    /// The filter depends on an injected <see cref="IActivityLogDispatcher"/>.
+    /// These tests use a synchronous dispatcher, so persistence assertions are
+    /// immediate and require neither polling nor wall-clock timeouts.
     /// </remarks>
     /// <seealso cref="ActivityLogActionFilter"/>
     /// <seealso cref="IActivityLogService"/>
@@ -65,7 +63,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             await harness.Filter.OnActionExecutionAsync(executingContext, next.Delegate);
-            var log = await harness.WaitForLogAsync();
+            var log = harness.LastLog;
 
             // Assert - action always executes; log captures the request shape.
             Assert.AreEqual(1, next.InvocationCount);
@@ -114,7 +112,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             await harness.Filter.OnActionExecutionAsync(executingContext, next.Delegate);
-            var log = await harness.WaitForLogAsync();
+            var log = harness.LastLog;
 
             // Assert
             Assert.AreEqual("Error", log.Result);
@@ -143,7 +141,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             await harness.Filter.OnActionExecutionAsync(executingContext, next.Delegate);
-            var log = await harness.WaitForLogAsync();
+            var log = harness.LastLog;
 
             // Assert
             Assert.IsNull(log.UserId, "Anonymous principals have no user-ID claim to record.");
@@ -171,7 +169,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             await harness.Filter.OnActionExecutionAsync(executingContext, next.Delegate);
-            var log = await harness.WaitForLogAsync();
+            var log = harness.LastLog;
 
             // Assert
             Assert.AreEqual("Login", log.ActivityType);
@@ -203,7 +201,7 @@ namespace MedRecPro.Service.Test
 
             // Act
             await harness.Filter.OnActionExecutionAsync(executingContext, next.Delegate);
-            var log = await harness.WaitForLogAsync();
+            var log = harness.LastLog;
 
             // Assert
             Assert.AreEqual("[All parameters filtered - sensitive data]", log.RequestParameters);
@@ -216,67 +214,56 @@ namespace MedRecPro.Service.Test
         /// completes, the action runs, and the filter only logs the error.
         /// </summary>
         /// <remarks>
-        /// The scope factory throws inside the fire-and-forget task; the mocked
-        /// logger's Error-level call is the deterministic completion signal.
+        /// The production dispatcher catches persistence failures before its
+        /// completed task returns, so the error-log assertion is immediate.
         /// </remarks>
         /// <seealso cref="ActivityLogActionFilter.OnActionExecutionAsync"/>
         [TestMethod]
         public async Task ActivityLogActionFilter_OnActionExecutionAsync_PersistenceFailure_SwallowsAndLogsError()
         {
             #region implementation
-            // Arrange - CreateScope throws inside Task.Run.
-            var errorLogged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Arrange - the production dispatcher catches a scope failure.
             var scopeFactory = new Mock<IServiceScopeFactory>();
             scopeFactory.Setup(f => f.CreateScope())
                 .Throws(new InvalidOperationException("scope resolution failed"));
 
-            var logger = new Mock<ILogger<ActivityLogActionFilter>>();
-            logger.Setup(l => l.Log(
-                    LogLevel.Error,
-                    It.IsAny<EventId>(),
-                    It.Is<It.IsAnyType>((state, type) => true),
-                    It.IsAny<Exception?>(),
-                    (Func<It.IsAnyType, Exception?, string>)It.IsAny<object>()))
-                .Callback(() => errorLogged.TrySetResult(true));
+            var dispatcherLogger = new RecordingLogger<ActivityLogDispatcher>();
+
+            var dispatcher = new ActivityLogDispatcher(scopeFactory.Object, dispatcherLogger);
 
             var filter = new ActivityLogActionFilter(
-                scopeFactory.Object,
+                dispatcher,
                 new TestUserContextAccessor(),
                 TimeProvider.System,
-                logger.Object);
+                new Mock<ILogger<ActivityLogActionFilter>>().Object);
 
             var actionContext = FilterContextTestHelper.CreateActionContext(
                 FilterContextTestHelper.CreateAnonymousHttpContext());
             var executingContext = FilterContextTestHelper.CreateActionExecutingContext(actionContext);
             var next = FilterContextTestHelper.CreateRecordingNext(actionContext);
 
-            // Act - must not throw despite the broken persistence path.
+            // Act - queueing must not throw despite the broken persistence path.
             await filter.OnActionExecutionAsync(executingContext, next.Delegate);
+            await dispatcher.persistAsync(new ActivityLog());
 
             // Assert - action ran and the failure surfaced only as LogError.
             Assert.AreEqual(1, next.InvocationCount);
-            var completed = await Task.WhenAny(errorLogged.Task, Task.Delay(TimeSpan.FromSeconds(5)));
-            Assert.AreSame(errorLogged.Task, completed, "Expected the swallowed failure to be logged at Error level.");
+            Assert.IsTrue(dispatcherLogger.LogLevels.Contains(LogLevel.Error));
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Bundles the mocked scope-factory chain, the capturing activity-log
-        /// service, and the filter under test.
+        /// Bundles an immediate activity-log dispatcher and the filter under test.
         /// </summary>
         /// <remarks>
-        /// The mocked <see cref="IActivityLogService"/> completes
-        /// <see cref="WaitForLogAsync"/> when the fire-and-forget task inside
-        /// the filter persists the log.
+        /// Its dispatcher captures the log synchronously, letting assertions
+        /// follow the filter invocation directly.
         /// </remarks>
         /// <seealso cref="ActivityLogActionFilter"/>
         private sealed class ActivityLogHarness
         {
             #region implementation
-
-            private readonly TaskCompletionSource<ActivityLog> _logSaved =
-                new(TaskCreationOptions.RunContinuationsAsynchronously);
 
             /**************************************************************/
             /// <summary>
@@ -286,50 +273,98 @@ namespace MedRecPro.Service.Test
 
             /**************************************************************/
             /// <summary>
+            /// Gets the log synchronously dispatched by the filter.
+            /// </summary>
+            public ActivityLog LastLog { get; private set; } = null!;
+
+            /**************************************************************/
+            /// <summary>
             /// Initializes the mocked service-scope chain and the filter.
             /// </summary>
             public ActivityLogHarness()
             {
                 #region implementation
-                var activityLogService = new Mock<IActivityLogService>();
-                activityLogService
-                    .Setup(s => s.LogActivityAsync(It.IsAny<ActivityLog>()))
-                    .Returns(Task.CompletedTask)
-                    .Callback<ActivityLog>(log => _logSaved.TrySetResult(log));
-
-                var serviceProvider = new Mock<IServiceProvider>();
-                serviceProvider
-                    .Setup(sp => sp.GetService(typeof(IActivityLogService)))
-                    .Returns(activityLogService.Object);
-
-                var scope = new Mock<IServiceScope>();
-                scope.SetupGet(s => s.ServiceProvider).Returns(serviceProvider.Object);
-
-                var scopeFactory = new Mock<IServiceScopeFactory>();
-                scopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
-
                 Filter = new ActivityLogActionFilter(
-                    scopeFactory.Object,
+                    new ImmediateActivityLogDispatcher(log => LastLog = log),
                     new TestUserContextAccessor(),
                     TimeProvider.System,
                     new Mock<ILogger<ActivityLogActionFilter>>().Object);
                 #endregion
             }
 
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Captures activity logs in the calling thread for deterministic filter tests.
+        /// </summary>
+        /// <seealso cref="IActivityLogDispatcher"/>
+        private sealed class ImmediateActivityLogDispatcher : IActivityLogDispatcher
+        {
+            #region implementation
+
+            private readonly Action<ActivityLog> _capture;
+
             /**************************************************************/
             /// <summary>
-            /// Awaits the activity log captured by the mocked service, failing
-            /// the test if the background persistence never fires.
+            /// Initializes a synchronous dispatcher with its capture callback.
             /// </summary>
-            /// <returns>The persisted <see cref="ActivityLog"/>.</returns>
-            public async Task<ActivityLog> WaitForLogAsync()
+            /// <param name="capture">Callback receiving the dispatched log.</param>
+            public ImmediateActivityLogDispatcher(Action<ActivityLog> capture)
             {
-                #region implementation
-                var completed = await Task.WhenAny(_logSaved.Task, Task.Delay(TimeSpan.FromSeconds(5)));
-                Assert.AreSame(_logSaved.Task, completed, "Timed out waiting for the fire-and-forget activity log save.");
+                _capture = capture ?? throw new ArgumentNullException(nameof(capture));
+            }
 
-                return await _logSaved.Task;
-                #endregion
+            /**************************************************************/
+            /// <inheritdoc/>
+            public void Dispatch(ActivityLog activityLog)
+            {
+                _capture(activityLog);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Records log levels without requiring a dynamic proxy for an internal dispatcher type.
+        /// </summary>
+        /// <typeparam name="T">The category type associated with this logger.</typeparam>
+        private sealed class RecordingLogger<T> : ILogger<T>
+        {
+            #region implementation
+
+            /// <summary>
+            /// Gets the levels recorded by this logger.
+            /// </summary>
+            public List<LogLevel> LogLevels { get; } = new List<LogLevel>();
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull
+            {
+                return null;
+            }
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public bool IsEnabled(LogLevel logLevel)
+            {
+                return true;
+            }
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                LogLevels.Add(logLevel);
             }
 
             #endregion

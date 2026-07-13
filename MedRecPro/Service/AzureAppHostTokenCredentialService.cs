@@ -10,6 +10,47 @@ namespace MedRecPro.Service;
 
 /**************************************************************/
 /// <summary>
+/// Creates the Azure SDK credential used by <see cref="AzureAppTokenProvider"/>.
+/// </summary>
+/// <remarks>
+/// This focused factory isolates <see cref="DefaultAzureCredential"/> construction
+/// from token-provider behavior, allowing deterministic credentials in tests
+/// without changing private state through reflection.
+/// </remarks>
+/// <seealso cref="AzureAppTokenProvider"/>
+internal interface IAzureAppTokenCredentialFactory
+{
+    /**************************************************************/
+    /// <summary>
+    /// Creates a token credential from the configured Azure credential options.
+    /// </summary>
+    /// <param name="options">Options derived from application configuration.</param>
+    /// <returns>The credential used for Azure Management API requests.</returns>
+    TokenCredential Create(DefaultAzureCredentialOptions options);
+}
+
+/**************************************************************/
+/// <summary>
+/// Creates the production <see cref="DefaultAzureCredential"/> implementation.
+/// </summary>
+/// <seealso cref="IAzureAppTokenCredentialFactory"/>
+internal sealed class DefaultAzureAppTokenCredentialFactory : IAzureAppTokenCredentialFactory
+{
+    /**************************************************************/
+    /// <inheritdoc/>
+    public TokenCredential Create(DefaultAzureCredentialOptions options)
+    {
+        #region implementation
+
+        ArgumentNullException.ThrowIfNull(options);
+        return new DefaultAzureCredential(options);
+
+        #endregion
+    }
+}
+
+/**************************************************************/
+/// <summary>
 /// Provides Azure Management API tokens using DefaultAzureCredential for background services.
 /// </summary>
 /// <remarks>
@@ -62,7 +103,33 @@ public class AzureAppTokenProvider
     public AzureAppTokenProvider(
         IConfiguration configuration,
         ILogger<AzureAppTokenProvider>? logger = null)
+        : this(configuration, logger, new DefaultAzureAppTokenCredentialFactory())
     {
+        #region implementation
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Initializes a provider with an explicit Azure credential factory.
+    /// </summary>
+    /// <param name="configuration">Application configuration for optional settings.</param>
+    /// <param name="logger">Logger for credential diagnostics and troubleshooting.</param>
+    /// <param name="credentialFactory">Factory that creates the Azure SDK credential.</param>
+    /// <remarks>
+    /// This internal constructor is available to the friend test assembly so
+    /// behavior tests can inject a deterministic <see cref="TokenCredential"/>.
+    /// The public constructor preserves the existing production credential path.
+    /// </remarks>
+    /// <seealso cref="IAzureAppTokenCredentialFactory"/>
+    internal AzureAppTokenProvider(
+        IConfiguration configuration,
+        ILogger<AzureAppTokenProvider>? logger,
+        IAzureAppTokenCredentialFactory credentialFactory)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(credentialFactory);
+
         _logger = logger;
 
         // Detect runtime environment for logging purposes
@@ -104,7 +171,7 @@ public class AzureAppTokenProvider
             options.TenantId = tenantId;
         }
 
-        _credential = new DefaultAzureCredential(options);
+        _credential = credentialFactory.Create(options);
 
         _logger?.LogInformation(
             "AzureAppTokenProvider initialized. Environment: {Environment}, " +

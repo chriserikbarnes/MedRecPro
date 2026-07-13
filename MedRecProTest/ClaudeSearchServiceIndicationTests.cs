@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
-using System.Reflection;
 
 namespace MedRecPro.Service.Test
 {
@@ -18,9 +17,9 @@ namespace MedRecPro.Service.Test
     /// validation response parsing, and orchestrator edge cases.
     /// </summary>
     /// <remarks>
-    /// Private methods are tested via reflection since they contain significant
-    /// logic that benefits from isolated testing. Public methods are tested
-    /// through the service interface where possible.
+    /// Deterministic indication transformations are tested through the existing
+    /// friend-assembly seam, while orchestration remains covered through the
+    /// public service contract.
     /// </remarks>
     /// <seealso cref="IClaudeSearchService"/>
     [TestClass]
@@ -203,7 +202,7 @@ Amlodipine besylate tablets are indicated for the treatment of coronary artery d
 
         /**************************************************************/
         /// <summary>
-        /// Invokes a private method on the service under test via reflection.
+        /// Invokes an internal indication transformation through the friend-assembly seam.
         /// </summary>
         /// <typeparam name="T">The return type of the method.</typeparam>
         /// <param name="methodName">Name of the private method.</param>
@@ -213,13 +212,20 @@ Amlodipine besylate tablets are indicated for the treatment of coronary artery d
         {
             #region implementation
 
-            var method = typeof(ClaudeSearchService)
-                .GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance);
+            object result = methodName switch
+            {
+                "parseIndicationReferenceFile" => _sut.parseIndicationReferenceFile((string)parameters[0]),
+                "preFilterIndicationsByKeyword" => _sut.preFilterIndicationsByKeyword(
+                    (string)parameters[0],
+                    (List<IndicationReferenceEntry>)parameters[1]),
+                "parseIndicationMatchResponse" => _sut.parseIndicationMatchResponse(
+                    (string)parameters[0],
+                    (List<IndicationReferenceEntry>)parameters[1]),
+                "parseIndicationValidationResponse" => _sut.parseIndicationValidationResponse((string)parameters[0]),
+                _ => throw new ArgumentOutOfRangeException(nameof(methodName), methodName, "Unknown indication transformation.")
+            };
 
-            Assert.IsNotNull(method, $"Method '{methodName}' not found on ClaudeSearchService");
-
-            var result = method.Invoke(_sut, parameters);
-            return (T)result!;
+            return (T)result;
 
             #endregion
         }

@@ -317,6 +317,11 @@ namespace MedRecPro.Configuration
 
             services.AddScoped<IActivityLogService, ActivityLogService>();
 
+            services.AddSingleton<ActivityLogDispatcher>();
+            services.AddSingleton<IActivityLogDispatcher>(serviceProvider =>
+                serviceProvider.GetRequiredService<ActivityLogDispatcher>());
+            services.AddHostedService<ActivityLogDispatcherHostedService>();
+
             services.AddScoped<ActivityLogActionFilter>();
 
             services.AddScoped<IPermissionService, PermissionService>();

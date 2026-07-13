@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -19,8 +20,8 @@ namespace MedRecPro.Service.Test
     /// <remarks>
     /// All throttle state comes from a Moq <see cref="IThrottleStateService"/>,
     /// so no Azure metrics, monitors, or network calls are involved. Delay
-    /// tests use one-millisecond base waits to keep the suite fast while still
-    /// exercising the real <c>Task.Delay</c> path.
+    /// tests advance <see cref="FakeTimeProvider"/> through the production
+    /// delay seam, so no wall-clock waiting is required.
     /// </remarks>
     /// <seealso cref="DatabaseIntensiveAttribute"/>
     /// <seealso cref="DatabaseLimitAttribute"/>
@@ -286,12 +287,17 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange - Warning multiplier is 1, so a 1 ms base wait delays 1 ms.
-            var filter = createDatabaseLimitFilter(ThrottleLevel.Warning, OperationCriticality.Normal, baseWaitMs: 1);
+            var timeProvider = new FakeTimeProvider();
+            var filter = createDatabaseLimitFilter(
+                ThrottleLevel.Warning, OperationCriticality.Normal, baseWaitMs: 1, timeProvider);
             var context = createExecutingContext(out var httpContext);
             var next = FilterContextTestHelper.CreateRecordingNext(context);
 
             // Act
-            await filter.OnActionExecutionAsync(context, next.Delegate);
+            var execution = filter.OnActionExecutionAsync(context, next.Delegate);
+            Assert.IsFalse(execution.IsCompleted, "The throttled action should await the configured delay.");
+            timeProvider.Advance(TimeSpan.FromMilliseconds(1));
+            await execution;
 
             // Assert
             Assert.AreEqual(1, next.InvocationCount, "The filter delays but never blocks.");
@@ -311,12 +317,17 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange
-            var filter = createDatabaseLimitFilter(ThrottleLevel.Aggressive, OperationCriticality.Normal, baseWaitMs: 2);
+            var timeProvider = new FakeTimeProvider();
+            var filter = createDatabaseLimitFilter(
+                ThrottleLevel.Aggressive, OperationCriticality.Normal, baseWaitMs: 2, timeProvider);
             var context = createExecutingContext(out var httpContext);
             var next = FilterContextTestHelper.CreateRecordingNext(context);
 
             // Act
-            await filter.OnActionExecutionAsync(context, next.Delegate);
+            var execution = filter.OnActionExecutionAsync(context, next.Delegate);
+            Assert.IsFalse(execution.IsCompleted, "The throttled action should await the configured delay.");
+            timeProvider.Advance(TimeSpan.FromMilliseconds(8));
+            await execution;
 
             // Assert
             Assert.AreEqual("8", httpContext.Response.Headers["X-Throttle-Delay-Ms"].ToString());
@@ -388,7 +399,7 @@ namespace MedRecPro.Service.Test
             // Act + Assert
             Assert.ThrowsException<ArgumentOutOfRangeException>(() =>
                 new DatabaseLimitFilter(throttleState, NullLogger<DatabaseLimitFilter>.Instance,
-                    OperationCriticality.Normal, baseWaitMs: -1));
+                    OperationCriticality.Normal, baseWaitMs: -1, timeProvider: TimeProvider.System));
             #endregion
         }
 
@@ -409,6 +420,7 @@ namespace MedRecPro.Service.Test
             services.AddSingleton(createThrottleState(level, percentUsed));
             services.AddSingleton<ILogger<ThrottleCheckFilter>>(NullLogger<ThrottleCheckFilter>.Instance);
             services.AddSingleton<ILogger<DatabaseLimitFilter>>(NullLogger<DatabaseLimitFilter>.Instance);
+            services.AddSingleton<TimeProvider>(TimeProvider.System);
 
             return services.BuildServiceProvider();
             #endregion
@@ -464,14 +476,18 @@ namespace MedRecPro.Service.Test
         /// <param name="baseWaitMs">Base wait in milliseconds.</param>
         /// <returns>The configured filter.</returns>
         private static DatabaseLimitFilter createDatabaseLimitFilter(
-            ThrottleLevel level, OperationCriticality criticality, int baseWaitMs)
+            ThrottleLevel level,
+            OperationCriticality criticality,
+            int baseWaitMs,
+            TimeProvider? timeProvider = null)
         {
             #region implementation
             return new DatabaseLimitFilter(
                 createThrottleState(level, 88.0),
                 NullLogger<DatabaseLimitFilter>.Instance,
                 criticality,
-                baseWaitMs);
+                baseWaitMs,
+                timeProvider ?? TimeProvider.System);
             #endregion
         }
 

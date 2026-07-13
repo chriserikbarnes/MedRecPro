@@ -434,25 +434,18 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Clears the process-wide AsyncLocal login-name cache inside Util via
-        /// reflection so GetLoginName tests stay order-independent.
+        /// Clears the process-wide AsyncLocal login-name cache through Util's
+        /// explicit friend-assembly seam so GetLoginName tests stay order-independent.
         /// </summary>
         /// <remarks>
-        /// Util exposes no public reset seam for the cache; reflecting over
-        /// the private static _userName field is the only deterministic reset.
+        /// The internal seam remains invisible to production callers while
+        /// avoiding brittle knowledge of Util's private storage implementation.
         /// </remarks>
         /// <seealso cref="Util.GetLoginName"/>
         private static void clearLoginNameCache()
         {
             #region implementation
-            var field = typeof(Util).GetField("_userName", BindingFlags.NonPublic | BindingFlags.Static);
-
-            Assert.IsNotNull(field, "Util private static field '_userName' was not found; the reset seam has moved.");
-
-            // Null the per-async-flow value so the next GetLoginName call
-            // resolves fresh from the configured HTTP context.
-            var asyncLocal = (AsyncLocal<string>)field!.GetValue(null)!;
-            asyncLocal.Value = null!;
+            Util.resetUserNameForTests();
             #endregion
         }
 

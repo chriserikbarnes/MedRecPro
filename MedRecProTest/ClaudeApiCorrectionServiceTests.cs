@@ -949,12 +949,6 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            // Invoke private static method via reflection
-            var method = typeof(ClaudeApiCorrectionService)
-                .GetMethod("buildCompactPayload",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            Assert.IsNotNull(method, "Expected buildCompactPayload to be a private static method");
-
             var obs = createTestObservation(1, 1, "Headache", "5.2");
             obs.DocumentGUID = Guid.Parse("052493C7-89A3-452E-8140-04DD95F0D9E2");
             obs.LabelerName = "Pfizer Inc";
@@ -962,7 +956,7 @@ namespace MedRecPro.Service.Test
             obs.VersionNumber = 12;
             obs.TextTableID = 42;
 
-            var json = (string)method.Invoke(null, new object[] { new List<ParsedObservation> { obs } })!;
+            var json = ClaudeCorrectionPayloadBuilder.Build(new List<ParsedObservation> { obs });
 
             // Parse as JArray and check keys on the first object
             var arr = JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JArray>(json)!;
@@ -1035,12 +1029,7 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            var fieldsField = typeof(ClaudeApiCorrectionService)
-                .GetField("CorrectableFields",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            Assert.IsNotNull(fieldsField, "Expected CorrectableFields private static field");
-
-            var fields = (HashSet<string>)fieldsField.GetValue(null)!;
+            var fields = ClaudeCorrectionPayloadBuilder.CorrectableFields;
             Assert.IsTrue(fields.Contains("Subpopulation"), "CorrectableFields must contain 'Subpopulation'");
             // Sanity: existing fields untouched.
             Assert.IsTrue(fields.Contains("Population"));
@@ -1059,15 +1048,10 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            var method = typeof(ClaudeApiCorrectionService)
-                .GetMethod("buildCompactPayload",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            Assert.IsNotNull(method, "Expected buildCompactPayload to be a private static method");
-
             var obs = createTestObservation(1, 1, "Dysmenorrhea", "12");
             obs.Subpopulation = "Female Patients Only";
 
-            var json = (string)method.Invoke(null, new object[] { new List<ParsedObservation> { obs } })!;
+            var json = ClaudeCorrectionPayloadBuilder.Build(new List<ParsedObservation> { obs });
 
             var arr = JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JArray>(json)!;
             var first = (Newtonsoft.Json.Linq.JObject)arr[0];
@@ -1088,15 +1072,10 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            var method = typeof(ClaudeApiCorrectionService)
-                .GetMethod("setFieldValue",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            Assert.IsNotNull(method, "Expected setFieldValue to be a private static method");
-
             var obs = createTestObservation(1, 1, "Dysmenorrhea", "12");
             Assert.IsNull(obs.Subpopulation);
 
-            var result = (bool)method.Invoke(null, new object?[] { obs, "Subpopulation", "Female Patients Only" })!;
+            var result = ClaudeCorrectionPayloadBuilder.TrySetField(obs, "Subpopulation", "Female Patients Only");
 
             Assert.IsTrue(result, "setFieldValue must return true for a recognized field");
             Assert.AreEqual("Female Patients Only", obs.Subpopulation);
@@ -1114,15 +1093,10 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            var method = typeof(ClaudeApiCorrectionService)
-                .GetMethod("setFieldValue",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            Assert.IsNotNull(method, "Expected setFieldValue to be a private static method");
-
             var obs = createTestObservation(1, 1, "Headache", "5");
             obs.Dose = null;
 
-            var result = (bool)method.Invoke(null, new object?[] { obs, "dose", "1.25" })!;
+            var result = ClaudeCorrectionPayloadBuilder.TrySetField(obs, "dose", "1.25");
 
             Assert.IsTrue(result, "setFieldValue must return true for a recognized field");
             Assert.AreEqual(1.25m, obs.Dose);
@@ -1140,14 +1114,9 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
 
-            var method = typeof(ClaudeApiCorrectionService)
-                .GetMethod("setFieldValue",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            Assert.IsNotNull(method);
-
             var obs = createTestObservation(1, 1, "Headache", "5");
 
-            var result = (bool)method.Invoke(null, new object?[] { obs, "RawValue", "tampered" })!;
+            var result = ClaudeCorrectionPayloadBuilder.TrySetField(obs, "RawValue", "tampered");
 
             Assert.IsFalse(result, "setFieldValue must return false for fields not in CorrectableFields");
             Assert.AreEqual("5", obs.RawValue, "RawValue must remain unchanged");

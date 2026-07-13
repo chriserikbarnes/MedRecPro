@@ -374,9 +374,9 @@ namespace MedRecPro.Service.Test
             // Assert - the default construction yields a real TokenCredential.
             Assert.IsInstanceOfType(provider.GetCredential(), typeof(TokenCredential));
 
-            // Arrange - after the swap the fake identity is exposed.
+            // Arrange - an injected fake identity is exposed directly.
             var fake = new FakeTokenCredential();
-            swapCredential(provider, fake);
+            provider = createAppTokenProvider(fake);
 
             // Act + Assert
             Assert.AreSame(fake, provider.GetCredential());
@@ -417,9 +417,8 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange
-            var provider = createAppTokenProvider();
             var fake = new FakeTokenCredential();
-            swapCredential(provider, fake);
+            var provider = createAppTokenProvider(fake);
 
             // Act
             var token = await provider.GetAccessTokenAsync();
@@ -442,9 +441,9 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange
-            var provider = withWebsiteSiteName(null, () => createAppTokenProvider());
             var unavailable = new CredentialUnavailableException("no credential source");
-            swapCredential(provider, new FakeTokenCredential { ToThrow = unavailable });
+            var provider = withWebsiteSiteName(null,
+                () => createAppTokenProvider(new FakeTokenCredential { ToThrow = unavailable }));
 
             // Act + Assert
             var exception = await Assert.ThrowsExceptionAsync<AuthenticationFailedException>(
@@ -466,9 +465,8 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange
-            var provider = createAppTokenProvider();
             var failure = new AuthenticationFailedException("direct auth failure");
-            swapCredential(provider, new FakeTokenCredential { ToThrow = failure });
+            var provider = createAppTokenProvider(new FakeTokenCredential { ToThrow = failure });
 
             // Act + Assert
             var exception = await Assert.ThrowsExceptionAsync<AuthenticationFailedException>(
@@ -489,8 +487,7 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange
-            var provider = createAppTokenProvider();
-            swapCredential(provider, new FakeTokenCredential());
+            var provider = createAppTokenProvider(new FakeTokenCredential());
 
             // Act
             var token = await provider.GetAccessTokenWithMetadataAsync();
@@ -500,9 +497,8 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(FixedExpiration, token.ExpiresOn);
 
             // Arrange - failures propagate without wrapping.
-            var failing = createAppTokenProvider();
             var failure = new InvalidOperationException("raw failure");
-            swapCredential(failing, new FakeTokenCredential { ToThrow = failure });
+            var failing = createAppTokenProvider(new FakeTokenCredential { ToThrow = failure });
 
             // Act + Assert
             var thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
@@ -522,8 +518,7 @@ namespace MedRecPro.Service.Test
         {
             #region implementation
             // Arrange - success path.
-            var healthy = withWebsiteSiteName(null, () => createAppTokenProvider());
-            swapCredential(healthy, new FakeTokenCredential());
+            var healthy = withWebsiteSiteName(null, () => createAppTokenProvider(new FakeTokenCredential()));
 
             // Act
             var success = await healthy.TestCredentialAsync();
@@ -534,8 +529,8 @@ namespace MedRecPro.Service.Test
             Assert.IsNull(success.ErrorMessage);
 
             // Arrange - failure path.
-            var broken = withWebsiteSiteName(null, () => createAppTokenProvider());
-            swapCredential(broken, new FakeTokenCredential { ToThrow = new InvalidOperationException("credential broke") });
+            var broken = withWebsiteSiteName(null,
+                () => createAppTokenProvider(new FakeTokenCredential { ToThrow = new InvalidOperationException("credential broke") }));
 
             // Act
             var failure = await broken.TestCredentialAsync();
@@ -590,31 +585,53 @@ namespace MedRecPro.Service.Test
         /// network-free.
         /// </summary>
         /// <returns>A constructed provider.</returns>
-        private static AzureAppTokenProvider createAppTokenProvider()
+        private static AzureAppTokenProvider createAppTokenProvider(TokenCredential? credential = null)
         {
             #region implementation
-            return new AzureAppTokenProvider(
-                buildConfig(new Dictionary<string, string?>()),
-                NullLogger<AzureAppTokenProvider>.Instance);
+            var configuration = buildConfig(new Dictionary<string, string?>());
+
+            return credential is null
+                ? new AzureAppTokenProvider(configuration, NullLogger<AzureAppTokenProvider>.Instance)
+                : new AzureAppTokenProvider(
+                    configuration,
+                    NullLogger<AzureAppTokenProvider>.Instance,
+                    new FixedAzureAppTokenCredentialFactory(credential));
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Swaps the provider's private credential field with a test double
-        /// (reflection seam matching the ThrottleStateServiceTests precedent).
+        /// Returns a supplied deterministic credential for one provider instance.
         /// </summary>
-        /// <param name="provider">Provider under test.</param>
-        /// <param name="credential">Replacement credential.</param>
-        /// <seealso cref="AzureAppTokenProvider.GetCredential"/>
-        private static void swapCredential(AzureAppTokenProvider provider, TokenCredential credential)
+        /// <seealso cref="IAzureAppTokenCredentialFactory"/>
+        private sealed class FixedAzureAppTokenCredentialFactory : IAzureAppTokenCredentialFactory
         {
             #region implementation
-            var field = typeof(AzureAppTokenProvider).GetField(
-                "_credential", BindingFlags.Instance | BindingFlags.NonPublic);
 
-            Assert.IsNotNull(field, "AzureAppTokenProvider private field '_credential' was not found; the seam has moved.");
-            field!.SetValue(provider, credential);
+            private readonly TokenCredential _credential;
+
+            /**************************************************************/
+            /// <summary>
+            /// Initializes the factory with its fixed credential.
+            /// </summary>
+            /// <param name="credential">Credential returned for every request.</param>
+            public FixedAzureAppTokenCredentialFactory(TokenCredential credential)
+            {
+                _credential = credential ?? throw new ArgumentNullException(nameof(credential));
+            }
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public TokenCredential Create(DefaultAzureCredentialOptions options)
+            {
+                #region implementation
+
+                ArgumentNullException.ThrowIfNull(options);
+                return _credential;
+
+                #endregion
+            }
+
             #endregion
         }
 

@@ -315,8 +315,9 @@ public class DatabaseLimitAttribute : Attribute, IFilterFactory
 
         var throttleState = serviceProvider.GetRequiredService<IThrottleStateService>();
         var logger = serviceProvider.GetRequiredService<ILogger<DatabaseLimitFilter>>();
+        var timeProvider = serviceProvider.GetRequiredService<TimeProvider>();
 
-        return new DatabaseLimitFilter(throttleState, logger, Criticality, Wait);
+        return new DatabaseLimitFilter(throttleState, logger, Criticality, Wait, timeProvider);
 
         #endregion
     }
@@ -514,7 +515,7 @@ public class ThrottleCheckFilter : IActionFilter
 /// 
 /// ### Delay Calculation
 /// 
-/// The actual delay is calculated as: `baseWait × throttleLevelMultiplier`
+/// The actual delay is calculated as: `baseWait Ã— throttleLevelMultiplier`
 /// 
 /// | Throttle Level | Multiplier | 100ms Base | 200ms Base |
 /// |----------------|------------|------------|------------|
@@ -568,7 +569,7 @@ public class ThrottleCheckFilter : IActionFilter
 /// public async Task&lt;IActionResult&gt; ProcessData() { ... }
 /// ```
 /// 
-/// At 170% (current), this imposes 500ms × 8 (Critical) = 4 second delays,
+/// At 170% (current), this imposes 500ms Ã— 8 (Critical) = 4 second delays,
 /// significantly slowing request throughput and cost accrual.
 /// 
 /// ---
@@ -803,6 +804,7 @@ public class DatabaseLimitFilter : IAsyncActionFilter
     private readonly ILogger<DatabaseLimitFilter> _logger;
     private readonly OperationCriticality _criticality;
     private readonly int _baseWaitMs;
+    private readonly TimeProvider _timeProvider;
 
     #endregion
 
@@ -816,6 +818,7 @@ public class DatabaseLimitFilter : IAsyncActionFilter
     /// <param name="logger">Logger for recording throttle events.</param>
     /// <param name="criticality">The criticality level of the operation being filtered.</param>
     /// <param name="baseWaitMs">The base wait time in milliseconds.</param>
+    /// <param name="timeProvider">Clock used to schedule the asynchronous delay.</param>
     /// <exception cref="ArgumentNullException">Thrown when throttleState or logger is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when baseWaitMs is negative.</exception>
     /// <seealso cref="IThrottleStateService"/>
@@ -824,12 +827,14 @@ public class DatabaseLimitFilter : IAsyncActionFilter
         IThrottleStateService throttleState,
         ILogger<DatabaseLimitFilter> logger,
         OperationCriticality criticality,
-        int baseWaitMs)
+        int baseWaitMs,
+        TimeProvider timeProvider)
     {
         #region implementation
 
         _throttleState = throttleState ?? throw new ArgumentNullException(nameof(throttleState));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _criticality = criticality;
 
         if (baseWaitMs < 0)
@@ -899,7 +904,10 @@ public class DatabaseLimitFilter : IAsyncActionFilter
                 context.HttpContext.Response.Headers["X-Throttle-Level"] = currentLevel.ToString();
 
                 // Non-blocking async delay
-                await Task.Delay(actualDelayMs, context.HttpContext.RequestAborted);
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(actualDelayMs),
+                    _timeProvider,
+                    context.HttpContext.RequestAborted);
             }
         }
 
