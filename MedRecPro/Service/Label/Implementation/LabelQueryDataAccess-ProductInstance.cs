@@ -1,5 +1,6 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -18,7 +19,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Product Instance & Lot Builders
         /**************************************************************/
@@ -39,7 +40,7 @@ namespace MedRecPro.DataAccess
             if (productId == null) return new List<ProductInstanceDto>();
 
             // Get all product instances for this product
-            var instances = await db.Set<Label.ProductInstance>()
+            var instances = await db.Set<global::MedRecPro.Models.Label.ProductInstance>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productId)
                 .ToListAsync();
@@ -94,7 +95,7 @@ namespace MedRecPro.DataAccess
             if (lotIdentifierId == null) return null;
 
             // Query lot identifier for the specified lot identifier ID
-            var entity = await db.Set<Label.LotIdentifier>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.LotIdentifier>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(s => s.LotIdentifierID == lotIdentifierId);
 
@@ -127,7 +128,7 @@ namespace MedRecPro.DataAccess
             if (parentInstanceId == null) return new List<LotHierarchyDto>();
 
             // Query lot hierarchies where this instance is the parent
-            var items = await db.Set<Label.LotHierarchy>()
+            var items = await db.Set<global::MedRecPro.Models.Label.LotHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ParentInstanceID == parentInstanceId)
                 .ToListAsync();
@@ -156,7 +157,7 @@ namespace MedRecPro.DataAccess
             if (childInstanceId == null) return new List<LotHierarchyDto>();
 
             // Query lot hierarchies where this instance is the child
-            var items = await db.Set<Label.LotHierarchy>()
+            var items = await db.Set<global::MedRecPro.Models.Label.LotHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ChildInstanceID == childInstanceId)
                 .ToListAsync();
@@ -191,7 +192,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<LotHierarchyDto>();
 
             // Query lot hierarchies for the specified product instance as parent
-            var items = await db.Set<Label.LotHierarchy>()
+            var items = await db.Set<global::MedRecPro.Models.Label.LotHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ParentInstanceID == productID)
                 .ToListAsync();
@@ -229,7 +230,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<LotHierarchyDto>();
 
             // Query lot hierarchies for the specified product instance as child
-            var items = await db.Set<Label.LotHierarchy>()
+            var items = await db.Set<global::MedRecPro.Models.Label.LotHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ChildInstanceID == productID)
                 .ToListAsync();

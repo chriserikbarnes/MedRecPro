@@ -1,5 +1,7 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
+using MedRecPro.Features.Label.Mapping;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +12,7 @@ using static MedRecPro.Models.Label;
 using System.Text.RegularExpressions;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -19,7 +21,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region LOINC Section Number Lookup
 
@@ -107,7 +109,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="Label.RelatedDocument"/>
         /// <seealso cref="Label.DocumentRelationship"/>
         /// <seealso cref="Label.LegalAuthenticator"/>
-        public static async Task<List<DocumentDto>> BuildDocumentsAsync(
+        internal async Task<List<DocumentDto>> BuildDocumentsAsync(
            ApplicationDbContext db,
            string pkSecret,
            ILogger logger,
@@ -119,7 +121,7 @@ namespace MedRecPro.DataAccess
 
             // Include loading mode in cache key to prevent cross-mode cache hits
             var loadingMode = useBatchLoading == true ? "batch" : "sequential";
-            string key = ($"{nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)}_{page}_{size}_{loadingMode}").Base64Encode();
+            string key = ($"{"DtoLabelAccess"}.{nameof(BuildDocumentsAsync)}_{page}_{size}_{loadingMode}").Base64Encode();
 
             var cached = Cached.GetCache<List<DocumentDto>>(key);
 
@@ -131,7 +133,7 @@ namespace MedRecPro.DataAccess
             }
 
             // Build query for paginated documents
-            var query = db.Set<Label.Document>().AsNoTracking();
+            var query = db.Set<global::MedRecPro.Models.Label.Document>().AsNoTracking();
 
             if (page.HasValue && size.HasValue)
             {
@@ -143,8 +145,8 @@ namespace MedRecPro.DataAccess
 
             var docs = await query.ToListAsync();
 
-            // Pass the feature flag to the internal method for strategy selection
-            var ret = await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger, useBatchLoading);
+            // Keep the batch/sequential selection at the feature mapping boundary.
+            var ret = await LabelDocumentAssembler.AssembleAsync(db, docs, pkSecret, logger, useBatchLoading);
 
             if(ret != null)
             {
@@ -203,7 +205,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="Label.RelatedDocument"/>
         /// <seealso cref="Label.DocumentRelationship"/>
         /// <seealso cref="Label.LegalAuthenticator"/>
-        public static async Task<List<DocumentDto>> BuildDocumentsAsync(
+        internal async Task<List<DocumentDto>> BuildDocumentsAsync(
            ApplicationDbContext db,
            Guid documentGuid,
            string pkSecret,
@@ -214,7 +216,7 @@ namespace MedRecPro.DataAccess
 
             // Include loading mode in cache key to prevent cross-mode cache hits
             var loadingMode = useBatchLoading == true ? "batch" : "sequential";
-            string key = ($"{nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)}.{documentGuid}_{loadingMode}").Base64Encode();
+            string key = ($"{"DtoLabelAccess"}.{nameof(BuildDocumentsAsync)}.{documentGuid}_{loadingMode}").Base64Encode();
 
             var cached = Cached.GetCache<List<DocumentDto>>(key);
 
@@ -225,13 +227,13 @@ namespace MedRecPro.DataAccess
             }
 
             // Build query for specific document by GUID
-            var docs = await db.Set<Label.Document>()
+            var docs = await db.Set<global::MedRecPro.Models.Label.Document>()
                 .AsNoTracking()
                 .Where(d => d.DocumentGUID == documentGuid)
                 .ToListAsync();
 
-            // Pass the feature flag to the internal method for strategy selection
-            var ret = await buildDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger, useBatchLoading);
+            // Keep the batch/sequential selection at the feature mapping boundary.
+            var ret = await LabelDocumentAssembler.AssembleAsync(db, docs, pkSecret, logger, useBatchLoading);
 
             if(ret != null)
             {
@@ -255,7 +257,7 @@ namespace MedRecPro.DataAccess
         /// <returns>A PackageIdentifierDto object with encrypted ID, or null if not found.</returns>
         /// <seealso cref="Label.PackageIdentifier"/>
         /// <seealso cref="PackageIdentifierDto"/>
-        public static async Task<PackageIdentifierDto?> GetPackageIdentifierAsync(ApplicationDbContext db,
+        internal async Task<PackageIdentifierDto?> GetPackageIdentifierAsync(ApplicationDbContext db,
             int? packagingLevelID,
             string pkSecret,
             ILogger logger)
@@ -292,7 +294,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="LabelView.ProductsByApplicationNumber"/>
         /// <seealso cref="Label.MarketingCategory"/>
-        public static async Task<List<ProductsByApplicationNumberDto>> SearchByApplicationNumberAsync(
+        internal async Task<List<ProductsByApplicationNumberDto>> SearchByApplicationNumberAsync(
             ApplicationDbContext db,
             string applicationNumber,
             string pkSecret,
@@ -370,7 +372,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="LabelView.ApplicationNumberSummary"/>
-        public static async Task<List<ApplicationNumberSummaryDto>> GetApplicationNumberSummariesAsync(
+        internal async Task<List<ApplicationNumberSummaryDto>> GetApplicationNumberSummariesAsync(
             ApplicationDbContext db,
             string? marketingCategory,
             string pkSecret,
@@ -456,7 +458,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.ProductsByPharmacologicClass"/>
         /// <seealso cref="Label.PharmacologicClass"/>
-        public static async Task<List<ProductsByPharmacologicClassDto>> SearchByPharmacologicClassAsync(
+        internal async Task<List<ProductsByPharmacologicClassDto>> SearchByPharmacologicClassAsync(
             ApplicationDbContext db,
             string classNameSearch,
             string pkSecret,
@@ -525,7 +527,7 @@ namespace MedRecPro.DataAccess
         /// Results are cached for 1 hour to improve performance on repeated queries.
         /// Uses exact string matching on PharmClassName (case-sensitive).
         /// </remarks>
-        public static async Task<List<ProductsByPharmacologicClassDto>> SearchByPharmacologicClassExactAsync(
+        internal async Task<List<ProductsByPharmacologicClassDto>> SearchByPharmacologicClassExactAsync(
             ApplicationDbContext db,
             string classNameSearch,
             string pkSecret,
@@ -584,7 +586,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="PharmacologicClassHierarchyViewDto"/> with hierarchy relationships.</returns>
         /// <seealso cref="LabelView.PharmacologicClassHierarchy"/>
-        public static async Task<List<PharmacologicClassHierarchyViewDto>> GetPharmacologicClassHierarchyAsync(
+        internal async Task<List<PharmacologicClassHierarchyViewDto>> GetPharmacologicClassHierarchyAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -636,7 +638,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="PharmacologicClassSummaryDto"/> with aggregated counts.</returns>
         /// <seealso cref="LabelView.PharmacologicClassSummary"/>
-        public static async Task<List<PharmacologicClassSummaryDto>> GetPharmacologicClassSummariesAsync(
+        internal async Task<List<PharmacologicClassSummaryDto>> GetPharmacologicClassSummariesAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -693,7 +695,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="IngredientActiveSummaryDto"/> with aggregated counts.</returns>
         /// <seealso cref="LabelView.IngredientActiveSummary"/>
-        public static async Task<List<IngredientActiveSummaryDto>> GetIngredientActiveSummariesAsync(
+        internal async Task<List<IngredientActiveSummaryDto>> GetIngredientActiveSummariesAsync(
             ApplicationDbContext db,
             int? minProductCount,
             string? ingredient,
@@ -766,7 +768,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="IngredientInactiveSummaryDto"/> with aggregated counts.</returns>
         /// <seealso cref="LabelView.IngredientInactiveSummary"/>
-        public static async Task<List<IngredientInactiveSummaryDto>> GetIngredientInactiveSummariesAsync(
+        internal async Task<List<IngredientInactiveSummaryDto>> GetIngredientInactiveSummariesAsync(
             ApplicationDbContext db,
             int? minProductCount,
             string? ingredient,
@@ -847,7 +849,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="LabelView.ProductsByIngredient"/>
         /// <seealso cref="Label.Ingredient"/>
         /// <seealso cref="Label.IngredientSubstance"/>
-        public static async Task<List<ProductsByIngredientDto>> SearchByIngredientAsync(
+        internal async Task<List<ProductsByIngredientDto>> SearchByIngredientAsync(
             ApplicationDbContext db,
             string? unii,
             string? substanceNameSearch,
@@ -927,7 +929,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="IngredientSummaryDto"/> with aggregated counts.</returns>
         /// <seealso cref="LabelView.IngredientSummary"/>
-        public static async Task<List<IngredientSummaryDto>> GetIngredientSummariesAsync(
+        internal async Task<List<IngredientSummaryDto>> GetIngredientSummariesAsync(
             ApplicationDbContext db,
             int? minProductCount,
             string? ingredient,
@@ -1017,7 +1019,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="LabelView.ActiveIngredientView"/>
         /// <seealso cref="LabelView.InactiveIngredientView"/>
         /// <seealso cref="SearchByIngredientAsync"/>
-        public static async Task<List<IngredientViewDto>> SearchIngredientsAdvancedAsync(
+        internal async Task<List<IngredientViewDto>> SearchIngredientsAdvancedAsync(
             ApplicationDbContext db,
             string? unii,
             string? substanceNameSearch,
@@ -1091,7 +1093,7 @@ namespace MedRecPro.DataAccess
             }
 
 #if DEBUG
-            Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchIngredientsAdvancedAsync)} returned {ret.Count} results ===");
+            Debug.WriteLine($"=== {"DtoLabelAccess"}.{nameof(SearchIngredientsAdvancedAsync)} returned {ret.Count} results ===");
 #endif
 
             // Cache results
@@ -1126,7 +1128,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.ActiveIngredientView"/>
         /// <seealso cref="SearchIngredientsAdvancedAsync"/>
-        public static async Task<List<IngredientViewDto>> FindProductsByApplicationNumberWithSameIngredientAsync(
+        internal async Task<List<IngredientViewDto>> FindProductsByApplicationNumberWithSameIngredientAsync(
             ApplicationDbContext db,
             string applicationNumber,
             string pkSecret,
@@ -1182,7 +1184,7 @@ namespace MedRecPro.DataAccess
             var ret = buildActiveIngredientViewDtos(db, entities, pkSecret, logger);
 
 #if DEBUG
-            Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindProductsByApplicationNumberWithSameIngredientAsync)} returned {ret.Count} results ===");
+            Debug.WriteLine($"=== {"DtoLabelAccess"}.{nameof(FindProductsByApplicationNumberWithSameIngredientAsync)} returned {ret.Count} results ===");
 #endif
 
             // Cache results
@@ -1219,7 +1221,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.IngredientView"/>
         /// <seealso cref="IngredientRelatedResultsDto"/>
-        public static async Task<IngredientRelatedResultsDto> FindRelatedIngredientsAsync(
+        internal async Task<IngredientRelatedResultsDto> FindRelatedIngredientsAsync(
             ApplicationDbContext db,
             string? unii,
             string? substanceNameSearch,
@@ -1299,7 +1301,7 @@ namespace MedRecPro.DataAccess
             result.TotalProductCount = productIds.Count;
 
 #if DEBUG
-            Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindRelatedIngredientsAsync)} found {result.TotalProductCount} products, {result.TotalActiveCount} active, {result.TotalInactiveCount} inactive ===");
+            Debug.WriteLine($"=== {"DtoLabelAccess"}.{nameof(FindRelatedIngredientsAsync)} found {result.TotalProductCount} products, {result.TotalActiveCount} active, {result.TotalInactiveCount} inactive ===");
 #endif
 
             // Cache results
@@ -1554,7 +1556,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.ProductsByNDC"/>
         /// <seealso cref="Label.ProductIdentifier"/>
-        public static async Task<List<ProductsByNDCDto>> SearchByNDCAsync(
+        internal async Task<List<ProductsByNDCDto>> SearchByNDCAsync(
             ApplicationDbContext db,
             string productCode,
             string pkSecret,
@@ -1610,7 +1612,7 @@ namespace MedRecPro.DataAccess
         /// <returns>List of <see cref="PackageByNDCDto"/> matching the package code.</returns>
         /// <seealso cref="LabelView.PackageByNDC"/>
         /// <seealso cref="Label.PackageIdentifier"/>
-        public static async Task<List<PackageByNDCDto>> SearchByPackageNDCAsync(
+        internal async Task<List<PackageByNDCDto>> SearchByPackageNDCAsync(
             ApplicationDbContext db,
             string packageCode,
             string pkSecret,
@@ -1674,7 +1676,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.ProductsByLabeler"/>
         /// <seealso cref="Label.Organization"/>
-        public static async Task<List<ProductsByLabelerDto>> SearchByLabelerAsync(
+        internal async Task<List<ProductsByLabelerDto>> SearchByLabelerAsync(
             ApplicationDbContext db,
             string labelerNameSearch,
             string pkSecret,
@@ -1728,7 +1730,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="LabelerSummaryDto"/> with aggregated counts.</returns>
         /// <seealso cref="LabelView.LabelerSummary"/>
-        public static async Task<List<LabelerSummaryDto>> GetLabelerSummariesAsync(
+        internal async Task<List<LabelerSummaryDto>> GetLabelerSummariesAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -1792,7 +1794,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.DocumentNavigation"/>
         /// <seealso cref="Label.Document"/>
-        public static async Task<List<DocumentNavigationDto>> GetDocumentNavigationAsync(
+        internal async Task<List<DocumentNavigationDto>> GetDocumentNavigationAsync(
             ApplicationDbContext db,
             bool latestOnly,
             Guid? setGuid,
@@ -1859,7 +1861,7 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of <see cref="DocumentVersionHistoryDto"/> with version history.</returns>
         /// <seealso cref="LabelView.DocumentVersionHistory"/>
-        public static async Task<List<DocumentVersionHistoryDto>> GetDocumentVersionHistoryAsync(
+        internal async Task<List<DocumentVersionHistoryDto>> GetDocumentVersionHistoryAsync(
             ApplicationDbContext db,
             Guid setGuidOrDocumentGuid,
             string pkSecret,
@@ -1920,7 +1922,7 @@ namespace MedRecPro.DataAccess
         /// </example>
         /// <seealso cref="LabelView.SectionNavigation"/>
         /// <seealso cref="Label.Section"/>
-        public static async Task<List<SectionNavigationDto>> SearchBySectionCodeAsync(
+        internal async Task<List<SectionNavigationDto>> SearchBySectionCodeAsync(
             ApplicationDbContext db,
             string sectionCode,
             string pkSecret,
@@ -1973,7 +1975,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="SectionTypeSummaryDto"/> with aggregated counts.</returns>
         /// <seealso cref="LabelView.SectionTypeSummary"/>
-        public static async Task<List<SectionTypeSummaryDto>> GetSectionTypeSummariesAsync(
+        internal async Task<List<SectionTypeSummaryDto>> GetSectionTypeSummariesAsync(
             ApplicationDbContext db,
             string pkSecret,
             ILogger logger,
@@ -2056,7 +2058,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="LabelView.SectionContent"/>
         /// <seealso cref="Label.Section"/>
         /// <seealso cref="Label.SectionTextContent"/>
-        public static async Task<List<SectionContentDto>> GetSectionContentAsync(
+        internal async Task<List<SectionContentDto>> GetSectionContentAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             Guid? sectionGuid,
@@ -2231,7 +2233,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="LabelView.DrugInteractionLookup"/>
-        public static async Task<List<DrugInteractionLookupDto>> GetDrugInteractionsAsync(
+        internal async Task<List<DrugInteractionLookupDto>> GetDrugInteractionsAsync(
             ApplicationDbContext db,
             IEnumerable<string> ingredientUNIIs,
             string pkSecret,
@@ -2288,7 +2290,7 @@ namespace MedRecPro.DataAccess
         /// <param name="size">Optional page size for pagination.</param>
         /// <returns>List of <see cref="DEAScheduleLookupDto"/> with DEA schedule information.</returns>
         /// <seealso cref="LabelView.DEAScheduleLookup"/>
-        public static async Task<List<DEAScheduleLookupDto>> GetDEAScheduleProductsAsync(
+        internal async Task<List<DEAScheduleLookupDto>> GetDEAScheduleProductsAsync(
             ApplicationDbContext db,
             string? scheduleCode,
             string pkSecret,
@@ -2358,7 +2360,7 @@ namespace MedRecPro.DataAccess
         /// </code>
         /// </example>
         /// <seealso cref="LabelView.ProductSummary"/>
-        public static async Task<List<ProductSummaryViewDto>> SearchProductSummaryAsync(
+        internal async Task<List<ProductSummaryViewDto>> SearchProductSummaryAsync(
             ApplicationDbContext db,
             string productNameSearch,
             string pkSecret,
@@ -2415,7 +2417,7 @@ namespace MedRecPro.DataAccess
         /// <returns>List of <see cref="RelatedProductsDto"/> with related products.</returns>
         /// <seealso cref="LabelView.RelatedProducts"/>
         /// <seealso cref="LabelView.ProductLatestLabel"/>
-        public static async Task<List<RelatedProductsDto>> GetRelatedProductsAsync(
+        internal async Task<List<RelatedProductsDto>> GetRelatedProductsAsync(
             ApplicationDbContext db,
             int? sourceProductId,
             Guid? sourceDocumentGuid,
@@ -2490,7 +2492,7 @@ namespace MedRecPro.DataAccess
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of <see cref="APIEndpointGuideDto"/> with endpoint metadata.</returns>
         /// <seealso cref="LabelView.APIEndpointGuide"/>
-        public static async Task<List<APIEndpointGuideDto>> GetAPIEndpointGuideAsync(
+        internal async Task<List<APIEndpointGuideDto>> GetAPIEndpointGuideAsync(
             ApplicationDbContext db,
             string? category,
             string pkSecret,
@@ -2572,7 +2574,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="LabelView.InventorySummary"/>
         /// <seealso cref="InventorySummaryDto"/>
-        public static async Task<List<InventorySummaryDto>> GetInventorySummaryAsync(
+        internal async Task<List<InventorySummaryDto>> GetInventorySummaryAsync(
             ApplicationDbContext db,
             string? category,
             ILogger logger)
@@ -2652,7 +2654,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="LabelView.ProductLatestLabel"/>
         /// <seealso cref="LabelView.IngredientActiveSummary"/>
         /// <seealso cref="LabelView.ProductsByIngredient"/>
-        public static async Task<List<ProductLatestLabelDto>> GetProductLatestLabelsAsync(
+        internal async Task<List<ProductLatestLabelDto>> GetProductLatestLabelsAsync(
             ApplicationDbContext db,
             string? unii,
             string? productNameSearch,
@@ -2770,7 +2772,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="LabelView.ProductIndications"/>
         /// <seealso cref="LabelView.SectionNavigation"/>
         /// <seealso cref="LabelView.IngredientView"/>
-        public static async Task<List<ProductIndicationsDto>> GetProductIndicationsAsync(
+        internal async Task<List<ProductIndicationsDto>> GetProductIndicationsAsync(
             ApplicationDbContext db,
             string? unii,
             string? productNameSearch,
@@ -2917,7 +2919,7 @@ namespace MedRecPro.DataAccess
         /// <seealso cref="LabelView.LabelSectionMarkdown"/>
         /// <seealso cref="LabelSectionMarkdownDto"/>
         /// <seealso cref="GenerateLabelMarkdownAsync"/>
-        public static async Task<List<LabelSectionMarkdownDto>> GetLabelSectionMarkdownAsync(
+        internal async Task<List<LabelSectionMarkdownDto>> GetLabelSectionMarkdownAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -3036,7 +3038,7 @@ namespace MedRecPro.DataAccess
             /// <seealso cref="GetLabelSectionMarkdownAsync"/>
             /// <seealso cref="LabelMarkdownExportDto"/>
             /// <seealso cref="LabelView.LabelSectionMarkdown"/>
-        public static async Task<LabelMarkdownExportDto> GenerateLabelMarkdownAsync(
+        internal async Task<LabelMarkdownExportDto> GenerateLabelMarkdownAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             string pkSecret,
@@ -3123,7 +3125,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="GetLabelSectionMarkdownAsync"/>
         /// <seealso cref="GenerateLabelMarkdownAsync"/>
-        public static async Task<string> GenerateCleanLabelMarkdownAsync(
+        internal async Task<string> GenerateCleanLabelMarkdownAsync(
             ApplicationDbContext db,
             Guid documentGuid,
             Service.IClaudeApiService claudeApiService,

@@ -1,11 +1,13 @@
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using LabelEntity = MedRecPro.Models.Label;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using static MedRecPro.Models.Label;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides batch loading methods for building DTOs from SPL Label entities.
@@ -18,7 +20,7 @@ namespace MedRecPro.DataAccess
     /// </remarks>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Document Level Batch Loaders
 
@@ -43,7 +45,7 @@ namespace MedRecPro.DataAccess
                 return new Dictionary<int, List<StructuredBodyDto>>();
 
             // Single query to fetch all structured bodies for all document IDs
-            var entities = await db.Set<Label.StructuredBody>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.StructuredBody>()
                 .AsNoTracking()
                 .Where(e => e.DocumentID != null && documentIds.Contains((int)e.DocumentID))
                 .ToListAsync();
@@ -118,7 +120,7 @@ namespace MedRecPro.DataAccess
             if (documentIds == null || !documentIds.Any())
                 return new Dictionary<int, List<DocumentAuthorDto>>();
 
-            var entities = await db.Set<Label.DocumentAuthor>()
+            var entities = await db.Set<LabelEntity.DocumentAuthor>()
                 .AsNoTracking()
                 .Where(e => e.DocumentID != null && documentIds.Contains((int)e.DocumentID))
                 .ToListAsync();
@@ -165,7 +167,7 @@ namespace MedRecPro.DataAccess
             if (documentIds == null || !documentIds.Any())
                 return new Dictionary<int, List<RelatedDocumentDto>>();
 
-            var entities = await db.Set<Label.RelatedDocument>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.RelatedDocument>()
                 .AsNoTracking()
                 .Where(e => e.SourceDocumentID != null && documentIds.Contains((int)e.SourceDocumentID))
                 .ToListAsync();
@@ -198,7 +200,7 @@ namespace MedRecPro.DataAccess
             if (documentIds == null || !documentIds.Any())
                 return new Dictionary<int, List<LegalAuthenticatorDto>>();
 
-            var entities = await db.Set<Label.LegalAuthenticator>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.LegalAuthenticator>()
                 .AsNoTracking()
                 .Where(e => e.DocumentID != null && documentIds.Contains((int)e.DocumentID))
                 .ToListAsync();
@@ -231,7 +233,7 @@ namespace MedRecPro.DataAccess
             if (documentIds == null || !documentIds.Any())
                 return new Dictionary<int, List<DocumentRelationshipDto>>();
 
-            var entities = await db.Set<Label.DocumentRelationship>()
+            var entities = await db.Set<LabelEntity.DocumentRelationship>()
                 .AsNoTracking()
                 .Where(e => e.DocumentID != null && documentIds.Contains((int)e.DocumentID))
                 .ToListAsync();
@@ -303,7 +305,7 @@ namespace MedRecPro.DataAccess
                 return new Dictionary<int, List<SectionDto>>();
 
             // Fetch all sections for all structured bodies in single query
-            var sections = await db.Set<Label.Section>()
+            var sections = await db.Set<global::MedRecPro.Models.Label.Section>()
                 .AsNoTracking()
                 .Where(s => s.StructuredBodyID != null && structuredBodyIds.Contains((int)s.StructuredBodyID))
                 .ToListAsync();
@@ -380,7 +382,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<SectionHierarchyDto>>();
 
-            var entities = await db.Set<Label.SectionHierarchy>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SectionHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ParentSectionID != null && sectionIds.Contains((int)e.ParentSectionID))
                 .ToListAsync();
@@ -413,7 +415,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<BillingUnitIndexDto>>();
 
-            var entities = await db.Set<Label.BillingUnitIndex>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.BillingUnitIndex>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -446,7 +448,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<SectionHierarchyDto>>();
 
-            var entities = await db.Set<Label.SectionHierarchy>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SectionHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ChildSectionID != null && sectionIds.Contains((int)e.ChildSectionID))
                 .ToListAsync();
@@ -479,7 +481,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<SectionHierarchyDto>>();
 
-            var entities = await db.Set<Label.SectionHierarchy>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SectionHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ParentSectionID != null && sectionIds.Contains((int)e.ParentSectionID))
                 .ToListAsync();
@@ -512,7 +514,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<SectionTextContentDto>>();
 
-            var entities = await db.Set<Label.SectionTextContent>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SectionTextContent>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -563,7 +565,7 @@ namespace MedRecPro.DataAccess
             if (textContentIds == null || !textContentIds.Any())
                 return new Dictionary<int, List<RenderedMediaDto>>();
 
-            var entities = await db.Set<Label.RenderedMedia>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.RenderedMedia>()
                 .AsNoTracking()
                 .Where(e => e.SectionTextContentID != null && textContentIds.Contains((int)e.SectionTextContentID))
                 .ToListAsync();
@@ -596,7 +598,7 @@ namespace MedRecPro.DataAccess
             if (textContentIds == null || !textContentIds.Any())
                 return new Dictionary<int, List<TextTableDto>>();
 
-            var entities = await db.Set<Label.TextTable>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.TextTable>()
                 .AsNoTracking()
                 .Where(e => e.SectionTextContentID != null && textContentIds.Contains((int)e.SectionTextContentID))
                 .ToListAsync();
@@ -643,7 +645,7 @@ namespace MedRecPro.DataAccess
             if (tableIds == null || !tableIds.Any())
                 return new Dictionary<int, List<TextTableColumnDto>>();
 
-            var entities = await db.Set<Label.TextTableColumn>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.TextTableColumn>()
                 .AsNoTracking()
                 .Where(e => e.TextTableID != null && tableIds.Contains((int)e.TextTableID))
                 .ToListAsync();
@@ -676,7 +678,7 @@ namespace MedRecPro.DataAccess
             if (tableIds == null || !tableIds.Any())
                 return new Dictionary<int, List<TextTableRowDto>>();
 
-            var entities = await db.Set<Label.TextTableRow>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.TextTableRow>()
                 .AsNoTracking()
                 .Where(e => e.TextTableID != null && tableIds.Contains((int)e.TextTableID))
                 .ToListAsync();
@@ -721,7 +723,7 @@ namespace MedRecPro.DataAccess
             if (rowIds == null || !rowIds.Any())
                 return new Dictionary<int, List<TextTableCellDto>>();
 
-            var entities = await db.Set<Label.TextTableCell>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.TextTableCell>()
                 .AsNoTracking()
                 .Where(e => e.TextTableRowID != null && rowIds.Contains((int)e.TextTableRowID))
                 .ToListAsync();
@@ -754,7 +756,7 @@ namespace MedRecPro.DataAccess
             if (textContentIds == null || !textContentIds.Any())
                 return new Dictionary<int, List<TextListDto>>();
 
-            var entities = await db.Set<Label.TextList>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.TextList>()
                 .AsNoTracking()
                 .Where(e => e.SectionTextContentID != null && textContentIds.Contains((int)e.SectionTextContentID))
                 .ToListAsync();
@@ -799,7 +801,7 @@ namespace MedRecPro.DataAccess
             if (listIds == null || !listIds.Any())
                 return new Dictionary<int, List<TextListItemDto>>();
 
-            var entities = await db.Set<Label.TextListItem>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.TextListItem>()
                 .AsNoTracking()
                 .Where(e => e.TextListID != null && listIds.Contains((int)e.TextListID))
                 .ToListAsync();
@@ -832,7 +834,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<SectionExcerptHighlightDto>>();
 
-            var entities = await db.Set<Label.SectionExcerptHighlight>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SectionExcerptHighlight>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -865,7 +867,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<ObservationMediaDto>>();
 
-            var entities = await db.Set<Label.ObservationMedia>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.ObservationMedia>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -898,7 +900,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<NCTLinkDto>>();
 
-            var entities = await db.Set<Label.NCTLink>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.NCTLink>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -931,7 +933,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<ProductConceptDto>>();
 
-            var entities = await db.Set<Label.ProductConcept>()
+            var entities = await db.Set<LabelEntity.ProductConcept>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -975,7 +977,7 @@ namespace MedRecPro.DataAccess
             if (conceptIds == null || !conceptIds.Any())
                 return new Dictionary<int, List<ProductConceptEquivalenceDto>>();
 
-            var entities = await db.Set<Label.ProductConceptEquivalence>()
+            var entities = await db.Set<LabelEntity.ProductConceptEquivalence>()
                 .AsNoTracking()
                 .Where(e => e.ProductConceptEquivalenceID != null && conceptIds.Contains((int)e.ProductConceptEquivalenceID))
                 .ToListAsync();
@@ -1008,7 +1010,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<ProtocolDto>>();
 
-            var entities = await db.Set<Label.Protocol>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Protocol>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -1054,7 +1056,7 @@ namespace MedRecPro.DataAccess
             if (protocolIds == null || !protocolIds.Any())
                 return new Dictionary<int, List<REMSApprovalDto>>();
 
-            var entities = await db.Set<Label.REMSApproval>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.REMSApproval>()
                 .AsNoTracking()
                 .Where(e => e.ProtocolID != null && protocolIds.Contains((int)e.ProtocolID))
                 .ToListAsync();
@@ -1087,7 +1089,7 @@ namespace MedRecPro.DataAccess
             if (protocolIds == null || !protocolIds.Any())
                 return new Dictionary<int, List<RequirementDto>>();
 
-            var entities = await db.Set<Label.Requirement>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Requirement>()
                 .AsNoTracking()
                 .Where(e => e.ProtocolID != null && protocolIds.Contains((int)e.ProtocolID))
                 .ToListAsync();
@@ -1134,7 +1136,7 @@ namespace MedRecPro.DataAccess
             if (stakeholderIds == null || !stakeholderIds.Any())
                 return new Dictionary<int, List<StakeholderDto>>();
 
-            var entities = await db.Set<Label.Stakeholder>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Stakeholder>()
                 .AsNoTracking()
                 .Where(e => e.StakeholderID != null && stakeholderIds.Contains((int)e.StakeholderID))
                 .ToListAsync();
@@ -1167,7 +1169,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<REMSMaterialDto>>();
 
-            var entities = await db.Set<Label.REMSMaterial>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.REMSMaterial>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -1213,7 +1215,7 @@ namespace MedRecPro.DataAccess
             if (parentEntityIds == null || !parentEntityIds.Any())
                 return new Dictionary<int, List<AttachedDocumentDto>>();
 
-            var entities = await db.Set<Label.AttachedDocument>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.AttachedDocument>()
                 .AsNoTracking()
                 .Where(e => e.ParentEntityID != null && parentEntityIds.Contains((int)e.ParentEntityID))
                 .ToListAsync();
@@ -1246,7 +1248,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<REMSElectronicResourceDto>>();
 
-            var entities = await db.Set<Label.REMSElectronicResource>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.REMSElectronicResource>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -1279,7 +1281,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<WarningLetterDateDto>>();
 
-            var entities = await db.Set<Label.WarningLetterDate>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.WarningLetterDate>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -1312,7 +1314,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<WarningLetterProductInfoDto>>();
 
-            var entities = await db.Set<Label.WarningLetterProductInfo>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.WarningLetterProductInfo>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -1368,7 +1370,7 @@ namespace MedRecPro.DataAccess
                 return new Dictionary<int, List<ProductDto>>();
 
             // Load ALL products for the sections first (we'll filter after Kit analysis)
-            var allProducts = await db.Set<Label.Product>()
+            var allProducts = await db.Set<LabelEntity.Product>()
                 .AsNoTracking()
                 .Where(p => p.SectionID != null && sectionIds.Contains((int)p.SectionID))
                 .ToListAsync();
@@ -1470,7 +1472,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.AdditionalIdentifier>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.AdditionalIdentifier>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new AdditionalIdentifierDto { AdditionalIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1480,7 +1482,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.BusinessOperationProductLink>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.BusinessOperationProductLink>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new BusinessOperationProductLinkDto { BusinessOperationProductLink = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1490,7 +1492,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.Characteristic>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Characteristic>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new CharacteristicDto { Characteristic = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1500,7 +1502,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.LotHierarchy>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.LotHierarchy>().AsNoTracking()
                 .Where(e => e.ChildInstanceID != null && productIds.Contains((int)e.ChildInstanceID)).ToListAsync();
             return entities.GroupBy(e => e.ChildInstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new LotHierarchyDto { LotHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1510,7 +1512,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.DosingSpecification>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.DosingSpecification>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new DosingSpecificationDto { DosingSpecification = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1520,7 +1522,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.EquivalentEntity>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.EquivalentEntity>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new EquivalentEntityDto { EquivalentEntity = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1530,7 +1532,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.GenericMedicine>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.GenericMedicine>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new GenericMedicineDto { GenericMedicine = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1540,7 +1542,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.IngredientInstance>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.IngredientInstance>().AsNoTracking()
                 .Where(e => e.FillLotInstanceID != null && productIds.Contains((int)e.FillLotInstanceID)).ToListAsync();
             return entities.GroupBy(e => e.FillLotInstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new IngredientInstanceDto { IngredientInstance = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1550,7 +1552,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.MarketingCategory>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.MarketingCategory>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new MarketingCategoryDto { MarketingCategory = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1560,7 +1562,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.MarketingStatus>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.MarketingStatus>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new MarketingStatusDto { MarketingStatus = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1570,7 +1572,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.LotHierarchy>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.LotHierarchy>().AsNoTracking()
                 .Where(e => e.ParentInstanceID != null && productIds.Contains((int)e.ParentInstanceID)).ToListAsync();
             return entities.GroupBy(e => e.ParentInstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new LotHierarchyDto { LotHierarchy = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1580,7 +1582,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.PartOfAssembly>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.PartOfAssembly>().AsNoTracking()
                 .Where(e => e.PrimaryProductID != null && productIds.Contains((int)e.PrimaryProductID)).ToListAsync();
             return entities.GroupBy(e => e.PrimaryProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new PartOfAssemblyDto { PartOfAssembly = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1590,7 +1592,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.Policy>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Policy>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new PolicyDto { Policy = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1600,7 +1602,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.ProductIdentifier>().AsNoTracking()
+            var entities = await db.Set<LabelEntity.ProductIdentifier>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ProductIdentifierDto { ProductIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1636,7 +1638,7 @@ namespace MedRecPro.DataAccess
             // Load all products for the sections where our Kit products reside
             // We need this to identify part products by section membership
             // Note: Cannot use isKitProduct() in LINQ-to-SQL, must inline the FormCode check
-            var kitProducts = await db.Set<Label.Product>().AsNoTracking()
+            var kitProducts = await db.Set<LabelEntity.Product>().AsNoTracking()
                 .Where(p => p.ProductID != null && productIds.Contains((int)p.ProductID)
                     && p.FormCode != null && p.FormCode == Constant.KIT_FORM_CODE)
                 .ToListAsync();
@@ -1652,7 +1654,7 @@ namespace MedRecPro.DataAccess
                 .ToList();
 
             // Load all products in Kit sections to identify parts
-            var allProductsInKitSections = await db.Set<Label.Product>().AsNoTracking()
+            var allProductsInKitSections = await db.Set<LabelEntity.Product>().AsNoTracking()
                 .Where(p => p.SectionID != null && kitSectionIds.Contains((int)p.SectionID))
                 .ToListAsync();
 
@@ -1684,7 +1686,7 @@ namespace MedRecPro.DataAccess
 
             // Try to get quantity information from ProductPart table (if available and valid)
             // This handles cases where the table has correct data
-            var existingProductParts = await db.Set<Label.ProductPart>().AsNoTracking()
+            var existingProductParts = await db.Set<LabelEntity.ProductPart>().AsNoTracking()
                 .Where(pp => pp.KitProductID != null && productIds.Contains((int)pp.KitProductID)
                     && pp.PartProductID != null && pp.KitProductID != pp.PartProductID) // Exclude self-references
                 .ToListAsync();
@@ -1714,11 +1716,11 @@ namespace MedRecPro.DataAccess
                     var partProductId = partProduct.ProductID.Value;
 
                     // Try to get existing ProductPart record for quantity info
-                    Label.ProductPart? existingPart = null;
+                    LabelEntity.ProductPart? existingPart = null;
                     quantityLookup.TryGetValue((kitProductId, partProductId), out existingPart);
 
                     // Create synthetic ProductPart entity if no valid one exists
-                    var productPartEntity = existingPart ?? new Label.ProductPart
+                    var productPartEntity = existingPart ?? new LabelEntity.ProductPart
                     {
                         KitProductID = kitProductId,
                         PartProductID = partProductId,
@@ -1754,7 +1756,7 @@ namespace MedRecPro.DataAccess
             if (partProductIds == null || !partProductIds.Any()) return new();
 
             // Load part product entities
-            var products = await db.Set<Label.Product>().AsNoTracking()
+            var products = await db.Set<LabelEntity.Product>().AsNoTracking()
                 .Where(p => p.ProductID != null && partProductIds.Contains((int)p.ProductID))
                 .ToListAsync();
 
@@ -1789,7 +1791,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.ProductRouteOfAdministration>().AsNoTracking()
+            var entities = await db.Set<LabelEntity.ProductRouteOfAdministration>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ProductRouteOfAdministrationDto { ProductRouteOfAdministration = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1799,7 +1801,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.ResponsiblePersonLink>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.ResponsiblePersonLink>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ResponsiblePersonLinkDto { ResponsiblePersonLink = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1809,7 +1811,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.SpecializedKind>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SpecializedKind>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new SpecializedKindDto { SpecializedKind = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1819,7 +1821,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.ProductWebLink>().AsNoTracking()
+            var entities = await db.Set<LabelEntity.ProductWebLink>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ProductWebLinkDto { ProductWebLink = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1829,7 +1831,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.ProductInstance>().AsNoTracking()
+            var entities = await db.Set<LabelEntity.ProductInstance>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
             return entities.GroupBy(e => e.ProductID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ProductInstanceDto { ProductInstance = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1839,7 +1841,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> productIds, int? sectionId, string pkSecret, ILogger logger)
         {
             if (productIds == null || !productIds.Any()) return new();
-            var entities = await db.Set<Label.PackagingLevel>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.PackagingLevel>().AsNoTracking()
                 .Where(e => e.ProductID != null && productIds.Contains((int)e.ProductID)).ToListAsync();
 
             if (!entities.Any())
@@ -1879,7 +1881,7 @@ namespace MedRecPro.DataAccess
             if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
 
             // Load all hierarchy entities for the given outer packaging level IDs
-            var hierarchyEntities = await db.Set<Label.PackagingHierarchy>().AsNoTracking()
+            var hierarchyEntities = await db.Set<global::MedRecPro.Models.Label.PackagingHierarchy>().AsNoTracking()
                 .Where(e => e.OuterPackagingLevelID != null && packagingLevelIds.Contains((int)e.OuterPackagingLevelID))
                 .ToListAsync();
 
@@ -1918,7 +1920,7 @@ namespace MedRecPro.DataAccess
             if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
 
             // Load all packaging level entities
-            var entities = await db.Set<Label.PackagingLevel>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.PackagingLevel>().AsNoTracking()
                 .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID))
                 .ToListAsync();
 
@@ -1932,7 +1934,7 @@ namespace MedRecPro.DataAccess
             var allCharacteristics = await batchLoadPackageLevelCharacteristicsAsync(db, packagingLevelIds, pkSecret, logger);
 
             // Load hierarchies for these packaging levels (for further nesting)
-            var hierarchyEntities = await db.Set<Label.PackagingHierarchy>().AsNoTracking()
+            var hierarchyEntities = await db.Set<global::MedRecPro.Models.Label.PackagingHierarchy>().AsNoTracking()
                 .Where(e => e.OuterPackagingLevelID != null && packagingLevelIds.Contains((int)e.OuterPackagingLevelID))
                 .ToListAsync();
 
@@ -1976,7 +1978,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
         {
             if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
-            var entities = await db.Set<Label.ProductEvent>().AsNoTracking()
+            var entities = await db.Set<LabelEntity.ProductEvent>().AsNoTracking()
                 .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
             return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ProductEventDto { ProductEvent = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1986,7 +1988,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
         {
             if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
-            var entities = await db.Set<Label.MarketingStatus>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.MarketingStatus>().AsNoTracking()
                 .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
             return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new MarketingStatusDto { MarketingStatus = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -1996,7 +1998,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
         {
             if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
-            var entities = await db.Set<Label.PackageIdentifier>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.PackageIdentifier>().AsNoTracking()
                 .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
             return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new PackageIdentifierDto { PackageIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2006,7 +2008,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> packagingLevelIds, string pkSecret, ILogger logger)
         {
             if (packagingLevelIds == null || !packagingLevelIds.Any()) return new();
-            var entities = await db.Set<Label.Characteristic>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Characteristic>().AsNoTracking()
                 .Where(e => e.PackagingLevelID != null && packagingLevelIds.Contains((int)e.PackagingLevelID)).ToListAsync();
             return entities.GroupBy(e => e.PackagingLevelID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new CharacteristicDto { Characteristic = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2024,8 +2026,8 @@ namespace MedRecPro.DataAccess
 
             // Join PackageIdentifier -> PackagingLevel to get ProductID association
             var packageIdentifiersWithProducts = await (
-                from pi in db.Set<Label.PackageIdentifier>().AsNoTracking()
-                join pl in db.Set<Label.PackagingLevel>().AsNoTracking() on pi.PackagingLevelID equals pl.PackagingLevelID
+                from pi in db.Set<global::MedRecPro.Models.Label.PackageIdentifier>().AsNoTracking()
+                join pl in db.Set<global::MedRecPro.Models.Label.PackagingLevel>().AsNoTracking() on pi.PackagingLevelID equals pl.PackagingLevelID
                 where pl.ProductID != null && productIds.Contains((int)pl.ProductID)
                 select new { PackageIdentifier = pi, ProductID = pl.ProductID!.Value }
             ).ToListAsync();
@@ -2067,7 +2069,7 @@ namespace MedRecPro.DataAccess
         {
             if (packageIdentifierIds == null || !packageIdentifierIds.Any()) return new();
 
-            var entities = await db.Set<Label.ComplianceAction>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.ComplianceAction>().AsNoTracking()
                 .Where(e => e.PackageIdentifierID != null && packageIdentifierIds.Contains((int)e.PackageIdentifierID))
                 .ToListAsync();
 
@@ -2101,7 +2103,7 @@ namespace MedRecPro.DataAccess
             if (productIds == null || !productIds.Any())
                 return new Dictionary<int, List<IngredientDto>>();
 
-            var ingredients = await db.Set<Label.Ingredient>()
+            var ingredients = await db.Set<global::MedRecPro.Models.Label.Ingredient>()
                 .AsNoTracking()
                 .Where(i => i.ProductID != null && productIds.Contains((int)i.ProductID))
                 .ToListAsync();
@@ -2153,7 +2155,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
-            var entities = await db.Set<Label.IngredientSubstance>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.IngredientSubstance>().AsNoTracking()
                 .Where(e => e.IngredientSubstanceID != null && substanceIds.Contains((int)e.IngredientSubstanceID)).ToListAsync();
 
             if (!entities.Any())
@@ -2178,7 +2180,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
-            var entities = await db.Set<Label.ActiveMoiety>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.ActiveMoiety>().AsNoTracking()
                 .Where(e => e.IngredientSubstanceID != null && substanceIds.Contains((int)e.IngredientSubstanceID))
                 .ToListAsync();
             return entities.GroupBy(e => e.IngredientSubstanceID!.Value).ToDictionary(g => g.Key,
@@ -2189,7 +2191,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
-            var entities = await db.Set<Label.ReferenceSubstance>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.ReferenceSubstance>().AsNoTracking()
                 .Where(e => e.IngredientSubstanceID != null && substanceIds.Contains((int)e.IngredientSubstanceID)).ToListAsync();
             return entities.GroupBy(e => e.IngredientSubstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ReferenceSubstanceDto { ReferenceSubstance = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2199,7 +2201,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
-            var entities = await db.Set<Label.IngredientInstance>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.IngredientInstance>().AsNoTracking()
                 .Where(e => e.IngredientSubstanceID != null && substanceIds.Contains((int)e.IngredientSubstanceID)).ToListAsync();
             return entities.GroupBy(e => e.IngredientSubstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new IngredientInstanceDto { IngredientInstance = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2209,7 +2211,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> ingredientIds, string pkSecret, ILogger logger)
         {
             if (ingredientIds == null || !ingredientIds.Any()) return new();
-            var entities = await db.Set<Label.IngredientSourceProduct>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.IngredientSourceProduct>().AsNoTracking()
                 .Where(e => e.IngredientID != null && ingredientIds.Contains((int)e.IngredientID)).ToListAsync();
             return entities.GroupBy(e => e.IngredientID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new IngredientSourceProductDto { IngredientSourceProduct = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2219,7 +2221,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> specifiedSubstanceIds, string pkSecret, ILogger logger)
         {
             if (specifiedSubstanceIds == null || !specifiedSubstanceIds.Any()) return new();
-            var entities = await db.Set<Label.SpecifiedSubstance>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SpecifiedSubstance>().AsNoTracking()
                 .Where(e => e.SpecifiedSubstanceID != null && specifiedSubstanceIds.Contains((int)e.SpecifiedSubstanceID)).ToListAsync();
             return entities.GroupBy(e => e.SpecifiedSubstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new SpecifiedSubstanceDto { SpecifiedSubstance = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2241,7 +2243,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<IdentifiedSubstanceDto>>();
 
-            var entities = await db.Set<Label.IdentifiedSubstance>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.IdentifiedSubstance>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -2279,7 +2281,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
-            var entities = await db.Set<Label.SubstanceSpecification>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.SubstanceSpecification>().AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID != null && substanceIds.Contains((int)e.IdentifiedSubstanceID)).ToListAsync();
             return entities.GroupBy(e => e.IdentifiedSubstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new SubstanceSpecificationDto { SubstanceSpecification = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2290,7 +2292,7 @@ namespace MedRecPro.DataAccess
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
             // ContributingFactor uses FactorSubstanceID to reference IdentifiedSubstance
-            var entities = await db.Set<Label.ContributingFactor>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.ContributingFactor>().AsNoTracking()
                 .Where(e => e.FactorSubstanceID != null && substanceIds.Contains((int)e.FactorSubstanceID)).ToListAsync();
             return entities.GroupBy(e => e.FactorSubstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ContributingFactorDto { ContributingFactor = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2300,7 +2302,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
-            var entities = await db.Set<Label.PharmacologicClass>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.PharmacologicClass>().AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID != null && substanceIds.Contains((int)e.IdentifiedSubstanceID)).ToListAsync();
             return entities.GroupBy(e => e.IdentifiedSubstanceID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new PharmacologicClassDto { PharmacologicClass = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2310,7 +2312,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> substanceIds, string pkSecret, ILogger logger)
         {
             if (substanceIds == null || !substanceIds.Any()) return new();
-            var entities = await db.Set<Label.Moiety>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Moiety>().AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID != null && substanceIds.Contains((int)e.IdentifiedSubstanceID))
                 .OrderBy(e => e.SequenceNumber)
                 .ToListAsync();
@@ -2342,7 +2344,7 @@ namespace MedRecPro.DataAccess
         {
             if (moietyIds == null || !moietyIds.Any()) return new();
 
-            var entities = await db.Set<Label.Characteristic>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Characteristic>().AsNoTracking()
                 .Where(e => e.MoietyID != null && moietyIds.Contains((int)e.MoietyID))
                 .ToListAsync();
 
@@ -2368,7 +2370,7 @@ namespace MedRecPro.DataAccess
             if (sectionIds == null || !sectionIds.Any())
                 return new Dictionary<int, List<InteractionIssueDto>>();
 
-            var entities = await db.Set<Label.InteractionIssue>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.InteractionIssue>()
                 .AsNoTracking()
                 .Where(e => e.SectionID != null && sectionIds.Contains((int)e.SectionID))
                 .ToListAsync();
@@ -2399,7 +2401,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> issueIds, string pkSecret, ILogger logger)
         {
             if (issueIds == null || !issueIds.Any()) return new();
-            var entities = await db.Set<Label.InteractionConsequence>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.InteractionConsequence>().AsNoTracking()
                 .Where(e => e.InteractionIssueID != null && issueIds.Contains((int)e.InteractionIssueID)).ToListAsync();
             return entities.GroupBy(e => e.InteractionIssueID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new InteractionConsequenceDto { InteractionConsequence = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2425,7 +2427,7 @@ namespace MedRecPro.DataAccess
             if (organizationIds == null || !organizationIds.Any())
                 return new Dictionary<int, OrganizationDto>();
 
-            var entities = await db.Set<Label.Organization>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Organization>()
                 .AsNoTracking()
                 .Where(o => o.OrganizationID != null && organizationIds.Contains((int)o.OrganizationID))
                 .ToListAsync();
@@ -2466,7 +2468,7 @@ namespace MedRecPro.DataAccess
             if (organizationIds == null || !organizationIds.Any())
                 return new Dictionary<int, List<OrganizationIdentifierDto>>();
 
-            var entities = await db.Set<Label.OrganizationIdentifier>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.OrganizationIdentifier>()
                 .AsNoTracking()
                 .Where(e => e.OrganizationID != null && organizationIds.Contains((int)e.OrganizationID))
                 .ToListAsync();
@@ -2497,7 +2499,7 @@ namespace MedRecPro.DataAccess
             if (organizationIds == null || !organizationIds.Any())
                 return new Dictionary<int, List<OrganizationTelecomDto>>();
 
-            var entities = await db.Set<Label.OrganizationTelecom>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.OrganizationTelecom>()
                 .AsNoTracking()
                 .Where(e => e.OrganizationID != null && organizationIds.Contains((int)e.OrganizationID))
                 .ToListAsync();
@@ -2526,7 +2528,7 @@ namespace MedRecPro.DataAccess
             if (organizationIds == null || !organizationIds.Any())
                 return new Dictionary<int, List<NamedEntityDto>>();
 
-            var entities = await db.Set<Label.NamedEntity>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.NamedEntity>()
                 .AsNoTracking()
                 .Where(e => e.OrganizationID != null && organizationIds.Contains((int)e.OrganizationID))
                 .ToListAsync();
@@ -2555,7 +2557,7 @@ namespace MedRecPro.DataAccess
             if (organizationIds == null || !organizationIds.Any())
                 return new Dictionary<int, List<HolderDto>>();
 
-            var entities = await db.Set<Label.Holder>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Holder>()
                 .AsNoTracking()
                 .Where(e => e.HolderOrganizationID != null && organizationIds.Contains((int)e.HolderOrganizationID))
                 .ToListAsync();
@@ -2579,7 +2581,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> relationshipIds, string pkSecret, ILogger logger)
         {
             if (relationshipIds == null || !relationshipIds.Any()) return new();
-            var entities = await db.Set<Label.BusinessOperation>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.BusinessOperation>().AsNoTracking()
                 .Where(e => e.DocumentRelationshipID != null && relationshipIds.Contains((int)e.DocumentRelationshipID)).ToListAsync();
             return entities.GroupBy(e => e.DocumentRelationshipID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new BusinessOperationDto { BusinessOperation = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2589,7 +2591,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> relationshipIds, string pkSecret, ILogger logger)
         {
             if (relationshipIds == null || !relationshipIds.Any()) return new();
-            var entities = await db.Set<Label.CertificationProductLink>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.CertificationProductLink>().AsNoTracking()
                 .Where(e => e.DocumentRelationshipID != null && relationshipIds.Contains((int)e.DocumentRelationshipID)).ToListAsync();
             return entities.GroupBy(e => e.DocumentRelationshipID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new CertificationProductLinkDto { CertificationProductLink = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2599,7 +2601,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> relationshipIds, string pkSecret, ILogger logger)
         {
             if (relationshipIds == null || !relationshipIds.Any()) return new();
-            var entities = await db.Set<Label.ComplianceAction>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.ComplianceAction>().AsNoTracking()
                 .Where(e => e.DocumentRelationshipID != null && relationshipIds.Contains((int)e.DocumentRelationshipID)).ToListAsync();
             return entities.GroupBy(e => e.DocumentRelationshipID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new ComplianceActionDto { ComplianceAction = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2609,7 +2611,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> relationshipIds, string pkSecret, ILogger logger)
         {
             if (relationshipIds == null || !relationshipIds.Any()) return new();
-            var entities = await db.Set<Label.FacilityProductLink>().AsNoTracking()
+            var entities = await db.Set<global::MedRecPro.Models.Label.FacilityProductLink>().AsNoTracking()
                 .Where(e => e.DocumentRelationshipID != null && relationshipIds.Contains((int)e.DocumentRelationshipID)).ToListAsync();
             return entities.GroupBy(e => e.DocumentRelationshipID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new FacilityProductLinkDto { FacilityProductLink = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2619,7 +2621,7 @@ namespace MedRecPro.DataAccess
             ApplicationDbContext db, IReadOnlyList<int> relationshipIds, string pkSecret, ILogger logger)
         {
             if (relationshipIds == null || !relationshipIds.Any()) return new();
-            var entities = await db.Set<Label.DocumentRelationshipIdentifier>().AsNoTracking()
+            var entities = await db.Set<LabelEntity.DocumentRelationshipIdentifier>().AsNoTracking()
                 .Where(e => e.DocumentRelationshipID != null && relationshipIds.Contains((int)e.DocumentRelationshipID)).ToListAsync();
             return entities.GroupBy(e => e.DocumentRelationshipID!.Value).ToDictionary(g => g.Key,
                 g => g.Select(e => new DocumentRelationshipIdentifierDto { DocumentRelationshipIdentifier = e.ToEntityWithEncryptedId(pkSecret, logger) }).ToList());
@@ -2637,8 +2639,8 @@ namespace MedRecPro.DataAccess
         /// <param name="product">The product entity to check.</param>
         /// <returns>True if the product is a Kit; otherwise, false.</returns>
         /// <seealso cref="Constant.KIT_FORM_CODE"/>
-        /// <seealso cref="Label.Product"/>
-        private static bool isKitProduct(Label.Product product)
+        /// <seealso cref="LabelEntity.Product"/>
+        private static bool isKitProduct(LabelEntity.Product product)
         {
             #region implementation
             return product?.FormCode?.Equals(Constant.KIT_FORM_CODE, StringComparison.OrdinalIgnoreCase) == true;
@@ -2658,7 +2660,7 @@ namespace MedRecPro.DataAccess
         /// <param name="kitSectionIds">Dictionary mapping Kit ProductID to its SectionID.</param>
         /// <param name="allProductsInSections">All products loaded for the sections.</param>
         /// <returns>Dictionary mapping Kit ProductID to list of part Product entities.</returns>
-        /// <seealso cref="Label.Product"/>
+        /// <seealso cref="LabelEntity.Product"/>
         /// <seealso cref="Label.MarketingCategory"/>
         /// <remarks>
         /// This method uses a view-based approach to identify Kit parts by inferring relationships
@@ -2670,22 +2672,22 @@ namespace MedRecPro.DataAccess
         /// - Products with their own marketing data are not treated as parts
         /// - Only products in Kit sections without marketing data become parts
         /// </remarks>
-        private static async Task<Dictionary<int, List<Label.Product>>> identifyKitPartProductsAsync(
+        private static async Task<Dictionary<int, List<LabelEntity.Product>>> identifyKitPartProductsAsync(
             ApplicationDbContext db,
             IReadOnlyList<int> kitProductIds,
             Dictionary<int, int> kitSectionIds,
-            IReadOnlyList<Label.Product> allProductsInSections)
+            IReadOnlyList<LabelEntity.Product> allProductsInSections)
         {
             #region implementation
 
-            var result = new Dictionary<int, List<Label.Product>>();
+            var result = new Dictionary<int, List<LabelEntity.Product>>();
 
             if (kitProductIds == null || !kitProductIds.Any())
                 return result;
 
             // Get all product IDs that have marketing categories (these are NOT parts)
             // Parts don't have their own marketing data - they inherit from the Kit
-            var productsWithMarketingData = await db.Set<Label.MarketingCategory>()
+            var productsWithMarketingData = await db.Set<global::MedRecPro.Models.Label.MarketingCategory>()
                 .AsNoTracking()
                 .Where(mc => mc.ProductID != null)
                 .Select(mc => mc.ProductID!.Value)
@@ -2733,7 +2735,7 @@ namespace MedRecPro.DataAccess
         /// <param name="kitPartsMapping">Dictionary mapping Kit ProductID to list of part Products.</param>
         /// <returns>HashSet of ProductIDs that are Kit parts and should be excluded from top-level.</returns>
         /// <seealso cref="identifyKitPartProductsAsync"/>
-        private static HashSet<int> getPartProductIdsToExclude(Dictionary<int, List<Label.Product>> kitPartsMapping)
+        private static HashSet<int> getPartProductIdsToExclude(Dictionary<int, List<LabelEntity.Product>> kitPartsMapping)
         {
             #region implementation
 

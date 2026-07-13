@@ -5914,3 +5914,14 @@ Completed Phases 0-2 of [the DtoLabelAccess decomposition plan](Plans/%28pending
 **Verification.** Debug build passed with 0 warnings/errors; Release build passed with only the existing `CS0168` warning in `SplParseContextExtensions.cs`. Focused DtoLabelAccess/AE/controller tests passed 251/251; signature/public-surface/architecture/policy/query guards passed 11/11; Debug and isolated Release route/OpenAPI/HTTP contracts each passed 15/15. The full suite passed 2,642/2,643 with 0 failures and the existing `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip in 6 minutes 46 seconds. `git diff --check` passed (LF-to-CRLF notices only).
 
 ---
+
+### 2026-07-13 7:35 PM EST — DtoLabelAccess Decomposition Phases 3-4
+Completed Phases 3 and 4 of [the DtoLabelAccess decomposition plan](Plans/%28pending%29%20MedRecPro%20DtoLabelAccess%20Decomposition%20Remediation%20Plan.md). The ignored plan now records both phase completions and their acceptance evidence; Phases 5-6 intentionally remain pending.
+
+**Feature ownership.** Moved non-AE query implementation into `LabelQueryDataAccess` under `Service/Label/Implementation` and exposed scoped, narrow ingredient, pharmacologic-class, product, content, markdown, document, and Orange Book services. Migrated Label search/document/markdown, Orange Book, Claude search, repository, and SPL export consumers to constructor-injected contracts. The retained non-AE `DtoLabelAccess` overloads are forwarding-only compatibility adapters.
+
+**Document graph boundary.** Added `Features/Label/Mapping/LabelDocumentAssembler` to select the established sequential or batch graph loader while retaining the sequential default, ordering, encrypted identifiers, and legacy loading-mode cache-key separation. Added relational SQLite direct-service-versus-static parity coverage for product, Orange Book, and both document graph-loading modes; existing tests were updated only for the new constructor dependencies.
+
+**Verification.** Debug and Release solution builds passed with 0 warnings/errors. Focused DtoLabelAccess coverage passed 162/162; the new service-parity tests passed 3/3; public-surface/signature/facade-architecture guards passed 6/6; AE regression passed 96/96; Debug and isolated Release route/OpenAPI/HTTP contracts each passed 15/15. The full suite passed 2,646/2,647 with 0 failures and the reviewed pre-existing `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip (6 minutes 29 seconds). `git diff --check` passed; its only output was baseline LF-to-CRLF notices.
+
+---

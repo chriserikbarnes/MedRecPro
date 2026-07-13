@@ -1,5 +1,6 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -18,7 +19,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Document Relationship Child Builders
         /**************************************************************/
@@ -62,7 +63,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<BusinessOperationDto>();
 
             // Query business operations for the specified document relationship using read-only tracking
-            var entities = await db.Set<Label.BusinessOperation>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.BusinessOperation>()
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
@@ -134,7 +135,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<LicenseDto>();
 
             // Query licenses for the specified business operation using read-only tracking
-            var entities = await db.Set<Label.License>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.License>()
                 .AsNoTracking()
                 .Where(e => e.BusinessOperationID == businessOperationId)
                 .ToListAsync();
@@ -201,7 +202,7 @@ namespace MedRecPro.DataAccess
                 return new List<DisciplinaryActionDto>();
 
             // Query disciplinary actions for the specified license using read-only tracking
-            var entities = await db.Set<Label.DisciplinaryAction>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.DisciplinaryAction>()
                 .AsNoTracking()
                 .Where(e => e.LicenseID == licenseId)
                 .ToListAsync();
@@ -249,7 +250,7 @@ namespace MedRecPro.DataAccess
                 return new List<BusinessOperationQualifierDto>();
 
             // Query business operation qualifiers for the specified business operation using read-only tracking
-            var entities = await db.Set<Label.BusinessOperationQualifier>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.BusinessOperationQualifier>()
                 .AsNoTracking()
                 .Where(e => e.BusinessOperationID == businessOperationId)
                 .ToListAsync();
@@ -283,7 +284,7 @@ namespace MedRecPro.DataAccess
             if (docRelId == null) return new List<CertificationProductLinkDto>();
 
             // Query certification product links for the specified document relationship
-            var items = await db.Set<Label.CertificationProductLink>()
+            var items = await db.Set<global::MedRecPro.Models.Label.CertificationProductLink>()
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
@@ -313,7 +314,7 @@ namespace MedRecPro.DataAccess
             if (docRelId == null) return new List<ComplianceActionDto>();
 
             // Query compliance actions for the specified document relationship
-            var items = await db.Set<Label.ComplianceAction>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ComplianceAction>()
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();
@@ -347,7 +348,7 @@ namespace MedRecPro.DataAccess
             List<FacilityProductLinkDto> retSet = new List<FacilityProductLinkDto>();
 
             // Query facility product links for the specified document relationship
-            var items = await db.Set<Label.FacilityProductLink>()
+            var items = await db.Set<global::MedRecPro.Models.Label.FacilityProductLink>()
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == docRelId)
                 .ToListAsync();

@@ -1,5 +1,6 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -18,7 +19,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Organization & Contact Builders
         /**************************************************************/
@@ -53,7 +54,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Fetch the Organization entity with no change tracking for performance
-            var org = await db.Set<Label.Organization>()
+            var org = await db.Set<global::MedRecPro.Models.Label.Organization>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.OrganizationID == organizationId);
 
@@ -65,7 +66,7 @@ namespace MedRecPro.DataAccess
             var orgDict = org.ToEntityWithEncryptedId(pkSecret, logger);
 
             // Build ContactParties for this organization
-            var contactParties = await db.Set<Label.ContactParty>()
+            var contactParties = await db.Set<global::MedRecPro.Models.Label.ContactParty>()
                 .AsNoTracking()
                 .Where(cp => cp.OrganizationID == organizationId)
                 .ToListAsync();
@@ -136,7 +137,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // 1. Fetch ContactParty entity with no change tracking
-            var contactParty = await db.Set<Label.ContactParty>()
+            var contactParty = await db.Set<global::MedRecPro.Models.Label.ContactParty>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(cp => cp.ContactPartyID == contactPartyId);
 
@@ -207,7 +208,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Fetch ContactPerson entity with no change tracking
-            var entity = await db.Set<Label.ContactPerson>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ContactPerson>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(cp => cp.ContactPersonID == contactPersonId);
 
@@ -219,7 +220,7 @@ namespace MedRecPro.DataAccess
             var contactPersonDict = entity.ToEntityWithEncryptedId(pkSecret, logger);
 
             // Build ContactParties that reference this ContactPerson
-            var parties = await db.Set<Label.ContactParty>()
+            var parties = await db.Set<global::MedRecPro.Models.Label.ContactParty>()
                 .AsNoTracking()
                 .Where(cp => cp.ContactPersonID == contactPersonId)
                 .ToListAsync();
@@ -272,7 +273,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // 1. Fetch Address entity with no change tracking for performance
-            var address = await db.Set<Label.Address>()
+            var address = await db.Set<global::MedRecPro.Models.Label.Address>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.AddressID == addressId);
 
@@ -284,7 +285,7 @@ namespace MedRecPro.DataAccess
             var addressDict = address.ToEntityWithEncryptedId(pkSecret, logger);
 
             // 3. Fetch and build all ContactParties associated with this address
-            var contactParties = await db.Set<Label.ContactParty>()
+            var contactParties = await db.Set<global::MedRecPro.Models.Label.ContactParty>()
                 .AsNoTracking()
                 .Where(cp => cp.AddressID == addressId)
                 .ToListAsync();
@@ -328,12 +329,12 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Query telecom entity by primary key
-            var entity = await db.Set<Label.Telecom>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.Telecom>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.TelecomID == telecomId);
 
             // Query associated contact party telecom relationships
-            var party = await db.Set<Label.ContactPartyTelecom>()
+            var party = await db.Set<global::MedRecPro.Models.Label.ContactPartyTelecom>()
                 .AsNoTracking()
                 .Where(e => e.TelecomID == telecomId)
                 .ToListAsync();
@@ -373,7 +374,7 @@ namespace MedRecPro.DataAccess
                 return new List<ContactPartyTelecomDto>();
 
             // Fetch all ContactPartyTelecom entities for this ContactParty
-            var items = await db.Set<Label.ContactPartyTelecom>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ContactPartyTelecom>()
                 .AsNoTracking()
                 .Where(t => t.ContactPartyID == contactPartyId)
                 .ToListAsync();
@@ -418,7 +419,7 @@ namespace MedRecPro.DataAccess
                 return new List<OrganizationTelecomDto>();
 
             // Fetch all OrganizationTelecom entities for this Organization
-            var items = await db.Set<Label.OrganizationTelecom>()
+            var items = await db.Set<global::MedRecPro.Models.Label.OrganizationTelecom>()
                 .AsNoTracking()
                 .Where(t => t.OrganizationID == organizationId)
                 .ToListAsync();
@@ -461,7 +462,7 @@ namespace MedRecPro.DataAccess
                 return new List<OrganizationIdentifierDto>();
 
             // Fetch all OrganizationIdentifier entities for this Organization
-            var items = await db.Set<Label.OrganizationIdentifier>()
+            var items = await db.Set<global::MedRecPro.Models.Label.OrganizationIdentifier>()
                 .AsNoTracking()
                 .Where(i => i.OrganizationID == organizationId)
                 .ToListAsync();
@@ -492,7 +493,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Query named entities for the specified organization
-            var entity = await db.Set<Label.NamedEntity>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.NamedEntity>()
                 .AsNoTracking()
                 .Where(e => e.OrganizationID == organizationID)
                 .ToListAsync();
@@ -531,7 +532,7 @@ namespace MedRecPro.DataAccess
                 return new List<TerritorialAuthorityDto>();
 
             // Query territorial authorities for the specified governing agency organization
-            var entity = await db.Set<Label.TerritorialAuthority>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.TerritorialAuthority>()
                 .AsNoTracking()
                 .Where(e => e.TerritorialAuthorityID == territorialAuthId)
                 .ToListAsync();
@@ -566,7 +567,7 @@ namespace MedRecPro.DataAccess
                 return new List<HolderDto>();
 
             // Query holders for the specified holder organization
-            var entity = await db.Set<Label.Holder>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.Holder>()
                 .AsNoTracking()
                 .Where(e => e.HolderOrganizationID == organizationID)
                 .ToListAsync();

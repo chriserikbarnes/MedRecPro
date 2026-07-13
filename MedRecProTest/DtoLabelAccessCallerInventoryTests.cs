@@ -18,8 +18,8 @@ namespace MedRecProTest
     [TestClass]
     public class DtoLabelAccessCallerInventoryTests
     {
-        private const int ExpectedCallerCount = 45;
-        private const string ExpectedCallerSnapshotHash = "E1F9BEB331335B9D1A2AA8EBAC229095DCA4710C2EF373EEE8CC2CC048C4347F";
+        private const int ExpectedCallerCount = 0;
+        private const string ExpectedCallerSnapshotHash = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
 
         /**************************************************************/
         /// <summary>
@@ -34,8 +34,8 @@ namespace MedRecProTest
             var callers = getExecutableCallers();
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", callers))));
 
-            Assert.AreEqual(ExpectedCallerCount, callers.Count, "An executable first-party static caller was added or removed.");
-            Assert.AreEqual(ExpectedCallerSnapshotHash, hash, "A caller-to-facade-method mapping changed without an explicit ownership decision.");
+            Assert.AreEqual(ExpectedCallerCount, callers.Count, "Production code must use injected feature services instead of DtoLabelAccess.");
+            Assert.AreEqual(ExpectedCallerSnapshotHash, hash, "An executable first-party static caller was added after the facade migration.");
 
             #endregion
         }
@@ -60,6 +60,7 @@ namespace MedRecProTest
                 var relativePath = Path.GetRelativePath(root, file).Replace('\\', '/');
                 if (relativePath.Contains("/bin/", StringComparison.Ordinal)
                     || relativePath.Contains("/obj/", StringComparison.Ordinal)
+                    || relativePath.Contains("/Todo/", StringComparison.Ordinal)
                     || Path.GetFileName(file).StartsWith("DtoLabelAccess", StringComparison.Ordinal)
                     || Path.GetFileName(file).Equals("AeDashboardFavoriteAccess.cs", StringComparison.Ordinal))
                 {

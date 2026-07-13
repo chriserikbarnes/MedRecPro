@@ -1,6 +1,8 @@
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.LabelQuery;
+using MedRecPro.Service.LabelQuery.Implementation;
 using MedRecProTest;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -503,12 +505,31 @@ namespace MedRecPro.Service.Test
             }
 
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+            var query = new LabelQueryDataAccess();
+            var pharmacologicClassSearchService = new PharmacologicClassSearchService(
+                context,
+                configuration,
+                query,
+                NullLogger<PharmacologicClassSearchService>.Instance);
+            var productSearchService = new ProductSearchService(
+                context,
+                configuration,
+                query,
+                NullLogger<ProductSearchService>.Instance);
+            var labelMarkdownService = new LabelMarkdownService(
+                context,
+                configuration,
+                query,
+                NullLogger<LabelMarkdownService>.Instance);
 
             return new ClaudeSearchService(
                 context,
                 configuration,
                 NullLogger<ClaudeSearchService>.Instance,
-                ExternalServiceTestHarness.CreateScopeFactoryFor(claudeApiService));
+                ExternalServiceTestHarness.CreateScopeFactoryFor(claudeApiService),
+                pharmacologicClassSearchService,
+                productSearchService,
+                labelMarkdownService);
             #endregion
         }
 

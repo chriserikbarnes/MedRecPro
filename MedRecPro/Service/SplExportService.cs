@@ -2,6 +2,8 @@
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.LabelQuery;
+using MedRecPro.Service.LabelQuery.Implementation;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Newtonsoft.Json;
 using RazorLight;
@@ -159,13 +161,6 @@ namespace MedRecPro.Service
 
         /**************************************************************/
         /// <summary>
-        /// Private key secret used for secure access to encrypted document data.
-        /// Required for decrypting and accessing sensitive medical record information.
-        /// </summary>
-        private readonly string _pkSecret;
-
-        /**************************************************************/
-        /// <summary>
         /// Logger instance for recording data access operations and error information.
         /// Used to track document retrieval attempts and diagnostic information.
         /// </summary>
@@ -180,6 +175,13 @@ namespace MedRecPro.Service
         /// <seealso cref="IConfiguration"/>
         private readonly IConfiguration _configuration;
 
+        /**************************************************************/
+        /// <summary>
+        /// Service for retrieving complete document graphs for SPL export.
+        /// </summary>
+        /// <seealso cref="ILabelDocumentQueryService"/>
+        private readonly ILabelDocumentQueryService _labelDocumentQueryService;
+
         #endregion
 
         #region constructor
@@ -193,6 +195,7 @@ namespace MedRecPro.Service
         /// <param name="db">Entity Framework database context for data operations</param>
         /// <param name="configuration">Application configuration containing encryption settings and security keys</param>
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
+        /// <param name="labelDocumentQueryService">Document query service for complete graph retrieval.</param>
         /// <seealso cref="ApplicationDbContext"/>
         /// <seealso cref="IConfiguration"/>
         /// <seealso cref="ILogger"/>
@@ -216,8 +219,9 @@ namespace MedRecPro.Service
         public DocumentDataService(
             ApplicationDbContext db,
             IConfiguration configuration,
-            ILogger<DocumentDataService> logger)
-            : this(db, configuration, (ILogger)logger)
+            ILogger<DocumentDataService> logger,
+            ILabelDocumentQueryService labelDocumentQueryService)
+            : this(db, configuration, (ILogger)logger, labelDocumentQueryService)
         {
             #region implementation
 
@@ -235,14 +239,39 @@ namespace MedRecPro.Service
         /// <param name="db">Entity Framework database context for data operations.</param>
         /// <param name="configuration">Application configuration containing encryption settings.</param>
         /// <param name="logger">Pre-created logger for operation diagnostics.</param>
+        /// <param name="labelDocumentQueryService">Document query service for complete graph retrieval.</param>
         /// <seealso cref="ILogger{DocumentDataService}"/>
-        public DocumentDataService(ApplicationDbContext db, IConfiguration configuration, ILogger logger)
+        public DocumentDataService(ApplicationDbContext db, IConfiguration configuration, ILogger logger, ILabelDocumentQueryService labelDocumentQueryService)
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-            _pkSecret = configuration.GetSection("Security:DB:PKSecret").Value
-                ?? throw new InvalidOperationException("PK encryption secret not configured");
+            _labelDocumentQueryService = labelDocumentQueryService ?? throw new ArgumentNullException(nameof(labelDocumentQueryService));
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a compatibility document service for direct legacy construction.
+        /// </summary>
+        /// <remarks>
+        /// Normal request paths use the injected <see cref="ILabelDocumentQueryService"/> constructor.
+        /// This overload retains direct-construction compatibility without returning to the static facade.
+        /// </remarks>
+        /// <seealso cref="ILabelDocumentQueryService"/>
+        public DocumentDataService(ApplicationDbContext db, IConfiguration configuration, ILogger logger)
+            : this(
+                db,
+                configuration,
+                logger,
+                new LabelDocumentQueryService(
+                    db,
+                    configuration,
+                    new LabelQueryDataAccess(),
+                    LoggerFactory.Create(builder => { }).CreateLogger<LabelDocumentQueryService>()))
+        {
+            #region implementation
+
+            #endregion
         }
 
         #endregion
@@ -258,7 +287,7 @@ namespace MedRecPro.Service
         /// <param name="documentGuid">The unique identifier of the document to retrieve</param>
         /// <returns>The document DTO containing all export-ready data, or null if not found</returns>
         /// <seealso cref="DocumentDto"/>
-        /// <seealso cref="DtoLabelAccess.BuildDocumentsAsync(ApplicationDbContext, Guid, string, ILogger, bool?)"/>
+        /// <seealso cref="ILabelDocumentQueryService.BuildDocumentsAsync(Guid, bool?)"/>
         /// <seealso cref="ISplExportService.ExportDocumentToSplAsync"/>
         /// <example>
         /// <code>
@@ -298,7 +327,7 @@ namespace MedRecPro.Service
 
             // Use secure data access layer to retrieve document with private key decryption
             // Pass the batch loading flag to enable/disable the optimization
-            var documents = await DtoLabelAccess.BuildDocumentsAsync(_db, documentGuid, _pkSecret, _logger, useBatchLoading);
+            var documents = await _labelDocumentQueryService.BuildDocumentsAsync(documentGuid, useBatchLoading);
 
             // Return the first document from the collection, or null if none found
             return documents?.FirstOrDefault();

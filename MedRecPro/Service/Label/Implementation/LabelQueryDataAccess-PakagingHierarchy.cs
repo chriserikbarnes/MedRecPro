@@ -1,5 +1,6 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -18,7 +19,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Packaging Hierarchy Builders
         /**************************************************************/
@@ -73,7 +74,7 @@ namespace MedRecPro.DataAccess
             List<PackageIdentifierDto> packageIdentifierDtos = new List<PackageIdentifierDto>();
 
             // Query packaging levels for the specified product
-            var items = await db.Set<Label.PackagingLevel>()
+            var items = await db.Set<global::MedRecPro.Models.Label.PackagingLevel>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -90,7 +91,7 @@ namespace MedRecPro.DataAccess
                 #region nested collections
 
                 // Fetch package identifiers for this packaging level
-                var packageIdentifier = await db.Set<Label.PackageIdentifier>()
+                var packageIdentifier = await db.Set<global::MedRecPro.Models.Label.PackageIdentifier>()
                     .AsNoTracking()
                     .Where(e => e.PackagingLevelID == item.PackagingLevelID)
                     .ToListAsync();
@@ -167,7 +168,7 @@ namespace MedRecPro.DataAccess
                 return new List<PackagingLevelDto>();
 
             // Query packaging levels for the specified product instance
-            var entity = await db.Set<Label.PackagingLevel>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.PackagingLevel>()
                 .AsNoTracking()
                 .Where(e => e.ProductInstanceID == productInstanceID)
                 .ToListAsync();
@@ -215,7 +216,7 @@ namespace MedRecPro.DataAccess
                 return new List<MarketingStatusDto>();
 
             // Query marketing statuses for the specified packaging level using read-only tracking
-            var items = await db.Set<Label.MarketingStatus>()
+            var items = await db.Set<global::MedRecPro.Models.Label.MarketingStatus>()
                 .AsNoTracking()
                 .Where(e => e.PackagingLevelID == packagingLevelID)
                 .ToListAsync();
@@ -251,7 +252,7 @@ namespace MedRecPro.DataAccess
                 return new List<PackagingHierarchyDto>();
 
             // Query packaging hierarchies for the specified outer packaging level
-            var entity = await db.Set<Label.PackagingHierarchy>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.PackagingHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.OuterPackagingLevelID == outerPackagingLevelID)
                 .ToListAsync();
@@ -304,7 +305,7 @@ namespace MedRecPro.DataAccess
                 return new List<PackagingLevelDto>();
 
             // Query packaging levels for the specified product instance
-            var entity = await db.Set<Label.PackagingLevel>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.PackagingLevel>()
                 .AsNoTracking()
                 .Where(e => e.PackagingLevelID == packingLevelId)
                 .ToListAsync();
@@ -353,7 +354,7 @@ namespace MedRecPro.DataAccess
                 return new List<ProductEventDto>();
 
             // Query product events for the specified packaging level using read-only tracking
-            var entity = await db.Set<Label.ProductEvent>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ProductEvent>()
                 .AsNoTracking()
                 .Where(e => e.PackagingLevelID == packagingLevelID)
                 .ToListAsync();
@@ -393,7 +394,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Query package identifier for the specified packaging level
-            var entity = await db.Set<Label.PackageIdentifier>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.PackageIdentifier>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.PackagingLevelID == packagingLevelID);
 
@@ -459,7 +460,7 @@ namespace MedRecPro.DataAccess
             #region data retrieval
             // Query compliance actions for the specified package identifier
             // Using AsNoTracking for performance since we're not modifying entities
-            var query = db.Set<Label.ComplianceAction>()
+            var query = db.Set<global::MedRecPro.Models.Label.ComplianceAction>()
                 .AsNoTracking()
                 .Where(e => e.PackageIdentifierID == packageIdentifierId);
 
@@ -505,8 +506,8 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<PackageIdentifierDto>();
 
             // Find PackageIdentifiers through join with PackagingLevel → Product relationship
-            var packageIdentifiers = await (from pi in db.Set<Label.PackageIdentifier>()
-                                            join pl in db.Set<Label.PackagingLevel>() on pi.PackagingLevelID equals pl.PackagingLevelID
+            var packageIdentifiers = await (from pi in db.Set<global::MedRecPro.Models.Label.PackageIdentifier>()
+                                            join pl in db.Set<global::MedRecPro.Models.Label.PackagingLevel>() on pi.PackagingLevelID equals pl.PackagingLevelID
                                             where pl.ProductID == productID
                                             select pi)
                 .AsNoTracking()

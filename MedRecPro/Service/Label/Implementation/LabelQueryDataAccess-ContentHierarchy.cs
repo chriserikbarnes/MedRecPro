@@ -1,5 +1,6 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,7 @@ using System.Collections.Generic;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -17,7 +18,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Content Hierarchy Builders
         /**************************************************************/
@@ -38,7 +39,7 @@ namespace MedRecPro.DataAccess
             if (structuredBodyId == null) return new List<SectionDto>();
 
             // Get all sections for this structured body
-            var sections = await db.Set<Label.Section>()
+            var sections = await db.Set<global::MedRecPro.Models.Label.Section>()
                 .AsNoTracking()
                 .Where(s => s.StructuredBodyID == structuredBodyId)
                 .ToListAsync();
@@ -128,7 +129,7 @@ namespace MedRecPro.DataAccess
                 return new List<NCTLinkDto>();
 
             // Query NCT links for the specified section
-            var entity = await db.Set<Label.NCTLink>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.NCTLink>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionID)
                 .ToListAsync();
@@ -165,7 +166,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Query section hierarchies where the specified section is the parent
-            var entity = await db.Set<Label.SectionHierarchy>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.SectionHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ParentSectionID == sectionID)
                 .ToListAsync();
@@ -202,7 +203,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Query section hierarchies where the specified section is the child
-            var entity = await db.Set<Label.SectionHierarchy>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.SectionHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ChildSectionID == sectionID)
                 .ToListAsync();
@@ -241,7 +242,7 @@ namespace MedRecPro.DataAccess
             List<SectionTextContentDto> sectionTextContentDtos = new List<SectionTextContentDto>();
 
             // Query section text content for the specified section
-            var entity = await db.Set<Label.SectionTextContent>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.SectionTextContent>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionID)
                 .ToListAsync();
@@ -295,7 +296,7 @@ namespace MedRecPro.DataAccess
                 return new List<RenderedMediaDto>();
 
             // Query rendered media for the specified section text content
-            var entity = await db.Set<Label.RenderedMedia>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.RenderedMedia>()
                 .AsNoTracking()
                 .Where(e => e.SectionTextContentID == sectionTextContentID)
                 .ToListAsync();
@@ -335,7 +336,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<TextTableDto>();
 
             // Query text tables for the specified section text content
-            var entity = await db.Set<Label.TextTable>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.TextTable>()
                 .AsNoTracking()
                 .Where(e => e.SectionTextContentID == sectionTextContentID)
                 .ToListAsync();
@@ -387,7 +388,7 @@ namespace MedRecPro.DataAccess
                 return new List<TextTableColumnDto>();
 
             // Query text table columns for the specified text table
-            var entity = await db.Set<Label.TextTableColumn>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.TextTableColumn>()
                 .AsNoTracking()
                 .Where(e => e.TextTableID == textTableID)
                 .ToListAsync();
@@ -427,7 +428,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<TextTableRowDto>();
 
             // Query text table rows for the specified text table
-            var entity = await db.Set<Label.TextTableRow>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.TextTableRow>()
                 .AsNoTracking()
                 .Where(e => e.TextTableID == textTableID)
                 .ToListAsync();
@@ -475,7 +476,7 @@ namespace MedRecPro.DataAccess
                 return new List<TextTableCellDto>();
 
             // Query text table cells for the specified text table row
-            var entity = await db.Set<Label.TextTableCell>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.TextTableCell>()
                 .AsNoTracking()
                 .Where(e => e.TextTableRowID == textTableRowID)
                 .ToListAsync();
@@ -515,7 +516,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<TextListDto>();
 
             // Query text lists for the specified section text content
-            var entity = await db.Set<Label.TextList>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.TextList>()
                 .AsNoTracking()
                 .Where(e => e.SectionTextContentID == sectionTextContentID)
                 .ToListAsync();
@@ -563,7 +564,7 @@ namespace MedRecPro.DataAccess
                 return new List<TextListItemDto>();
 
             // Query text list items for the specified text list
-            var entity = await db.Set<Label.TextListItem>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.TextListItem>()
                 .AsNoTracking()
                 .Where(e => e.TextListID == textListID)
                 .ToListAsync();
@@ -597,7 +598,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<SectionExcerptHighlightDto>();
 
             // Query excerpt highlights for the specified section
-            var items = await db.Set<Label.SectionExcerptHighlight>().AsNoTracking().Where(e => e.SectionID == sectionId).ToListAsync();
+            var items = await db.Set<global::MedRecPro.Models.Label.SectionExcerptHighlight>().AsNoTracking().Where(e => e.SectionID == sectionId).ToListAsync();
 
             // Transform entities to DTOs with encrypted IDs
             return items.Select(item => new SectionExcerptHighlightDto { SectionExcerptHighlight = item.ToEntityWithEncryptedId(pkSecret, logger) }).ToList();
@@ -621,7 +622,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<ObservationMediaDto>();
 
             // Query observation media for the specified section
-            var items = await db.Set<Label.ObservationMedia>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ObservationMedia>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -652,7 +653,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<ProductConceptDto>();
 
             // Query product concepts for the specified section
-            var items = await db.Set<Label.ProductConcept>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ProductConcept>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -708,7 +709,7 @@ namespace MedRecPro.DataAccess
             if (productConceptID == null) return new List<ProductConceptEquivalenceDto>();
 
             // Query for equivalents of the specified product concept using read-only tracking
-            var items = await db.Set<Label.ProductConceptEquivalence>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ProductConceptEquivalence>()
                 .AsNoTracking()
                 .Where(e => e.ProductConceptEquivalenceID == productConceptID)
                 .ToListAsync();
@@ -743,7 +744,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<InteractionIssueDto>();
 
             // Query interaction issues for the specified section
-            var items = await db.Set<Label.InteractionIssue>()
+            var items = await db.Set<global::MedRecPro.Models.Label.InteractionIssue>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -799,7 +800,7 @@ namespace MedRecPro.DataAccess
             if (interactionIssueId == null) return new List<InteractionConsequenceDto>();
 
             // Query interaction consequences for the specified interaction issue using read-only tracking
-            var items = await db.Set<Label.InteractionConsequence>()
+            var items = await db.Set<global::MedRecPro.Models.Label.InteractionConsequence>()
                 .AsNoTracking()
                 .Where(e => e.InteractionIssueID == interactionIssueId)
                 .ToListAsync();
@@ -834,7 +835,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<BillingUnitIndexDto>();
 
             // Query billing unit indexes for the specified section
-            var items = await db.Set<Label.BillingUnitIndex>()
+            var items = await db.Set<global::MedRecPro.Models.Label.BillingUnitIndex>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -863,7 +864,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<WarningLetterProductInfoDto>();
 
             // Query warning letter product info for the specified section
-            var items = await db.Set<Label.WarningLetterProductInfo>()
+            var items = await db.Set<global::MedRecPro.Models.Label.WarningLetterProductInfo>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -892,7 +893,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<WarningLetterDateDto>();
 
             // Query warning letter dates for the specified section
-            var items = await db.Set<Label.WarningLetterDate>()
+            var items = await db.Set<global::MedRecPro.Models.Label.WarningLetterDate>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -923,7 +924,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<ProtocolDto>();
 
             // Query protocols for the specified section
-            var items = await db.Set<Label.Protocol>()
+            var items = await db.Set<global::MedRecPro.Models.Label.Protocol>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -982,7 +983,7 @@ namespace MedRecPro.DataAccess
             if (protocolID == null) return new List<REMSApprovalDto>();
 
             // Query REMS approvals for the specified protocol using read-only tracking
-            var items = await db.Set<Label.REMSApproval>()
+            var items = await db.Set<global::MedRecPro.Models.Label.REMSApproval>()
                 .AsNoTracking()
                 .Where(e => e.ProtocolID == protocolID)
                 .ToListAsync();
@@ -1032,7 +1033,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<RequirementDto>();
 
             // Query requirements for the specified protocol using read-only tracking
-            var items = await db.Set<Label.Requirement>()
+            var items = await db.Set<global::MedRecPro.Models.Label.Requirement>()
                 .AsNoTracking()
                 .Where(e => e.ProtocolID == protocolID)
                 .ToListAsync();
@@ -1091,7 +1092,7 @@ namespace MedRecPro.DataAccess
             if (stakeholderID == null) return new List<StakeholderDto>();
 
             // Query stakeholder data using REMSApproval table with stakeholderID as ProtocolID filter
-            var items = await db.Set<Label.Stakeholder>()
+            var items = await db.Set<global::MedRecPro.Models.Label.Stakeholder>()
                 .AsNoTracking()
                 .Where(e => e.StakeholderID == stakeholderID)
                 .ToListAsync();
@@ -1130,7 +1131,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<REMSMaterialDto>();
 
             // Query REMS materials for the specified section
-            var items = await db.Set<Label.REMSMaterial>()
+            var items = await db.Set<global::MedRecPro.Models.Label.REMSMaterial>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -1188,7 +1189,7 @@ namespace MedRecPro.DataAccess
                 return new List<AttachedDocumentDto>();
 
             // Query attached documents for the specified parent entity using read-only tracking
-            var items = await db.Set<Label.AttachedDocument>()
+            var items = await db.Set<global::MedRecPro.Models.Label.AttachedDocument>()
                 .AsNoTracking()
                 .Where(e => e.ParentEntityID == parentEntityID)
                 .ToListAsync();
@@ -1221,7 +1222,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<REMSElectronicResourceDto>();
 
             // Query REMS electronic resources for the specified section
-            var items = await db.Set<Label.REMSElectronicResource>()
+            var items = await db.Set<global::MedRecPro.Models.Label.REMSElectronicResource>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();

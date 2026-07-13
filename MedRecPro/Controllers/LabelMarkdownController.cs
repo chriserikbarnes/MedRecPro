@@ -4,6 +4,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Models;
 using MedRecPro.Service;
+using MedRecPro.Service.LabelQuery;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MedRecPro.Api.Controllers
@@ -55,6 +56,10 @@ namespace MedRecPro.Api.Controllers
         private readonly IClaudeApiService _claudeApiService;
 
         /**************************************************************/
+        /// <summary>Provides markdown retrieval and generation operations.</summary>
+        private readonly ILabelMarkdownService _labelMarkdownService;
+
+        /**************************************************************/
         /// <summary>
         /// Initializes a new instance of the <see cref="LabelMarkdownController"/> class.
         /// </summary>
@@ -62,6 +67,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="logger">Logger instance for markdown endpoint diagnostics.</param>
         /// <param name="applicationDbContext">Entity Framework database context for label read models.</param>
         /// <param name="claudeApiService">Claude API service used for clean display markdown generation.</param>
+        /// <param name="labelMarkdownService">Markdown query service for Label endpoints.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the primary-key encryption secret is missing.</exception>
         /// <seealso cref="LabelController"/>
@@ -69,7 +75,8 @@ namespace MedRecPro.Api.Controllers
             IConfiguration configuration,
             ILogger<LabelMarkdownController> logger,
             ApplicationDbContext applicationDbContext,
-            IClaudeApiService claudeApiService)
+            IClaudeApiService claudeApiService,
+            ILabelMarkdownService labelMarkdownService)
         {
             #region implementation
 
@@ -78,6 +85,7 @@ namespace MedRecPro.Api.Controllers
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
+            _labelMarkdownService = labelMarkdownService ?? throw new ArgumentNullException(nameof(labelMarkdownService));
             _pkEncryptionSecret = configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
 
@@ -180,12 +188,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting markdown section {SectionCode} for DocumentGUID: {DocumentGuid}", sectionCode, documentGuid);
             }
 
-            var results = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
-                _dbContext,
-                documentGuid,
-                _pkEncryptionSecret,
-                _logger,
-                sectionCode);
+            var results = await _labelMarkdownService.GetLabelSectionMarkdownAsync(documentGuid, sectionCode);
 
             // Return 404 if no sections found.
             if (results == null || results.Count == 0)
@@ -277,11 +280,7 @@ namespace MedRecPro.Api.Controllers
 
             _logger.LogInformation("Generating markdown export for DocumentGUID: {DocumentGuid}", documentGuid);
 
-            var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
-                _dbContext,
-                documentGuid,
-                _pkEncryptionSecret,
-                _logger);
+            var result = await _labelMarkdownService.GenerateLabelMarkdownAsync(documentGuid);
 
             // Return 404 if no content generated (empty document).
             if (result == null || result.SectionCount == 0)
@@ -350,11 +349,7 @@ namespace MedRecPro.Api.Controllers
 
             _logger.LogInformation("Downloading markdown for DocumentGUID: {DocumentGuid}", documentGuid);
 
-            var result = await DtoLabelAccess.GenerateLabelMarkdownAsync(
-                _dbContext,
-                documentGuid,
-                _pkEncryptionSecret,
-                _logger);
+            var result = await _labelMarkdownService.GenerateLabelMarkdownAsync(documentGuid);
 
             // Return 404 if no content generated (empty document).
             if (result == null || result.SectionCount == 0)
@@ -461,12 +456,7 @@ namespace MedRecPro.Api.Controllers
 
             _logger.LogInformation("Generating clean display markdown for DocumentGUID: {DocumentGuid}", documentGuid);
 
-            var cleanMarkdown = await DtoLabelAccess.GenerateCleanLabelMarkdownAsync(
-                _dbContext,
-                documentGuid,
-                _claudeApiService,
-                _pkEncryptionSecret,
-                _logger);
+            var cleanMarkdown = await _labelMarkdownService.GenerateCleanLabelMarkdownAsync(documentGuid, _claudeApiService);
 
             // Return 404 if no content generated (empty document).
             if (string.IsNullOrWhiteSpace(cleanMarkdown))

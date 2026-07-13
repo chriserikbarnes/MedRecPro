@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using MedRecPro.Helpers;
 using MedRecPro.Data;
 using MedRecPro.Models;
+using MedRecPro.Service.LabelQuery;
+using MedRecPro.Service.LabelQuery.Implementation;
 using Cacher = MedRecPro.Helpers.PerformanceHelper;
 using Newtonsoft.Json;
 
@@ -27,6 +29,7 @@ namespace MedRecPro.DataAccess
         private readonly StringCipher _stringCipher;
         private readonly ILogger<T> _logger;
         private readonly IConfiguration _configuration;
+        private readonly ILabelDocumentQueryService _labelDocumentQueryService;
         private string _encryptionKey;
 
 
@@ -40,17 +43,20 @@ namespace MedRecPro.DataAccess
         /// <param name="configuration">Configuration settings for the application, used to retrieve encryption keys.</param>
         /// <param name="logger">Logger instance for logging operations and errors.</param>
         /// <param name="stringCipher">StringCipher instance for encrypting and decrypting sensitive data.</param>
+        /// <param name="labelDocumentQueryService">Document query service for complete-label reads.</param>
         /// <exception cref="ArgumentNullException">Thrown if context is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the primary key property cannot be found on type T using expected conventions.</exception>
         public Repository(ApplicationDbContext context,
             StringCipher stringCipher,
             ILogger<T> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            ILabelDocumentQueryService labelDocumentQueryService)
         {
             #region implementation
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
+            _labelDocumentQueryService = labelDocumentQueryService ?? throw new ArgumentNullException(nameof(labelDocumentQueryService));
             _encryptionKey = getPkSecret() ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing."); ;
 
             if (context == null)
@@ -105,6 +111,32 @@ namespace MedRecPro.DataAccess
             }
 
             _primaryKeyName = _primaryKeyProperty.Name;
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a repository for direct legacy construction.
+        /// </summary>
+        /// <remarks>
+        /// Dependency-injected repositories use the overload that accepts
+        /// <see cref="ILabelDocumentQueryService"/>. This overload preserves existing direct test and utility callers.
+        /// </remarks>
+        /// <seealso cref="ILabelDocumentQueryService"/>
+        public Repository(ApplicationDbContext context, StringCipher stringCipher, ILogger<T> logger, IConfiguration configuration)
+            : this(
+                context,
+                stringCipher,
+                logger,
+                configuration,
+                new LabelDocumentQueryService(
+                    context,
+                    configuration,
+                    new LabelQueryDataAccess(),
+                    LoggerFactory.Create(builder => { }).CreateLogger<LabelDocumentQueryService>()))
+        {
+            #region implementation
+
             #endregion
         }
 
@@ -385,10 +417,7 @@ namespace MedRecPro.DataAccess
             }
 
             // Pass the feature flag to BuildDocumentsAsync for loading strategy selection
-            var results = await DtoLabelAccess.BuildDocumentsAsync(
-                _context,
-                getPkSecret(),
-                _logger,
+            var results = await _labelDocumentQueryService.BuildDocumentsAsync(
                 pageNumber,
                 pageSize,
                 useBatchLoading);
@@ -440,12 +469,7 @@ namespace MedRecPro.DataAccess
                 documentGuid, useBatchLoading ? "BATCH" : "SEQUENTIAL");
 
             // Pass the feature flag to BuildDocumentsAsync for loading strategy selection
-            var results = await DtoLabelAccess.BuildDocumentsAsync(
-                _context,
-                documentGuid,
-                getPkSecret(),
-                _logger,
-                useBatchLoading);
+            var results = await _labelDocumentQueryService.BuildDocumentsAsync(documentGuid, useBatchLoading);
 
             return results;
             #endregion

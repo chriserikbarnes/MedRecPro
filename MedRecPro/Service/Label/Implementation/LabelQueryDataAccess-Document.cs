@@ -1,7 +1,9 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using LabelEntity = MedRecPro.Models.Label;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Collections.Generic;
@@ -9,7 +11,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -18,69 +20,9 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Document Level Methods
-
-        /**************************************************************/
-        /// <summary>
-        /// Builds complete Document DTO objects from a collection of Document entities.
-        /// Routes to either batch or sequential loading based on the UseBatchDocumentLoading feature flag.
-        /// </summary>
-        /// <param name="db">The application database context.</param>
-        /// <param name="docs">Collection of Document entities to process.</param>
-        /// <param name="pkSecret">Secret used for ID encryption.</param>
-        /// <param name="logger">Logger instance for diagnostics.</param>
-        /// <param name="useBatchLoading">
-        /// Optional override for the UseBatchDocumentLoading feature flag.
-        /// When null, the method will default to sequential loading (false).
-        /// Pass the feature flag value from IConfiguration.GetValue&lt;bool&gt;("FeatureFlags:UseBatchDocumentLoading")
-        /// to enable batch loading.
-        /// </param>
-        /// <returns>List of <see cref="DocumentDto"/> with complete hierarchical data.</returns>
-        /// <remarks>
-        /// This is the shared implementation used by both public overloads to maintain DRY principles.
-        /// The loading strategy is determined by the useBatchLoading parameter:
-        /// - true: Uses batch loading pattern to minimize database round-trips (10-20x faster)
-        /// - false/null: Uses sequential loading pattern (legacy behavior, suitable for debugging)
-        ///
-        /// IMPORTANT: Cache keys in BuildDocumentsAsync include the loading mode to prevent
-        /// serving cached data from a different loading strategy.
-        /// </remarks>
-        /// <seealso cref="Label.Document"/>
-        /// <seealso cref="DocumentDto"/>
-        /// <seealso cref="buildSequentialDocumentDtosFromEntitiesAsync"/>
-        /// <seealso cref="buildBatchDocumentDtosFromEntitiesAsync"/>
-        private static async Task<List<DocumentDto>> buildDocumentDtosFromEntitiesAsync(
-            ApplicationDbContext db,
-            List<Label.Document> docs,
-            string pkSecret,
-            ILogger logger,
-            bool? useBatchLoading = null)
-        {
-            #region implementation
-
-            // Default to sequential loading if no flag provided (maintains backward compatibility)
-            var useBatch = useBatchLoading ?? false;
-
-            // Log the loading strategy being used
-            logger.LogDebug("Building document DTOs using {LoadingStrategy} loading strategy",
-                useBatch ? "BATCH" : "SEQUENTIAL");
-
-            // Switch between batch and sequential loading based on feature flag
-            if (useBatch)
-            {
-                // BATCH LOADING: Optimized for production - reduces queries from 500-1000 to 50-70 per document
-                return await buildBatchDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
-            }
-            else
-            {
-                // SEQUENTIAL LOADING: Legacy behavior - useful for debugging individual queries
-                return await buildSequentialDocumentDtosFromEntitiesAsync(db, docs, pkSecret, logger);
-            }
-
-            #endregion
-        }
 
         /**************************************************************/
         /// <summary>
@@ -97,11 +39,11 @@ namespace MedRecPro.DataAccess
         /// This is the shared implementation used by both public overloads to maintain DRY principles.
         /// Uses sequential processing to ensure DbContext thread-safety.
         /// </remarks>
-        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="LabelEntity.Document"/>
         /// <seealso cref="DocumentDto"/>
-        private static async Task<List<DocumentDto>> buildSequentialDocumentDtosFromEntitiesAsync(
+        internal static async Task<List<DocumentDto>> BuildSequentialDocumentDtosFromEntitiesAsync(
             ApplicationDbContext db,
-            List<Label.Document> docs,
+            List<LabelEntity.Document> docs,
             string pkSecret,
             ILogger logger)
         {
@@ -163,16 +105,16 @@ namespace MedRecPro.DataAccess
         /// Collects all document IDs upfront and fetches all children in single queries per entity type.
         /// This reduces query count from O(N * M) to O(M) where N is documents and M is child types.
         /// </remarks>
-        /// <seealso cref="Label.Document"/>
+        /// <seealso cref="LabelEntity.Document"/>
         /// <seealso cref="DocumentDto"/>
         /// <seealso cref="batchLoadStructuredBodiesAsync"/>
         /// <seealso cref="batchLoadDocumentAuthorsAsync"/>
         /// <seealso cref="batchLoadRelatedDocumentsAsync"/>
         /// <seealso cref="batchLoadDocumentRelationshipsAsync"/>
         /// <seealso cref="batchLoadLegalAuthenticatorsAsync"/>
-        private static async Task<List<DocumentDto>> buildBatchDocumentDtosFromEntitiesAsync(
+        internal static async Task<List<DocumentDto>> BuildBatchDocumentDtosFromEntitiesAsync(
             ApplicationDbContext db,
-            List<Label.Document> docs,
+            List<LabelEntity.Document> docs,
             string pkSecret,
             ILogger logger)
         {
@@ -253,7 +195,7 @@ namespace MedRecPro.DataAccess
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of DocumentAuthor DTOs with encrypted IDs and associated organization data.</returns>
-        /// <seealso cref="Label.DocumentAuthor"/>
+        /// <seealso cref="LabelEntity.DocumentAuthor"/>
         /// <seealso cref="DocumentAuthorDto"/>
         /// <seealso cref="OrganizationDto"/>
         /// <remarks>
@@ -274,7 +216,7 @@ namespace MedRecPro.DataAccess
             if (documentId == null) return new List<DocumentAuthorDto>();
 
             // Fetch all DocumentAuthor entities for this document with no change tracking
-            var items = await db.Set<Label.DocumentAuthor>()
+            var items = await db.Set<LabelEntity.DocumentAuthor>()
                 .AsNoTracking()
                 .Where(e => e.DocumentID == documentId)
                 .ToListAsync();
@@ -320,7 +262,7 @@ namespace MedRecPro.DataAccess
             if (documentId == null) return new List<RelatedDocumentDto>();
 
             // Query related documents where this document is the source
-            var items = await db.Set<Label.RelatedDocument>()
+            var items = await db.Set<global::MedRecPro.Models.Label.RelatedDocument>()
                 .AsNoTracking()
                 .Where(e => e.SourceDocumentID == documentId)
                 .ToListAsync();
@@ -343,7 +285,7 @@ namespace MedRecPro.DataAccess
         /// <param name="pkSecret">Secret used for ID encryption.</param>
         /// <param name="logger">Logger instance for diagnostics.</param>
         /// <returns>List of DocumentRelationship DTOs with complete nested collections.</returns>
-        /// <seealso cref="Label.DocumentRelationship"/>
+        /// <seealso cref="LabelEntity.DocumentRelationship"/>
         /// <seealso cref="Label.BusinessOperation"/>
         /// <seealso cref="Label.CertificationProductLink"/>
         /// <seealso cref="Label.ComplianceAction"/>
@@ -354,7 +296,7 @@ namespace MedRecPro.DataAccess
             if (documentId == null) return new List<DocumentRelationshipDto>();
 
             // Get all document relationships for this document
-            var relationships = await db.Set<Label.DocumentRelationship>()
+            var relationships = await db.Set<LabelEntity.DocumentRelationship>()
                 .AsNoTracking()
                 .Where(e => e.DocumentID == documentId)
                 .ToListAsync();
@@ -413,7 +355,7 @@ namespace MedRecPro.DataAccess
             if (documentId == null) return new List<LegalAuthenticatorDto>();
 
             // Query legal authenticators for the specified document
-            var items = await db.Set<Label.LegalAuthenticator>()
+            var items = await db.Set<global::MedRecPro.Models.Label.LegalAuthenticator>()
                 .AsNoTracking()
                 .Where(e => e.DocumentID == documentId)
                 .ToListAsync();
@@ -442,7 +384,7 @@ namespace MedRecPro.DataAccess
             if (documentId == null) return new List<StructuredBodyDto>();
 
             // Get all structured bodies for this document
-            var sbs = await db.Set<Label.StructuredBody>()
+            var sbs = await db.Set<global::MedRecPro.Models.Label.StructuredBody>()
                 .AsNoTracking()
                 .Where(sb => sb.DocumentID == documentId)
                 .ToListAsync();
@@ -462,7 +404,7 @@ namespace MedRecPro.DataAccess
 
                 var uniqueParentIds = parentIds.Distinct().ToList();
 
-                var hierarchies = await db.Set<Label.SectionHierarchy>()
+                var hierarchies = await db.Set<global::MedRecPro.Models.Label.SectionHierarchy>()
                     .AsNoTracking()
                     .Where(sh => sh != null
                         && sh.ParentSectionID != null
@@ -512,10 +454,10 @@ namespace MedRecPro.DataAccess
         /// }
         /// </code>
         /// </example>
-        /// <seealso cref="Label.DocumentRelationshipIdentifier"/>
+        /// <seealso cref="LabelEntity.DocumentRelationshipIdentifier"/>
         /// <seealso cref="DocumentRelationshipIdentifierDto"/>
         /// <seealso cref="Label.OrganizationIdentifier"/>
-        /// <seealso cref="Label.DocumentRelationship"/>
+        /// <seealso cref="LabelEntity.DocumentRelationship"/>
         private static async Task<List<DocumentRelationshipIdentifierDto>> buildDocumentRelationshipIdentifiersAsync(
             ApplicationDbContext db,
             int? documentRelationshipId,
@@ -528,7 +470,7 @@ namespace MedRecPro.DataAccess
             if (documentRelationshipId == null) return new List<DocumentRelationshipIdentifierDto>();
 
             // Fetch all DocumentRelationshipIdentifier entities for this relationship with no change tracking
-            var items = await db.Set<Label.DocumentRelationshipIdentifier>()
+            var items = await db.Set<LabelEntity.DocumentRelationshipIdentifier>()
                 .AsNoTracking()
                 .Where(e => e.DocumentRelationshipID == documentRelationshipId)
                 .ToListAsync();

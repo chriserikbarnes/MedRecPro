@@ -80,6 +80,41 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies the relocated non-AE facade contains forwarding-only compatibility code.
+        /// </summary>
+        /// <seealso cref="MedRecPro.Service.LabelQuery.Implementation.LabelQueryLegacyCompatibility"/>
+        [TestMethod]
+        public void NonAeCompatibilityFacade_ContainsNoEfCacheEncryptionMappingOrGraphLogic()
+        {
+            #region implementation
+
+            var source = File.ReadAllText(findRepoFile(@"MedRecPro\DataAccess\DtoLabelAccess.NonAeCompatibility.cs"));
+            var forbiddenTokens = new[]
+            {
+                "AsNoTracking",
+                "ToListAsync",
+                "PerformanceHelper",
+                "StringCipher",
+                "SetCacheManageKey",
+                "Base64Encode",
+                "buildDocument",
+                "batchLoad"
+            };
+
+            foreach (var token in forbiddenTokens)
+            {
+                Assert.IsFalse(source.Contains(token, StringComparison.Ordinal),
+                    $"The non-AE compatibility facade must not contain implementation token '{token}'.");
+            }
+
+            Assert.IsTrue(source.Contains("=> LabelQueryLegacyCompatibility.Create", StringComparison.Ordinal),
+                "Legacy non-AE methods must forward through the isolated compatibility adapter.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies direct injected-service and legacy-static product/detail results stay equivalent.
         /// </summary>
         /// <seealso cref="AeDashboardProductCatalogService"/>

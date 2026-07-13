@@ -1,5 +1,6 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -18,7 +19,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Ingredient & Substance Builders
         /**************************************************************/
@@ -59,7 +60,7 @@ namespace MedRecPro.DataAccess
                 return new List<IngredientDto>();
 
             // Get all ingredients for this product with no change tracking for performance
-            var ingredients = await db.Set<Label.Ingredient>()
+            var ingredients = await db.Set<global::MedRecPro.Models.Label.Ingredient>()
                 .AsNoTracking()
                 .Where(i => i.ProductID == productId)
                 .ToListAsync();
@@ -160,7 +161,7 @@ namespace MedRecPro.DataAccess
                 return new List<SpecifiedSubstanceDto>();
 
             // Query specified substances for the specified ingredient using read-only tracking
-            var entity = await db.Set<Label.SpecifiedSubstance>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.SpecifiedSubstance>()
                 .AsNoTracking()
                 .Where(e => e.SpecifiedSubstanceID == specifiedSubstanceID)
                 .ToListAsync();
@@ -212,7 +213,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Query for the specific ingredient substance with no change tracking
-            var entity = await db.Set<Label.IngredientSubstance>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.IngredientSubstance>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(s => s.IngredientSubstanceID == ingredientSubstanceId);
 
@@ -274,7 +275,7 @@ namespace MedRecPro.DataAccess
                 return new List<ActiveMoietyDto>();
 
             // Query active moieties for the specified ingredient substance using read-only tracking
-            var entity = await db.Set<Label.ActiveMoiety>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ActiveMoiety>()
                 .AsNoTracking()
                 .Where(e => e.IngredientSubstanceID == ingredientSubstanceID)
                 .ToListAsync();
@@ -322,7 +323,7 @@ namespace MedRecPro.DataAccess
                 return new List<IngredientInstanceDto>();
 
             // Query all IngredientInstance rows for this substance with no change tracking
-            var entity = await db.Set<Label.IngredientInstance>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.IngredientInstance>()
                 .AsNoTracking()
                 .Where(ii => ii.IngredientSubstanceID == ingredientSubstanceId)
                 .ToListAsync();
@@ -388,7 +389,7 @@ namespace MedRecPro.DataAccess
                 return new List<IngredientInstanceDto>();
 
             // Query all ingredient instance rows for this product with no change tracking
-            var entity = await db.Set<Label.IngredientInstance>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.IngredientInstance>()
                 .AsNoTracking()
                 .Where(ii => ii.FillLotInstanceID == productID)
                 .ToListAsync();
@@ -438,7 +439,7 @@ namespace MedRecPro.DataAccess
                 return new List<IngredientInstanceDto>();
 
             // Query ingredient instances for the specified ingredient substance
-            var entity = await db.Set<Label.IngredientInstance>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.IngredientInstance>()
                 .AsNoTracking()
                 .Where(e => e.IngredientSubstanceID == ingredientSubstanceID)
                 .ToListAsync();
@@ -473,7 +474,7 @@ namespace MedRecPro.DataAccess
                 return new List<IngredientSourceProductDto>();
 
             // Query ingredient source products for the specified ingredient
-            var entity = await db.Set<Label.IngredientSourceProduct>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.IngredientSourceProduct>()
                 .AsNoTracking()
                 .Where(e => e.IngredientID == ingredientID)
                 .ToListAsync();
@@ -508,7 +509,7 @@ namespace MedRecPro.DataAccess
                 return new List<ReferenceSubstanceDto>();
 
             // Query reference substances for the specified ingredient substance
-            var entity = await db.Set<Label.ReferenceSubstance>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ReferenceSubstance>()
                 .AsNoTracking()
                 .Where(e => e.IngredientSubstanceID == ingredientSubstanceID)
                 .ToListAsync();
@@ -548,7 +549,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<IdentifiedSubstanceDto>();
 
             // Query identified substances for the specified section
-            var items = await db.Set<Label.IdentifiedSubstance>()
+            var items = await db.Set<global::MedRecPro.Models.Label.IdentifiedSubstance>()
                 .AsNoTracking()
                 .Where(e => e.SectionID == sectionId)
                 .ToListAsync();
@@ -617,7 +618,7 @@ namespace MedRecPro.DataAccess
                 return new List<MoietyDto>();
 
             // Query moieties for the specified identified substance using read-only tracking
-            var items = await db.Set<Label.Moiety>()
+            var items = await db.Set<global::MedRecPro.Models.Label.Moiety>()
                 .AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
                 .OrderBy(e => e.SequenceNumber)
@@ -672,7 +673,7 @@ namespace MedRecPro.DataAccess
                 return new List<CharacteristicDto>();
 
             // Query characteristics for the specified moiety
-            var entities = await db.Set<Label.Characteristic>()
+            var entities = await db.Set<global::MedRecPro.Models.Label.Characteristic>()
                 .AsNoTracking()
                 .Where(e => e.MoietyID == moietyID)
                 .ToListAsync();
@@ -730,7 +731,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<ContributingFactorDto>();
 
             // Query contributing factors for the specified identified substance using read-only tracking
-            var entity = await db.Set<Label.ContributingFactor>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ContributingFactor>()
                 .AsNoTracking()
                 .Where(e => e.FactorSubstanceID == identifiedSubstanceID)
                 .ToListAsync();
@@ -783,23 +784,23 @@ namespace MedRecPro.DataAccess
 
             // CASE 1: PharmacologicClass Definitions (Section 8.2.3)
             // Direct relationship via IdentifiedSubstanceID
-            var definitionClasses = await db.Set<Label.PharmacologicClass>()
+            var definitionClasses = await db.Set<global::MedRecPro.Models.Label.PharmacologicClass>()
                 .AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
                 .ToListAsync();
 
             // CASE 2: ActiveMoiety Indexing (Section 8.2.2) 
             // Relationship via PharmacologicClassLink table
-            var linkedClassIds = await db.Set<Label.PharmacologicClassLink>()
+            var linkedClassIds = await db.Set<global::MedRecPro.Models.Label.PharmacologicClassLink>()
                 .AsNoTracking()
                 .Where(link => link.ActiveMoietySubstanceID == identifiedSubstanceID)
                 .Select(link => link.PharmacologicClassID)
                 .ToListAsync();
 
-            var linkedClasses = new List<Label.PharmacologicClass>();
+            var linkedClasses = new List<global::MedRecPro.Models.Label.PharmacologicClass>();
             if (linkedClassIds.Any())
             {
-                linkedClasses = await db.Set<Label.PharmacologicClass>()
+                linkedClasses = await db.Set<global::MedRecPro.Models.Label.PharmacologicClass>()
                     .AsNoTracking()
                     .Where(pc => linkedClassIds.Contains(pc.PharmacologicClassID))
                     .ToListAsync();
@@ -871,7 +872,7 @@ namespace MedRecPro.DataAccess
                 return new List<PharmacologicClassNameDto>();
 
             // Query pharmacologic class names for the specified pharmacologic class using read-only tracking
-            var entity = await db.Set<Label.PharmacologicClassName>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.PharmacologicClassName>()
                 .AsNoTracking()
                 .Where(e => e.PharmacologicClassID == pharmacologicClassID)
                 .ToListAsync();
@@ -918,7 +919,7 @@ namespace MedRecPro.DataAccess
                 return new List<PharmacologicClassLinkDto>();
 
             // Query pharmacologic class links for the specified pharmacologic class using read-only tracking
-            var entity = await db.Set<Label.PharmacologicClassLink>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.PharmacologicClassLink>()
                 .AsNoTracking()
                 .Where(e => e.PharmacologicClassID == pharmacologicClassID)
                 .ToListAsync();
@@ -967,7 +968,7 @@ namespace MedRecPro.DataAccess
                 return new List<PharmacologicClassHierarchyDto>();
 
             // Query pharmacologic class hierarchies where this class is the child using read-only tracking
-            var entity = await db.Set<Label.PharmacologicClassHierarchy>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.PharmacologicClassHierarchy>()
                 .AsNoTracking()
                 .Where(e => e.ChildPharmacologicClassID == pharmacologicClassID)
                 .ToListAsync();
@@ -1014,7 +1015,7 @@ namespace MedRecPro.DataAccess
                 return new List<InteractionConsequenceDto>();
 
             // Query interaction consequences for the specified interaction issue using read-only tracking
-            var entity = await db.Set<Label.InteractionConsequence>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.InteractionConsequence>()
                 .AsNoTracking()
                 .Where(e => e.InteractionIssueID == interactionIssueID)
                 .ToListAsync();
@@ -1063,7 +1064,7 @@ namespace MedRecPro.DataAccess
             if (identifiedSubstanceID == null) return new List<SubstanceSpecificationDto>();
 
             // Query substance specifications for the specified IdentifiedSubstance with no change tracking
-            var items = await db.Set<Label.SubstanceSpecification>()
+            var items = await db.Set<global::MedRecPro.Models.Label.SubstanceSpecification>()
                 .AsNoTracking()
                 .Where(e => e.IdentifiedSubstanceID == identifiedSubstanceID)
                 .ToListAsync();
@@ -1123,7 +1124,7 @@ namespace MedRecPro.DataAccess
             if (substanceSpecificationID == null) return new List<AnalyteDto>();
 
             // Query analytes for the specified SubstanceSpecification with no change tracking
-            var items = await db.Set<Label.Analyte>()
+            var items = await db.Set<global::MedRecPro.Models.Label.Analyte>()
                 .AsNoTracking()
                 .Where(e => e.AnalyteSubstanceID == substanceSpecificationID)
                 .ToListAsync();
@@ -1175,7 +1176,7 @@ namespace MedRecPro.DataAccess
             var dtos = new List<ObservationCriterionDto>();
 
             // Query observation criteria for the specified substance specification using read-only tracking
-            var entity = await db.Set<Label.ObservationCriterion>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ObservationCriterion>()
                 .AsNoTracking()
                 .Where(e => e.SubstanceSpecificationID == substanceSpecificationID)
                 .ToListAsync();
@@ -1240,7 +1241,7 @@ namespace MedRecPro.DataAccess
                 return new List<ApplicationTypeDto>();
 
             // Query application types for the specified application type ID using read-only tracking
-            var entity = await db.Set<Label.ApplicationType>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ApplicationType>()
                 .AsNoTracking()
                 .Where(e => e.ApplicationTypeID == applicationTypeID)
                 .ToListAsync();
@@ -1287,7 +1288,7 @@ namespace MedRecPro.DataAccess
                 return new List<CommodityDto>();
 
             // Query commodities for the specified commodity ID using read-only tracking
-            var entity = await db.Set<Label.Commodity>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.Commodity>()
                 .AsNoTracking()
                 .Where(e => e.CommodityID == commodityId)
                 .ToListAsync();

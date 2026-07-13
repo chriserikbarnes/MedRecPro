@@ -1,12 +1,13 @@
 
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /*******************************************************************************/
     /// <summary>
@@ -20,7 +21,7 @@ namespace MedRecPro.DataAccess
     /// </remarks>
     /// <seealso cref="LabelView"/>
     /// <seealso cref="DtoLabelAccess"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Private View Builder Methods
 
@@ -1025,7 +1026,7 @@ namespace MedRecPro.DataAccess
             searchTerm = searchTerm?.Replace(" ", "_");
 
             // Construct key parts
-            var keyParts = $"{nameof(DtoLabelAccess)}.{viewName}_{searchTerm ?? "all"}_{page}_{size}";
+            var keyParts = $"{"DtoLabelAccess"}.{viewName}_{searchTerm ?? "all"}_{page}_{size}";
 
 
             return keyParts.Base64Encode();

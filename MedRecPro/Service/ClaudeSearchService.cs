@@ -2,6 +2,7 @@ using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.LabelQuery;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -330,6 +331,18 @@ namespace MedRecPro.Service
         private readonly string _pkEncryptionSecret;
 
         /**************************************************************/
+        /// <summary>Provides pharmacologic-class query operations for AI-assisted searches.</summary>
+        private readonly IPharmacologicClassSearchService _pharmacologicClassSearchService;
+
+        /**************************************************************/
+        /// <summary>Provides product query operations for AI-assisted searches.</summary>
+        private readonly IProductSearchService _productSearchService;
+
+        /**************************************************************/
+        /// <summary>Provides label markdown operations for AI-assisted indication validation.</summary>
+        private readonly ILabelMarkdownService _labelMarkdownService;
+
+        /**************************************************************/
         /// <summary>
         /// Cache key for class summaries.
         /// </summary>
@@ -383,17 +396,26 @@ namespace MedRecPro.Service
         /// <param name="configuration">Configuration provider.</param>
         /// <param name="logger">Logger instance.</param>
         /// <param name="serviceScopeFactory">Scope factory for dependency resolution.</param>
+        /// <param name="pharmacologicClassSearchService">Pharmacologic-class query service.</param>
+        /// <param name="productSearchService">Product query service.</param>
+        /// <param name="labelMarkdownService">Markdown query service.</param>
         /// <seealso cref="IClaudeApiService"/>
         public ClaudeSearchService(
             ApplicationDbContext dbContext,
             IConfiguration configuration,
             ILogger<ClaudeSearchService> logger,
-            IServiceScopeFactory serviceScopeFactory)
+            IServiceScopeFactory serviceScopeFactory,
+            IPharmacologicClassSearchService pharmacologicClassSearchService,
+            IProductSearchService productSearchService,
+            ILabelMarkdownService labelMarkdownService)
         {
             _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+            _pharmacologicClassSearchService = pharmacologicClassSearchService ?? throw new ArgumentNullException(nameof(pharmacologicClassSearchService));
+            _productSearchService = productSearchService ?? throw new ArgumentNullException(nameof(productSearchService));
+            _labelMarkdownService = labelMarkdownService ?? throw new ArgumentNullException(nameof(labelMarkdownService));
 
             // Get encryption secret from configuration
             _pkEncryptionSecret = _configuration.GetValue<string>("Security:DB:PKSecret")
@@ -428,10 +450,7 @@ namespace MedRecPro.Service
             _logger.LogDebug("Retrieving all pharmacologic class summaries from database");
 
             // Get all summaries without pagination
-            var allSummaries = await DtoLabelAccess.GetPharmacologicClassSummariesAsync(
-                _dbContext,
-                _pkEncryptionSecret,
-                _logger,
+            var allSummaries = await _pharmacologicClassSearchService.GetPharmacologicClassSummariesAsync(
                 page: null,
                 size: null);
 
@@ -1158,11 +1177,8 @@ namespace MedRecPro.Service
             {
                 _logger.LogDebug("Searching products in class: {ClassName}", className);
 
-                var products = await DtoLabelAccess.SearchByPharmacologicClassExactAsync(
-                    _dbContext,
+                var products = await _pharmacologicClassSearchService.SearchByPharmacologicClassExactAsync(
                     className,
-                    _pkEncryptionSecret,
-                    _logger,
                     page: 1,
                     size: maxProducts);
 
@@ -1965,13 +1981,10 @@ namespace MedRecPro.Service
             {
                 _logger.LogDebug("Searching products for UNII: {UNII}", unii);
 
-                var products = await DtoLabelAccess.GetProductLatestLabelsAsync(
-                    _dbContext,
+                var products = await _productSearchService.GetProductLatestLabelsAsync(
                     unii: unii,
                     productNameSearch: null,
                     activeIngredientSearch: null,
-                    _pkEncryptionSecret,
-                    _logger,
                     page: 1,
                     size: maxProducts);
 
@@ -2031,11 +2044,8 @@ namespace MedRecPro.Service
                     {
                         if (Guid.TryParse(entry.DocumentGuid, out var docGuid))
                         {
-                            var sections = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
-                                _dbContext,
+                            var sections = await _labelMarkdownService.GetLabelSectionMarkdownAsync(
                                 docGuid,
-                                _pkEncryptionSecret,
-                                _logger,
                                 sectionCode: "34067-9"); // Indications & Usage LOINC code
 
                             if (sections != null && sections.Count > 0)

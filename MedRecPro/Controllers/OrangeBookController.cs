@@ -4,6 +4,7 @@ using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.LabelQuery;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
@@ -83,6 +84,10 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         private readonly string _pkEncryptionSecret;
 
+        /**************************************************************/
+        /// <summary>Provides Orange Book patent search and count operations.</summary>
+        private readonly IOrangeBookPatentQueryService _orangeBookPatentQueryService;
+
         #endregion
 
         /**************************************************************/
@@ -93,13 +98,15 @@ namespace MedRecPro.Api.Controllers
         /// <param name="logger">Logger instance for this controller.</param>
         /// <param name="stringCipher">String cipher utility for encryption operations.</param>
         /// <param name="applicationDbContext">Database context for data access.</param>
+        /// <param name="orangeBookPatentQueryService">Orange Book patent query service.</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing.</exception>
         public OrangeBookController(
             IConfiguration configuration,
             ILogger<OrangeBookController> logger,
             StringCipher stringCipher,
-            ApplicationDbContext applicationDbContext)
+            ApplicationDbContext applicationDbContext,
+            IOrangeBookPatentQueryService orangeBookPatentQueryService)
         {
             #region implementation
 
@@ -107,6 +114,7 @@ namespace MedRecPro.Api.Controllers
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
             _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
+            _orangeBookPatentQueryService = orangeBookPatentQueryService ?? throw new ArgumentNullException(nameof(orangeBookPatentQueryService));
 
             // Retrieve and validate the primary key encryption secret from configuration
             _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
@@ -229,29 +237,14 @@ namespace MedRecPro.Api.Controllers
                     expiringInMonths, tradeName, ingredient, pageNumber, pageSize);
 
                 // 1. Get the total count of matching patents (before pagination)
-                var totalCount = await DtoLabelAccess.CountExpiringPatentsAsync(
-                    _dbContext, expiringInMonths, MaxExpirationMonths, tradeName, ingredient);
+                var totalCount = await _orangeBookPatentQueryService.CountExpiringPatentsAsync(expiringInMonths, MaxExpirationMonths, tradeName, ingredient);
 
                 // 2. Retrieve paginated patent data (includes both base and *PED rows)
                 //    When expiringInMonths is null (open-ended search by tradeName/ingredient),
                 //    use MaxExpirationMonths to scope from today through all future patents.
                 //    This ensures already-expired patents are excluded since the view has no date floor.
                 var effectiveMonths = expiringInMonths ?? MaxExpirationMonths;
-                var rawPatents = await DtoLabelAccess.SearchOrangeBookPatentsAsync(
-                    _dbContext,
-                    expiringInMonths: effectiveMonths,
-                    documentGuid: null,
-                    applicationNumber: null,
-                    ingredient: ingredient,
-                    tradeName: tradeName,
-                    patentNo: null,
-                    patentExpireDate: null,
-                    hasPediatricFlag: null,
-                    hasWithdrawnCommercialReasonFlag: null,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var rawPatents = await _orangeBookPatentQueryService.SearchOrangeBookPatentsAsync(expiringInMonths: effectiveMonths, documentGuid: null, applicationNumber: null, ingredient: ingredient, tradeName: tradeName, patentNo: null, patentExpireDate: null, hasPediatricFlag: null, hasWithdrawnCommercialReasonFlag: null, pageNumber, pageSize);
 
                 // 3. Filter out base patent rows when their *PED companion is present
                 var filteredPatents = filterPediatricDuplicates(rawPatents);

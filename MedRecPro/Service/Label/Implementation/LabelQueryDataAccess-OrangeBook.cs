@@ -1,5 +1,6 @@
 
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -7,7 +8,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.LabelView;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /*******************************************************************************/
     /// <summary>
@@ -21,7 +22,7 @@ namespace MedRecPro.DataAccess
     /// </remarks>
     /// <seealso cref="OrangeBookPatentDto"/>
     /// <seealso cref="LabelView.OrangeBookPatent"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Orange Book Patent Navigation
 
@@ -78,7 +79,7 @@ namespace MedRecPro.DataAccess
         /// </remarks>
         /// <seealso cref="LabelView.OrangeBookPatent"/>
         /// <seealso cref="OrangeBookPatentDto"/>
-        public static async Task<List<OrangeBookPatentDto>> SearchOrangeBookPatentsAsync(
+        internal async Task<List<OrangeBookPatentDto>> SearchOrangeBookPatentsAsync(
             ApplicationDbContext db,
             int? expiringInMonths,
             Guid? documentGuid,
@@ -237,7 +238,7 @@ namespace MedRecPro.DataAccess
         /// behavior of <c>SearchFilterExtensions.FilterBySearchTerms</c>.
         /// </remarks>
         /// <seealso cref="SearchOrangeBookPatentsAsync"/>
-        public static async Task<int> CountExpiringPatentsAsync(
+        internal async Task<int> CountExpiringPatentsAsync(
             ApplicationDbContext db,
             int? expiringInMonths,
             int maxExpirationMonths,

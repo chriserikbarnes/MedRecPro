@@ -1,5 +1,6 @@
-﻿
+
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using Cached = MedRecPro.Helpers.PerformanceHelper;
 
-namespace MedRecPro.DataAccess
+namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /// <summary>
     /// Provides helper methods for building Data Transfer Objects (DTOs) from SPL Label entities.
@@ -18,7 +19,7 @@ namespace MedRecPro.DataAccess
     /// </summary>
     /// <seealso cref="Label"/>
     /// <seealso cref="DocumentDto"/>
-    public static partial class DtoLabelAccess
+    internal partial class LabelQueryDataAccess
     {
         #region Product Hierarchy Builders
         /**************************************************************/
@@ -39,7 +40,7 @@ namespace MedRecPro.DataAccess
             if (sectionId == null) return new List<ProductDto>();
 
             // Get all products for this section
-            var products = await db.Set<Label.Product>()
+            var products = await db.Set<global::MedRecPro.Models.Label.Product>()
                 .AsNoTracking()
                 .Where(p => p.SectionID == sectionId)
                 .ToListAsync();
@@ -141,7 +142,7 @@ namespace MedRecPro.DataAccess
                 return new List<MarketingStatusDto>();
 
             // Query marketing statuses for the specified product using read-only tracking
-            var items = await db.Set<Label.MarketingStatus>()
+            var items = await db.Set<global::MedRecPro.Models.Label.MarketingStatus>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -187,7 +188,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<AdditionalIdentifierDto>();
 
             // Query additional identifiers for the specified product using read-only tracking
-            var items = await db.Set<Label.AdditionalIdentifier>()
+            var items = await db.Set<global::MedRecPro.Models.Label.AdditionalIdentifier>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -232,7 +233,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<DosingSpecificationDto>();
 
             // Query dosing specifications for the specified product using read-only tracking
-            var items = await db.Set<Label.DosingSpecification>()
+            var items = await db.Set<global::MedRecPro.Models.Label.DosingSpecification>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -278,7 +279,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<EquivalentEntityDto>();
 
             // Query equivalent entities for the specified product using read-only tracking
-            var items = await db.Set<Label.EquivalentEntity>()
+            var items = await db.Set<global::MedRecPro.Models.Label.EquivalentEntity>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -325,7 +326,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<PartOfAssemblyDto>();
 
             // Query assembly parts where the product is the primary product using read-only tracking
-            var items = await db.Set<Label.PartOfAssembly>()
+            var items = await db.Set<global::MedRecPro.Models.Label.PartOfAssembly>()
                 .AsNoTracking()
                 .Where(e => e.PrimaryProductID == productID)
                 .ToListAsync();
@@ -371,7 +372,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<PolicyDto>();
 
             // Query policies for the specified product using read-only tracking
-            var items = await db.Set<Label.Policy>()
+            var items = await db.Set<global::MedRecPro.Models.Label.Policy>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -418,7 +419,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<SpecializedKindDto>();
 
             // Query specialized kinds for the specified product using read-only tracking
-            var items = await db.Set<Label.SpecializedKind>()
+            var items = await db.Set<global::MedRecPro.Models.Label.SpecializedKind>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -457,7 +458,7 @@ namespace MedRecPro.DataAccess
                 return null;
 
             // Query product for the specified product ID
-            var entity = await db.Set<Label.Product>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.Product>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.ProductID == productID);
 
@@ -491,7 +492,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<GenericMedicineDto>();
 
             // Query generic medicines for the specified product
-            var items = await db.Set<Label.GenericMedicine>()
+            var items = await db.Set<global::MedRecPro.Models.Label.GenericMedicine>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -523,7 +524,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<ProductIdentifierDto>();
 
             // Query product identifiers for the specified product
-            var items = await db.Set<Label.ProductIdentifier>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ProductIdentifier>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -552,7 +553,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<ProductRouteOfAdministrationDto>();
 
             // Query product routes of administration for the specified product
-            var items = await db.Set<Label.ProductRouteOfAdministration>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ProductRouteOfAdministration>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -581,7 +582,7 @@ namespace MedRecPro.DataAccess
             if (productID == null) return new List<ProductWebLinkDto>();
 
             // Query product web links for the specified product
-            var items = await db.Set<Label.ProductWebLink>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ProductWebLink>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -613,7 +614,7 @@ namespace MedRecPro.DataAccess
                 return new List<MarketingCategoryDto>();
 
             // Query marketing categories for the specified product
-            var entity = await db.Set<Label.MarketingCategory>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.MarketingCategory>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productID)
                 .ToListAsync();
@@ -650,7 +651,7 @@ namespace MedRecPro.DataAccess
                 return new List<ProductPartDto>();
 
             // Query product parts for the specified kit product
-            var entity = await db.Set<Label.ProductPart>()
+            var entity = await db.Set<global::MedRecPro.Models.Label.ProductPart>()
                 .AsNoTracking()
                 .Where(e => e.KitProductID == productID)
                 .ToListAsync();
@@ -716,7 +717,7 @@ namespace MedRecPro.DataAccess
 
             #region query construction
             // Build query based on provided parameters
-            var query = db.Set<Label.Characteristic>()
+            var query = db.Set<global::MedRecPro.Models.Label.Characteristic>()
                 .AsNoTracking()
                 .AsQueryable();
 
@@ -807,7 +808,7 @@ namespace MedRecPro.DataAccess
             if (productId == null) return new List<BusinessOperationProductLinkDto>();
 
             // Query business operation product links for the specified product
-            var items = await db.Set<Label.BusinessOperationProductLink>()
+            var items = await db.Set<global::MedRecPro.Models.Label.BusinessOperationProductLink>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productId)
                 .ToListAsync();
@@ -836,7 +837,7 @@ namespace MedRecPro.DataAccess
             if (productId == null) return new List<ResponsiblePersonLinkDto>();
 
             // Query responsible person links for the specified product
-            var items = await db.Set<Label.ResponsiblePersonLink>()
+            var items = await db.Set<global::MedRecPro.Models.Label.ResponsiblePersonLink>()
                 .AsNoTracking()
                 .Where(e => e.ProductID == productId)
                 .ToListAsync();

@@ -7,6 +7,7 @@ using MedRecPro.Mappers;
 using MedRecPro.Models;
 using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
+using MedRecPro.Service.LabelQuery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
@@ -82,6 +83,10 @@ namespace MedRecPro.Api.Controllers
         private readonly SplDataService _splDataService;
 
         /**************************************************************/
+        /// <summary>Provides complete document graph and navigation queries.</summary>
+        private readonly ILabelDocumentQueryService _labelDocumentQueryService;
+
+        /**************************************************************/
         /// <summary>
         /// Initializes a new instance of the <see cref="LabelDocumentController"/> class.
         /// </summary>
@@ -91,6 +96,7 @@ namespace MedRecPro.Api.Controllers
         /// <param name="applicationDbContext">Entity Framework database context for document navigation read models.</param>
         /// <param name="splExportService">SPL export service for generated XML documents.</param>
         /// <param name="splDataService">SPL data service for original XML documents.</param>
+        /// <param name="labelDocumentQueryService">Document query service for graph and navigation reads.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the primary-key encryption secret is missing.</exception>
         /// <seealso cref="LabelController"/>
@@ -100,7 +106,8 @@ namespace MedRecPro.Api.Controllers
             ILogger<LabelDocumentController> logger,
             ApplicationDbContext applicationDbContext,
             ISplExportService splExportService,
-            SplDataService splDataService)
+            SplDataService splDataService,
+            ILabelDocumentQueryService labelDocumentQueryService)
         {
             #region implementation
 
@@ -110,6 +117,7 @@ namespace MedRecPro.Api.Controllers
             _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
             _splDataService = splDataService ?? throw new ArgumentNullException(nameof(splDataService));
+            _labelDocumentQueryService = labelDocumentQueryService ?? throw new ArgumentNullException(nameof(labelDocumentQueryService));
             _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
 
@@ -320,14 +328,7 @@ namespace MedRecPro.Api.Controllers
             _logger.LogInformation("Getting document navigation. LatestOnly: {LatestOnly}, SetGUID: {SetGUID}, Page: {PageNumber}, Size: {PageSize}",
                     latestOnly, setGuid, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetDocumentNavigationAsync(
-                    _dbContext,
-                    latestOnly,
-                    setGuid,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _labelDocumentQueryService.GetDocumentNavigationAsync(latestOnly, setGuid, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -397,11 +398,7 @@ namespace MedRecPro.Api.Controllers
             _logger.LogInformation("Getting document version history for GUID: {SetGuidOrDocumentGuid}",
                     setGuidOrDocumentGuid);
 
-                var results = await DtoLabelAccess.GetDocumentVersionHistoryAsync(
-                    _dbContext,
-                    setGuidOrDocumentGuid,
-                    _pkEncryptionSecret,
-                    _logger);
+                var results = await _labelDocumentQueryService.GetDocumentVersionHistoryAsync(setGuidOrDocumentGuid);
 
                 // Check if any history was found
                 if (results == null || !results.Any())

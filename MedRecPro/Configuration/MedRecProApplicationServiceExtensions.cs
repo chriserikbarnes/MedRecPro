@@ -8,7 +8,9 @@ using MedRecPro.Models;
 using MedRecPro.Security;
 using MedRecPro.Service;
 using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery;
 using MedRecPro.Service.LabelQuery.Common;
+using MedRecPro.Service.LabelQuery.Implementation;
 using MedRecPro.Services;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -206,6 +208,15 @@ namespace MedRecPro.Configuration
             services.AddSingleton<LabelQueryCachePolicy>(serviceProvider => new LabelQueryCachePolicy(
                 serviceProvider.GetRequiredService<IAppCache>(),
                 serviceProvider.GetRequiredService<LegacyDtoLabelCacheKeyBuilder>()));
+
+            services.AddScoped<LabelQueryDataAccess>();
+            services.AddScoped<IIngredientSearchService, IngredientSearchService>();
+            services.AddScoped<IPharmacologicClassSearchService, PharmacologicClassSearchService>();
+            services.AddScoped<IProductSearchService, ProductSearchService>();
+            services.AddScoped<ILabelContentQueryService, LabelContentQueryService>();
+            services.AddScoped<ILabelMarkdownService, LabelMarkdownService>();
+            services.AddScoped<ILabelDocumentQueryService, LabelDocumentQueryService>();
+            services.AddScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>();
 
             services.AddScoped<IUserContextAccessor, HttpUserContextAccessor>();
 

@@ -7,6 +7,7 @@ using MedRecPro.Mappers;
 using MedRecPro.Models;
 using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
+using MedRecPro.Service.LabelQuery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
@@ -68,6 +69,26 @@ namespace MedRecPro.Api.Controllers
         private readonly IClaudeSearchService? _claudeSearchService;
 
         /**************************************************************/
+        /// <summary>Provides ingredient query operations for Label endpoints.</summary>
+        private readonly IIngredientSearchService _ingredientSearchService;
+
+        /**************************************************************/
+        /// <summary>Provides pharmacologic-class query operations for Label endpoints.</summary>
+        private readonly IPharmacologicClassSearchService _pharmacologicClassSearchService;
+
+        /**************************************************************/
+        /// <summary>Provides product and identifier query operations for Label endpoints.</summary>
+        private readonly IProductSearchService _productSearchService;
+
+        /**************************************************************/
+        /// <summary>Provides label content query operations for Label endpoints.</summary>
+        private readonly ILabelContentQueryService _labelContentQueryService;
+
+        /**************************************************************/
+        /// <summary>Provides label markdown query operations for Label endpoints.</summary>
+        private readonly ILabelMarkdownService _labelMarkdownService;
+
+        /**************************************************************/
         /// <summary>
         /// Initializes a new instance of the <see cref="LabelSearchController"/> class.
         /// </summary>
@@ -75,6 +96,11 @@ namespace MedRecPro.Api.Controllers
         /// <param name="logger">Logger instance for search endpoint diagnostics.</param>
         /// <param name="applicationDbContext">Entity Framework database context for label read models.</param>
         /// <param name="claudeApiService">Claude API service used for AI context retrieval.</param>
+        /// <param name="ingredientSearchService">Ingredient query service for Label endpoints.</param>
+        /// <param name="pharmacologicClassSearchService">Pharmacologic-class query service for Label endpoints.</param>
+        /// <param name="productSearchService">Product query service for Label endpoints.</param>
+        /// <param name="labelContentQueryService">Label content query service for Label endpoints.</param>
+        /// <param name="labelMarkdownService">Label markdown query service for Label endpoints.</param>
         /// <param name="claudeSearchService">Optional Claude search service used for AI-assisted search.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the primary-key encryption secret is missing.</exception>
@@ -84,6 +110,11 @@ namespace MedRecPro.Api.Controllers
             ILogger<LabelSearchController> logger,
             ApplicationDbContext applicationDbContext,
             IClaudeApiService claudeApiService,
+            IIngredientSearchService ingredientSearchService,
+            IPharmacologicClassSearchService pharmacologicClassSearchService,
+            IProductSearchService productSearchService,
+            ILabelContentQueryService labelContentQueryService,
+            ILabelMarkdownService labelMarkdownService,
             IClaudeSearchService? claudeSearchService = null)
         {
             #region implementation
@@ -93,6 +124,11 @@ namespace MedRecPro.Api.Controllers
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
+            _ingredientSearchService = ingredientSearchService ?? throw new ArgumentNullException(nameof(ingredientSearchService));
+            _pharmacologicClassSearchService = pharmacologicClassSearchService ?? throw new ArgumentNullException(nameof(pharmacologicClassSearchService));
+            _productSearchService = productSearchService ?? throw new ArgumentNullException(nameof(productSearchService));
+            _labelContentQueryService = labelContentQueryService ?? throw new ArgumentNullException(nameof(labelContentQueryService));
+            _labelMarkdownService = labelMarkdownService ?? throw new ArgumentNullException(nameof(labelMarkdownService));
             _claudeSearchService = claudeSearchService;
             _pkEncryptionSecret = configuration.GetSection("Security:DB:PKSecret").Value
                 ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
@@ -238,13 +274,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching products by application number: {ApplicationNumber}, Page: {PageNumber}, Size: {PageSize}",
                     applicationNumber, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchByApplicationNumberAsync(
-                    _dbContext,
-                    applicationNumber,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.SearchByApplicationNumberAsync(applicationNumber, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -337,13 +367,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting application number summaries. Category: {MarketingCategoryCode}, Page: {PageNumber}, Size: {PageSize}",
                     marketingCategory ?? "all", pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetApplicationNumberSummariesAsync(
-                    _dbContext,
-                    marketingCategory,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.GetApplicationNumberSummariesAsync(marketingCategory, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -535,13 +559,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching products by pharmacologic class: {ClassNameSearch}, Page: {PageNumber}, Size: {PageSize}",
                     classNameSearch, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchByPharmacologicClassAsync(
-                    _dbContext,
-                    classNameSearch!,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _pharmacologicClassSearchService.SearchByPharmacologicClassAsync(classNameSearch!, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -764,12 +782,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting pharmacologic class hierarchy. Page: {PageNumber}, Size: {PageSize}",
                     pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetPharmacologicClassHierarchyAsync(
-                    _dbContext,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _pharmacologicClassSearchService.GetPharmacologicClassHierarchyAsync(pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -896,12 +909,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting pharmacologic class summaries. Page: {PageNumber}, Size: {PageSize}",
                     pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetPharmacologicClassSummariesAsync(
-                    _dbContext,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _pharmacologicClassSearchService.GetPharmacologicClassSummariesAsync(pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1098,14 +1106,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching products by ingredient. UNII: {UNII}, SubstanceName: {SubstanceName}, Page: {PageNumber}, Size: {PageSize}",
                     unii ?? "null", substanceNameSearch ?? "null", pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchByIngredientAsync(
-                    _dbContext,
-                    unii,
-                    substanceNameSearch,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _ingredientSearchService.SearchByIngredientAsync(unii, substanceNameSearch, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1200,14 +1201,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting ingredient summaries. Ingredient: {Ingredient}, MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
                     ingredient ?? "null", minProductCount, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetIngredientSummariesAsync(
-                    _dbContext,
-                    minProductCount,
-                    ingredient,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _ingredientSearchService.GetIngredientSummariesAsync(minProductCount, ingredient, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1306,14 +1300,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting active ingredient summaries. Ingredient: {Ingredient}, MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
                     ingredient ?? "null", minProductCount, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetIngredientActiveSummariesAsync(
-                    _dbContext,
-                    minProductCount,
-                    ingredient,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _ingredientSearchService.GetIngredientActiveSummariesAsync(minProductCount, ingredient, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1413,14 +1400,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting inactive ingredient summaries. Ingredient: {Ingredient}, MinProductCount: {MinProductCount}, Page: {PageNumber}, Size: {PageSize}",
                     ingredient ?? "null", minProductCount, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetIngredientInactiveSummariesAsync(
-                    _dbContext,
-                    minProductCount,
-                    ingredient,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _ingredientSearchService.GetIngredientInactiveSummariesAsync(minProductCount, ingredient, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1556,18 +1536,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Advanced ingredient search. UNII: {UNII}, SubstanceName: {SubstanceName}, AppNum: {AppNum}, AppType: {AppType}, ProductName: {ProductName}, ActiveOnly: {ActiveOnly}",
                     unii ?? "null", substanceNameSearch ?? "null", applicationNumber ?? "null", applicationType ?? "null", productNameSearch ?? "null", activeOnly?.ToString() ?? "null");
 
-                var results = await DtoLabelAccess.SearchIngredientsAdvancedAsync(
-                    _dbContext,
-                    unii,
-                    substanceNameSearch,
-                    applicationNumber,
-                    applicationType,
-                    productNameSearch,
-                    activeOnly,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _ingredientSearchService.SearchIngredientsAdvancedAsync(unii, substanceNameSearch, applicationNumber, applicationType, productNameSearch, activeOnly, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1680,13 +1649,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Finding products by application number with same ingredient. ApplicationNumber: {ApplicationNumber}",
                     applicationNumber);
 
-                var results = await DtoLabelAccess.FindProductsByApplicationNumberWithSameIngredientAsync(
-                    _dbContext,
-                    applicationNumber,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _ingredientSearchService.FindProductsByApplicationNumberWithSameIngredientAsync(applicationNumber, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1786,13 +1749,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Finding related ingredients. UNII: {UNII}, SubstanceName: {SubstanceName}, IsActive: {IsActive}",
                     unii ?? "null", substanceNameSearch ?? "null", searchingActive);
 
-                var results = await DtoLabelAccess.FindRelatedIngredientsAsync(
-                    _dbContext,
-                    unii,
-                    substanceNameSearch,
-                    searchingActive,
-                    _pkEncryptionSecret,
-                    _logger);
+                var results = await _ingredientSearchService.FindRelatedIngredientsAsync(unii, substanceNameSearch, searchingActive);
 
                 return Ok(results);
             }
@@ -1892,13 +1849,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching products by NDC: {ProductCode}, Page: {PageNumber}, Size: {PageSize}",
                     productCode, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchByNDCAsync(
-                    _dbContext,
-                    productCode,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.SearchByNDCAsync(productCode, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -1988,13 +1939,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching packages by NDC: {PackageCode}, Page: {PageNumber}, Size: {PageSize}",
                     packageCode, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchByPackageNDCAsync(
-                    _dbContext,
-                    packageCode,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.SearchByPackageNDCAsync(packageCode, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2097,13 +2042,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching products by labeler: {LabelerNameSearch}, Page: {PageNumber}, Size: {PageSize}",
                     labelerNameSearch, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchByLabelerAsync(
-                    _dbContext,
-                    labelerNameSearch,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.SearchByLabelerAsync(labelerNameSearch, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2180,12 +2119,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting labeler summaries. Page: {PageNumber}, Size: {PageSize}",
                     pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetLabelerSummariesAsync(
-                    _dbContext,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.GetLabelerSummariesAsync(pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2295,13 +2229,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching sections by code: {SectionCode}, Page: {PageNumber}, Size: {PageSize}",
                     sectionCode, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchBySectionCodeAsync(
-                    _dbContext,
-                    sectionCode,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _labelContentQueryService.SearchBySectionCodeAsync(sectionCode, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2378,12 +2306,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting section type summaries. Page: {PageNumber}, Size: {PageSize}",
                     pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetSectionTypeSummariesAsync(
-                    _dbContext,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _labelContentQueryService.GetSectionTypeSummariesAsync(pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2529,15 +2452,7 @@ namespace MedRecPro.Api.Controllers
                     pageNumber,
                     pageSize);
 
-                var results = await DtoLabelAccess.GetSectionContentAsync(
-                    _dbContext,
-                    documentGuid,
-                    sectionGuid,
-                    sectionCode,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _labelContentQueryService.GetSectionContentAsync(documentGuid, sectionGuid, sectionCode, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2632,13 +2547,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting DEA schedule products. ScheduleCode: {ScheduleCode}, Page: {PageNumber}, Size: {PageSize}",
                     scheduleCode ?? "all", pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetDEAScheduleProductsAsync(
-                    _dbContext,
-                    scheduleCode,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _labelContentQueryService.GetDEAScheduleProductsAsync(scheduleCode, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2742,13 +2651,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Searching product summaries: {ProductNameSearch}, Page: {PageNumber}, Size: {PageSize}",
                     productNameSearch, pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.SearchProductSummaryAsync(
-                    _dbContext,
-                    productNameSearch,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _labelContentQueryService.SearchProductSummaryAsync(productNameSearch, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2875,15 +2778,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Getting related products for ProductID: {SourceProductId}, DocumentGUID: {SourceDocumentGuid}, RelationshipType: {RelationshipType}, Page: {PageNumber}, Size: {PageSize}",
                     sourceProductId, sourceDocumentGuid, relationshipType ?? "all", pageNumber, pageSize);
 
-                var results = await DtoLabelAccess.GetRelatedProductsAsync(
-                    _dbContext,
-                    sourceProductId,
-                    sourceDocumentGuid,
-                    relationshipType,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _labelContentQueryService.GetRelatedProductsAsync(sourceProductId, sourceDocumentGuid, relationshipType, pageNumber, pageSize);
 
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
@@ -2949,11 +2844,7 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogInformation("Getting API endpoint guide. Category: {Category}", category ?? "all");
 
-                var results = await DtoLabelAccess.GetAPIEndpointGuideAsync(
-                    _dbContext,
-                    category,
-                    _pkEncryptionSecret,
-                    _logger);
+                var results = await _labelContentQueryService.GetAPIEndpointGuideAsync(category);
 
                 return Ok(results);
             }
@@ -3073,10 +2964,7 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogInformation("Getting inventory summary. Category: {Category}", category ?? "all");
 
-                var results = await DtoLabelAccess.GetInventorySummaryAsync(
-                    _dbContext,
-                    category,
-                    _logger);
+                var results = await _labelContentQueryService.GetInventorySummaryAsync(category);
 
                 return Ok(results);
             }
@@ -3193,15 +3081,7 @@ namespace MedRecPro.Api.Controllers
             try
             {
                 // Get latest labels using the data access method
-                var results = await DtoLabelAccess.GetProductLatestLabelsAsync(
-                    _dbContext,
-                    unii,
-                    productNameSearch,
-                    activeIngredientSearch,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.GetProductLatestLabelsAsync(unii, productNameSearch, activeIngredientSearch, pageNumber, pageSize);
 
                 // Add pagination headers if paging was requested
                 addPaginationHeaders(pageNumber, pageSize, results.Count);
@@ -3350,15 +3230,7 @@ namespace MedRecPro.Api.Controllers
                 var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
                 // Get latest labels using the data access method
-                var productResults = await DtoLabelAccess.GetProductLatestLabelsAsync(
-                    _dbContext,
-                    unii,
-                    productNameSearch,
-                    activeIngredientSearch,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var productResults = await _productSearchService.GetProductLatestLabelsAsync(unii, productNameSearch, activeIngredientSearch, pageNumber, pageSize);
 
                 // Build detailed results with sections and URLs for each product
                 var detailedResults = new List<ProductLatestLabelDetailsDto>();
@@ -3385,12 +3257,7 @@ namespace MedRecPro.Api.Controllers
                         detailedDto.ViewLabelMinifiedUrl = $"{baseUrl}/api/Label/original/{documentGuid.Value}/true";
 
                         // Fetch section markdown content for this document
-                        var sections = await DtoLabelAccess.GetLabelSectionMarkdownAsync(
-                            _dbContext,
-                            documentGuid.Value,
-                            _pkEncryptionSecret,
-                            _logger,
-                            sectionCode);
+                        var sections = await _labelMarkdownService.GetLabelSectionMarkdownAsync(documentGuid.Value, sectionCode);
 
                         detailedDto.Sections = sections;
                     }
@@ -3538,16 +3405,7 @@ namespace MedRecPro.Api.Controllers
             try
             {
                 // Get product indications using the data access method
-                var results = await DtoLabelAccess.GetProductIndicationsAsync(
-                    _dbContext,
-                    unii,
-                    productNameSearch,
-                    substanceNameSearch,
-                    indicationSearch,
-                    _pkEncryptionSecret,
-                    _logger,
-                    pageNumber,
-                    pageSize);
+                var results = await _productSearchService.GetProductIndicationsAsync(unii, productNameSearch, substanceNameSearch, indicationSearch, pageNumber, pageSize);
 
                 // Add pagination headers if paging was requested
                 addPaginationHeaders(pageNumber, pageSize, results.Count);
