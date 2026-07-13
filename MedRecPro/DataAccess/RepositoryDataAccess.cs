@@ -196,12 +196,12 @@ namespace MedRecPro.DataAccess
                     decryptedId = id;
                     return true;
                 }
-                _logger.LogWarning("Invalid or non-positive ID after decrypting {ParameterName}. Encrypted value: {EncryptedValue}, Decrypted string: {DecryptedString}", parameterName, encryptedId, decryptedString);
+                _logger.LogWarning("Invalid or non-positive ID after decrypting {ParameterName}.", parameterName);
                 return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error decrypting {ParameterName}. Encrypted value: {EncryptedValue}", parameterName, encryptedId);
+                _logger.LogError(ex, "Error decrypting {ParameterName}.", parameterName);
                 return false;
             }
             #endregion
@@ -307,7 +307,7 @@ namespace MedRecPro.DataAccess
 
             if (!tryDecryptId(encryptedId, nameof(encryptedId), out decryptedId))
             {
-                _logger.LogWarning("Failed to decrypt ID for ReadByIdAsync. Encrypted ID: {EncryptedId}", encryptedId);
+                _logger.LogWarning("Failed to decrypt ID for ReadByIdAsync.");
 
                 return null;
             }
@@ -494,7 +494,7 @@ namespace MedRecPro.DataAccess
 
             if (!tryDecryptId(encryptedId, nameof(encryptedId), out id))
             {
-                _logger.LogWarning("Failed to decrypt ID for DeleteAsync. Encrypted ID: {EncryptedId}", encryptedId);
+                _logger.LogWarning("Failed to decrypt ID for DeleteAsync.");
 
                 throw new InvalidOperationException($"Failed to decrypt ID for DeleteAsync. Encrypted ID: {encryptedId}");
             }

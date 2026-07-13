@@ -1,9 +1,11 @@
 using MedRecPro.Data;
+using MedRecPro.Helpers;
 using MedRecProTest.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text.Json;
 
@@ -226,10 +228,17 @@ public class LabelHttpContractTests
         Assert.AreEqual(System.Net.HttpStatusCode.InternalServerError, response.StatusCode);
         Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.AreEqual("An unexpected error occurred.", document.RootElement.GetProperty("title").GetString());
-        Assert.IsTrue(document.RootElement.TryGetProperty("traceId", out _));
+        Assert.IsTrue(document.RootElement.TryGetProperty("traceId", out var traceIdElement));
         Assert.IsFalse(
             payload.Contains("Phase 3 test-only exception detail", StringComparison.Ordinal),
             "The exception handler must not expose server exception details to API clients.");
+
+        var logProvider = factory.Services.GetRequiredService<UserLoggerProvider>();
+        var errorEntry = logProvider.GetLogs().Single(entry =>
+            entry.Level == Microsoft.Extensions.Logging.LogLevel.Error
+            && entry.Category == "MedRecPro.Exceptions.MedRecProExceptionHandler");
+
+        Assert.AreEqual(traceIdElement.GetString(), errorEntry.TraceId);
 
         #endregion
     }

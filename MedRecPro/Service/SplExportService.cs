@@ -213,6 +213,29 @@ namespace MedRecPro.Service
         /// }
         /// </code>
         /// </example>
+        public DocumentDataService(
+            ApplicationDbContext db,
+            IConfiguration configuration,
+            ILogger<DocumentDataService> logger)
+            : this(db, configuration, (ILogger)logger)
+        {
+            #region implementation
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a document data service for compatibility callers that provide a pre-created logger.
+        /// </summary>
+        /// <remarks>
+        /// Dependency injection resolves the typed-logger overload. This overload remains for direct construction in
+        /// legacy rendering and test callers that already own a category-specific logger.
+        /// </remarks>
+        /// <param name="db">Entity Framework database context for data operations.</param>
+        /// <param name="configuration">Application configuration containing encryption settings.</param>
+        /// <param name="logger">Pre-created logger for operation diagnostics.</param>
+        /// <seealso cref="ILogger{DocumentDataService}"/>
         public DocumentDataService(ApplicationDbContext db, IConfiguration configuration, ILogger logger)
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
@@ -350,6 +373,24 @@ namespace MedRecPro.Service
         /// relative to the current directory. Memory caching is enabled for template compilation
         /// performance, and debug mode provides detailed error information during development.
         /// </remarks>
+        public TemplateRenderingService(ILogger<TemplateRenderingService> logger)
+            : this((ILogger)logger)
+        {
+            #region implementation
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a template rendering service for compatibility callers that provide a pre-created logger.
+        /// </summary>
+        /// <remarks>
+        /// Dependency injection resolves the typed-logger overload. This overload preserves the direct-construction
+        /// boundary used by isolated rendering tests and legacy callers.
+        /// </remarks>
+        /// <param name="logger">Pre-created logger for rendering diagnostics.</param>
+        /// <seealso cref="ILogger{TemplateRenderingService}"/>
         public TemplateRenderingService(ILogger logger)
         {
             #region implementation
@@ -636,6 +677,59 @@ namespace MedRecPro.Service
         /// The constructor follows the dependency injection pattern for service resolution.
         /// The author rendering service is now integrated for comprehensive author processing.
         /// </remarks>
+        public SplExportService(
+            IDocumentDataService documentDataService,
+            IDocumentRenderingService documentRenderingService,
+            ITemplateRenderingService templateRenderingService,
+            IStructuredBodyViewModelFactory structuredBodyViewModelFactory,
+            ISectionRenderingService sectionRenderingService,
+            IProductRenderingService productRenderingService,
+            IIngredientRenderingService ingredientRenderingService,
+            IPackageRenderingService packageRenderingService,
+            ITextContentRenderingService textContentRenderingService,
+            ICharacteristicRenderingService characteristicRenderingService,
+            IAuthorRenderingService authorRenderingService,
+            ILogger<SplExportService> logger)
+            : this(
+                documentDataService,
+                documentRenderingService,
+                templateRenderingService,
+                structuredBodyViewModelFactory,
+                sectionRenderingService,
+                productRenderingService,
+                ingredientRenderingService,
+                packageRenderingService,
+                textContentRenderingService,
+                characteristicRenderingService,
+                authorRenderingService,
+                (ILogger)logger)
+        {
+            #region implementation
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes an SPL export service for compatibility callers that provide a pre-created logger.
+        /// </summary>
+        /// <remarks>
+        /// Dependency injection resolves the typed-logger overload. This overload preserves direct construction with
+        /// a caller-owned logger without registering raw <see cref="ILogger"/> in the application container.
+        /// </remarks>
+        /// <param name="documentDataService">Service for retrieving document data.</param>
+        /// <param name="documentRenderingService">Service for rendering document data.</param>
+        /// <param name="templateRenderingService">Service for rendering templates.</param>
+        /// <param name="structuredBodyViewModelFactory">Factory for structured body view models.</param>
+        /// <param name="sectionRenderingService">Service for section rendering preparation.</param>
+        /// <param name="productRenderingService">Service for product rendering preparation.</param>
+        /// <param name="ingredientRenderingService">Service for ingredient rendering preparation.</param>
+        /// <param name="packageRenderingService">Service for package rendering preparation.</param>
+        /// <param name="textContentRenderingService">Service for text content rendering preparation.</param>
+        /// <param name="characteristicRenderingService">Service for characteristic rendering preparation.</param>
+        /// <param name="authorRenderingService">Service for author rendering preparation.</param>
+        /// <param name="logger">Pre-created logger for export diagnostics.</param>
+        /// <seealso cref="ILogger{SplExportService}"/>
         public SplExportService(
             IDocumentDataService documentDataService,
             IDocumentRenderingService documentRenderingService,

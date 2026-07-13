@@ -202,14 +202,12 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("context")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiSystemContext), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<AiSystemContext>> GetContext()
         {
             #region implementation
 
-            try
-            {
-                _logger.LogDebug("Retrieving system context for AI agent");
+            _logger.LogDebug("Retrieving system context for AI agent");
 
                 var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
                 var userId = isAuthenticated ? getEncryptedUserId() : null;
@@ -223,14 +221,7 @@ namespace MedRecPro.Api.Controllers
                                        User.FindFirst(ClaimTypes.Email)?.Value;
                 }
 
-                return Ok(context);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving system context");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving system context.");
-            }
+            return Ok(context);
 
             #endregion
         }
@@ -325,7 +316,7 @@ namespace MedRecPro.Api.Controllers
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiAgentInterpretation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<AiAgentInterpretation>> Interpret([FromBody] AiAgentRequest request)
         {
             #region input validation
@@ -367,13 +358,7 @@ namespace MedRecPro.Api.Controllers
             catch (ArgumentException ex)
             {
                 _logger.LogWarning(ex, "Invalid argument in interpret request");
-                return BadRequest(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error interpreting AI request");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while processing your request.");
+                return BadRequest("The interpretation request is invalid.");
             }
 
             #endregion
@@ -442,7 +427,7 @@ namespace MedRecPro.Api.Controllers
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiAgentSynthesis), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<AiAgentSynthesis>> Synthesize([FromBody] AiSynthesisRequest request)
         {
             #region input validation
@@ -489,13 +474,7 @@ namespace MedRecPro.Api.Controllers
             catch (ArgumentException ex)
             {
                 _logger.LogWarning(ex, "Invalid argument in synthesize request");
-                return BadRequest(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error synthesizing AI results");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while synthesizing results.");
+                return BadRequest("The synthesis request is invalid.");
             }
 
             #endregion
@@ -525,7 +504,7 @@ namespace MedRecPro.Api.Controllers
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiAgentInterpretation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<AiAgentInterpretation>> Chat([FromQuery] string message)
         {
             #region implementation
@@ -615,27 +594,18 @@ namespace MedRecPro.Api.Controllers
         [HttpPost("conversations")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(Conversation), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<Conversation>> CreateConversation()
         {
             #region implementation
 
-            try
-            {
-                var userId = User.Identity?.IsAuthenticated == true ? getEncryptedUserId() : null;
+            var userId = User.Identity?.IsAuthenticated == true ? getEncryptedUserId() : null;
 
                 _logger.LogInformation("Creating new conversation for user {UserId}", userId ?? "anonymous");
 
                 var conversation = await _claudeConversationService.CreateConversationAsync(userId);
 
-                return Ok(conversation);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating conversation");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while creating the conversation.");
-            }
+            return Ok(conversation);
 
             #endregion
         }
@@ -685,14 +655,12 @@ namespace MedRecPro.Api.Controllers
         [AllowAnonymous]
         [ProducesResponseType(typeof(Conversation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<Conversation>> GetConversation(string conversationId)
         {
             #region implementation
 
-            try
-            {
-                if (string.IsNullOrWhiteSpace(conversationId))
+            if (string.IsNullOrWhiteSpace(conversationId))
                 {
                     return BadRequest("Conversation ID is required.");
                 }
@@ -706,14 +674,7 @@ namespace MedRecPro.Api.Controllers
                     return NotFound($"Conversation '{conversationId}' not found or has expired.");
                 }
 
-                return Ok(conversation);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving conversation {ConversationId}", conversationId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the conversation.");
-            }
+            return Ok(conversation);
 
             #endregion
         }
@@ -756,16 +717,14 @@ namespace MedRecPro.Api.Controllers
         [AllowAnonymous]
         [ProducesResponseType(typeof(List<AiConversationMessage>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<List<AiConversationMessage>>> GetConversationHistory(
             string conversationId,
             [FromQuery] int? maxMessages = null)
         {
             #region implementation
 
-            try
-            {
-                if (string.IsNullOrWhiteSpace(conversationId))
+            if (string.IsNullOrWhiteSpace(conversationId))
                 {
                     return BadRequest("Conversation ID is required.");
                 }
@@ -783,14 +742,7 @@ namespace MedRecPro.Api.Controllers
 
                 var messages = await _claudeConversationService.GetConversationHistoryAsync(conversationId, maxMessages);
 
-                return Ok(messages);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving conversation history for {ConversationId}", conversationId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving conversation history.");
-            }
+            return Ok(messages);
 
             #endregion
         }
@@ -817,14 +769,12 @@ namespace MedRecPro.Api.Controllers
         [AllowAnonymous]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult> DeleteConversation(string conversationId)
         {
             #region implementation
 
-            try
-            {
-                if (string.IsNullOrWhiteSpace(conversationId))
+            if (string.IsNullOrWhiteSpace(conversationId))
                 {
                     return BadRequest("Conversation ID is required.");
                 }
@@ -838,14 +788,7 @@ namespace MedRecPro.Api.Controllers
                     return NotFound($"Conversation '{conversationId}' not found.");
                 }
 
-                return Ok(new { message = "Conversation deleted successfully." });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting conversation {ConversationId}", conversationId);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while deleting the conversation.");
-            }
+            return Ok(new { message = "Conversation deleted successfully." });
 
             #endregion
         }
@@ -885,25 +828,16 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("conversations/stats")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(ConversationStoreStats), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<ConversationStoreStats>> GetConversationStats()
         {
             #region implementation
 
-            try
-            {
-                _logger.LogDebug("Retrieving conversation store statistics");
+            _logger.LogDebug("Retrieving conversation store statistics");
 
                 var stats = await _claudeConversationService.GetConversationStatsAsync();
 
-                return Ok(stats);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving conversation statistics");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving conversation statistics.");
-            }
+            return Ok(stats);
 
             #endregion
         }
@@ -970,7 +904,7 @@ namespace MedRecPro.Api.Controllers
         [AllowAnonymous]
         [ProducesResponseType(typeof(AiAgentInterpretation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<AiAgentInterpretation>> RetryInterpretation([FromBody] AiRetryRequest request)
         {
             #region input validation
@@ -1026,13 +960,7 @@ namespace MedRecPro.Api.Controllers
             catch (ArgumentException ex)
             {
                 _logger.LogWarning(ex, "Invalid argument in retry request");
-                return BadRequest(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in retry interpretation");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while processing your retry request.");
+                return BadRequest("The retry interpretation request is invalid.");
             }
 
             #endregion

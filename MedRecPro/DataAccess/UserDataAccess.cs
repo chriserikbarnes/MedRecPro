@@ -106,12 +106,12 @@ namespace MedRecPro.DataAccess
                     decryptedId = id;
                     return true;
                 }
-                _logger.LogWarning("Invalid or non-positive ID after decrypting {ParameterName}. Encrypted value: {EncryptedValue}, Decrypted string: {DecryptedString}", parameterName, encryptedId, decryptedString);
+                _logger.LogWarning("Invalid or non-positive ID after decrypting {ParameterName}.", parameterName);
                 return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error decrypting {ParameterName}. Encrypted value: {EncryptedValue}", parameterName, encryptedId);
+                _logger.LogError(ex, "Error decrypting {ParameterName}.", parameterName);
                 return false;
             } 
             #endregion

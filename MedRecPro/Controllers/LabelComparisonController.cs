@@ -260,7 +260,7 @@ namespace MedRecPro.Api.Controllers
             {
                 // Handle validation errors
                 updateComparisonStatus(operationId, ComparisonConstants.STATUS_FAILED,
-                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid, error: ex.Message);
+                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid, error: "The comparison operation failed.");
                 _logger.LogWarning(ex, "Invalid argument during comparison analysis for document {DocumentGuid}, operation {OperationId}",
                     documentGuid, operationId);
             }
@@ -268,10 +268,12 @@ namespace MedRecPro.Api.Controllers
             {
                 // Handle business logic errors
                 updateComparisonStatus(operationId, ComparisonConstants.STATUS_FAILED,
-                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid, error: ex.Message);
+                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid, error: "The comparison operation failed.");
                 _logger.LogWarning(ex, "Invalid operation during comparison analysis for document {DocumentGuid}, operation {OperationId}",
                     documentGuid, operationId);
             }
+            // Broad-catch allowlist: this background callback owns the terminal operation status after the HTTP
+            // request has ended, so the failure must be recorded here rather than by request middleware.
             catch (Exception ex)
             {
                 // Handle any unexpected processing errors
@@ -393,7 +395,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(DocumentComparisonResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<DocumentComparisonResult>> GetDocumentComparisonAnalysis(Guid documentGuid)
         {
             #region implementation
@@ -426,23 +428,17 @@ namespace MedRecPro.Api.Controllers
             catch (ArgumentException ex)
             {
                 _logger.LogWarning(ex, "Invalid argument for document comparison analysis: {DocumentGuid}", documentGuid);
-                return BadRequest(ex.Message);
+                return BadRequest("The document comparison request is invalid.");
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
             {
                 _logger.LogWarning(ex, "Document or related data not found for GUID {DocumentGuid}", documentGuid);
-                return NotFound(ex.Message);
+                return NotFound("The document comparison data was not found.");
             }
             catch (InvalidOperationException ex)
             {
                 _logger.LogWarning(ex, "Invalid operation during document comparison for GUID {DocumentGuid}", documentGuid);
-                return BadRequest(ex.Message);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error performing document comparison analysis for GUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while performing document comparison analysis.");
+                return BadRequest("The document comparison request is invalid.");
             }
 
             #endregion
@@ -556,7 +552,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status499ClientClosedRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public ActionResult<ComparisonOperationStatus> QueueDocumentComparisonAnalysis(
             Guid documentGuid,
             CancellationToken cancellationToken)
@@ -602,12 +598,6 @@ namespace MedRecPro.Api.Controllers
                 // Handle cancellation gracefully
                 _logger.LogInformation("Document comparison analysis queuing was canceled for GUID {DocumentGuid}", documentGuid);
                 return StatusCode(StatusCodes.Status499ClientClosedRequest);
-            }
-            catch (Exception ex)
-            {
-                // Handle unexpected errors
-                _logger.LogError(ex, "Error queuing document comparison analysis for GUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError, ComparisonConstants.ERROR_QUEUING_FAILED);
             }
             #endregion
         }

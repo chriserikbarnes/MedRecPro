@@ -174,7 +174,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(List<AeDrugSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<List<AeDrugSummaryDto>>> GetProducts(
             [FromQuery] string? productSearch,
@@ -212,12 +212,10 @@ namespace MedRecPro.Api.Controllers
                 addPaginationHeaders(pageNumber, pageSize, results.Count);
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard product summaries.");
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving AE dashboard product summaries.");
+                throw;
             }
 
             #endregion
@@ -258,7 +256,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(List<AeProductCatalogItemDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<List<AeProductCatalogItemDto>>> GetProductCatalog(
             [FromQuery] string? productSearch,
@@ -296,12 +294,10 @@ namespace MedRecPro.Api.Controllers
                 addPaginationHeaders(pageNumber, pageSize, results.Count);
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard product catalog.");
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard product catalog.");
+                throw;
             }
 
             #endregion
@@ -334,7 +330,7 @@ namespace MedRecPro.Api.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [HttpGet("products/count")]
         [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<int>> GetProductCount()
         {
@@ -350,12 +346,10 @@ namespace MedRecPro.Api.Controllers
                 var count = await _productCatalogService.GetProductCountAsync();
                 return Ok(count);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard product count.");
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard product count.");
+                throw;
             }
 
             #endregion
@@ -393,7 +387,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(List<AeDrugSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<List<AeDrugSummaryDto>>> GetFavoriteProducts(
             [FromQuery] int? pageNumber,
@@ -429,12 +423,10 @@ namespace MedRecPro.Api.Controllers
                 addPaginationHeaders(pageNumber, pageSize, results.Count);
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard favorite products.");
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving AE dashboard favorite products.");
+                throw;
             }
 
             #endregion
@@ -474,7 +466,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> FavoriteProduct(Guid documentGuid)
         {
@@ -519,7 +511,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> UnfavoriteProduct(Guid documentGuid)
         {
@@ -563,7 +555,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeTriageViewDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeTriageViewDto>> GetTriage(
             Guid documentGuid,
@@ -597,12 +589,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard triage view for {DocumentGuid}.", documentGuid);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard triage view.");
+                throw;
             }
 
             #endregion
@@ -641,7 +631,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeForestPlotDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeForestPlotDto>> GetForest(
             Guid documentGuid,
@@ -675,12 +665,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard forest view for {DocumentGuid}.", documentGuid);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard forest view.");
+                throw;
             }
 
             #endregion
@@ -719,7 +707,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeQuadrantViewDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeQuadrantViewDto>> GetQuadrant(
             Guid documentGuid,
@@ -753,12 +741,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard quadrant view for {DocumentGuid}.", documentGuid);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard quadrant view.");
+                throw;
             }
 
             #endregion
@@ -796,7 +782,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("reverse-lookup")]
         [ProducesResponseType(typeof(AeReverseLookupResultDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeReverseLookupResultDto>> GetReverseLookup(
             [FromQuery] string? symptom,
@@ -823,12 +809,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard reverse lookup for {Symptom}.", symptom);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving AE dashboard reverse lookup matches.");
+                throw;
             }
 
             #endregion
@@ -872,7 +856,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeInterchangeComparisonDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeInterchangeComparisonDto>> GetInterchange(
             [FromQuery] Guid documentGuidA,
@@ -915,16 +899,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(
-                    ex,
-                    "Error retrieving AE dashboard interchange comparison for {DocumentGuidA} and {DocumentGuidB}.",
-                    documentGuidA,
-                    documentGuidB);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard interchange comparison.");
+                throw;
             }
 
             #endregion
@@ -983,7 +961,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeCorrelationMapDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeCorrelationMapDto>> GetCorrelationMap(
             [FromQuery] string? pharmClassCode,
@@ -1037,12 +1015,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard correlation map for {PharmClassCode}.", pharmClassCode);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard correlation map.");
+                throw;
             }
 
             #endregion
@@ -1089,7 +1065,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("correlation/classes")]
         [ProducesResponseType(typeof(List<AePharmClassPickerItemDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<List<AePharmClassPickerItemDto>>> GetCorrelationClasses(
             [FromQuery] string? classSearch,
@@ -1142,12 +1118,10 @@ namespace MedRecPro.Api.Controllers
                 Response.Headers.Append("X-Chartable-Count", results.ChartableCount.ToString());
                 return Ok(results.Items);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard correlation classes.");
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving AE dashboard correlation classes.");
+                throw;
             }
 
             #endregion
@@ -1190,7 +1164,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("correlation/systems")]
         [ProducesResponseType(typeof(List<AeMeddraSystemPickerItemDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<List<AeMeddraSystemPickerItemDto>>> GetCorrelationSystems(
             [FromQuery] string? systemSearch,
@@ -1240,12 +1214,10 @@ namespace MedRecPro.Api.Controllers
                 Response.Headers.Append("X-Chartable-Count", results.ChartableCount.ToString());
                 return Ok(results.Items);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard correlation systems.");
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving AE dashboard correlation systems.");
+                throw;
             }
 
             #endregion
@@ -1300,7 +1272,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeSystemClassCorrelationMapDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeSystemClassCorrelationMapDto>> GetSystemCorrelationMap(
             [FromQuery] List<string>? systems,
@@ -1378,12 +1350,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard system correlation map for {Systems}.", string.Join(", ", selectedSystems));
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard system correlation map.");
+                throw;
             }
 
             #endregion
@@ -1435,7 +1405,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeSystemClassHeatmapDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeSystemClassHeatmapDto>> GetSystemCorrelationHeatmap(
             [FromQuery] List<string>? systems,
@@ -1511,12 +1481,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard system heatmap for {Systems}.", string.Join(", ", selectedSystems));
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard system heatmap.");
+                throw;
             }
 
             #endregion
@@ -1565,7 +1533,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeSystemClassCorrelationCellDetailDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeSystemClassCorrelationCellDetailDto>> GetSystemCorrelationCell(
             [FromQuery] List<string>? systems,
@@ -1638,17 +1606,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(
-                    ex,
-                    "Error retrieving AE dashboard system cell for {Systems}, {ClassX}, {ClassY}.",
-                    string.Join(", ", selectedSystems),
-                    classX,
-                    classY);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard system correlation cell detail.");
+                throw;
             }
 
             #endregion
@@ -1701,7 +1662,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeCorrelationHeatmapDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeCorrelationHeatmapDto>> GetCorrelationHeatmap(
             [FromQuery] string? pharmClassCode,
@@ -1751,12 +1712,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard correlation heatmap for {PharmClassCode}.", pharmClassCode);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard correlation heatmap.");
+                throw;
             }
 
             #endregion
@@ -1814,7 +1773,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(AeCorrelationCellDetailDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<AeCorrelationCellDetailDto>> GetCorrelationCell(
             [FromQuery] string? pharmClassCode,
@@ -1877,12 +1836,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving AE dashboard correlation cell for {PharmClassCode}.", pharmClassCode);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving the AE dashboard correlation cell detail.");
+                throw;
             }
 
             #endregion
@@ -2132,6 +2089,8 @@ namespace MedRecPro.Api.Controllers
             {
                 return ClaimHelper.GetEncryptedUserIdOrThrow(User.Claims, _pkSecret);
             }
+            // Broad-catch allowlist: malformed claim data is converted by the caller to the established unauthorized
+            // result; the encrypted identifier itself is never written to the log.
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get encrypted id from claims for AE dashboard favorite access.");
@@ -2168,6 +2127,7 @@ namespace MedRecPro.Api.Controllers
             {
                 return (null, Unauthorized("Unable to determine user ID from authentication context."));
             }
+            // Broad-catch allowlist: any malformed or unavailable claim identity follows the same 401 contract.
             catch (Exception)
             {
                 return (null, Unauthorized("Unable to determine user ID from authentication context."));
@@ -2183,12 +2143,10 @@ namespace MedRecPro.Api.Controllers
 
                 return (claimsUser, null);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error resolving AE dashboard claims user.");
-                return (null, StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while resolving the authenticated user."));
+                throw;
             }
 
             #endregion
@@ -2269,12 +2227,10 @@ namespace MedRecPro.Api.Controllers
 
                 return NoContent();
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error setting AE dashboard favorite state for {DocumentGuid}.", documentGuid);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while updating AE dashboard favorite state.");
+                throw;
             }
 
             #endregion

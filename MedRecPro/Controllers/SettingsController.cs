@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using static MedRecPro.Models.UserRole;
 using System.Net;
+using MedRecPro.Models;
 
 
 namespace MedRecPro.Controllers
@@ -108,7 +109,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="IConfiguration"/>
         [HttpGet("demomode")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetDemoModeStatus()
         {
             #region implementation
@@ -133,10 +134,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(response);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving demo mode settings");
-                return StatusCode(500, new { error = "Error retrieving settings" });
+                throw;
             }
 
             #endregion
@@ -167,7 +168,7 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("info")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetApplicationInfo()
         {
             #region implementation
@@ -187,10 +188,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(response);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving application info");
-                return StatusCode(500, new { error = "Error retrieving application information" });
+                throw;
             }
 
             #endregion
@@ -262,7 +263,7 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("features")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetFeatures()
         {
             #region implementation
@@ -326,10 +327,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(response);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving feature flags");
-                return StatusCode(500, new { error = "Error retrieving features" });
+                throw;
             }
 
             #endregion
@@ -389,7 +390,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="GetFeatures"/>
         [HttpGet("database-limits")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetDatabaseLimits()
         {
             #region implementation
@@ -434,10 +435,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(response);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving database limit settings");
-                return StatusCode(500, new { error = "Error retrieving database limits" });
+                throw;
             }
             #endregion
         }
@@ -525,7 +526,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetDatabaseMetrics()
         {
             #region implementation
@@ -573,7 +574,7 @@ namespace MedRecPro.Controllers
                 return BadRequest(new
                 {
                     error = "Invalid configuration or usage for Azure SQL metrics.",
-                    detail = ex.Message
+                    detail = "Azure SQL metrics configuration is invalid."
                 });
             }
             catch (AuthenticationFailedException ex)
@@ -594,14 +595,10 @@ namespace MedRecPro.Controllers
                     error = "Access to Azure metrics is forbidden. Ensure the signed-in identity has monitor permissions on the SQL resource."
                 });
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                // Catch-all for anything unexpected coming from Azure or local processing.
-                _logger.LogError(ex, "Failed to retrieve database metrics.");
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    error = "Failed to retrieve metrics."
-                });
+                throw;
             }
 
             #endregion
@@ -663,7 +660,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> TestAppCredential()
         {
             #region implementation
@@ -698,35 +695,12 @@ namespace MedRecPro.Controllers
                     "AzureAppTokenProvider test failed in {Environment}",
                     environment);
 
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    Success = false,
-                    Environment = environment,
-                    Error = ex.Message,
-                    InnerError = ex.InnerException?.Message,
-                    Troubleshooting = new
-                    {
-                        Azure = "Ensure managed identity is enabled on App Service and has 'Monitoring Reader' role on the SQL Database",
-                        Local = "Run 'az login' in terminal, or sign in to Visual Studio (Tools → Options → Azure Service Authentication)"
-                    }
-                });
+                throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                var environment = _appTokenProvider.GetEnvironment();
-
-                _logger.LogError(
-                    ex,
-                    "Unexpected error testing AzureAppTokenProvider in {Environment}",
-                    environment);
-
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    Success = false,
-                    Environment = environment,
-                    Error = ex.Message,
-                    Type = ex.GetType().Name
-                });
+                throw;
             }
 
             #endregion
@@ -775,7 +749,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> TestAppMetricsPipeline()
         {
             #region implementation
@@ -814,25 +788,10 @@ namespace MedRecPro.Controllers
                     }
                 });
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                steps.Add($"FAILED: {ex.Message}");
-
-                _logger.LogError(
-                    ex,
-                    "Metrics pipeline test failed at step {StepCount}. Environment: {Environment}",
-                    steps.Count,
-                    environment);
-
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    Success = false,
-                    Environment = environment,
-                    Steps = steps,
-                    Error = ex.Message,
-                    InnerError = ex.InnerException?.Message,
-                    Type = ex.GetType().Name
-                });
+                throw;
             }
 
             #endregion
@@ -871,7 +830,7 @@ namespace MedRecPro.Controllers
         [HttpPost("clearmanagedcache")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult ClearManagedCache()
         {
             #region implementation
@@ -901,20 +860,12 @@ namespace MedRecPro.Controllers
             catch (InvalidOperationException opEx)
             {
                 _logger.LogError(opEx, "Invalid operation while clearing managed cache");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Cache operation failed due to invalid state"
-                });
+                throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Unexpected error while clearing managed cache");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = "Error clearing managed cache"
-                });
+                throw;
             }
 
             #endregion
@@ -973,7 +924,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(LogStatistics), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetLogStatistics()
         {
             #region implementation
@@ -982,10 +933,10 @@ namespace MedRecPro.Controllers
                 var statistics = _loggerProvider.GetStatistics();
                 return Ok(statistics);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving log statistics");
-                return StatusCode(500, new { error = "Error retrieving log statistics" });
+                throw;
             }
             #endregion
         }
@@ -1033,7 +984,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(List<CategorySummary>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetLogCategories()
         {
             #region implementation
@@ -1042,10 +993,10 @@ namespace MedRecPro.Controllers
                 var categories = _loggerProvider.GetCategories();
                 return Ok(categories);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving log categories");
-                return StatusCode(500, new { error = "Error retrieving log categories" });
+                throw;
             }
             #endregion
         }
@@ -1088,7 +1039,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(List<UserLogSummary>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetLogUsers()
         {
             #region implementation
@@ -1098,10 +1049,10 @@ namespace MedRecPro.Controllers
                 var encryptedUsers = users.Select(u => u.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger)).ToList();
                 return Ok(encryptedUsers);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving log users");
-                return StatusCode(500, new { error = "Error retrieving log users" });
+                throw;
             }
             #endregion
         }
@@ -1151,10 +1102,10 @@ namespace MedRecPro.Controllers
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(LogPageResponseDto), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetLogs(
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 100,
@@ -1163,14 +1114,27 @@ namespace MedRecPro.Controllers
             #region implementation
             try
             {
-                // Validate and constrain parameters
-                pageNumber = Math.Max(1, pageNumber);
-                pageSize = Math.Clamp(pageSize, 1, 1000);
+                var paginationValidationResult = validateLogPagination(pageNumber, pageSize);
+                if (paginationValidationResult != null)
+                {
+                    return paginationValidationResult;
+                }
 
                 // Get logs with optional level filtering
                 IEnumerable<LogEntry> logs;
-                if (!string.IsNullOrEmpty(minLevel) && Enum.TryParse<LogLevel>(minLevel, true, out var level))
+                if (!string.IsNullOrWhiteSpace(minLevel))
                 {
+                    if (!Enum.TryParse<LogLevel>(minLevel, true, out var level))
+                    {
+                        return ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>
+                        {
+                            [nameof(minLevel)] = new[] { "minLevel must be a valid LogLevel value." }
+                        })
+                        {
+                            Status = StatusCodes.Status400BadRequest
+                        });
+                    }
+
                     logs = _loggerProvider.GetLogsByLevel(level);
                 }
                 else
@@ -1182,22 +1146,10 @@ namespace MedRecPro.Controllers
                 var entries = logs
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(e => new
-                    {
-                        e.Message,
-                        Level = e.Level.ToString(),
-                        e.Timestamp,
-                        e.Category,
-                        UserId = !string.IsNullOrEmpty(e.UserId)
-                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
-                            : e.UserId,
-                        e.UserName,
-                        ExceptionMessage = e.Exception?.Message,
-                        ExceptionType = e.Exception?.GetType().Name
-                    })
+                    .Select(mapLogEntry)
                     .ToList();
 
-                return Ok(new
+                return Ok(new LogPageResponseDto
                 {
                     Entries = entries,
                     TotalCount = totalCount,
@@ -1206,10 +1158,10 @@ namespace MedRecPro.Controllers
                     TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
                 });
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving logs");
-                return StatusCode(500, new { error = "Error retrieving logs" });
+                throw;
             }
             #endregion
         }
@@ -1254,11 +1206,11 @@ namespace MedRecPro.Controllers
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(LogPageResponseDto), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetLogsByDate(
             [FromQuery] DateTime startDate,
             [FromQuery] DateTime endDate,
@@ -1274,9 +1226,11 @@ namespace MedRecPro.Controllers
                     return BadRequest(new { error = "startDate must be before endDate" });
                 }
 
-                // Validate and constrain parameters
-                pageNumber = Math.Max(1, pageNumber);
-                pageSize = Math.Clamp(pageSize, 1, 1000);
+                var paginationValidationResult = validateLogPagination(pageNumber, pageSize);
+                if (paginationValidationResult != null)
+                {
+                    return paginationValidationResult;
+                }
 
                 // Ensure dates are UTC
                 startDate = DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
@@ -1287,39 +1241,27 @@ namespace MedRecPro.Controllers
                 var entries = logs
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(e => new
-                    {
-                        e.Message,
-                        Level = e.Level.ToString(),
-                        e.Timestamp,
-                        e.Category,
-                        UserId = !string.IsNullOrEmpty(e.UserId)
-                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
-                            : e.UserId,
-                        e.UserName,
-                        ExceptionMessage = e.Exception?.Message,
-                        ExceptionType = e.Exception?.GetType().Name
-                    })
+                    .Select(mapLogEntry)
                     .ToList();
 
-                return Ok(new
+                return Ok(new LogPageResponseDto
                 {
                     Entries = entries,
                     TotalCount = totalCount,
                     PageNumber = pageNumber,
                     PageSize = pageSize,
                     TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-                    Filter = new
+                    Filter = new LogPageFilterResponseDto
                     {
                         StartDate = startDate,
                         EndDate = endDate
                     }
                 });
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving logs by date");
-                return StatusCode(500, new { error = "Error retrieving logs by date" });
+                throw;
             }
             #endregion
         }
@@ -1365,11 +1307,11 @@ namespace MedRecPro.Controllers
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(LogPageResponseDto), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetLogsByCategory(
             [FromQuery] string category,
             [FromQuery] int pageNumber = 1,
@@ -1384,47 +1326,37 @@ namespace MedRecPro.Controllers
                     return BadRequest(new { error = "Category parameter is required" });
                 }
 
-                // Validate and constrain parameters
-                pageNumber = Math.Max(1, pageNumber);
-                pageSize = Math.Clamp(pageSize, 1, 1000);
+                var paginationValidationResult = validateLogPagination(pageNumber, pageSize);
+                if (paginationValidationResult != null)
+                {
+                    return paginationValidationResult;
+                }
 
                 var logs = _loggerProvider.GetLogsByCategory(category);
                 var totalCount = logs.Count;
                 var entries = logs
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(e => new
-                    {
-                        e.Message,
-                        Level = e.Level.ToString(),
-                        e.Timestamp,
-                        e.Category,
-                        UserId = !string.IsNullOrEmpty(e.UserId)
-                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
-                            : e.UserId,
-                        e.UserName,
-                        ExceptionMessage = e.Exception?.Message,
-                        ExceptionType = e.Exception?.GetType().Name
-                    })
+                    .Select(mapLogEntry)
                     .ToList();
 
-                return Ok(new
+                return Ok(new LogPageResponseDto
                 {
                     Entries = entries,
                     TotalCount = totalCount,
                     PageNumber = pageNumber,
                     PageSize = pageSize,
                     TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-                    Filter = new
+                    Filter = new LogPageFilterResponseDto
                     {
                         Category = category
                     }
                 });
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving logs by category");
-                return StatusCode(500, new { error = "Error retrieving logs by category" });
+                throw;
             }
             #endregion
         }
@@ -1475,11 +1407,11 @@ namespace MedRecPro.Controllers
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(LogPageResponseDto), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetLogsByUser(
             [FromQuery] string userId,
             [FromQuery] int pageNumber = 1,
@@ -1507,9 +1439,11 @@ namespace MedRecPro.Controllers
                     decryptedUserId = userId;
                 }
 
-                // Validate and constrain parameters
-                pageNumber = Math.Max(1, pageNumber);
-                pageSize = Math.Clamp(pageSize, 1, 1000);
+                var paginationValidationResult = validateLogPagination(pageNumber, pageSize);
+                if (paginationValidationResult != null)
+                {
+                    return paginationValidationResult;
+                }
 
                 var logs = _loggerProvider.GetLogsByUser(decryptedUserId);
                 var totalCount = logs.Count;
@@ -1520,42 +1454,93 @@ namespace MedRecPro.Controllers
                 var entries = logs
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(e => new
-                    {
-                        e.Message,
-                        Level = e.Level.ToString(),
-                        e.Timestamp,
-                        e.Category,
-                        UserId = !string.IsNullOrEmpty(e.UserId)
-                            ? StringCipher.Encrypt(e.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
-                            : e.UserId,
-                        e.UserName,
-                        ExceptionMessage = e.Exception?.Message,
-                        ExceptionType = e.Exception?.GetType().Name
-                    })
+                    .Select(mapLogEntry)
                     .ToList();
 
-                return Ok(new
+                return Ok(new LogPageResponseDto
                 {
                     Entries = entries,
                     TotalCount = totalCount,
                     PageNumber = pageNumber,
                     PageSize = pageSize,
                     TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-                    Filter = new
+                    Filter = new LogPageFilterResponseDto
                     {
                         UserId = encryptedFilterUserId
                     }
                 });
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving logs by user");
-                return StatusCode(500, new { error = "Error retrieving logs by user" });
+                throw;
             }
             #endregion
         }
 
         #endregion
+
+        /**************************************************************/
+        /// <summary>
+        /// Maps a retained in-memory entry to its safe administrative response contract.
+        /// </summary>
+        /// <param name="entry">Provider entry to serialize for an authorized administrator.</param>
+        /// <returns>Typed response DTO with encrypted user identifier and safe exception fields.</returns>
+        /// <seealso cref="LogEntryResponseDto"/>
+        private LogEntryResponseDto mapLogEntry(LogEntry entry)
+        {
+            #region implementation
+
+            return new LogEntryResponseDto
+            {
+                Message = entry.Message,
+                Level = entry.Level.ToString(),
+                Timestamp = entry.Timestamp,
+                Category = entry.Category,
+                TraceId = entry.TraceId,
+                UserId = !string.IsNullOrEmpty(entry.UserId)
+                    ? StringCipher.Encrypt(entry.UserId, _pkEncryptionSecret, StringCipher.EncryptionStrength.Fast)
+                    : entry.UserId,
+                UserName = entry.UserName,
+                ExceptionMessage = entry.ExceptionMessage,
+                ExceptionType = entry.ExceptionType
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Validates administrative log paging inputs without silently coercing client errors.
+        /// </summary>
+        /// <param name="pageNumber">One-based page number requested by the client.</param>
+        /// <param name="pageSize">Number of entries requested for a page.</param>
+        /// <returns>A validation-problem result, or <see langword="null"/> when both inputs are valid.</returns>
+        /// <seealso cref="LogPageResponseDto"/>
+        private IActionResult? validateLogPagination(int pageNumber, int pageSize)
+        {
+            #region implementation
+
+            var errors = new Dictionary<string, string[]>();
+
+            if (pageNumber < 1)
+            {
+                errors[nameof(pageNumber)] = new[] { "pageNumber must be at least 1." };
+            }
+
+            if (pageSize is < 1 or > 1000)
+            {
+                errors[nameof(pageSize)] = new[] { "pageSize must be between 1 and 1000." };
+            }
+
+            return errors.Count == 0
+                ? null
+                : ValidationProblem(new ValidationProblemDetails(errors)
+                {
+                    Status = StatusCodes.Status400BadRequest
+                });
+
+            #endregion
+        }
     }
 }

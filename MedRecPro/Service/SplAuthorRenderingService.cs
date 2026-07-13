@@ -106,6 +106,24 @@ namespace MedRecPro.Service
         /// <param name="logger">Logger instance for operation tracking and diagnostics</param>
         /// <seealso cref="ILogger"/>
         /// <exception cref="ArgumentNullException">Thrown when logger parameter is null</exception>
+        public AuthorRenderingService(ILogger<AuthorRenderingService> logger)
+            : this((ILogger)logger)
+        {
+            #region implementation
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes an author rendering service for compatibility callers that provide a pre-created logger.
+        /// </summary>
+        /// <remarks>
+        /// Dependency injection resolves the typed-logger overload, while this overload retains the existing direct
+        /// construction seam without requiring a raw logger service registration.
+        /// </remarks>
+        /// <param name="logger">Pre-created logger for rendering diagnostics.</param>
+        /// <seealso cref="ILogger{AuthorRenderingService}"/>
         public AuthorRenderingService(ILogger logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));

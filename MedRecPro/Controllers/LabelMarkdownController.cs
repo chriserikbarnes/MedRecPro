@@ -164,7 +164,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(IEnumerable<LabelSectionMarkdownDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<LabelSectionMarkdownDto>>> GetLabelSectionMarkdown(
             [FromRoute] Guid documentGuid,
             [FromQuery] string? sectionCode = null)
@@ -269,7 +269,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(LabelMarkdownExportDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<LabelMarkdownExportDto>> GetLabelMarkdownExport(
             [FromRoute] Guid documentGuid)
         {
@@ -342,7 +342,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DownloadLabelMarkdown(
             [FromRoute] Guid documentGuid)
         {
@@ -453,7 +453,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetCleanLabelMarkdown(
             [FromRoute] Guid documentGuid)
         {

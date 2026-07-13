@@ -190,7 +190,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("expiring")]
         [ProducesResponseType(typeof(OrangeBookPatentExpirationResponseDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<OrangeBookPatentExpirationResponseDto>> GetExpiringPatents(
             [FromQuery] int? expiringInMonths,
             [FromQuery] string? tradeName,
@@ -224,9 +224,7 @@ namespace MedRecPro.Api.Controllers
             pageNumber ??= DefaultPageNumber;
             pageSize ??= DefaultPageSize;
 
-            try
-            {
-                _logger.LogInformation(
+            _logger.LogInformation(
                     "Searching expiring patents: months={Months}, tradeName={TradeName}, ingredient={Ingredient}, page={Page}, size={Size}",
                     expiringInMonths, tradeName, ingredient, pageNumber, pageSize);
 
@@ -278,17 +276,7 @@ namespace MedRecPro.Api.Controllers
                     TotalPages = totalPages
                 };
 
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Error searching expiring patents for {Months} months",
-                    expiringInMonths);
-                return StatusCode(
-                    StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching for expiring patents.");
-            }
+            return Ok(response);
 
             #endregion
         }

@@ -1,8 +1,11 @@
 
 using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 
 namespace MedRecPro.Helpers
 {
@@ -29,6 +32,7 @@ namespace MedRecPro.Helpers
         /// Default: 60 minutes. Logs older than this threshold are automatically removed
         /// during cleanup operations.
         /// </remarks>
+        [Range(1, 10080)]
         public int RetentionMinutes { get; set; } = 60;
 
         /*************************************************************/
@@ -38,6 +42,7 @@ namespace MedRecPro.Helpers
         /// <remarks>
         /// Default: 10000. When this limit is exceeded, oldest entries are removed first.
         /// </remarks>
+        [Range(100, 100000)]
         public int MaxEntriesPerCategory { get; set; } = 10000;
 
         /*************************************************************/
@@ -47,6 +52,7 @@ namespace MedRecPro.Helpers
         /// <remarks>
         /// Default: 50000. When exceeded, oldest entries across all categories are purged.
         /// </remarks>
+        [Range(1000, 500000)]
         public int MaxTotalEntries { get; set; } = 50000;
 
         /*************************************************************/
@@ -97,9 +103,40 @@ namespace MedRecPro.Helpers
 
         /*************************************************************/
         /// <summary>
-        /// Associated exception if any.
+        /// Correlation identifier supplied by the structured log state or an allowlisted logging scope.
         /// </summary>
-        public Exception? Exception { get; set; }
+        /// <remarks>
+        /// This value is retained separately so administrative diagnostics can compare it directly with the
+        /// <c>traceId</c> returned in RFC 7807 responses without parsing a rendered log message.
+        /// </remarks>
+        public string? TraceId { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Safe, redacted exception summary retained for administrative diagnostics.
+        /// </summary>
+        /// <remarks>
+        /// The logger deliberately does not retain the live <see cref="Exception"/> object graph. This prevents
+        /// captured stack frames, inner exceptions, tokens, and request state from remaining in memory for the
+        /// configured retention period.
+        /// </remarks>
+        public string? ExceptionMessage { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Runtime type name of the exception captured with the entry.
+        /// </summary>
+        public string? ExceptionType { get; set; }
+
+        /*************************************************************/
+        /// <summary>
+        /// Allowlisted structured scope values captured when the log entry was written.
+        /// </summary>
+        /// <remarks>
+        /// Only request and operation correlation values are retained; arbitrary scope state is deliberately omitted
+        /// to avoid retaining claims, request bodies, or other sensitive data.
+        /// </remarks>
+        public IReadOnlyDictionary<string, string>? ScopeValues { get; set; }
 
         /*************************************************************/
         /// <summary>
@@ -146,7 +183,8 @@ namespace MedRecPro.Helpers
     /// </remarks>
     /// <seealso cref="UserLogger"/>
     /// <seealso cref="LoggingSettings"/>
-    public class UserLoggerProvider : ILoggerProvider
+    [ProviderAlias("UserLogger")]
+    public class UserLoggerProvider : ILoggerProvider, ISupportExternalScope
     {
         #region fields
 
@@ -159,11 +197,20 @@ namespace MedRecPro.Helpers
         // Configuration settings for log retention
         private readonly LoggingSettings _settings;
 
+        // Source of deterministic timestamps for entry creation and retention.
+        private readonly TimeProvider _timeProvider;
+
+        // Logger filter rules supplied by the hosting logging system.
+        private readonly IOptionsMonitor<LoggerFilterOptions>? _filterOptions;
+
+        // Scope storage shared by the logger factory with this provider.
+        private IExternalScopeProvider _scopeProvider = new LoggerExternalScopeProvider();
+
         // Lock object for cleanup operations
         private readonly object _cleanupLock = new();
 
         // Last cleanup timestamp to avoid excessive cleanup operations
-        private DateTime _lastCleanup = DateTime.UtcNow;
+        private DateTime _lastCleanup;
 
         #endregion
 
@@ -174,17 +221,21 @@ namespace MedRecPro.Helpers
         /// Initializes a new instance of the <see cref="UserLoggerProvider"/> class.
         /// </summary>
         /// <param name="httpContextAccessor">Accessor for the current HTTP context.</param>
-        /// <param name="configuration">Application configuration for logging settings.</param>
+        /// <param name="settings">Validated logging settings supplied by the ASP.NET Core Options system.</param>
+        /// <param name="timeProvider">Clock used for deterministic timestamps and retention decisions.</param>
+        /// <param name="filterOptions">Optional hosted logger filter rules.</param>
         public UserLoggerProvider(
             IHttpContextAccessor? httpContextAccessor = null,
-            IConfiguration? configuration = null)
+            IOptions<LoggingSettings>? settings = null,
+            TimeProvider? timeProvider = null,
+            IOptionsMonitor<LoggerFilterOptions>? filterOptions = null)
         {
             #region implementation
             _httpContextAccessor = httpContextAccessor;
-            _settings = new LoggingSettings();
-
-            // Load settings from configuration if available
-            configuration?.GetSection("LoggingSettings").Bind(_settings);
+            _settings = settings?.Value ?? new LoggingSettings();
+            _timeProvider = timeProvider ?? TimeProvider.System;
+            _filterOptions = filterOptions;
+            _lastCleanup = _timeProvider.GetUtcNow().UtcDateTime;
             #endregion
         }
 
@@ -206,6 +257,21 @@ namespace MedRecPro.Helpers
             #region implementation
             return _loggers.GetOrAdd(categoryName, name =>
                 new UserLogger(name, _httpContextAccessor, _settings, this));
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Receives the host-provided scope store used to capture correlation values.
+        /// </summary>
+        /// <param name="scopeProvider">Scope provider supplied by the logging infrastructure.</param>
+        /// <seealso cref="ISupportExternalScope"/>
+        void ISupportExternalScope.SetScopeProvider(IExternalScopeProvider scopeProvider)
+        {
+            #region implementation
+
+            _scopeProvider = scopeProvider ?? new LoggerExternalScopeProvider();
+
             #endregion
         }
 
@@ -389,19 +455,11 @@ namespace MedRecPro.Helpers
         public void PerformCleanup()
         {
             #region implementation
-            // Avoid excessive cleanup operations (run at most every 30 seconds)
-            if ((DateTime.UtcNow - _lastCleanup).TotalSeconds < 30)
-                return;
-
             lock (_cleanupLock)
             {
-                // Double-check after acquiring lock
-                if ((DateTime.UtcNow - _lastCleanup).TotalSeconds < 30)
-                    return;
+                _lastCleanup = _timeProvider.GetUtcNow().UtcDateTime;
 
-                _lastCleanup = DateTime.UtcNow;
-
-                var cutoffTime = DateTime.UtcNow.AddMinutes(-_settings.RetentionMinutes);
+                var cutoffTime = _lastCleanup.AddMinutes(-_settings.RetentionMinutes);
 
                 // Clean up each logger
                 foreach (var logger in _loggers.Values)
@@ -445,6 +503,140 @@ namespace MedRecPro.Helpers
                 var entriesToRemove = loggerGroup.Count();
                 loggerGroup.Key.RemoveOldestEntries(entriesToRemove);
             }
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Determines whether this provider should retain an entry for a category and level.
+        /// </summary>
+        /// <param name="categoryName">Logger category requesting the write.</param>
+        /// <param name="logLevel">Severity of the potential entry.</param>
+        /// <returns><see langword="true"/> when the configured provider/category rules enable the level.</returns>
+        /// <remarks>
+        /// The logger factory also applies these rules before it calls a provider. This check protects direct
+        /// <see cref="UserLogger"/> use and prevents disabled levels from being retained in memory.
+        /// </remarks>
+        /// <seealso cref="UserLogger.IsEnabled(LogLevel)"/>
+        internal bool isEnabled(string categoryName, LogLevel logLevel)
+        {
+            #region implementation
+
+            if (logLevel == LogLevel.None)
+            {
+                return false;
+            }
+
+            if (_filterOptions == null)
+            {
+                return true;
+            }
+
+            var options = _filterOptions.CurrentValue;
+            LogLevel minimumLevel = options.MinLevel;
+            LoggerFilterRule? matchingRule = null;
+
+            foreach (var rule in options.Rules)
+            {
+                bool providerMatches = string.IsNullOrWhiteSpace(rule.ProviderName)
+                    || string.Equals(rule.ProviderName, nameof(UserLoggerProvider), StringComparison.Ordinal)
+                    || string.Equals(rule.ProviderName, "UserLogger", StringComparison.Ordinal)
+                    || string.Equals(rule.ProviderName, typeof(UserLoggerProvider).FullName, StringComparison.Ordinal);
+                bool categoryMatches = string.IsNullOrWhiteSpace(rule.CategoryName)
+                    || categoryName.StartsWith(rule.CategoryName, StringComparison.OrdinalIgnoreCase);
+
+                if (providerMatches && categoryMatches)
+                {
+                    matchingRule = rule;
+                }
+            }
+
+            if (matchingRule?.LogLevel is LogLevel configuredMinimumLevel)
+            {
+                minimumLevel = configuredMinimumLevel;
+            }
+
+            return logLevel >= minimumLevel;
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Begins a host-managed logging scope.
+        /// </summary>
+        /// <typeparam name="TState">Type of scope state.</typeparam>
+        /// <param name="state">Scope state to push.</param>
+        /// <returns>A disposable that removes the scope.</returns>
+        internal IDisposable beginScope<TState>(TState state)
+        {
+            #region implementation
+
+            return _scopeProvider.Push(state);
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Captures only the safe correlation values from the current nested scopes.
+        /// </summary>
+        /// <returns>Captured values, or <see langword="null"/> when no allowlisted scope values exist.</returns>
+        internal IReadOnlyDictionary<string, string>? getScopeValues()
+        {
+            #region implementation
+
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            _scopeProvider.ForEachScope(static (scope, state) =>
+            {
+                if (scope is IEnumerable<KeyValuePair<string, object?>> structuredScope)
+                {
+                    foreach (var pair in structuredScope)
+                    {
+                        if (pair.Key is "TraceId" or "OperationId" or "UserId" or "RequestMethod" or "RequestPath"
+                            && pair.Value != null)
+                        {
+                            state[pair.Key] = sanitizeValue(pair.Value.ToString()) ?? string.Empty;
+                        }
+                    }
+                }
+            }, values);
+
+            return values.Count == 0 ? null : values;
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Gets the current UTC timestamp from the provider clock.
+        /// </summary>
+        /// <returns>Current UTC date and time.</returns>
+        internal DateTime getUtcNow() => _timeProvider.GetUtcNow().UtcDateTime;
+
+        /*************************************************************/
+        /// <summary>
+        /// Redacts common credential shapes before an entry is retained in memory.
+        /// </summary>
+        /// <param name="value">Potentially sensitive diagnostic text.</param>
+        /// <returns>Safe bounded text suitable for the administrative log store.</returns>
+        internal static string? sanitizeValue(string? value)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            var sanitized = Regex.Replace(value, @"(?i)\bbearer\s+[^\s,;]+", "Bearer [REDACTED]");
+            sanitized = Regex.Replace(
+                sanitized,
+                @"(?i)\b(password|passwd|secret|token|api[-_]?key|connection\s*string|authorization)\b\s*([:=])\s*([^\s,;\}\]]+)",
+                "$1$2[REDACTED]");
+
+            return sanitized.Length <= 1024 ? sanitized : sanitized[..1024];
+
             #endregion
         }
 
@@ -583,11 +775,15 @@ namespace MedRecPro.Helpers
         /// <typeparam name="TState">The type of the state to begin scope for.</typeparam>
         /// <param name="state">The identifier for the scope.</param>
         /// <returns>A disposable object that ends the logical operation scope on dispose.</returns>
-#pragma warning disable CS8603 // Possible null reference return.
-#pragma warning disable CS8633 // Nullability in constraints for type parameter doesn't match the constraints for type parameter in implicitly implemented interface method'.
-        public IDisposable BeginScope<TState>(TState state) => null;
-#pragma warning restore CS8633 // Nullability in constraints for type parameter doesn't match the constraints for type parameter in implicitly implemented interface method'.
-#pragma warning restore CS8603 // Possible null reference return.
+        public IDisposable BeginScope<TState>(TState state)
+            where TState : notnull
+        {
+            #region implementation
+
+            return _provider?.beginScope(state) ?? NoopScope.Instance;
+
+            #endregion
+        }
 
         /*************************************************************/
         /// <summary>
@@ -595,7 +791,8 @@ namespace MedRecPro.Helpers
         /// </summary>
         /// <param name="logLevel">The log level to check.</param>
         /// <returns>True if enabled, false otherwise.</returns>
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(LogLevel logLevel) =>
+            _provider?.isEnabled(_categoryName, logLevel) ?? logLevel != LogLevel.None;
 
         /*************************************************************/
         /// <summary>
@@ -619,6 +816,11 @@ namespace MedRecPro.Helpers
             Func<TState, Exception?, string> formatter)
         {
             #region implementation
+            if (!IsEnabled(logLevel))
+            {
+                return;
+            }
+
             // Capture user context if enabled and available (non-blocking, fail-safe)
             string? userId = null;
             string? userName = null;
@@ -642,11 +844,16 @@ namespace MedRecPro.Helpers
 
             var entry = new LogEntry
             {
-                Message = formatter(state, exception),
+                Message = UserLoggerProvider.sanitizeValue(formatter(state, exception)),
                 Level = logLevel,
-                Timestamp = DateTime.UtcNow,
+                Timestamp = _provider?.getUtcNow() ?? DateTime.UtcNow,
                 Category = _categoryName,
-                Exception = exception,
+                TraceId = getTraceId(state),
+                ExceptionMessage = exception == null
+                    ? null
+                    : "An exception was recorded. See the correlated server-side log event.",
+                ExceptionType = exception?.GetType().Name,
+                ScopeValues = _provider?.getScopeValues(),
                 UserId = userId,
                 UserName = userName
             };
@@ -722,6 +929,60 @@ namespace MedRecPro.Helpers
             #endregion
         }
 
+        /*************************************************************/
+        /// <summary>
+        /// Extracts the correlation identifier from structured log state, falling back to a safe logging scope.
+        /// </summary>
+        /// <typeparam name="TState">The type of state supplied to the logger.</typeparam>
+        /// <param name="state">Structured state supplied by the logging extension method.</param>
+        /// <returns>A sanitized trace identifier, or <see langword="null"/> when none was supplied.</returns>
+        private string? getTraceId<TState>(TState state)
+        {
+            #region implementation
+
+            if (state is IEnumerable<KeyValuePair<string, object?>> structuredState)
+            {
+                var traceId = structuredState
+                    .FirstOrDefault(pair => string.Equals(pair.Key, "TraceId", StringComparison.Ordinal))
+                    .Value?
+                    .ToString();
+
+                if (!string.IsNullOrWhiteSpace(traceId))
+                {
+                    return UserLoggerProvider.sanitizeValue(traceId);
+                }
+            }
+
+            return _provider?.getScopeValues()?.GetValueOrDefault("TraceId");
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Provides a non-null scope handle when a logger is used outside a provider.
+        /// </summary>
+        /// <seealso cref="UserLogger.BeginScope{TState}(TState)"/>
+        private sealed class NoopScope : IDisposable
+        {
+            /*************************************************************/
+            /// <summary>
+            /// Gets the reusable empty scope instance.
+            /// </summary>
+            public static readonly NoopScope Instance = new();
+
+            /*************************************************************/
+            /// <summary>
+            /// Completes the no-op scope.
+            /// </summary>
+            public void Dispose()
+            {
+                #region implementation
+
+                #endregion
+            }
+        }
+
         #endregion
     }
 
@@ -741,8 +1002,8 @@ namespace MedRecPro.Helpers
         /// <returns>The IServiceCollection for chaining.</returns>
         /// <remarks>
         /// This method registers the <see cref="UserLoggerProvider"/> as a singleton
-        /// and configures it with <see cref="IHttpContextAccessor"/> for user tracking
-        /// and <see cref="IConfiguration"/> for settings.
+        /// and configures it with <see cref="IHttpContextAccessor"/>, validated options, and the shared
+        /// <see cref="TimeProvider"/> used by the application.
         /// </remarks>
         /// <example>
         /// services.AddUserLogger();
@@ -751,29 +1012,22 @@ namespace MedRecPro.Helpers
         {
             #region implementation
 
-            // Register the UserLoggerProvider as a singleton with dependencies
-            services.AddSingleton<UserLoggerProvider>(sp =>
-            {
-                var httpContextAccessor = sp.GetService<IHttpContextAccessor>();
-                var configuration = sp.GetService<IConfiguration>();
-                return new UserLoggerProvider(httpContextAccessor, configuration);
-            });
+            services.AddOptions<LoggingSettings>()
+                .BindConfiguration("LoggingSettings")
+                .ValidateDataAnnotations()
+                .Validate(
+                    settings => settings.MaxTotalEntries >= settings.MaxEntriesPerCategory,
+                    "MaxTotalEntries must be at least MaxEntriesPerCategory.")
+                .ValidateOnStart();
 
+            services.TryAddSingleton<UserLoggerProvider>();
             services.AddLogging(builder =>
             {
+                // Resolve the provider through its concrete singleton so direct administrative queries and the
+                // logging factory observe the same bounded in-memory entry store.
                 builder.Services.AddSingleton<ILoggerProvider>(
-                    sp => sp.GetRequiredService<UserLoggerProvider>());
+                    serviceProvider => serviceProvider.GetRequiredService<UserLoggerProvider>());
             });
-
-            // Register raw ILogger
-            services.AddTransient<ILogger>(serviceProvider =>
-            {
-                var loggerProvider = serviceProvider.GetRequiredService<UserLoggerProvider>();
-                return loggerProvider.CreateLogger("Application");
-            });
-
-            // Register generic ILogger<T>
-            services.AddTransient(typeof(ILogger<>), typeof(Logger<>));
 
             return services;
 

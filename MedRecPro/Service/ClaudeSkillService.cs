@@ -698,8 +698,8 @@ namespace MedRecPro.Service
             }
             else
             {
-                _logger.LogError("[SKILL CONTENT DEBUG] FAILED to load capability contracts: {Content}",
-                    capabilityContracts?.Substring(0, Math.Min(100, capabilityContracts?.Length ?? 0)));
+                _logger.LogError("[SKILL CONTENT DEBUG] Failed to load capability contracts (content length: {ContentLength}).",
+                    capabilityContracts?.Length ?? 0);
             }
 
             // Load each selected skill and its corresponding interface document
@@ -734,14 +734,14 @@ namespace MedRecPro.Service
                     }
                     else
                     {
-                        _logger.LogWarning("[SKILL CONTENT DEBUG] Interface for '{SkillName}' NOT loaded: {Content}",
-                            skillName, interfaceContent?.Substring(0, Math.Min(100, interfaceContent?.Length ?? 0)));
+                        _logger.LogWarning("[SKILL CONTENT DEBUG] Interface for '{SkillName}' was not loaded (content length: {ContentLength}).",
+                            skillName, interfaceContent?.Length ?? 0);
                     }
                 }
                 else
                 {
-                    _logger.LogError("[SKILL CONTENT DEBUG] Skill '{SkillName}' FAILED to load: {Content}",
-                        skillName, content?.Substring(0, Math.Min(100, content?.Length ?? 0)));
+                    _logger.LogError("[SKILL CONTENT DEBUG] Skill '{SkillName}' failed to load (content length: {ContentLength}).",
+                        skillName, content?.Length ?? 0);
                 }
             }
 
@@ -758,9 +758,8 @@ namespace MedRecPro.Service
             }
             else
             {
-                _logger.LogError("[SKILL CONTENT DEBUG] CRITICAL: Response format document NOT loaded! " +
-                    "Claude will NOT return JSON. Content: {Content}",
-                    responseFormat?.Substring(0, Math.Min(100, responseFormat?.Length ?? 0)));
+                _logger.LogError("[SKILL CONTENT DEBUG] CRITICAL: Response format document was not loaded; Claude may not return JSON (content length: {ContentLength}).",
+                    responseFormat?.Length ?? 0);
             }
 
             // Append synthesis rules
@@ -776,8 +775,8 @@ namespace MedRecPro.Service
             }
             else
             {
-                _logger.LogWarning("[SKILL CONTENT DEBUG] Synthesis rules NOT loaded: {Content}",
-                    synthesisRules?.Substring(0, Math.Min(100, synthesisRules?.Length ?? 0)));
+                _logger.LogWarning("[SKILL CONTENT DEBUG] Synthesis rules were not loaded (content length: {ContentLength}).",
+                    synthesisRules?.Length ?? 0);
             }
 
             var totalContent = sb.ToString();
@@ -1075,8 +1074,7 @@ namespace MedRecPro.Service
             }
             else
             {
-                _logger.LogError("[RESPONSE FORMAT DEBUG] CRITICAL: Response format file NOT FOUND at {Path}! " +
-                    "This will cause Claude to respond with markdown instead of JSON.", ResponseFormatPath);
+                _logger.LogError("[RESPONSE FORMAT DEBUG] CRITICAL: Response format file was not found at {Path}; Claude may respond with markdown instead of JSON.", ResponseFormatPath);
             }
 
             return Task.FromResult(content);

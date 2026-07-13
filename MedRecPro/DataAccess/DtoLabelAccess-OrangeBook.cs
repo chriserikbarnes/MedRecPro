@@ -113,10 +113,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchOrangeBookPatentsAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -207,7 +204,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<OrangeBookPatentDto>();

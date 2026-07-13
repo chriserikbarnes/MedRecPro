@@ -623,7 +623,9 @@ namespace MedRecPro.Service
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _conversationStore = conversationStore ?? throw new ArgumentNullException(nameof(conversationStore));
             _skillService = skillService ?? throw new ArgumentNullException(nameof(skillService));
-            _logger.LogInformation($"Claude API Key configured: {!string.IsNullOrEmpty(_settings.ApiKey)}");
+            _logger.LogInformation(
+                "Claude API key configured: {IsApiKeyConfigured}",
+                !string.IsNullOrEmpty(_settings.ApiKey));
         }
 
         /**************************************************************/
@@ -932,17 +934,14 @@ namespace MedRecPro.Service
 
                 var claudeResponseText = claudeResponse!;
 
-                // Log first 500 chars of response for debugging
-                _logger.LogDebug("[INTERPRET DEBUG] Claude response preview: {Preview}",
-                    claudeResponseText.Length > 500 ? claudeResponseText[..500] + "..." : claudeResponseText);
+                _logger.LogDebug("[INTERPRET DEBUG] Claude response length: {ResponseLength}", claudeResponseText.Length);
 
                 // Check if response looks like JSON
                 var trimmedResponse = claudeResponseText.Trim();
                 if (!trimmedResponse.StartsWith("{"))
                 {
-                    _logger.LogError("[INTERPRET DEBUG] Claude response does NOT start with '{{'. " +
-                        "Response starts with: {Start}",
-                        trimmedResponse.Length > 100 ? trimmedResponse[..100] : trimmedResponse);
+                    _logger.LogError("[INTERPRET DEBUG] Claude response does not start with '{{' (length: {ResponseLength}).",
+                        trimmedResponse.Length);
                 }
                 else
                 {
@@ -959,8 +958,7 @@ namespace MedRecPro.Service
 
                 if (!interpretation.Success || (interpretation.Endpoints?.Count ?? 0) == 0)
                 {
-                    _logger.LogWarning("[INTERPRET DEBUG] Interpretation failed or returned 0 endpoints. " +
-                        "Error: {Error}, DirectResponse length: {Length}",
+                    _logger.LogWarning("[INTERPRET DEBUG] Interpretation failed or returned 0 endpoints. Error: {Error}, direct response length: {Length}",
                         interpretation.Error,
                         interpretation.DirectResponse?.Length ?? 0);
                 }
@@ -1402,8 +1400,9 @@ namespace MedRecPro.Service
             }
 
             // Fallback: return default skill
-            _logger.LogWarning("Could not parse skill selection response. Raw response: {Response}",
-                claudeResponse.Length > 200 ? claudeResponse[..200] + "..." : claudeResponse);
+            _logger.LogWarning(
+                "Could not parse skill selection response (response length: {ResponseLength}).",
+                claudeResponse.Length);
 
             return new SkillSelectionResult
             {
@@ -1453,16 +1452,14 @@ namespace MedRecPro.Service
             // Check if skills content appears valid
             if (string.IsNullOrEmpty(skills) || skills.Length < 500)
             {
-                _logger.LogError("[INTERPRET DEBUG] CRITICAL: Skill content is too short or empty! " +
-                    "Expected >500 chars, got {Length}. This will cause JSON parsing failures.",
+                _logger.LogError("[INTERPRET DEBUG] CRITICAL: Skill content is too short or empty; expected more than 500 characters, got {Length}.",
                     skills?.Length ?? 0);
             }
 
             // Check if response format instructions are included
             if (skills != null && !skills.Contains("JSON") && !skills.Contains("json"))
             {
-                _logger.LogError("[INTERPRET DEBUG] CRITICAL: Skill content does not contain JSON format instructions! " +
-                    "Claude will respond conversationally instead of with structured JSON.");
+                _logger.LogError("[INTERPRET DEBUG] CRITICAL: Skill content does not contain JSON format instructions; Claude may respond conversationally instead of with structured JSON.");
             }
 
             _logger.LogDebug("Two-stage routing: Selected skills [{Skills}] for query",
@@ -1793,15 +1790,13 @@ namespace MedRecPro.Service
                 }
                 else
                 {
-                    _logger.LogError("[PARSE DEBUG] Could not find valid JSON markers in response. " +
-                        "Response preview: {Preview}",
-                        response.Length > 200 ? response[..200] : response);
+                    _logger.LogError("[PARSE DEBUG] Could not find valid JSON markers in response (length: {ResponseLength}).",
+                        response.Length);
                 }
 
                 // Fallback if parsing fails
                 _logger.LogWarning("[PARSE DEBUG] Falling back to direct response mode");
-                _logger.LogWarning("Failed to parse Claude response as JSON. Response: {Response}",
-                    response.Length > 500 ? response[..500] : response);
+                _logger.LogWarning("Failed to parse Claude response as JSON (response length: {ResponseLength}).", response.Length);
 
                 return new AiAgentInterpretation
                 {

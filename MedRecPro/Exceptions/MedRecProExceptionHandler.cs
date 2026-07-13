@@ -73,12 +73,25 @@ namespace MedRecPro.Exceptions
         {
             #region implementation
 
+            var traceId = RequestCorrelation.GetTraceId(httpContext);
+
+            if (exception is OperationCanceledException
+                && httpContext.RequestAborted.IsCancellationRequested)
+            {
+                _logger.LogDebug(
+                    "Request {RequestMethod} {RequestPath} was canceled by the client with trace ID {TraceId}",
+                    httpContext.Request.Method,
+                    httpContext.Request.Path,
+                    traceId);
+                return true;
+            }
+
             _logger.LogError(
                 exception,
                 "Unhandled exception while processing {RequestMethod} {RequestPath} with trace ID {TraceId}",
                 httpContext.Request.Method,
                 httpContext.Request.Path,
-                httpContext.TraceIdentifier);
+                traceId);
 
             await _problemDetailsService.WriteAsync(new ProblemDetailsContext
             {

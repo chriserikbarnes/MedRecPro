@@ -1,5 +1,6 @@
 using MedRecPro.Configuration;
 using MedRecPro.Exceptions;
+using MedRecPro.Helpers;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -9,8 +10,10 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Diagnostics;
 
 namespace MedRecPro.Service.Test
 {
@@ -119,6 +122,81 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual("/Label/markdown/export/example", problemDetails.Instance);
             Assert.AreEqual("phase8-validation-trace-id", problemDetails.Extensions["traceId"]);
             CollectionAssert.Contains(badRequest.ContentTypes, "application/problem+json");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the one error record produced by the global handler uses the same activity trace identifier that
+        /// the shared response policy writes to API problem details.
+        /// </summary>
+        /// <seealso cref="RequestCorrelation.GetTraceId(HttpContext)"/>
+        /// <seealso cref="MedRecProExceptionHandler.TryHandleAsync(HttpContext, Exception, CancellationToken)"/>
+        [TestMethod]
+        public async Task TryHandleAsync_UnexpectedException_LogsExactlyOnceWithActivityTraceIdentifier()
+        {
+            #region implementation
+
+            var provider = new UserLoggerProvider(settings: Options.Create(new LoggingSettings()));
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(provider));
+            using var activity = new Activity("exception-handler-test").Start();
+            var httpContext = new DefaultHttpContext
+            {
+                TraceIdentifier = "fallback-trace-id"
+            };
+            httpContext.Request.Method = HttpMethods.Get;
+            httpContext.Request.Path = "/test-host/throw";
+            var problemDetailsService = new CapturingProblemDetailsService();
+            var handler = new MedRecProExceptionHandler(
+                loggerFactory.CreateLogger<MedRecProExceptionHandler>(),
+                problemDetailsService);
+
+            var handled = await handler.TryHandleAsync(
+                httpContext,
+                new InvalidOperationException("secret=must-not-reach-client"),
+                CancellationToken.None);
+            var entries = provider.GetLogs();
+
+            Assert.IsTrue(handled);
+            Assert.AreEqual(1, entries.Count);
+            Assert.AreEqual(LogLevel.Error, entries[0].Level);
+            StringAssert.Contains(entries[0].Message!, activity.Id);
+            Assert.AreEqual(activity.Id, entries[0].TraceId);
+            Assert.IsNull(problemDetailsService.LastContext!.ProblemDetails.Detail);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies a request-aborted cancellation is handled without producing an internal-server-error response.
+        /// </summary>
+        /// <seealso cref="OperationCanceledException"/>
+        [TestMethod]
+        public async Task TryHandleAsync_RequestAbortedCancellation_DoesNotWriteProblemDetails()
+        {
+            #region implementation
+
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            var httpContext = new DefaultHttpContext
+            {
+                RequestAborted = cancellation.Token,
+                TraceIdentifier = "canceled-trace-id"
+            };
+            var problemDetailsService = new CapturingProblemDetailsService();
+            var handler = new MedRecProExceptionHandler(
+                NullLogger<MedRecProExceptionHandler>.Instance,
+                problemDetailsService);
+
+            var handled = await handler.TryHandleAsync(
+                httpContext,
+                new OperationCanceledException(cancellation.Token),
+                cancellation.Token);
+
+            Assert.IsTrue(handled);
+            Assert.IsNull(problemDetailsService.LastContext);
 
             #endregion
         }

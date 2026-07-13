@@ -301,7 +301,8 @@ namespace MedRecPro.Controllers
             }
             catch (Exception e)
             {
-                return Problem($"{e.Message}");
+                _logger.LogWarning(e, "Unable to resolve the authenticated user from claims.");
+                return Unauthorized("Unable to determine user ID from authentication context.");
             }
 
             if (string.IsNullOrEmpty(encryptedAuthUserId))
@@ -365,7 +366,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("user/{encryptedUserId}/activity")]
         public async Task<IActionResult> GetUserActivity(
             string encryptedUserId,
@@ -411,13 +412,13 @@ namespace MedRecPro.Controllers
 
                 if (!parseSuccess || userId <= 0)
                 {
-                    _logger.LogWarning("Failed to parse decrypted user ID or invalid value: {DecryptedValue}", decryptedValue);
+                    _logger.LogWarning("Failed to parse decrypted user ID or the value was invalid.");
                     return BadRequest("Invalid encrypted user ID.");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error decrypting user ID: {EncryptedUserId}", encryptedUserId);
+                _logger.LogError(ex, "Error decrypting user ID.");
                 return BadRequest("Invalid encrypted user ID format.");
             }
             #endregion
@@ -439,7 +440,7 @@ namespace MedRecPro.Controllers
 
                 if (claimsUser == null)
                 {
-                    _logger.LogWarning("Claims user not found: {EncryptedUserId}", encryptedUpdaterUserIdFromAuth);
+                    _logger.LogWarning("Claims user was not found.");
                     return Unauthorized("User not found.");
                 }
 
@@ -456,10 +457,10 @@ namespace MedRecPro.Controllers
                     return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized to view user activity logs.");
                 }
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error during authorization check for GetUserActivity");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authorization.");
+                throw;
             }
             #endregion
 
@@ -475,7 +476,7 @@ namespace MedRecPro.Controllers
                 if (activities == null)
                 {
                     _logger.LogWarning("Activity log service returned null for user {UserId}", userId);
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Error retrieving activity logs.");
+                    throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
                 }
 
                 // Convert to DTOs with encryption
@@ -486,10 +487,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(secured);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving activity logs for user {UserId}", userId);
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving activity logs.");
+                throw;
             }
             #endregion
         }
@@ -526,7 +527,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("user/{encryptedUserId}/activity/daterange")]
         public async Task<IActionResult> GetUserActivityByDateRange(
             string encryptedUserId,
@@ -589,13 +590,13 @@ namespace MedRecPro.Controllers
 
                 if (!parseSuccess || userId <= 0)
                 {
-                    _logger.LogWarning("Failed to parse decrypted user ID or invalid value: {DecryptedValue}", decryptedValue);
+                    _logger.LogWarning("Failed to parse decrypted user ID or the value was invalid.");
                     return BadRequest("Invalid encrypted user ID.");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error decrypting user ID: {EncryptedUserId}", encryptedUserId);
+                _logger.LogError(ex, "Error decrypting user ID.");
                 return BadRequest("Invalid encrypted user ID format.");
             }
             #endregion
@@ -617,7 +618,7 @@ namespace MedRecPro.Controllers
 
                 if (claimsUser == null)
                 {
-                    _logger.LogWarning("Claims user not found: {EncryptedUserId}", encryptedUpdaterUserIdFromAuth);
+                    _logger.LogWarning("Claims user was not found.");
                     return Unauthorized("User not found.");
                 }
 
@@ -634,10 +635,10 @@ namespace MedRecPro.Controllers
                     return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized to view user activity logs.");
                 }
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error during authorization check for GetUserActivityByDateRange");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authorization.");
+                throw;
             }
             #endregion
 
@@ -655,7 +656,7 @@ namespace MedRecPro.Controllers
                 {
                     _logger.LogWarning("Activity log service returned null for user {UserId} with date range {StartDate} to {EndDate}",
                         userId, startDate, endDate);
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Error retrieving activity logs.");
+                    throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
                 }
 
                 // Convert to DTOs with encryption
@@ -666,11 +667,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(secured);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving activity logs for user {UserId} with date range {StartDate} to {EndDate}",
-                    userId, startDate, endDate);
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving activity logs.");
+                throw;
             }
             #endregion
         }
@@ -705,7 +705,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(string), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("endpoint-stats")]
         public async Task<IActionResult> GetEndpointStats(
             [FromQuery] string controllerName,
@@ -765,7 +765,7 @@ namespace MedRecPro.Controllers
 
                 if (claimsUser == null)
                 {
-                    _logger.LogWarning("Claims user not found: {EncryptedUserId}", encryptedUpdaterUserIdFromAuth);
+                    _logger.LogWarning("Claims user was not found.");
                     return Unauthorized("User not found.");
                 }
 
@@ -776,10 +776,10 @@ namespace MedRecPro.Controllers
                     return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized to view endpoint statistics.");
                 }
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error during authorization check for GetEndpointStats");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authorization.");
+                throw;
             }
             #endregion
 
@@ -796,7 +796,7 @@ namespace MedRecPro.Controllers
                 {
                     _logger.LogWarning("Activity log service returned null for endpoint {Controller}/{Action}",
                         controllerName, actionName ?? "All");
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Error retrieving endpoint statistics.");
+                    throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
                 }
 
                 // Check if any activities were found
@@ -862,13 +862,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex,
-                    "Error retrieving endpoint statistics for {Controller}/{Action}",
-                    controllerName, actionName ?? "All");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving endpoint statistics.");
+                throw;
             }
             #endregion
         }
@@ -895,7 +892,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetUser(string encryptedUserId)
         {
             #region implementation
@@ -929,10 +926,10 @@ namespace MedRecPro.Controllers
                 _logger.LogWarning(ex, "Failed to decrypt user ID for GetUser");
                 return BadRequest("Invalid User ID. Decryption failed."); // Generic error for security
             }
-            catch (Exception ex) // Catch other potential errors from data access or unexpected issues
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Unexpected error retrieving user");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
+                throw;
             }
             #endregion
         }
@@ -959,7 +956,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(IEnumerable<UserManagementDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetAllUsers([FromQuery] bool includeDeleted = false, [FromQuery] int skip = 0, [FromQuery] int take = 100)
         {
             #region implementation
@@ -990,10 +987,10 @@ namespace MedRecPro.Controllers
 
                 return Ok(userDtos);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                // Log ex
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while retrieving users. {ex.Message}");
+                throw;
             }
             #endregion
         }
@@ -1017,7 +1014,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetUserByEmail([FromQuery] string email)
         {
             #region implementation
@@ -1047,12 +1044,10 @@ namespace MedRecPro.Controllers
                 // UserDataAccess populates EncryptedUserId
                 return Ok(dto);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                // Log ex
-                _logger.LogError(ex, "An error occurred while retrieving user by email.");
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request. {ex.Message}");
+                throw;
             }
             #endregion
         }
@@ -1074,7 +1069,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetMe()
         {
             #region implementation
@@ -1094,7 +1089,8 @@ namespace MedRecPro.Controllers
                 }
                 catch (Exception e)
                 {
-                    return Problem($"{e.Message}");
+                    _logger.LogWarning(e, "Unable to resolve the authenticated user from claims.");
+                    return Unauthorized("Unable to determine user ID from authentication context.");
                 }
 
                 if (string.IsNullOrEmpty(encryptedAuthUserId))
@@ -1114,12 +1110,10 @@ namespace MedRecPro.Controllers
                 // UserDataAccess populates EncryptedUserId
                 return Ok(dto);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                // Log ex
-                _logger.LogError(ex, "An error occurred while retrieving user.");
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request. {ex.Message}");
+                throw;
             }
             #endregion
         }
@@ -1157,7 +1151,7 @@ namespace MedRecPro.Controllers
         [HttpPost("signup")]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)] // Returns { encryptedUserId: "..." }
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> SignUpUser([FromBody] UserSignUpRequestDto signUpRequest)
         {
             #region implementation
@@ -1175,7 +1169,7 @@ namespace MedRecPro.Controllers
                 {
                     // This could be due to various reasons, including database errors.
                     // SignUpAsync logs errors, so a generic message here is okay.
-                    return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during user sign-up.");
+                    throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
                 }
 
                 if (encryptedUserId == "Duplicate")
@@ -1188,14 +1182,14 @@ namespace MedRecPro.Controllers
                 return CreatedAtAction(nameof(GetUser), new { encryptedUserId = encryptedUserId }, new { encryptedUserId = encryptedUserId });
 
             }
-            catch (ArgumentException ex) // Catch validation errors from UserDataAccess if it throws them directly
+            catch (ArgumentException) // Catch validation errors from UserDataAccess if it throws them directly
             {
-                return BadRequest(ex.Message);
+                return BadRequest("The sign-up request is invalid.");
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Unexpected error during user sign-up");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred during user sign-up.");
+                throw;
             }
             #endregion
         }
@@ -1225,7 +1219,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> AuthenticateUser([FromBody] LoginRequestDto loginRequest)
         {
             #region implementation
@@ -1319,7 +1313,7 @@ namespace MedRecPro.Controllers
                 {
                     _logger.LogCritical("JWT configuration (Key, Issuer, or Audience) is missing.");
 
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Authentication service configuration error.");
+                    throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
                 }
 
                 var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
@@ -1348,7 +1342,7 @@ namespace MedRecPro.Controllers
                 // Ensure userDto is not null before proceeding
                 if (userDto == null)
                 {
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Failed to create user DTO.");
+                    throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
                 }
 
                 // Create the identity and principal
@@ -1388,18 +1382,18 @@ namespace MedRecPro.Controllers
                         });
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    _logger.LogWarning($"Failed to write encrypted user cookie {ex.Message}");
+                    _logger.LogWarning("Failed to write encrypted user cookie.");
                 }
 
                 // return user data
                 return Ok(userDto);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Unexpected error during authentication");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during authentication.");
+                throw;
             }
             #endregion
         }
@@ -1445,7 +1439,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateUserProfile(string encryptedUserId, [FromBody] UserFacingUpdateDto profileUpdate) // Using UserFacingUpdateDto model as DTO
         {
             #region implementation
@@ -1497,17 +1491,14 @@ namespace MedRecPro.Controllers
                 // Standard for successful PUT update with no content to return.
                 return NoContent();
             }
-            catch (ArgumentException ex)
+            catch (ArgumentException)
             {
-                return BadRequest(ex.Message);
+                return BadRequest("The profile update request is invalid.");
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                // Log ex
-                _logger.LogError(ex, $"An error occurred while updating user profile. {ex}");
-
-                // Return a generic error message to avoid leaking sensitive information
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while updating the user profile. {ex.Message}");
+                throw;
             }
             #endregion
         }
@@ -1536,7 +1527,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteUser(string encryptedUserId)
         {
             #region implementation
@@ -1570,7 +1561,8 @@ namespace MedRecPro.Controllers
             }
             catch (Exception e)
             {
-                return Problem($"{e.Message}");
+                _logger.LogWarning(e, "Unable to resolve the authenticated user from claims.");
+                return Unauthorized("Unable to determine user ID from authentication context.");
             }
 
             if (string.IsNullOrEmpty(encryptedDeleterUserIdFromAuth))
@@ -1606,16 +1598,16 @@ namespace MedRecPro.Controllers
                 if (!success)
                 {
                     // Failed to delete user.
-                    _logger.LogWarning($"Failed to delete user with ID '{encryptedUserId}'.");
+                _logger.LogWarning("Failed to delete user profile because its encrypted identifier could not be resolved.");
                     return BadRequest("Failed to delete user. The user may no longer exist or an error occurred.");
                 }
 
                 return NoContent(); // Standard for successful DELETE.
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Unexpected error deleting user");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while deleting the user.");
+                throw;
             }
             #endregion
         }
@@ -1654,7 +1646,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> AdminUpdateUser([FromBody] AdminUserUpdateDto adminUpdateData)
         {
             #region implementation
@@ -1697,14 +1689,14 @@ namespace MedRecPro.Controllers
 
                 return NoContent();
             }
-            catch (ArgumentException ex)
+            catch (ArgumentException)
             {
-                return BadRequest(ex.Message);
+                return BadRequest("The administrative user update request is invalid.");
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Unexpected error during admin user update");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred during the admin update process.");
+                throw;
             }
             #endregion
         }
@@ -1739,7 +1731,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> RotatePassword([FromBody] RotatePasswordRequestDto rotatePasswordRequest)
         {
             #region implementation
@@ -1814,14 +1806,14 @@ namespace MedRecPro.Controllers
 
                 return NoContent();
             }
-            catch (ArgumentException ex)
+            catch (ArgumentException)
             {
-                return BadRequest(ex.Message); // e.g. password empty
+                return BadRequest("The password rotation request is invalid.");
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                // Log ex
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred during password rotation. {ex.Message}");
+                throw;
             }
             #endregion
         }
@@ -1954,7 +1946,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(typeof(McpUserResolveResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> ResolveMcpUser([FromBody] McpUserResolveRequest request)
         {
             #region implementation
@@ -2006,8 +1998,7 @@ namespace MedRecPro.Controllers
                         _logger.LogError(
                             "[ResolveMcp] Failed to provision and re-fetch user for email {Email}",
                             request.Email);
-                        return StatusCode(StatusCodes.Status500InternalServerError,
-                            "Failed to provision user.");
+                        throw new InvalidOperationException("Unexpected controller failure delegated to the global exception handler.");
                     }
 
                     _logger.LogInformation(
@@ -2031,11 +2022,10 @@ namespace MedRecPro.Controllers
                     WasProvisioned = true
                 });
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "[ResolveMcp] Error resolving user for email {Email}", request.Email);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while resolving the user.");
+                throw;
             }
             #endregion
         }

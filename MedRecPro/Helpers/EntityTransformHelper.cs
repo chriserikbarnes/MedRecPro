@@ -146,7 +146,7 @@ namespace MedRecPro.Helpers
                 catch (Exception e)
                 {
                     if (logger != null)
-                        logger.LogWarning($"DtoTransformer.getPkProp() {e.Message}");
+                logger.LogWarning(e, "DtoTransformer.getPkProp failed.");
                 }
             }
 
@@ -402,8 +402,8 @@ namespace MedRecPro.Helpers
                         }
 
                         // Encrypted field is not added if encryption fails.
-                        logger.LogError(ex, "Failed to encrypt PK for entity type {EntityType}, PK property {PKProperty}. PK Value: {PKValue}. Field '{EncryptedPKField}' will not be added.",
-                                       entityType.FullName, pkProperty.Name, pkValue.ToString(), encryptedPkFieldName);
+                        logger.LogError(ex, "Failed to encrypt PK for entity type {EntityType}, PK property {PKProperty}. The encrypted field will not be added.",
+                                       entityType.FullName, pkProperty.Name);
                     }
                 }
                 else
@@ -413,8 +413,8 @@ namespace MedRecPro.Helpers
 
                     if (logger != null)
                         // Log trace when PK is null
-                        logger.LogTrace("PK {PKProperty} for entity type {EntityType} is null. Field '{EncryptedPKField}' will be null.",
-                                   pkProperty.Name, entityType.FullName, encryptedPkFieldName);
+                        logger.LogTrace("PK {PKProperty} for entity type {EntityType} is null. The encrypted field will be null.",
+                                   pkProperty.Name, entityType.FullName);
                 }
             }
             else
@@ -465,8 +465,8 @@ namespace MedRecPro.Helpers
                         {
                             if (logger != null)
                             {
-                                logger.LogError(ex, "Failed to encrypt FK for entity type {EntityType}, FK property {FKProperty}. FK Value: {FKValue}. Field '{EncryptedFKField}' will not be added.",
-                                               entityType.FullName, prop.Name, fkValue.ToString(), encryptedFkFieldName);
+                                logger.LogError(ex, "Failed to encrypt FK for entity type {EntityType}, FK property {FKProperty}. The encrypted field will not be added.",
+                                               entityType.FullName, prop.Name);
                             }
                         }
                     }

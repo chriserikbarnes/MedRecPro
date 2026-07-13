@@ -125,10 +125,7 @@ namespace MedRecPro.DataAccess
 
             if(cached != null && page == null && size == null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} documents (loading mode: {loadingMode}).");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)} Cache Hit for {key} (mode: {loadingMode}) ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} documents (loading mode: {LoadingMode}).", key, cached.Count, loadingMode);
 
                 return cached;
             }
@@ -152,7 +149,7 @@ namespace MedRecPro.DataAccess
             if(ret != null)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} documents (loading mode: {loadingMode}).");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} documents (loading mode: {LoadingMode}).", key, ret.Count, loadingMode);
             }
 
             return ret ?? new List<DocumentDto>();
@@ -223,10 +220,7 @@ namespace MedRecPro.DataAccess
 
             if(cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} documents (loading mode: {loadingMode}).");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(BuildDocumentsAsync)} Cache Hit for {key} (mode: {loadingMode}) ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} documents (loading mode: {LoadingMode}).", key, cached.Count, loadingMode);
                 return cached;
             }
 
@@ -242,7 +236,7 @@ namespace MedRecPro.DataAccess
             if(ret != null)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} documents (loading mode: {loadingMode}).");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} documents (loading mode: {LoadingMode}).", key, ret.Count, loadingMode);
             }
 
             return ret ?? new List<DocumentDto>();
@@ -315,10 +309,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByApplicationNumberAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -353,7 +344,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductsByApplicationNumberDto>();
@@ -395,10 +386,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetApplicationNumberSummariesAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -437,7 +425,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ApplicationNumberSummaryDto>();
@@ -488,10 +476,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByPharmacologicClassAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -510,7 +495,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductsByPharmacologicClassDto>();
@@ -560,10 +545,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByPharmacologicClassAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -582,7 +564,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductsByPharmacologicClassDto>();
@@ -617,10 +599,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetPharmacologicClassHierarchyAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -637,7 +616,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<PharmacologicClassHierarchyViewDto>();
@@ -672,10 +651,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetPharmacologicClassSummariesAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -691,7 +667,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<PharmacologicClassSummaryDto>();
@@ -736,10 +712,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetIngredientActiveSummariesAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -771,7 +744,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<IngredientActiveSummaryDto>();
@@ -812,10 +785,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetIngredientInactiveSummariesAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -847,7 +817,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<IngredientInactiveSummaryDto>();
@@ -895,10 +865,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByIngredientAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -938,7 +905,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductsByIngredientDto>();
@@ -979,10 +946,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetIngredientSummariesAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1012,7 +976,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<IngredientSummaryDto>();
@@ -1076,10 +1040,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchIngredientsAdvancedAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1137,7 +1098,7 @@ namespace MedRecPro.DataAccess
             if (ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret;
@@ -1181,10 +1142,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindProductsByApplicationNumberWithSameIngredientAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1207,7 +1165,7 @@ namespace MedRecPro.DataAccess
 
             if (targetUniis.Count == 0)
             {
-                logger.LogDebug($"No ingredients found for application number {applicationNumber}");
+                logger.LogDebug("No ingredients found for application number {ApplicationNumber}", applicationNumber);
                 return new List<IngredientViewDto>();
             }
 
@@ -1231,7 +1189,7 @@ namespace MedRecPro.DataAccess
             if (ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret;
@@ -1279,10 +1237,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key}");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(FindRelatedIngredientsAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey}", key);
                 return cached;
             }
 
@@ -1315,7 +1270,7 @@ namespace MedRecPro.DataAccess
 
             if (productIds.Count == 0)
             {
-                logger.LogDebug($"No ingredients found for search criteria");
+                logger.LogDebug("No ingredients found for search criteria");
                 return result;
             }
 
@@ -1349,7 +1304,7 @@ namespace MedRecPro.DataAccess
 
             // Cache results
             Cached.SetCacheManageKey(key, result, 1.0);
-            logger.LogDebug($"Cache set for {key}");
+            logger.LogDebug("Cache set for {CacheKey}", key);
 
             return result;
 
@@ -1615,10 +1570,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByNDCAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1636,7 +1588,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductsByNDCDto>();
@@ -1674,10 +1626,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByPackageNDCAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1694,7 +1643,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<PackageByNDCDto>();
@@ -1741,10 +1690,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchByLabelerAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1762,7 +1708,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductsByLabelerDto>();
@@ -1797,10 +1743,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetLabelerSummariesAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1816,7 +1759,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<LabelerSummaryDto>();
@@ -1867,10 +1810,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetDocumentNavigationAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1900,7 +1840,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<DocumentNavigationDto>();
@@ -1933,10 +1873,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetDocumentVersionHistoryAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -1952,7 +1889,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<DocumentVersionHistoryDto>();
@@ -1999,10 +1936,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchBySectionCodeAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2019,7 +1953,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<SectionNavigationDto>();
@@ -2054,10 +1988,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetSectionTypeSummariesAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2073,7 +2004,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<SectionTypeSummaryDto>();
@@ -2148,10 +2079,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetSectionContentAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2214,7 +2142,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<SectionContentDto>();
@@ -2320,10 +2248,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetDrugInteractionsAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2342,7 +2267,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<DrugInteractionLookupDto>();
@@ -2379,10 +2304,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetDEAScheduleProductsAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2406,7 +2328,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<DEAScheduleLookupDto>();
@@ -2452,10 +2374,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(SearchProductSummaryAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2472,7 +2391,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductSummaryViewDto>();
@@ -2516,10 +2435,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetRelatedProductsAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2555,7 +2471,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<RelatedProductsDto>();
@@ -2588,10 +2504,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetAPIEndpointGuideAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2612,7 +2525,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 5.0); // Cache longer since this is metadata
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<APIEndpointGuideDto>();
@@ -2672,10 +2585,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetInventorySummaryAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2699,7 +2609,7 @@ namespace MedRecPro.DataAccess
             {
                 // Cache longer since inventory counts change slowly
                 Cached.SetCacheManageKey(key, ret, 10.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<InventorySummaryDto>();
@@ -2762,10 +2672,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetProductLatestLabelsAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2819,7 +2726,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductLatestLabelDto>();
@@ -2884,10 +2791,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetProductIndicationsAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -2953,7 +2857,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<ProductIndicationsDto>();
@@ -3029,10 +2933,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key} with {cached.Count} results.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GetLabelSectionMarkdownAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey} with {ResultCount} results.", key, cached.Count);
                 return cached;
             }
 
@@ -3088,7 +2989,7 @@ namespace MedRecPro.DataAccess
             if (ret != null && ret.Count > 0)
             {
                 Cached.SetCacheManageKey(key, ret, 1.0);
-                logger.LogDebug($"Cache set for {key} with {ret.Count} results.");
+                logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
             return ret ?? new List<LabelSectionMarkdownDto>();
@@ -3150,10 +3051,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for {key}.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GenerateLabelMarkdownAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for {CacheKey}.", key);
                 return cached;
             }
 
@@ -3180,7 +3078,7 @@ namespace MedRecPro.DataAccess
             };
 
             Cached.SetCacheManageKey(key, ret, 1.0);
-            logger.LogDebug($"Cache set for {key} with {sections.Count} sections.");
+            logger.LogDebug("Cache set for {CacheKey} with {SectionCount} sections.", key, sections.Count);
 
             return ret;
 
@@ -3241,10 +3139,7 @@ namespace MedRecPro.DataAccess
 
             if (cached != null)
             {
-                logger.LogDebug($"Cache hit for clean markdown {key}.");
-#if DEBUG
-                Debug.WriteLine($"=== {nameof(DtoLabelAccess)}.{nameof(GenerateCleanLabelMarkdownAsync)} Cache Hit for {key} ===");
-#endif
+                logger.LogDebug("Cache hit for clean markdown {CacheKey}.", key);
                 return cached;
             }
 
@@ -3272,7 +3167,7 @@ namespace MedRecPro.DataAccess
 
             // Cache the result for 1 hour
             Cached.SetCacheManageKey(key, cleanMarkdown, 1.0);
-            logger.LogDebug($"Cache set for clean markdown {key}.");
+            logger.LogDebug("Cache set for clean markdown {CacheKey}.", key);
 
             return cleanMarkdown;
 

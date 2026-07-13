@@ -45,12 +45,12 @@ namespace MedRecPro.Service
     ///         {
     ///             var readPermission = Permission.New(ActorType.Clinician, patientIdResource, PermissionType.Read, maskedPII: false);
     ///             userPermissions = _permissionService.Append(userPermissions, readPermission);
-    ///             _logger.LogInformation($"Granted read access for {patientIdResource} to Clinician.");
+    ///             _logger.LogInformation("Granted read access for {PatientResource} to Clinician.", patientIdResource);
     ///         }
     ///
     ///         // Example of encrypting permissions for storage
     ///         string encryptedPermissions = _permissionService.Encrypt(userPermissions);
-    ///         _logger.LogInformation($"User permissions encrypted: {encryptedPermissions.Substring(0, 20)}..."); // Log snippet
+    ///         _logger.LogInformation("User permissions were encrypted for storage.");
     ///     }
     /// }
     /// </code>
@@ -785,13 +785,13 @@ namespace MedRecPro.Service
                     return false;
                 }
 
-                _logger.LogInformation("Permission decryption successful for encrypted data (first 20 chars): {EncryptedDataStart}", encrypted.Substring(0, Math.Min(encrypted.Length, 20)));
+                _logger.LogInformation("Permission decryption succeeded.");
 
                 return true;
             }
             catch (Exception ex) // Catch specific exceptions if possible
             {
-                _logger.LogWarning(ex, "Permission decryption attempt failed for encrypted data (first 20 chars): {EncryptedDataStart}", encrypted?.Substring(0, Math.Min(encrypted?.Length ?? 0, 20)));
+                _logger.LogWarning(ex, "Permission decryption attempt failed.");
 
                 result = new List<Permission>();
 

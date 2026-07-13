@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Security.Claims;
 
@@ -38,7 +40,9 @@ namespace MedRecPro.Service.Test
         public void UserLoggerProvider_QueryMethods_ReturnFilteredLogsAndStatistics()
         {
             #region implementation
-            var provider = new UserLoggerProvider(createAccessor(), createConfiguration());
+            var provider = new UserLoggerProvider(
+                createAccessor(),
+                Options.Create(createLoggingSettings()));
             var logger = provider.CreateLogger("Coverage.Category");
 
             logger.LogInformation("info message");
@@ -57,7 +61,7 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(1, provider.GetLogsByLevel(LogLevel.Error).Count);
             Assert.AreEqual(1, provider.GetCategories().Count);
             Assert.AreEqual(1, provider.GetUserSummaries().Count);
-            Assert.AreEqual(5, provider.GetSettings().MaxEntriesPerCategory);
+            Assert.AreEqual(100, provider.GetSettings().MaxEntriesPerCategory);
             Assert.AreEqual(2, statistics.TotalEntries);
             Assert.AreEqual(1, statistics.CategoryCount);
             Assert.AreEqual(1, statistics.UniqueUserCount);
@@ -88,7 +92,8 @@ namespace MedRecPro.Service.Test
             logger.LogWarning("second");
             logger.LogError("third");
 
-            Assert.IsNull(logger.BeginScope("scope"));
+            using var scope = logger.BeginScope("scope");
+            Assert.IsNotNull(scope);
             Assert.IsTrue(logger.IsEnabled(LogLevel.Trace));
             Assert.AreEqual(3, logger.GetEntryCount());
 
@@ -121,7 +126,7 @@ namespace MedRecPro.Service.Test
             Assert.AreSame(services, result);
             Assert.IsNotNull(provider.GetRequiredService<UserLoggerProvider>());
             Assert.IsNotNull(provider.GetRequiredService<ILoggerProvider>());
-            Assert.IsNotNull(provider.GetRequiredService<ILogger>());
+            Assert.IsNull(provider.GetService<ILogger>());
             Assert.IsNotNull(provider.GetRequiredService<ILogger<LogHelperTests>>());
             #endregion
         }
@@ -166,12 +171,206 @@ namespace MedRecPro.Service.Test
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["LoggingSettings:RetentionMinutes"] = "60",
-                    ["LoggingSettings:MaxEntriesPerCategory"] = "5",
-                    ["LoggingSettings:MaxTotalEntries"] = "20",
+                    ["LoggingSettings:MaxEntriesPerCategory"] = "100",
+                    ["LoggingSettings:MaxTotalEntries"] = "1000",
                     ["LoggingSettings:CaptureUserContext"] = "true"
                 })
                 .Build();
             #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies provider filtering, safe scope capture, and redaction happen before an entry is retained.
+        /// </summary>
+        /// <seealso cref="UserLogger.IsEnabled(LogLevel)"/>
+        /// <seealso cref="UserLogger.BeginScope{TState}(TState)"/>
+        [TestMethod]
+        public void UserLoggerProvider_FilterScopeAndRedaction_StoresOnlyEnabledSafeDiagnosticValues()
+        {
+            #region implementation
+
+            var filterOptions = new LoggerFilterOptions
+            {
+                MinLevel = LogLevel.Warning
+            };
+            var provider = new UserLoggerProvider(
+                settings: Options.Create(createLoggingSettings()),
+                timeProvider: new FakeTimeProvider(DateTimeOffset.Parse("2026-07-13T18:00:00Z")),
+                filterOptions: new StaticOptionsMonitor<LoggerFilterOptions>(filterOptions));
+            var logger = provider.CreateLogger("Coverage.Security");
+
+            logger.LogInformation("This disabled information entry must not be retained.");
+            using (logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["TraceId"] = "trace-123",
+                ["OperationId"] = "operation-456",
+                ["UnapprovedScopeValue"] = "must-not-be-retained"
+            }))
+            {
+                logger.LogError(
+                    new InvalidOperationException("connection string=Server=secret; token=abc123"),
+                    "Authorization: Bearer abc123 secret=top-secret");
+            }
+
+            var entries = provider.GetLogs();
+
+            Assert.AreEqual(1, entries.Count);
+            Assert.IsFalse(entries[0].Message!.Contains("abc123", StringComparison.Ordinal));
+            Assert.IsFalse(entries[0].ExceptionMessage!.Contains("secret", StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(nameof(InvalidOperationException), entries[0].ExceptionType);
+            Assert.IsNotNull(entries[0].ScopeValues);
+            var scopeValues = entries[0].ScopeValues!;
+            Assert.AreEqual("trace-123", scopeValues["TraceId"]);
+            Assert.AreEqual("operation-456", scopeValues["OperationId"]);
+            Assert.IsFalse(scopeValues.ContainsKey("UnapprovedScopeValue"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies deterministic time retention and concurrent per-category and total capacity enforcement.
+        /// </summary>
+        /// <seealso cref="UserLoggerProvider.PerformCleanup"/>
+        /// <seealso cref="TimeProvider"/>
+        [TestMethod]
+        public void UserLoggerProvider_ConcurrentCapacityAndRetention_RemainsBoundedWithoutSleeping()
+        {
+            #region implementation
+
+            var timeProvider = new FakeTimeProvider(DateTimeOffset.Parse("2026-07-13T18:00:00Z"));
+            var provider = new UserLoggerProvider(
+                settings: Options.Create(new LoggingSettings
+                {
+                    RetentionMinutes = 1,
+                    MaxEntriesPerCategory = 100,
+                    MaxTotalEntries = 1000,
+                    CaptureUserContext = false
+                }),
+                timeProvider: timeProvider);
+
+            Parallel.For(0, 2400, index =>
+            {
+                provider.CreateLogger($"Coverage.Concurrent.{index % 12}")
+                    .LogWarning("Concurrent entry {EntryIndex}", index);
+            });
+            provider.PerformCleanup();
+
+            Assert.IsTrue(provider.GetLogs().Count <= 1000);
+            Assert.IsTrue(provider.GetCategories().All(category => category.EntryCount <= 100));
+
+            timeProvider.Advance(TimeSpan.FromMinutes(2));
+            provider.PerformCleanup();
+
+            Assert.AreEqual(0, provider.GetLogs().Count);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates the validated settings values supplied to direct provider tests.
+        /// </summary>
+        /// <returns>Bounded in-memory logging settings.</returns>
+        /// <seealso cref="LoggingSettings"/>
+        private static LoggingSettings createLoggingSettings()
+        {
+            #region implementation
+
+            return new LoggingSettings
+            {
+                RetentionMinutes = 60,
+                MaxEntriesPerCategory = 100,
+                MaxTotalEntries = 1000,
+                CaptureUserContext = true
+            };
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Provides an immutable options monitor for direct component tests.
+        /// </summary>
+        /// <typeparam name="TOptions">Options type exposed to the component under test.</typeparam>
+        /// <seealso cref="IOptionsMonitor{TOptions}"/>
+        private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
+            where TOptions : class
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Initializes a monitor that always returns one options instance.
+            /// </summary>
+            /// <param name="value">Options value supplied to the test subject.</param>
+            public StaticOptionsMonitor(TOptions value)
+            {
+                #region implementation
+
+                CurrentValue = value;
+
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets the immutable current options value.
+            /// </summary>
+            public TOptions CurrentValue { get; }
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets the immutable value for any options name.
+            /// </summary>
+            /// <param name="name">Ignored options name.</param>
+            /// <returns>The supplied options value.</returns>
+            public TOptions Get(string? name)
+            {
+                #region implementation
+
+                return CurrentValue;
+
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <summary>
+            /// Returns a no-op registration because the test monitor is immutable.
+            /// </summary>
+            /// <param name="listener">Ignored value-change listener.</param>
+            /// <returns>A disposable no-op registration.</returns>
+            public IDisposable OnChange(Action<TOptions, string?> listener)
+            {
+                #region implementation
+
+                return EmptyDisposable.Instance;
+
+                #endregion
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Provides the disposable handle used by immutable test options.
+        /// </summary>
+        private sealed class EmptyDisposable : IDisposable
+        {
+            /**************************************************************/
+            /// <summary>
+            /// Gets the reusable no-op instance.
+            /// </summary>
+            public static readonly EmptyDisposable Instance = new();
+
+            /**************************************************************/
+            /// <summary>
+            /// Completes the no-op disposal operation.
+            /// </summary>
+            public void Dispose()
+            {
+                #region implementation
+
+                #endregion
+            }
         }
 
         #endregion

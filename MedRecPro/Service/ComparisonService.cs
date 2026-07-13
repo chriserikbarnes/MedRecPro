@@ -1113,16 +1113,16 @@ namespace MedRecPro.Service
                 // Clean up any malformed data
                 result = cleanupParsedResult(result);
 
-                _logger.LogInformation("Successfully parsed JSON response for document {DocumentGuid}. " +
-                                     "Completion: {IsComplete}, Percentage: {Percentage}, Differences: {DifferenceCount}",
+                _logger.LogInformation("Successfully parsed JSON response for document {DocumentGuid}. Completion: {IsComplete}, Percentage: {Percentage}, Differences: {DifferenceCount}",
                     documentGuid, result.IsComplete, result.CompletionPercentage, result.Differences.Count);
 
                 return result;
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex, "Failed to parse JSON response for document {DocumentGuid}. Response: {Response}",
-                    documentGuid, aiResponse.Substring(0, Math.Min(500, aiResponse.Length)));
+                _logger.LogError(ex, "Failed to parse JSON response for document {DocumentGuid} (response length: {ResponseLength}).",
+                    documentGuid,
+                    aiResponse.Length);
 
                 return createFallbackResult(aiResponse, documentGuid);
             }

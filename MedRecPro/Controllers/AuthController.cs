@@ -497,6 +497,8 @@ namespace MedRecPro.Controllers
                     _logger.LogInformation("Database wake-up completed");
 #endif
                 }
+                // Broad-catch allowlist: this fire-and-forget task is the terminal owner of its own diagnostics after
+                // the HTTP request completes, so failure must be logged here rather than sent to request middleware.
                 catch (Exception ex)
                 {
 #if DEBUG

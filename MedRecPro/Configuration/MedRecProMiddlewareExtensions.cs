@@ -23,11 +23,12 @@ namespace MedRecPro.Configuration
 
         /**************************************************************/
         /// <summary>
-        /// Registers development or production exception handling middleware.
+        /// Registers the centralized exception-handling middleware in every environment.
         /// </summary>
         /// <remarks>
-        /// Development retains the developer exception page. Non-development environments use the registered
-        /// route-independent exception handler so API failures do not depend on a controller or view route.
+        /// MedRecPro uses one sanitized API error contract in Development and non-Development environments. This
+        /// intentionally replaces the developer exception page so local API clients and automated tests do not see a
+        /// different HTML error surface. HSTS remains restricted to non-Development hosting.
         /// </remarks>
         /// <example>
         /// <code>
@@ -36,22 +37,18 @@ namespace MedRecPro.Configuration
         /// </example>
         /// <param name="app">The web application pipeline to configure.</param>
         /// <returns>The same web application for chaining.</returns>
-        /// <seealso cref="DeveloperExceptionPageExtensions"/>
         /// <seealso cref="ExceptionHandlerExtensions"/>
         /// <seealso cref="HstsBuilderExtensions"/>
         public static WebApplication UseMedRecProExceptionHandling(this WebApplication app)
         {
             #region implementation
 
-            if (app.Environment.IsDevelopment())
+            // MedRecProExceptionHandler is registered through AddMedRecProApiControllers. The pathless overload
+            // keeps the centralized policy route-independent and active in every environment.
+            app.UseExceptionHandler();
+
+            if (!app.Environment.IsDevelopment())
             {
-                app.UseDeveloperExceptionPage();
-            }
-            else
-            {
-                // MedRecProExceptionHandler is registered through AddMedRecProApiControllers.
-                // The pathless overload avoids routing errors through a nonexistent /Error endpoint.
-                app.UseExceptionHandler();
                 app.UseHsts();
             }
 

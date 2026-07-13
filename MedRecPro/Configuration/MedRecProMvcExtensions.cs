@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using RazorLight;
-using System.Diagnostics;
 using System.Text.Json.Serialization;
 
 namespace MedRecPro.Configuration
@@ -65,7 +64,7 @@ namespace MedRecPro.Configuration
                 options.CustomizeProblemDetails = context =>
                 {
                     context.ProblemDetails.Extensions["traceId"] =
-                        Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+                        RequestCorrelation.GetTraceId(context.HttpContext);
                 };
             });
 
@@ -142,7 +141,7 @@ namespace MedRecPro.Configuration
                     };
 
                     problemDetails.Extensions["traceId"] =
-                        Activity.Current?.Id ?? actionContext.HttpContext.TraceIdentifier;
+                        RequestCorrelation.GetTraceId(actionContext.HttpContext);
 
                     var result = new BadRequestObjectResult(problemDetails);
                     result.ContentTypes.Add("application/problem+json");

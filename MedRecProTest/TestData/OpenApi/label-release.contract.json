@@ -68,6 +68,23 @@
           "description": "If the record with the specified ID is not found in the section."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -157,6 +174,23 @@
           "description": "If the applicationNumber is null/empty or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -246,6 +280,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -330,6 +381,23 @@
           "description": "If no document is found with the specified GUID."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs during analysis."
         }
       },
@@ -441,6 +509,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -540,6 +625,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -633,6 +735,23 @@
           "description": "If no version history is found for the specified GUID."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -722,6 +841,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -784,6 +920,23 @@
           "description": "If the description parameter is missing."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -848,6 +1001,23 @@
           "description": "Not Found"
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "Internal Server Error"
         },
         "503": {
@@ -902,6 +1072,23 @@
           "description": "Returns the API endpoint guide."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1034,6 +1221,23 @@
           "description": "Bad Request"
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "Internal Server Error"
         },
         "503": {
@@ -1135,6 +1339,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1264,6 +1485,23 @@
           "description": "If no search criteria provided or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1353,6 +1591,23 @@
           "description": "If applicationNumber is not provided or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1451,6 +1706,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1529,6 +1801,23 @@
           "description": "If neither unii nor substanceNameSearch is provided."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1626,6 +1915,23 @@
           "description": "If neither unii nor substanceNameSearch is provided, or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1724,6 +2030,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1775,6 +2098,23 @@
           "description": "Returns the inventory summary."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1864,6 +2204,23 @@
           "description": "If labelerNameSearch is null/empty or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1945,6 +2302,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -1999,6 +2373,13 @@
           "description": "If no document is found for the GUID."
         },
         "500": {
+          "content": {
+            "text/markdown": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2054,6 +2435,13 @@
           "description": "If no document is found for the GUID."
         },
         "500": {
+          "content": {
+            "text/markdown": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2138,6 +2526,23 @@
           "description": "If no document is found for the GUID."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2239,6 +2644,23 @@
           "description": "If no sections are found for the document."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2328,6 +2750,23 @@
           "description": "If packageCode is null/empty or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2417,6 +2856,23 @@
           "description": "If productCode is null/empty or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2501,6 +2957,23 @@
           "description": "If no original XML is found for the GUID."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         },
         "503": {
@@ -2585,6 +3058,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2692,6 +3182,23 @@
           "description": "If neither query nor classNameSearch is provided, or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2782,6 +3289,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -2895,6 +3419,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3000,6 +3541,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3113,6 +3671,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3220,6 +3795,23 @@
           "description": "If neither sourceProductId nor sourceDocumentGuid is provided, or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3309,6 +3901,23 @@
           "description": "If productNameSearch is null/empty or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3417,6 +4026,23 @@
           "description": "If documentGuid is empty or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3506,6 +4132,23 @@
           "description": "If sectionCode is null/empty or paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3587,6 +4230,23 @@
           "description": "If paging parameters are invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3680,6 +4340,23 @@
           "description": "If menuSelection is invalid, or if provided paging parameters are invalid (e.g., pageNumber \u003C= 0, pageSize \u003C= 0)."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3722,6 +4399,23 @@
           "description": "Returns the list of section names."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an error occurs while generating the menu."
         }
       },
@@ -3809,6 +4503,23 @@
           "description": "If no document is found with the specified GUID."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -3872,6 +4583,23 @@
           "description": "If the menuSelection is invalid or not found."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs while retrieving documentation."
         }
       },
@@ -3967,6 +4695,23 @@
           "description": "If the record with the specified ID is not found in the section."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -4071,6 +4816,23 @@
           "description": "Client Error"
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "Internal Server Error"
         }
       },
@@ -4167,6 +4929,23 @@
           "description": "Client Error"
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an unexpected error occurs during processing."
         }
       },
@@ -4241,6 +5020,23 @@
           "description": "If menuSelection is invalid or input data is invalid."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },
@@ -4333,6 +5129,23 @@
           "description": "If the record with the specified ID is not found in the section."
         },
         "500": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemDetails"
+              }
+            }
+          },
           "description": "If an internal server error occurs."
         }
       },

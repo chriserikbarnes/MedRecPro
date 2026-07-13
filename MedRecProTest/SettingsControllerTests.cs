@@ -1,13 +1,16 @@
 using MedRecPro.Controllers;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
+using MedRecPro.Models;
 using MedRecPro.Service;
 using MedRecPro.Service.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -63,6 +66,70 @@ namespace MedRecProTest
 
         #endregion
 
+        #region log endpoint tests
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies invalid administrative log paging and level inputs return RFC 7807 validation details rather than
+        /// being silently coerced to a different query.
+        /// </summary>
+        /// <seealso cref="SettingsController.GetLogs(int, int, string)"/>
+        [TestMethod]
+        public void GetLogs_InvalidPagingAndLevel_ReturnsValidationProblemDetails()
+        {
+            #region implementation
+
+            var appCache = new Mock<IAppCache>(MockBehavior.Loose);
+            var controller = createController(appCache.Object);
+
+            var invalidPaging = controller.GetLogs(pageNumber: 0, pageSize: 100);
+            var pagingProblem = (invalidPaging as ObjectResult)?.Value as ValidationProblemDetails;
+            var invalidLevel = controller.GetLogs(pageNumber: 1, pageSize: 100, minLevel: "UnknownLevel");
+            var levelProblem = (invalidLevel as ObjectResult)?.Value as ValidationProblemDetails;
+
+            Assert.IsNotNull(pagingProblem);
+            Assert.AreEqual(StatusCodes.Status400BadRequest, pagingProblem.Status);
+            Assert.IsTrue(pagingProblem.Errors.ContainsKey("pageNumber"));
+            Assert.IsNotNull(levelProblem);
+            Assert.AreEqual(StatusCodes.Status400BadRequest, levelProblem.Status);
+            Assert.IsTrue(levelProblem.Errors.ContainsKey("minLevel"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the log endpoint returns the typed administrative DTO and only the safe exception summary.
+        /// </summary>
+        /// <seealso cref="LogPageResponseDto"/>
+        /// <seealso cref="LogEntryResponseDto"/>
+        [TestMethod]
+        public void GetLogs_RetainedException_ReturnsTypedSafeEntry()
+        {
+            #region implementation
+
+            var appCache = new Mock<IAppCache>(MockBehavior.Loose);
+            var logProvider = new UserLoggerProvider(settings: Options.Create(new LoggingSettings()));
+            logProvider.CreateLogger("SettingsControllerTests")
+                .LogError(new InvalidOperationException("token=must-not-be-exposed"), "Administrative log retrieval test");
+            var controller = createController(appCache.Object, logProvider);
+
+            var result = controller.GetLogs();
+            var page = (result as OkObjectResult)?.Value as LogPageResponseDto;
+
+            Assert.IsNotNull(page);
+            Assert.AreEqual(1, page.TotalCount);
+            Assert.AreEqual("InvalidOperationException", page.Entries[0].ExceptionType);
+            Assert.AreEqual(
+                "An exception was recorded. See the correlated server-side log event.",
+                page.Entries[0].ExceptionMessage);
+            Assert.IsFalse(page.Entries[0].Message!.Contains("must-not-be-exposed", StringComparison.Ordinal));
+
+            #endregion
+        }
+
+        #endregion
+
         #region helpers
 
         /**************************************************************/
@@ -73,7 +140,9 @@ namespace MedRecProTest
         /// <returns>A configured <see cref="SettingsController"/> instance.</returns>
         /// <seealso cref="SettingsController"/>
         /// <seealso cref="IAppCache"/>
-        private static SettingsController createController(IAppCache appCache)
+        private static SettingsController createController(
+            IAppCache appCache,
+            UserLoggerProvider? loggerProvider = null)
         {
             #region implementation
             var configuration = createConfiguration();
@@ -83,7 +152,8 @@ namespace MedRecProTest
             var appTokenProvider = new AzureAppTokenProvider(
                 configuration,
                 NullLogger<AzureAppTokenProvider>.Instance);
-            var loggerProvider = new UserLoggerProvider(configuration: configuration);
+            loggerProvider ??= new UserLoggerProvider(
+                settings: Options.Create(new LoggingSettings()));
 
             return new SettingsController(
                 configuration,

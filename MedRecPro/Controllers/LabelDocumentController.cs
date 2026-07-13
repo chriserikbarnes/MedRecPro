@@ -297,7 +297,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("document/navigation")]
         [ProducesResponseType(typeof(IEnumerable<DocumentNavigationDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<DocumentNavigationDto>>> GetDocumentNavigation(
             [FromQuery] bool latestOnly = false,
             [FromQuery] Guid? setGuid = null,
@@ -317,9 +317,7 @@ namespace MedRecPro.Api.Controllers
 
             #region Implementation
 
-            try
-            {
-                _logger.LogInformation("Getting document navigation. LatestOnly: {LatestOnly}, SetGUID: {SetGUID}, Page: {PageNumber}, Size: {PageSize}",
+            _logger.LogInformation("Getting document navigation. LatestOnly: {LatestOnly}, SetGUID: {SetGUID}, Page: {PageNumber}, Size: {PageSize}",
                     latestOnly, setGuid, pageNumber, pageSize);
 
                 var results = await DtoLabelAccess.GetDocumentNavigationAsync(
@@ -334,14 +332,7 @@ namespace MedRecPro.Api.Controllers
                 // Add pagination headers if paging was applied
                 addPaginationHeaders(pageNumber, pageSize, results?.Count ?? 0);
 
-                return Ok(results);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving document navigation");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving document navigation.");
-            }
+            return Ok(results);
 
             #endregion
         }
@@ -387,7 +378,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(IEnumerable<DocumentVersionHistoryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<DocumentVersionHistoryDto>>> GetDocumentVersionHistory(
             Guid setGuidOrDocumentGuid)
         {
@@ -403,9 +394,7 @@ namespace MedRecPro.Api.Controllers
 
             #region Implementation
 
-            try
-            {
-                _logger.LogInformation("Getting document version history for GUID: {SetGuidOrDocumentGuid}",
+            _logger.LogInformation("Getting document version history for GUID: {SetGuidOrDocumentGuid}",
                     setGuidOrDocumentGuid);
 
                 var results = await DtoLabelAccess.GetDocumentVersionHistoryAsync(
@@ -421,15 +410,7 @@ namespace MedRecPro.Api.Controllers
                     return NotFound($"No version history found for GUID {setGuidOrDocumentGuid}.");
                 }
 
-                return Ok(results);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving document version history for GUID {SetGuidOrDocumentGuid}",
-                    setGuidOrDocumentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving document version history.");
-            }
+            return Ok(results);
 
             #endregion
         }
@@ -464,7 +445,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(Dictionary<string, object?>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<Dictionary<string, object?>>> GetSingleCompleteLabel(Guid documentGuid)
         {
             #region Input Validation
@@ -475,10 +456,8 @@ namespace MedRecPro.Api.Controllers
             #endregion
 
             #region Implmentation
-            try
-            {
-                // We need the specific repository for Label.Document
-                var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
+            // We need the specific repository for Label.Document
+            var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
 
                 var completeLabels = await documentRepository.GetCompleteLabelsAsync(documentGuid);
 
@@ -496,19 +475,7 @@ namespace MedRecPro.Api.Controllers
                 Response.Headers.Append("X-Document-Guid", documentGuid.ToString());
                 Response.Headers.Append("X-Document-Found", "true");
 
-                return Ok(singleDocument);
-            }
-            catch (NotSupportedException ex)
-            {
-                // This would indicate a developer error (calling the method on the wrong repository type).
-                _logger.LogError(ex, "Developer error: GetCompleteLabelsAsync was called on an incorrect repository type for GUID {DocumentGuid}.", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError, "A server configuration error occurred.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "An error occurred while fetching complete label for document GUID {DocumentGuid}.", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
-            }
+            return Ok(singleDocument);
             #endregion
         }
 
@@ -535,7 +502,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("complete/{pageNumber?}/{pageSize?}")]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetCompleteLabels(
             int pageNumber = 1,
             int pageSize = 10)
@@ -552,10 +519,8 @@ namespace MedRecPro.Api.Controllers
             #endregion
 
             #region Implementation
-            try
-            {
-                // We need the specific repository for Label.Document
-                var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
+            // We need the specific repository for Label.Document
+            var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
 
                 var completeLabels = await documentRepository.GetCompleteLabelsAsync(pageNumber, pageSize);
 
@@ -565,19 +530,7 @@ namespace MedRecPro.Api.Controllers
                 Response.Headers.Append("X-Total-Count", totalCount.ToString());
 
 
-                return Ok(completeLabels);
-            }
-            catch (NotSupportedException ex)
-            {
-                // This would indicate a developer error (calling the method on the wrong repository type).
-                _logger.LogError(ex, "Developer error: ReadAllCompleteLabelsAsync was called on an incorrect repository type.");
-                return StatusCode(StatusCodes.Status500InternalServerError, "A server configuration error occurred.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "An error occurred while fetching complete labels.");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request.");
-            }
+            return Ok(completeLabels);
             #endregion
         }
 
@@ -608,7 +561,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("generate/{documentGuid:guid}/{minify:bool}")]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "text/xml")]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> GenerateXmlDocument(Guid documentGuid, bool minify = false)
         {
@@ -656,11 +609,6 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogWarning("Document not found for GUID: {DocumentGuid}", documentGuid);
                 return NotFound($"Document not found for GUID: {documentGuid}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating XML document for GUID: {DocumentGuid}", documentGuid);
-                return StatusCode(500, "An error occurred while generating the XML document");
             }
             #endregion
         }
@@ -716,7 +664,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "text/xml")]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> OriginalXmlDocument(Guid documentGuid, bool minify = false)
         {
@@ -779,11 +727,6 @@ namespace MedRecPro.Api.Controllers
             {
                 _logger.LogWarning(ex, "Invalid argument for original XML retrieval: {DocumentGuid}", documentGuid);
                 return BadRequest($"Invalid document GUID: {documentGuid}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving original XML document for GUID: {DocumentGuid}", documentGuid);
-                return StatusCode(500, "An error occurred while retrieving the original XML document");
             }
             #endregion
         }

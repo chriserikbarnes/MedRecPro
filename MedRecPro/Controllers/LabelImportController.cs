@@ -136,7 +136,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(WebImportOperationStatus), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status499ClientClosedRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UploadSplZips(List<IFormFile> files, CancellationToken cancellationToken)
         {
             #region Implementation
@@ -173,9 +173,7 @@ namespace MedRecPro.Api.Controllers
 
             try
             {
-                try
-                {
-                    bufferedFiles = await new BufferedFile().BufferFilesToTempAsync(files, cancellationToken);
+                bufferedFiles = await new BufferedFile().BufferFilesToTempAsync(files, cancellationToken);
 
                     if (bufferedFiles == null || !bufferedFiles.Any())
                     {
@@ -268,11 +266,15 @@ namespace MedRecPro.Api.Controllers
                         // Handle cancellation gracefully
                         status.Status = "Canceled";
                     }
+                    // Broad-catch allowlist: this queued operation owns the terminal failure status because it runs
+                    // after the HTTP request has completed and therefore cannot rely on the global HTTP boundary.
                     catch (Exception ex)
                     {
-                        // Handle any processing errors
                         status.Status = "Failed";
-                        status.Error = ex.Message;
+                        status.Error = "The import operation failed. Review the correlated server logs for details.";
+                        _logger.LogError(ex,
+                            "Queued SPL import operation {OperationId} failed",
+                            operationId);
                     }
                     finally
                     {
@@ -287,18 +289,11 @@ namespace MedRecPro.Api.Controllers
                 });
 
                 // Return accepted response with operation tracking information
-                return Accepted(new
-                {
-                    OperationId = operationId,
-                    ProgressUrl = Url.Action("GetImportProgress", new { operationId })
-                });
-            }
-            catch (System.Exception ex)
+            return Accepted(new
             {
-                // Handle any unexpected errors during queue setup
-                _logger.LogError(ex, "Unhandled exception during SPL ZIP import.");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred during import.");
-            }
+                OperationId = operationId,
+                ProgressUrl = Url.Action("GetImportProgress", new { operationId })
+            });
             #endregion
         }
 
@@ -367,6 +362,8 @@ namespace MedRecPro.Api.Controllers
 
                 return null;
             }
+            // Broad-catch allowlist: optional claim extraction must not block an import when a malformed identity is
+            // supplied. The fallback is anonymous ownership and the warning is the terminal diagnostic record.
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to get current user ID from context.");

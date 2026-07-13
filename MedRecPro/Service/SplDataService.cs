@@ -256,7 +256,7 @@ namespace MedRecPro.Service
                     throw new InvalidOperationException("Failed to create SPL data record - no ID returned.");
                 }
 
-                _logger.LogInformation("Successfully created SPL data record with encrypted ID {EncryptedId}", encryptedId);
+                _logger.LogInformation("Successfully created SPL data record.");
 
                 return encryptedId;
             }
@@ -315,7 +315,7 @@ namespace MedRecPro.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving SPL data record with encrypted ID {EncryptedId}", SplDataGuid);
+                _logger.LogError(ex, "Error retrieving SPL data record.");
                 throw;
             }
             #endregion
@@ -353,20 +353,20 @@ namespace MedRecPro.Service
 
                 if (splData == null)
                 {
-                    _logger.LogWarning("SPL data record with encrypted ID {EncryptedId} not found for archiving", encryptedId);
+                    _logger.LogWarning("SPL data record was not found for archiving.");
                     return false;
                 }
 
                 splData.Archive = true;
                 var updateResult = await _splDataRepository.UpdateAsync(splData);
 
-                _logger.LogInformation("SPL data record with encrypted ID {EncryptedId} archived successfully", encryptedId);
+                _logger.LogInformation("SPL data record archived successfully.");
 
                 return updateResult > 0;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error archiving SPL data record with encrypted ID {EncryptedId}", encryptedId);
+                _logger.LogError(ex, "Error archiving SPL data record.");
                 throw;
             }
             #endregion

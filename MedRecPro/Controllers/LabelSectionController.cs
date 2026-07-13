@@ -187,7 +187,9 @@ namespace MedRecPro.Api.Controllers
             // unlike the Repository's constructor.
             if (pkProperty == null)
             {
-                _logger.LogWarning($"Could not find PK property for type {entityType.Name} using conventions ('{pkNameConvention1}', '{entityType.Name + "Id"}', 'Id').");
+                _logger.LogWarning(
+                    "Could not find a primary-key property for type {EntityType} using configured conventions.",
+                    entityType.Name);
             }
 
             return pkProperty;
@@ -249,17 +251,19 @@ namespace MedRecPro.Api.Controllers
                 // Add other supported PK types if necessary (e.g., Guid, string)
                 else
                 {
-                    _logger.LogWarning($"Unsupported PK type for decryption: {underlyingPkType.Name}. Decrypted string was: '{decryptedString}'.");
+                    _logger.LogWarning("Unsupported primary-key type {PrimaryKeyType} for decryption.", underlyingPkType.Name);
                     return false;
                 }
 
                 // Log failure to parse decrypted value
-                _logger.LogWarning($"Failed to parse decrypted PK string '{decryptedString}' to type {underlyingPkType.Name}.");
+                _logger.LogWarning("Failed to parse decrypted primary-key value as {PrimaryKeyType}.", underlyingPkType.Name);
                 return false;
             }
+            // Broad-catch allowlist: encrypted-key parsing is an expected validation boundary. The action converts a
+            // malformed value into its established bad-request path without emitting an HTTP 500.
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error decrypting PK. Encrypted value: {EncryptedValue}", encryptedPk);
+                _logger.LogError(ex, "Error decrypting primary key value.");
                 return false;
             }
 
@@ -282,6 +286,8 @@ namespace MedRecPro.Api.Controllers
                 }
                 return null;
             }
+            // Broad-catch allowlist: optional claim extraction must fail closed to anonymous context rather than
+            // blocking a section operation when an identity is malformed.
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to get current user ID from context");
@@ -316,23 +322,15 @@ namespace MedRecPro.Api.Controllers
         /// </remarks>
         [HttpGet("sectionMenu")]
         [ProducesResponseType(typeof(List<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public ActionResult<List<string>> GetLabelSectionMenu()
         {
             #region Implementation
 
-            try
-            {
-                // Generate menu using DtoTransformer helper, fallback to empty list if null
+            // Generate menu using DtoTransformer helper, fallback to empty list if null
                 List<string> menu = DtoTransform.ToEntityMenu(new Label(), _logger)
                     ?? new List<string>();
                 return Ok(menu);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error occurred in GetLabelSectionMenu");
-                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while generating the menu.");
-            }
 
             #endregion
         }
@@ -380,7 +378,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("{menuSelection}/documentation")]
         [ProducesResponseType(typeof(ClassDocumentation), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public ActionResult<ClassDocumentation> GetSectionDocumentation(string menuSelection)
         {
             #region Implementation
@@ -392,25 +390,16 @@ namespace MedRecPro.Api.Controllers
                 return BadRequest($"Invalid menu selection: {menuSelection}. No matching class found within MedRecPro.DataModels.Label.");
             }
 
-            try
-            {
-                var documentation = DtoTransform.GetClassDocumentation(entityType, _logger);
+            var documentation = DtoTransform.GetClassDocumentation(entityType, _logger);
 
                 if (documentation == null)
                 {
                     // This case should ideally be handled by GetClassDocumentation logging or internal errors.
                     // It might mean the type was valid but something went wrong during doc generation.
-                    _logger.LogError("Failed to generate documentation for type {EntityTypeFullName}", entityType.FullName);
-
-                    return StatusCode(StatusCodes.Status500InternalServerError, $"Could not retrieve documentation for {menuSelection}.");
+                    throw new InvalidOperationException(
+                        $"Documentation generation unexpectedly returned no value for {entityType.FullName}.");
                 }
-                return Ok(documentation);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error occurred while getting documentation for {MenuSelection}", menuSelection);
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while retrieving documentation for {menuSelection}.");
-            }
+            return Ok(documentation);
             #endregion
         }
 
@@ -472,7 +461,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("section/{menuSelection}")]
         [ProducesResponseType(typeof(IEnumerable<Dictionary<string, object?>>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<Dictionary<string, object?>>>> GetSection(
             string menuSelection,
             [FromQuery] int? pageNumber,
@@ -501,24 +490,19 @@ namespace MedRecPro.Api.Controllers
             var entityType = getEntityType(menuSelection);
             if (entityType == null)
             {
-                _logger.LogWarning($"Invalid menu selection received: {menuSelection}");
+                _logger.LogWarning("Invalid menu selection received: {MenuSelection}", menuSelection);
                 return BadRequest($"Invalid menu selection: {menuSelection}");
             }
 
-            try
-            {
-                var repository = getRepository(entityType);
+            var repository = getRepository(entityType);
 
                 // The repository's GetSection method accepts nullable ints.
                 var readAllMethod = repository.GetType().GetMethod("ReadAllAsync", new Type[] { typeof(int?), typeof(int?) });
 
                 if (readAllMethod == null)
                 {
-                    var errorMessage = $"GetSection(int?, int?) method not found on repository for {entityType.Name}. Ensure the repository implements this signature to support optional paging.";
-
-                    _logger.LogError(errorMessage);
-
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Server configuration error: Required data access method not found.");
+                    throw new MissingMethodException(
+                        $"ReadAllAsync(int?, int?) was not found on the {entityType.Name} repository.");
                 }
 
                 // pageSize is passed as is (it's either null or a positive value)
@@ -531,15 +515,19 @@ namespace MedRecPro.Api.Controllers
 
                 if (resultProperty == null)
                 {
-                    _logger.LogError($"Task for {readAllMethod.Name} on {entityType.Name} repository did not have a 'Result' property after completion.");
-                    return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while retrieving data results.");
+                    throw new InvalidOperationException(
+                        $"The {readAllMethod.Name} task for {entityType.Name} did not expose a result.");
                 }
 
                 var entities = (IEnumerable<object>?)resultProperty.GetValue(task);
 
                 if (entities == null)
                 {
-                    _logger.LogWarning($"GetSection for {entityType.Name} returned null (Page: {pageNumber}, Size: {pageSize}). Treating as empty list.");
+                    _logger.LogWarning(
+                        "GetSection for {EntityType} returned null (page {PageNumber}, size {PageSize}); treating as empty.",
+                        entityType.Name,
+                        pageNumber,
+                        pageSize);
                     entities = Enumerable.Empty<object>();
                 }
 
@@ -555,21 +543,7 @@ namespace MedRecPro.Api.Controllers
                     Response.Headers.Append("X-Total-Count", totalCount.ToString());
                 }
 
-                return Ok(dtoList);
-            }
-            catch (TargetInvocationException ex) when (ex.InnerException != null)
-            {
-                // Log the actual exception thrown by the repository method
-                _logger.LogError(ex.InnerException, $"Error executing repository's GetSection for section {menuSelection} (Client Page: {pageNumber}, Size: {pageSize}). Inner Exception: {ex.InnerException.Message}");
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}. Details: {ex.InnerException.Message}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error retrieving records for section {menuSelection} (Client Page: {pageNumber}, Size: {pageSize}).");
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
-            }
+            return Ok(dtoList);
             #endregion
         }
 
@@ -609,7 +583,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(Dictionary<string, object?>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<Dictionary<string, object?>>> GetByIdAsync(string menuSelection, string encryptedId)
         {
             #region Implementation
@@ -621,10 +595,8 @@ namespace MedRecPro.Api.Controllers
                 return BadRequest($"Invalid menu selection: {menuSelection}");
             }
 
-            try
-            {
-                // Get the appropriate repository for this entity type
-                var repository = getRepository(entityType);
+            // Get the appropriate repository for this entity type
+            var repository = getRepository(entityType);
 
                 // Use reflection to invoke ReadByIdAsync method with encrypted ID parameter
                 var readByIdMethod = repository.GetType().GetMethod("ReadByIdAsync", new[] { typeof(string) });
@@ -645,13 +617,7 @@ namespace MedRecPro.Api.Controllers
                 }
 
                 // Transform entity to include encrypted ID and remove numeric PK
-                return Ok(entity.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error retrieving record {encryptedId} for section {menuSelection}.");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
-            }
+            return Ok(entity.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger));
 
             #endregion
         }
@@ -699,7 +665,7 @@ namespace MedRecPro.Api.Controllers
         [RequireUserRole(Admin)]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<object>> CreateAsync(string menuSelection, [FromBody] object? jsonData)
         {
             #region Implementation
@@ -736,9 +702,7 @@ namespace MedRecPro.Api.Controllers
                 return BadRequest(ModelState);
             }
 
-            try
-            {
-                object? entityToCreate;
+            object? entityToCreate;
 
                 // Deserialize the JSON string to an object of the resolved entityType
                 try
@@ -767,7 +731,7 @@ namespace MedRecPro.Api.Controllers
                 {
                     _logger.LogWarning(jsonEx, "JSON deserialization failed for {EntityType} with data: {JsonData}", entityType.Name, json);
 
-                    return BadRequest($"Invalid JSON format for {menuSelection}. Details: {jsonEx.Message}");
+                    return BadRequest($"Invalid JSON format for {menuSelection}.");
                 }
 
                 // Get the appropriate repository for this entity type
@@ -775,9 +739,8 @@ namespace MedRecPro.Api.Controllers
 
                 if (repository == null)
                 {
-                    _logger.LogError("Could not retrieve repository for entity type {EntityType}", entityType.FullName);
-
-                    return StatusCode(StatusCodes.Status500InternalServerError, $"Internal configuration error for section {menuSelection}.");
+                    throw new InvalidOperationException(
+                        $"No repository is registered for {entityType.FullName}.");
                 }
 
                 // Use reflection to invoke CreateAsync method on the repository
@@ -800,34 +763,14 @@ namespace MedRecPro.Api.Controllers
                 // Validate that we received an encrypted ID for the new record
                 if (string.IsNullOrWhiteSpace(newEncryptedId))
                 {
-                    _logger.LogError("CreateAsync for {MenuSelection} (EntityType: {EntityType}) did not return an encrypted ID. Input JSON: {JsonData}", menuSelection, entityType.Name, json);
-
-                    return StatusCode(StatusCodes.Status500InternalServerError, "Record created, but failed to retrieve its identifier.");
+                    throw new InvalidOperationException(
+                        $"CreateAsync did not return an encrypted identifier for {entityType.Name}.");
                 }
 
-                _logger.LogInformation("Successfully created record in section {MenuSelection} (EntityType: {EntityType}). New Encrypted ID: {NewEncryptedId}", menuSelection, entityType.Name, newEncryptedId);
+                _logger.LogInformation("Successfully created record in section {MenuSelection} (EntityType: {EntityType}).", menuSelection, entityType.Name);
 
                 // Return encrypted ID
-                return newEncryptedId;
-            }
-            catch (MissingMethodException mmEx)
-            {
-                _logger.LogError(mmEx, "A required repository method was not found for entity type of section {MenuSelection}.", menuSelection);
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"Internal server configuration error for {menuSelection}.");
-            }
-            catch (TargetInvocationException tiEx) // Catch exceptions thrown by invoked
-            {
-                _logger.LogError(tiEx.InnerException ?? tiEx, "Error during repository operation for section {MenuSelection} with data: {JsonData}", menuSelection, json);
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while creating the record in section {menuSelection}. Details: {tiEx.InnerException?.Message ?? tiEx.Message}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating record for section {MenuSelection} with data: {JsonData}", menuSelection, json);
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
-            }
+            return newEncryptedId;
             #endregion
         }
 
@@ -870,7 +813,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateAsync(string menuSelection, string encryptedId, [FromBody] object? jsonData)
         {
             #region Implementation
@@ -923,7 +866,7 @@ namespace MedRecPro.Api.Controllers
             // Decrypt the primary key from the route parameter
             if (!tryDecryptPk(encryptedId, pkProperty.PropertyType, out object? decryptedPkValue) || decryptedPkValue == null)
             {
-                _logger.LogWarning("Invalid encrypted ID format or value for section {MenuSelection}. EncryptedID: {EncryptedId}", menuSelection, encryptedId);
+                _logger.LogWarning("Invalid encrypted ID format or value for section {MenuSelection}.", menuSelection);
                 return BadRequest($"Invalid encrypted ID format or value for section {menuSelection}.");
             }
 
@@ -934,17 +877,14 @@ namespace MedRecPro.Api.Controllers
 
                 if (repository == null)
                 {
-                    _logger.LogError("Could not retrieve repository for entity type {EntityType}", entityType.FullName);
-
-                    return StatusCode(StatusCodes.Status500InternalServerError, $"Internal configuration error for section {menuSelection}.");
+                    throw new InvalidOperationException(
+                        $"No repository is registered for {entityType.FullName}.");
                 }
 
                 var readByIdMethod = repository.GetType().GetMethod("ReadByIdAsync", new[] { typeof(string) });
 
                 if (readByIdMethod == null)
                 {
-                    _logger.LogError("ReadByIdAsync method not found on repository for {EntityType}", entityType.Name);
-
                     throw new MissingMethodException($"ReadByIdAsync not found on repository for {entityType.Name}");
                 }
 
@@ -957,7 +897,7 @@ namespace MedRecPro.Api.Controllers
 
                 if (checkResultProp?.GetValue(checkTask) == null)
                 {
-                    _logger.LogInformation("Record with ID {EncryptedId} not found in section {MenuSelection} for update.", encryptedId, menuSelection);
+                    _logger.LogInformation("Record was not found in section {MenuSelection} for update.", menuSelection);
 
                     return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
                 }
@@ -967,7 +907,7 @@ namespace MedRecPro.Api.Controllers
 
                 if (entityToUpdate == null)
                 {
-                    _logger.LogInformation("Record with ID {EncryptedId} not found in section {MenuSelection} for update.", encryptedId, menuSelection);
+                    _logger.LogInformation("Record was not found in section {MenuSelection} for update.", menuSelection);
                     return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
                 }
 
@@ -988,7 +928,7 @@ namespace MedRecPro.Api.Controllers
                 {
                     _logger.LogWarning(jsonEx, "JSON deserialization failed for {EntityType} with data: {JsonData}", entityType.Name, jsonData);
 
-                    return BadRequest($"Invalid JSON format for {menuSelection}. Details: {jsonEx.Message}");
+                    return BadRequest($"Invalid JSON format for {menuSelection}.");
                 }
 
                 // Set the PK property on the instance with the decrypted value from the route.
@@ -1012,33 +952,21 @@ namespace MedRecPro.Api.Controllers
 
                 var recordsAffected = await updateTask;
 
-                _logger.LogInformation("Successfully updated record {EncryptedId} in section {MenuSelection}. Records affected: {RecordsAffected}", encryptedId, menuSelection, recordsAffected);
+                _logger.LogInformation("Successfully updated record in section {MenuSelection}. Records affected: {RecordsAffected}", menuSelection, recordsAffected);
 
                 return NoContent();
             }
             catch (KeyNotFoundException knfEx) // This might be thrown by your repository or related logic
             {
-                _logger.LogWarning(knfEx, "Record with ID {EncryptedId} not found in section {MenuSelection} during update attempt (KeyNotFoundException).", encryptedId, menuSelection);
+                _logger.LogWarning(knfEx, "Record was not found in section {MenuSelection} during update attempt.", menuSelection);
 
                 return NotFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
             }
             catch (TargetInvocationException tiEx) when (tiEx.InnerException is KeyNotFoundException) // For KNF thrown inside invoked method
             {
-                _logger.LogWarning(tiEx.InnerException, "Record with ID {EncryptedId} not found in section {MenuSelection} during update attempt (KeyNotFoundException via TargetInvocationException).", encryptedId, menuSelection);
+                _logger.LogWarning(tiEx.InnerException, "Record was not found in section {MenuSelection} during update attempt.", menuSelection);
 
                 return NotFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
-            }
-            catch (MissingMethodException mmEx)
-            {
-                _logger.LogError(mmEx, "A required repository method was not found for entity type of section {MenuSelection}.", menuSelection);
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"Internal server configuration error for {menuSelection}.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating record {EncryptedId} for section {MenuSelection}.", encryptedId, menuSelection);
-
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your update request for {menuSelection}.");
             }
 
             #endregion
@@ -1073,7 +1001,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteAsync(string menuSelection, string encryptedId)
         {
             #region Implementation
@@ -1117,18 +1045,13 @@ namespace MedRecPro.Api.Controllers
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("Failed to decrypt ID")) // From Repository
             {
-                _logger.LogWarning(ex, $"Decryption failed for ID {encryptedId} in section {menuSelection} during delete operation.");
+                _logger.LogWarning(ex, "Decryption failed for a record identifier in section {MenuSelection} during delete operation.", menuSelection);
                 return BadRequest($"Invalid encrypted ID format for section {menuSelection}.");
             }
             catch (KeyNotFoundException ex) // From Repository
             {
-                _logger.LogWarning(ex, $"Record with ID {encryptedId} not found in section {menuSelection} for deletion.");
+                _logger.LogWarning(ex, "Record was not found in section {MenuSelection} for deletion.", menuSelection);
                 return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error deleting record {encryptedId} for section {menuSelection}.");
-                return StatusCode(StatusCodes.Status500InternalServerError, $"An error occurred while processing your request for {menuSelection}.");
             }
 
             #endregion

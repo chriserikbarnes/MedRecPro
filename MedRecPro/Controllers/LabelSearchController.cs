@@ -116,6 +116,7 @@ namespace MedRecPro.Api.Controllers
                 }
                 return null;
             }
+            // Broad-catch allowlist: optional claim lookup must not prevent an otherwise anonymous search request.
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to get current user ID from context");
@@ -207,7 +208,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("application-number/search")]
         [ProducesResponseType(typeof(IEnumerable<ProductsByApplicationNumberDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductsByApplicationNumberDto>>> SearchByApplicationNumber(
             [FromQuery] string applicationNumber,
             [FromQuery] int? pageNumber,
@@ -250,11 +251,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching products by application number {ApplicationNumber}", applicationNumber);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching products by application number.");
+                throw;
             }
 
             #endregion
@@ -313,7 +313,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("application-number/summaries")]
         [ProducesResponseType(typeof(IEnumerable<ApplicationNumberSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ApplicationNumberSummaryDto>>> GetApplicationNumberSummaries(
             [FromQuery] string? marketingCategory,
             [FromQuery] int? pageNumber,
@@ -350,11 +350,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving application number summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving application number summaries.");
+                throw;
             }
 
             #endregion
@@ -459,7 +458,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(PharmacologicClassSearchResult), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(IEnumerable<ProductsByPharmacologicClassDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult> SearchByPharmacologicClass(
             [FromQuery] string? query,
             [FromQuery] string? classNameSearch,
@@ -552,13 +551,12 @@ namespace MedRecPro.Api.Controllers
             catch (ArgumentException ex)
             {
                 _logger.LogWarning(ex, "Invalid argument for pharmacologic class search: {ClassNameSearch}", classNameSearch);
-                return BadRequest(ex.Message);
+                return BadRequest("The pharmacologic class search request is invalid.");
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching products by pharmacologic class {ClassNameSearch}", classNameSearch);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching products by pharmacologic class.");
+                throw;
             }
 
             #endregion
@@ -659,7 +657,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("extract-product")]
         [ProducesResponseType(typeof(ProductExtractionResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<ProductExtractionResult>> ExtractProductFromDescription(
             [FromQuery] string description)
         {
@@ -695,11 +693,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "[EXTRACT PRODUCT] Error extracting product from description: {Description}", description);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while extracting product from description.");
+                throw;
             }
 
             #endregion
@@ -744,7 +741,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("pharmacologic-class/hierarchy")]
         [ProducesResponseType(typeof(IEnumerable<PharmacologicClassHierarchyViewDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<PharmacologicClassHierarchyViewDto>>> GetPharmacologicClassHierarchy(
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
@@ -779,11 +776,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving pharmacologic class hierarchy");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving pharmacologic class hierarchy.");
+                throw;
             }
 
             #endregion
@@ -845,7 +841,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("pharmacologic-class/summaries")]
         [ProducesResponseType(typeof(List<PharmacologicClassSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<List<PharmacologicClassSummaryDto>>> GetPharmacologicClassSummaries(
             [FromQuery] bool useAiCache = false,
             [FromQuery] int? pageNumber = null,
@@ -912,11 +908,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving pharmacologic class summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving pharmacologic class summaries.");
+                throw;
             }
 
             #endregion
@@ -962,7 +957,7 @@ namespace MedRecPro.Api.Controllers
         [ProducesResponseType(typeof(IndicationSearchResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult> SearchByIndication(
             [FromQuery] string query,
             [FromQuery] int maxProductsPerIndication = 25)
@@ -1001,11 +996,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(result);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error during indication search for query: {Query}", query);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching by indication.");
+                throw;
             }
 
             #endregion
@@ -1073,7 +1067,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ingredient/search")]
         [ProducesResponseType(typeof(IEnumerable<ProductsByIngredientDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductsByIngredientDto>>> SearchByIngredient(
             [FromQuery] string? unii,
             [FromQuery] string? substanceNameSearch,
@@ -1118,12 +1112,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching products by ingredient. UNII: {UNII}, SubstanceName: {SubstanceName}",
-                    unii ?? "null", substanceNameSearch ?? "null");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching products by ingredient.");
+                throw;
             }
 
             #endregion
@@ -1177,7 +1169,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ingredient/summaries")]
         [ProducesResponseType(typeof(IEnumerable<IngredientSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientSummaryDto>>> GetIngredientSummaries(
             [FromQuery] string? ingredient,
             [FromQuery] int? minProductCount,
@@ -1222,11 +1214,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving ingredient summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving ingredient summaries.");
+                throw;
             }
 
             #endregion
@@ -1284,7 +1275,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ingredient/active/summaries")]
         [ProducesResponseType(typeof(IEnumerable<IngredientActiveSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientActiveSummaryDto>>> GetIngredientActiveSummaries(
             [FromQuery] string? ingredient,
             [FromQuery] int? minProductCount,
@@ -1329,11 +1320,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving active ingredient summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving active ingredient summaries.");
+                throw;
             }
 
             #endregion
@@ -1392,7 +1382,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ingredient/inactive/summaries")]
         [ProducesResponseType(typeof(IEnumerable<IngredientInactiveSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientInactiveSummaryDto>>> GetIngredientInactiveSummaries(
             [FromQuery] string? ingredient,
             [FromQuery] int? minProductCount,
@@ -1437,11 +1427,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving inactive ingredient summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving inactive ingredient summaries.");
+                throw;
             }
 
             #endregion
@@ -1528,7 +1517,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ingredient/advanced")]
         [ProducesResponseType(typeof(IEnumerable<IngredientViewDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientViewDto>>> SearchIngredientsAdvanced(
             [FromQuery] string? unii,
             [FromQuery] string? substanceNameSearch,
@@ -1585,11 +1574,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error in advanced ingredient search");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching ingredients.");
+                throw;
             }
 
             #endregion
@@ -1662,7 +1650,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ingredient/by-application")]
         [ProducesResponseType(typeof(IEnumerable<IngredientViewDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<IngredientViewDto>>> SearchIngredientByApplicationNumber(
             [FromQuery] string applicationNumber,
             [FromQuery] int? pageNumber,
@@ -1705,12 +1693,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error finding products by application number with same ingredient. ApplicationNumber: {ApplicationNumber}",
-                    applicationNumber);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching products by application number.");
+                throw;
             }
 
             #endregion
@@ -1774,7 +1760,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ingredient/related")]
         [ProducesResponseType(typeof(IngredientRelatedResultsDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IngredientRelatedResultsDto>> GetRelatedIngredients(
             [FromQuery] string? unii,
             [FromQuery] string? substanceNameSearch,
@@ -1810,12 +1796,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error finding related ingredients. UNII: {UNII}, SubstanceName: {SubstanceName}",
-                    unii ?? "null", substanceNameSearch ?? "null");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while finding related ingredients.");
+                throw;
             }
 
             #endregion
@@ -1878,7 +1862,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ndc/search")]
         [ProducesResponseType(typeof(IEnumerable<ProductsByNDCDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductsByNDCDto>>> SearchByNDC(
             [FromQuery] string productCode,
             [FromQuery] int? pageNumber,
@@ -1921,11 +1905,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching products by NDC {ProductCode}", productCode);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching products by NDC.");
+                throw;
             }
 
             #endregion
@@ -1975,7 +1958,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("ndc/package/search")]
         [ProducesResponseType(typeof(IEnumerable<PackageByNDCDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<PackageByNDCDto>>> SearchByPackageNDC(
             [FromQuery] string packageCode,
             [FromQuery] int? pageNumber,
@@ -2018,11 +2001,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching packages by NDC {PackageCode}", packageCode);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching packages by NDC.");
+                throw;
             }
 
             #endregion
@@ -2085,7 +2067,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("labeler/search")]
         [ProducesResponseType(typeof(IEnumerable<ProductsByLabelerDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductsByLabelerDto>>> SearchByLabeler(
             [FromQuery] string labelerNameSearch,
             [FromQuery] int? pageNumber,
@@ -2128,11 +2110,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching products by labeler {LabelerNameSearch}", labelerNameSearch);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching products by labeler.");
+                throw;
             }
 
             #endregion
@@ -2176,7 +2157,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("labeler/summaries")]
         [ProducesResponseType(typeof(IEnumerable<LabelerSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<LabelerSummaryDto>>> GetLabelerSummaries(
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
@@ -2211,11 +2192,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving labeler summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving labeler summaries.");
+                throw;
             }
 
             #endregion
@@ -2285,7 +2265,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("section/search")]
         [ProducesResponseType(typeof(IEnumerable<SectionNavigationDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<SectionNavigationDto>>> SearchBySectionCode(
             [FromQuery] string sectionCode,
             [FromQuery] int? pageNumber,
@@ -2328,11 +2308,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching sections by code {SectionCode}", sectionCode);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching sections by code.");
+                throw;
             }
 
             #endregion
@@ -2376,7 +2355,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("section/summaries")]
         [ProducesResponseType(typeof(IEnumerable<SectionTypeSummaryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<SectionTypeSummaryDto>>> GetSectionTypeSummaries(
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
@@ -2411,11 +2390,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving section type summaries");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving section type summaries.");
+                throw;
             }
 
             #endregion
@@ -2514,7 +2492,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("section/content/{documentGuid}")]
         [ProducesResponseType(typeof(IEnumerable<SectionContentDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<SectionContentDto>>> GetSectionContent(
             [FromRoute] Guid documentGuid,
             [FromQuery] Guid? sectionGuid,
@@ -2566,11 +2544,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving section content for DocumentGUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving section content.");
+                throw;
             }
 
             #endregion
@@ -2631,7 +2608,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("drug-safety/dea-schedule")]
         [ProducesResponseType(typeof(IEnumerable<DEAScheduleLookupDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<DEAScheduleLookupDto>>> GetDEAScheduleProducts(
             [FromQuery] string? scheduleCode,
             [FromQuery] int? pageNumber,
@@ -2668,11 +2645,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving DEA schedule products");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving DEA schedule products.");
+                throw;
             }
 
             #endregion
@@ -2736,7 +2712,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("product/search")]
         [ProducesResponseType(typeof(IEnumerable<ProductSummaryViewDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductSummaryViewDto>>> SearchProductSummary(
             [FromQuery] string productNameSearch,
             [FromQuery] int? pageNumber,
@@ -2779,11 +2755,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error searching product summaries for {ProductNameSearch}", productNameSearch);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while searching product summaries.");
+                throw;
             }
 
             #endregion
@@ -2868,7 +2843,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("product/related")]
         [ProducesResponseType(typeof(IEnumerable<RelatedProductsDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<RelatedProductsDto>>> GetRelatedProducts(
             [FromQuery] int? sourceProductId,
             [FromQuery] Guid? sourceDocumentGuid,
@@ -2915,11 +2890,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving related products for ProductID {SourceProductId}, DocumentGUID {SourceDocumentGuid}", sourceProductId, sourceDocumentGuid);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving related products.");
+                throw;
             }
 
             #endregion
@@ -2965,7 +2939,7 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="LabelView.APIEndpointGuide"/>
         [HttpGet("guide")]
         [ProducesResponseType(typeof(IEnumerable<APIEndpointGuideDto>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<APIEndpointGuideDto>>> GetAPIEndpointGuide(
             [FromQuery] string? category)
         {
@@ -2983,11 +2957,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving API endpoint guide");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving API endpoint guide.");
+                throw;
             }
 
             #endregion
@@ -3090,7 +3063,7 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="LabelView.InventorySummary"/>
         [HttpGet("inventory/summary")]
         [ProducesResponseType(typeof(IEnumerable<InventorySummaryDto>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<InventorySummaryDto>>> GetInventorySummary(
             [FromQuery] string? category)
         {
@@ -3107,11 +3080,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving inventory summary");
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving inventory summary.");
+                throw;
             }
 
             #endregion
@@ -3200,7 +3172,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("product/latest")]
         [ProducesResponseType(typeof(IEnumerable<ProductLatestLabelDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductLatestLabelDto>>> GetProductLatestLabels(
             [FromQuery] string? unii,
             [FromQuery] string? productNameSearch,
@@ -3236,12 +3208,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving latest labels. UNII: {UNII}, Product: {Product}, Ingredient: {Ingredient}",
-                    unii, productNameSearch, activeIngredientSearch);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving latest labels.");
+                throw;
             }
 
             #endregion
@@ -3355,7 +3325,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("product/latest/details")]
         [ProducesResponseType(typeof(IEnumerable<ProductLatestLabelDetailsDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductLatestLabelDetailsDto>>> GetProductLatestLabelDetails(
             [FromQuery] string? unii,
             [FromQuery] string? productNameSearch,
@@ -3433,12 +3403,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(detailedResults);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving latest label details. UNII: {UNII}, Product: {Product}, Ingredient: {Ingredient}",
-                    unii, productNameSearch, activeIngredientSearch);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving latest label details.");
+                throw;
             }
 
             #endregion
@@ -3548,7 +3516,7 @@ namespace MedRecPro.Api.Controllers
         [HttpGet("product/indications")]
         [ProducesResponseType(typeof(IEnumerable<ProductIndicationsDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<IEnumerable<ProductIndicationsDto>>> GetProductIndications(
             [FromQuery] string? unii,
             [FromQuery] string? productNameSearch,
@@ -3586,12 +3554,10 @@ namespace MedRecPro.Api.Controllers
 
                 return Ok(results);
             }
-            catch (Exception ex)
+            // Global-handler bridge: unexpected failures are logged and translated once by MedRecProExceptionHandler.
+            catch
             {
-                _logger.LogError(ex, "Error retrieving product indications. UNII: {UNII}, Product: {Product}, Substance: {Substance}, Indication: {Indication}",
-                    unii, productNameSearch, substanceNameSearch, indicationSearch);
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "An error occurred while retrieving product indications.");
+                throw;
             }
 
             #endregion
