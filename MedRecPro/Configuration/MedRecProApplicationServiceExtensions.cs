@@ -204,19 +204,7 @@ namespace MedRecPro.Configuration
             services.AddSingleton(TimeProvider.System);
 
             services.AddSingleton<IAppCache, PerformanceAppCache>();
-            services.AddSingleton<LegacyDtoLabelCacheKeyBuilder>(_ => new LegacyDtoLabelCacheKeyBuilder());
-            services.AddSingleton<LabelQueryCachePolicy>(serviceProvider => new LabelQueryCachePolicy(
-                serviceProvider.GetRequiredService<IAppCache>(),
-                serviceProvider.GetRequiredService<LegacyDtoLabelCacheKeyBuilder>()));
-
-            services.AddScoped<LabelQueryDataAccess>();
-            services.AddScoped<IIngredientSearchService, IngredientSearchService>();
-            services.AddScoped<IPharmacologicClassSearchService, PharmacologicClassSearchService>();
-            services.AddScoped<IProductSearchService, ProductSearchService>();
-            services.AddScoped<ILabelContentQueryService, LabelContentQueryService>();
-            services.AddScoped<ILabelMarkdownService, LabelMarkdownService>();
-            services.AddScoped<ILabelDocumentQueryService, LabelDocumentQueryService>();
-            services.AddScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>();
+            services.AddMedRecProLabelQueryServices();
 
             services.AddScoped<IUserContextAccessor, HttpUserContextAccessor>();
 
@@ -225,30 +213,7 @@ namespace MedRecPro.Configuration
 
             services.AddMemoryCache();
 
-            services.AddSingleton<IAeDashboardCachePolicy, AeDashboardCachePolicy>();
-
-            services.AddSingleton<IAeDashboardEncryptedIdMapper, AeDashboardEncryptedIdMapper>();
-
-            services.AddSingleton<IAeDashboardCorrelationPolicy, AeDashboardCorrelationPolicy>();
-
-            services.AddSingleton<IAeDashboardDtoMapper>(serviceProvider => new AeDashboardDtoMapper(
-                serviceProvider.GetRequiredService<IAeDashboardEncryptedIdMapper>()));
-
-            services.AddScoped<AeDashboardDataAccess>(serviceProvider => new AeDashboardDataAccess(
-                serviceProvider.GetRequiredService<IAeDashboardCachePolicy>(),
-                serviceProvider.GetRequiredService<IAeDashboardEncryptedIdMapper>(),
-                serviceProvider.GetRequiredService<IAeDashboardCorrelationPolicy>(),
-                serviceProvider.GetRequiredService<IAeDashboardDtoMapper>()));
-
-            services.AddScoped<IAeDashboardProductCatalogService, AeDashboardProductCatalogService>();
-
-            services.AddScoped<IAeDashboardProductDetailService, AeDashboardProductDetailService>();
-
-            services.AddScoped<IAeDashboardFavoriteService, AeDashboardFavoriteService>();
-
-            services.AddScoped<IAeDashboardClassCorrelationService, AeDashboardClassCorrelationService>();
-
-            services.AddScoped<IAeDashboardSystemCorrelationService, AeDashboardSystemCorrelationService>();
+            services.AddMedRecProAeDashboardServices();
 
             services.AddSingleton<AzureAppTokenProvider>();
 
@@ -264,6 +229,97 @@ namespace MedRecPro.Configuration
                 .Bind(configuration.GetSection("TarpitSettings"))
                 .ValidateOnStart();
             services.AddSingleton<TarpitService>();
+
+            return services;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Registers the feature-owned label query services and their cache policies.
+        /// </summary>
+        /// <remarks>
+        /// The caller must register <see cref="IAppCache"/> first. Query services are scoped because
+        /// they depend on <see cref="ApplicationDbContext"/>, while cache-key construction and the
+        /// cache policy are singleton-safe and carry no scoped state.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// services.AddSingleton&lt;IAppCache, PerformanceAppCache&gt;();
+        /// services.AddMedRecProLabelQueryServices();
+        /// </code>
+        /// </example>
+        /// <param name="services">The service collection to configure.</param>
+        /// <returns>The same service collection for chaining.</returns>
+        /// <seealso cref="ILabelDocumentQueryService"/>
+        /// <seealso cref="LabelQueryCachePolicy"/>
+        public static IServiceCollection AddMedRecProLabelQueryServices(this IServiceCollection services)
+        {
+            #region implementation
+
+            ArgumentNullException.ThrowIfNull(services);
+
+            services.AddSingleton<LegacyDtoLabelCacheKeyBuilder>(_ => new LegacyDtoLabelCacheKeyBuilder());
+            services.AddSingleton<LabelQueryCachePolicy>(serviceProvider => new LabelQueryCachePolicy(
+                serviceProvider.GetRequiredService<IAppCache>(),
+                serviceProvider.GetRequiredService<LegacyDtoLabelCacheKeyBuilder>()));
+
+            services.AddScoped<LabelQueryDataAccess>();
+            services.AddScoped<IIngredientSearchService, IngredientSearchService>();
+            services.AddScoped<IPharmacologicClassSearchService, PharmacologicClassSearchService>();
+            services.AddScoped<IProductSearchService, ProductSearchService>();
+            services.AddScoped<ILabelContentQueryService, LabelContentQueryService>();
+            services.AddScoped<ILabelMarkdownService, LabelMarkdownService>();
+            services.AddScoped<ILabelDocumentQueryService, LabelDocumentQueryService>();
+            services.AddScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>();
+
+            return services;
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Registers the feature-owned AE dashboard services and policies.
+        /// </summary>
+        /// <remarks>
+        /// The cache, encrypted-ID mapper, correlation policy, and DTO mapper are singleton-safe.
+        /// The data implementation and all public AE services are scoped because they work with
+        /// request-owned <see cref="ApplicationDbContext"/> instances.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// services.AddMedRecProAeDashboardServices();
+        /// </code>
+        /// </example>
+        /// <param name="services">The service collection to configure.</param>
+        /// <returns>The same service collection for chaining.</returns>
+        /// <seealso cref="IAeDashboardProductCatalogService"/>
+        /// <seealso cref="AeDashboardDataAccess"/>
+        public static IServiceCollection AddMedRecProAeDashboardServices(this IServiceCollection services)
+        {
+            #region implementation
+
+            ArgumentNullException.ThrowIfNull(services);
+
+            services.AddSingleton<IAeDashboardCachePolicy, AeDashboardCachePolicy>();
+            services.AddSingleton<IAeDashboardEncryptedIdMapper, AeDashboardEncryptedIdMapper>();
+            services.AddSingleton<IAeDashboardCorrelationPolicy, AeDashboardCorrelationPolicy>();
+            services.AddSingleton<IAeDashboardDtoMapper>(serviceProvider => new AeDashboardDtoMapper(
+                serviceProvider.GetRequiredService<IAeDashboardEncryptedIdMapper>()));
+
+            services.AddScoped<AeDashboardDataAccess>(serviceProvider => new AeDashboardDataAccess(
+                serviceProvider.GetRequiredService<IAeDashboardCachePolicy>(),
+                serviceProvider.GetRequiredService<IAeDashboardEncryptedIdMapper>(),
+                serviceProvider.GetRequiredService<IAeDashboardCorrelationPolicy>(),
+                serviceProvider.GetRequiredService<IAeDashboardDtoMapper>()));
+
+            services.AddScoped<IAeDashboardProductCatalogService, AeDashboardProductCatalogService>();
+            services.AddScoped<IAeDashboardProductDetailService, AeDashboardProductDetailService>();
+            services.AddScoped<IAeDashboardFavoriteService, AeDashboardFavoriteService>();
+            services.AddScoped<IAeDashboardClassCorrelationService, AeDashboardClassCorrelationService>();
+            services.AddScoped<IAeDashboardSystemCorrelationService, AeDashboardSystemCorrelationService>();
 
             return services;
 

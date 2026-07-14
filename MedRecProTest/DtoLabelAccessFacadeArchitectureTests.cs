@@ -54,7 +54,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var source = File.ReadAllText(findRepoFile(@"MedRecPro\DataAccess\DtoLabelAccess-AeDashboardCompatibility.cs"));
+            var source = File.ReadAllText(findRepoFile(@"MedRecPro\DataAccess\DtoLabelAccess.Compatibility.cs"));
             var forbiddenTokens = new[]
             {
                 "AsNoTracking",
@@ -88,7 +88,7 @@ namespace MedRecProTest
         {
             #region implementation
 
-            var source = File.ReadAllText(findRepoFile(@"MedRecPro\DataAccess\DtoLabelAccess.NonAeCompatibility.cs"));
+            var source = File.ReadAllText(findRepoFile(@"MedRecPro\DataAccess\DtoLabelAccess.Compatibility.cs"));
             var forbiddenTokens = new[]
             {
                 "AsNoTracking",
@@ -109,6 +109,43 @@ namespace MedRecProTest
 
             Assert.IsTrue(source.Contains("=> LabelQueryLegacyCompatibility.Create", StringComparison.Ordinal),
                 "Legacy non-AE methods must forward through the isolated compatibility adapter.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the legacy facade has exactly one forwarding-only source file.
+        /// </summary>
+        /// <remarks>
+        /// This protects the Phase 5 consolidation from quietly reintroducing a
+        /// second static partial implementation during a future feature change.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess"/>
+        [TestMethod]
+        public void CompatibilityFacade_IsTheOnlyStaticPartialSource()
+        {
+            #region implementation
+
+            var dataAccessDirectory = Path.GetDirectoryName(
+                findRepoFile(@"MedRecPro\DataAccess\DtoLabelAccess.Compatibility.cs"))!;
+            var facadeSources = Directory.EnumerateFiles(dataAccessDirectory, "DtoLabelAccess*.cs")
+                .Where(path => File.ReadAllText(path).Contains(
+                    "public static partial class DtoLabelAccess",
+                    StringComparison.Ordinal))
+                .Select(Path.GetFileName)
+                .OrderBy(fileName => fileName, StringComparer.Ordinal)
+                .ToList();
+            var source = File.ReadAllText(Path.Combine(dataAccessDirectory, "DtoLabelAccess.Compatibility.cs"));
+
+            CollectionAssert.AreEqual(
+                new[] { "DtoLabelAccess.Compatibility.cs" },
+                facadeSources,
+                "The supported legacy facade must remain in its one explicit compatibility source file.");
+            Assert.AreEqual(
+                1,
+                Regex.Matches(source, @"public\s+static\s+partial\s+class\s+DtoLabelAccess").Count,
+                "The compatibility file must declare one consolidated facade type.");
 
             #endregion
         }

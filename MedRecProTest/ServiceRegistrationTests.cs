@@ -1,12 +1,17 @@
 using MedRecPro.Configuration;
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
+using MedRecPro.Features.AeDashboard.Mapping;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Middleware;
 using MedRecPro.Models;
 using MedRecPro.Security;
+using MedRecPro.Service;
 using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery;
+using MedRecPro.Service.LabelQuery.Common;
+using MedRecPro.Service.LabelQuery.Implementation;
 using MedRecPro.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -277,6 +282,65 @@ namespace MedRecPro.Service.Test
             using var scope = provider.CreateScope();
 
             Assert.IsNotNull(scope.ServiceProvider.GetRequiredService<ActivityLogActionFilter>());
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies label-query feature registration keeps cache policies singleton-safe and data work scoped.
+        /// </summary>
+        /// <seealso cref="MedRecProApplicationServiceExtensions.AddMedRecProLabelQueryServices(IServiceCollection)"/>
+        [TestMethod]
+        public void AddMedRecProLabelQueryServices_RegistersExpectedSingletonAndScopedServices()
+        {
+            #region implementation
+
+            var services = new ServiceCollection();
+            services.AddSingleton<IAppCache, PerformanceAppCache>();
+
+            var result = services.AddMedRecProLabelQueryServices();
+
+            Assert.AreSame(services, result);
+            assertService<LegacyDtoLabelCacheKeyBuilder>(services, ServiceLifetime.Singleton);
+            assertService<LabelQueryCachePolicy>(services, ServiceLifetime.Singleton);
+            assertService<LabelQueryDataAccess>(services, ServiceLifetime.Scoped);
+            assertScoped<IIngredientSearchService, IngredientSearchService>(services);
+            assertScoped<IPharmacologicClassSearchService, PharmacologicClassSearchService>(services);
+            assertScoped<IProductSearchService, ProductSearchService>(services);
+            assertScoped<ILabelContentQueryService, LabelContentQueryService>(services);
+            assertScoped<ILabelMarkdownService, LabelMarkdownService>(services);
+            assertScoped<ILabelDocumentQueryService, LabelDocumentQueryService>(services);
+            assertScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>(services);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies AE dashboard feature registration isolates singleton policies from scoped data services.
+        /// </summary>
+        /// <seealso cref="MedRecProApplicationServiceExtensions.AddMedRecProAeDashboardServices(IServiceCollection)"/>
+        [TestMethod]
+        public void AddMedRecProAeDashboardServices_RegistersExpectedSingletonAndScopedServices()
+        {
+            #region implementation
+
+            var services = new ServiceCollection();
+
+            var result = services.AddMedRecProAeDashboardServices();
+
+            Assert.AreSame(services, result);
+            assertService<IAeDashboardCachePolicy>(services, ServiceLifetime.Singleton);
+            assertService<IAeDashboardEncryptedIdMapper>(services, ServiceLifetime.Singleton);
+            assertService<IAeDashboardCorrelationPolicy>(services, ServiceLifetime.Singleton);
+            assertService<IAeDashboardDtoMapper>(services, ServiceLifetime.Singleton);
+            assertService<AeDashboardDataAccess>(services, ServiceLifetime.Scoped);
+            assertScoped<IAeDashboardProductCatalogService, AeDashboardProductCatalogService>(services);
+            assertScoped<IAeDashboardProductDetailService, AeDashboardProductDetailService>(services);
+            assertScoped<IAeDashboardFavoriteService, AeDashboardFavoriteService>(services);
+            assertScoped<IAeDashboardClassCorrelationService, AeDashboardClassCorrelationService>(services);
+            assertScoped<IAeDashboardSystemCorrelationService, AeDashboardSystemCorrelationService>(services);
+
             #endregion
         }
 
