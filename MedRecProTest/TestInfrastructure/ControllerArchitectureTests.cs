@@ -9,15 +9,15 @@ namespace MedRecProTest.TestInfrastructure;
 
 /**************************************************************/
 /// <summary>
-/// Guards controller-size, routing, and primary-key-secret ownership boundaries.
+/// Guards controller-size and routing boundaries.
 /// </summary>
 /// <remarks>
 /// The reviewed exceptions identify currently stable endpoint families whose
 /// decomposition is intentionally deferred until their dedicated contract
-/// baseline work. The source inventory ensures all other Phase 5 owners use
-/// the shared <c>IPrimaryKeyCipher</c> seam instead of reading the raw secret.
+/// baseline work. Secret-boundary enforcement is isolated in
+/// <see cref="SecretBoundaryArchitectureTests"/> so it can scan every
+/// production project without conflating that concern with controller shape.
 /// </remarks>
-/// <seealso cref="MedRecPro.Service.IPrimaryKeyCipher"/>
 /// <seealso cref="LabelControllerRouteCompatibilityTests"/>
 [TestClass]
 public class ControllerArchitectureTests
@@ -31,32 +31,6 @@ public class ControllerArchitectureTests
             ["SettingsController"] = 15,
             ["UsersController"] = 14
         };
-
-    private static readonly HashSet<string> DeferredPrimaryKeySecretReaders = new(StringComparer.Ordinal)
-    {
-        "Controllers\\AdverseEventController.cs",
-        "Controllers\\SettingsController.cs",
-        "Controllers\\UsersController.cs",
-        "DataAccess\\RepositoryDataAccess.cs",
-        "DataAccess\\UserDataAccess.cs",
-        "Models\\LabelDto.cs",
-        "Models\\User.cs",
-        "Service\\CommonService.cs",
-        "Service\\Label\\LabelQueryServices.cs",
-        "Service\\PermissionService.cs",
-        "Service\\SplDataService.cs"
-    };
-
-    private static readonly string[] MigratedPhaseFiveOwners =
-    {
-        "Auth\\BasicAuthenticationHandler.cs",
-        "Controllers\\AiController.cs",
-        "Controllers\\AuthController.cs",
-        "Controllers\\OrangeBookController.cs",
-        "Filters\\RequireActorAttributeFilter.cs",
-        "Filters\\RequireUserRoleAttributeFilter.cs",
-        "Service\\ClaudeSearchService.cs"
-    };
 
     /**************************************************************/
     /// <summary>
@@ -133,10 +107,9 @@ public class ControllerArchitectureTests
     /// <summary>
     /// Verifies Label controllers expose explicit application-service seams
     /// rather than framework service-location or database constructor
-    /// dependencies. Configuration remains permitted for non-secret feature
-    /// settings; the source inventory below guards raw primary-key access.
+    /// dependencies. Configuration remains permitted for feature settings;
+    /// raw primary-key secret access is guarded separately.
     /// </summary>
-    /// <seealso cref="MedRecPro.Service.IPrimaryKeyCipher"/>
     [TestMethod]
     [TestCategory("Architecture")]
     public void LabelControllers_DoNotInjectForbiddenInfrastructureDependencies()
@@ -163,44 +136,6 @@ public class ControllerArchitectureTests
 
     /**************************************************************/
     /// <summary>
-    /// Verifies every Phase 5 primary-key-secret owner is migrated or recorded
-    /// as an explicit deferred controller-family follow-up.
-    /// </summary>
-    /// <remarks>
-        /// The exact deferral inventory prevents new configuration reads from being
-        /// normalized as legacy behavior. Settings, Users, and AE retain controller
-        /// plumbing while their contract-first decompositions are scheduled; lower
-        /// compatibility services remain explicitly listed for their own migration.
-    /// </remarks>
-    [TestMethod]
-    [TestCategory("Architecture")]
-    public void PhaseFivePrimaryKeySecretOwners_AreMigratedOrExplicitlyDeferred()
-    {
-        #region implementation
-
-        var productionDirectory = Path.Combine(findRepositoryDirectory(), "MedRecPro");
-        var rawReaders = Directory.GetFiles(productionDirectory, "*.cs", SearchOption.AllDirectories)
-            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
-            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
-            .Where(path => readsPrimaryKeySecretFromConfiguration(File.ReadAllText(path)))
-            .Select(path => Path.GetRelativePath(productionDirectory, path))
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var migratedOwner in MigratedPhaseFiveOwners)
-        {
-            Assert.IsFalse(rawReaders.Contains(migratedOwner), $"{migratedOwner} must use the shared cipher seam.");
-        }
-
-        CollectionAssert.AreEquivalent(
-            DeferredPrimaryKeySecretReaders.OrderBy(path => path).ToArray(),
-            rawReaders.OrderBy(path => path).ToArray(),
-            "Raw primary-key configuration reader inventory drifted.");
-
-        #endregion
-    }
-
-    /**************************************************************/
-    /// <summary>
     /// Gets concrete MVC controllers from the production assembly.
     /// </summary>
     /// <returns>Controller types with declared HTTP action metadata.</returns>
@@ -213,24 +148,6 @@ public class ControllerArchitectureTests
             .Where(type => !type.IsAbstract)
             .Where(type => typeof(ControllerBase).IsAssignableFrom(type))
             .Where(type => type.Namespace is "MedRecPro.Controllers" or "MedRecPro.Api.Controllers");
-
-        #endregion
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Determines whether source code reads the primary-key secret directly
-    /// from configuration rather than referring to it only in diagnostics.
-    /// </summary>
-    /// <param name="source">Production source text to inspect.</param>
-    /// <returns><c>true</c> when a direct configuration read is present.</returns>
-    private static bool readsPrimaryKeySecretFromConfiguration(string source)
-    {
-        #region implementation
-
-        return source.Contains("GetSection(\"Security:DB:PKSecret\")", StringComparison.Ordinal) ||
-            source.Contains("[\"Security:DB:PKSecret\"]", StringComparison.Ordinal) ||
-            source.Contains("GetValue<string>(\"Security:DB:PKSecret\")", StringComparison.Ordinal);
 
         #endregion
     }
