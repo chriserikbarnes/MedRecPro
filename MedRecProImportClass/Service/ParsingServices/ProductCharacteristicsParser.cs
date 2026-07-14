@@ -286,12 +286,24 @@ namespace MedRecProImportClass.Service.ParsingServices
                         existingCharacteristicKeys.Add(currentKey);
 
                         var levelType = packagingLevelId.HasValue ? "package-level" : "product-level";
-                        context?.Logger?.LogInformation($"New {levelType} characteristic created: ProductID={product.ProductID}, PackagingLevelID={characteristic.PackagingLevelID}, Code={characteristic.CharacteristicCode}, ValueType={characteristic.ValueType}");
+                        context?.Logger?.LogInformation(
+                            "New {LevelType} characteristic created: ProductID={ProductId}, PackagingLevelID={PackagingLevelId}, Code={CharacteristicCode}, ValueType={ValueType}",
+                            levelType,
+                            product.ProductID,
+                            characteristic.PackagingLevelID,
+                            characteristic.CharacteristicCode,
+                            characteristic.ValueType);
                     }
                     else
                     {
                         var levelType = packagingLevelId.HasValue ? "package-level" : "product-level";
-                        context?.Logger?.LogInformation($"Duplicate {levelType} characteristic skipped: ProductID={product.ProductID}, PackagingLevelID={characteristic.PackagingLevelID}, Code={characteristic.CharacteristicCode}, ValueType={characteristic.ValueType}");
+                        context?.Logger?.LogInformation(
+                            "Duplicate {LevelType} characteristic skipped: ProductID={ProductId}, PackagingLevelID={PackagingLevelId}, Code={CharacteristicCode}, ValueType={ValueType}",
+                            levelType,
+                            product.ProductID,
+                            characteristic.PackagingLevelID,
+                            characteristic.CharacteristicCode,
+                            characteristic.ValueType);
                     }
                 }
 
@@ -437,11 +449,17 @@ namespace MedRecProImportClass.Service.ParsingServices
                         if (packagingLevel != null)
                         {
                             packagingLevelId = packagingLevel.PackagingLevelID;
-                            context.Logger?.LogInformation($"Found PackagingLevel {packagingLevelId} for package code {packageCode}");
+                            context.Logger?.LogInformation(
+                                "Found PackagingLevel {PackagingLevelId} for package code {PackageCode}",
+                                packagingLevelId,
+                                packageCode);
                         }
                         else
                         {
-                            context.Logger?.LogDebug($"Could not find PackagingLevel for ProductID={product.ProductID}, PackageCode={packageCode}");
+                            context.Logger?.LogDebug(
+                                "Could not find PackagingLevel for ProductID={ProductId}, PackageCode={PackageCode}",
+                                product.ProductID,
+                                packageCode);
                         }
                     }
 
@@ -694,7 +712,12 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 await repo.CreateAsync(additionalIdentifier);
                 count++;
-                context.Logger.LogInformation($"AdditionalIdentifier created: ProductID={product.ProductID}, TypeCode={typeCode}, Value={identifierValue}, Root={identifierRootOID}");
+                context.Logger.LogInformation(
+                    "AdditionalIdentifier created: ProductID={ProductId}, TypeCode={TypeCode}, Value={IdentifierValue}, Root={IdentifierRootOid}",
+                    product.ProductID,
+                    typeCode,
+                    identifierValue,
+                    identifierRootOID);
             }
 
             return count;
@@ -769,7 +792,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                     await repo.CreateAsync(route);
                     count++;
                     context.Logger.LogInformation(
-                        $"ProductRouteOfAdministration created: ProductID={product.ProductID}, RouteCode={routeCode}, DisplayName={displayName}, NullFlavor={nullFlavor}");
+                        "ProductRouteOfAdministration created: ProductID={ProductId}, RouteCode={RouteCode}, DisplayName={DisplayName}, NullFlavor={NullFlavor}",
+                        product.ProductID,
+                        routeCode,
+                        displayName,
+                        nullFlavor);
                 }
             }
 
@@ -1102,7 +1129,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 characteristicDbSet.AddRange(newCharacteristics);
                 await dbContext.SaveChangesAsync();
-                context.Logger?.LogInformation($"Bulk created {newCharacteristics.Count} characteristics for ProductID={productId}");
+                context.Logger?.LogInformation(
+                    "Bulk created {CharacteristicCount} characteristics for ProductID={ProductId}",
+                    newCharacteristics.Count,
+                    productId);
             }
 
             return newCharacteristics.Count;
@@ -1284,7 +1314,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 identifierDbSet.AddRange(newIdentifiers);
                 await dbContext.SaveChangesAsync();
-                context.Logger?.LogInformation($"Bulk created {newIdentifiers.Count} additional identifiers for ProductID={productId}");
+                context.Logger?.LogInformation(
+                    "Bulk created {IdentifierCount} additional identifiers for ProductID={ProductId}",
+                    newIdentifiers.Count,
+                    productId);
             }
 
             return newIdentifiers.Count;
@@ -1451,7 +1484,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             {
                 routeDbSet.AddRange(newRoutes);
                 await dbContext.SaveChangesAsync();
-                context.Logger?.LogInformation($"Bulk created {newRoutes.Count} product routes of administration for ProductID={productId}");
+                context.Logger?.LogInformation(
+                    "Bulk created {RouteCount} product routes of administration for ProductID={ProductId}",
+                    newRoutes.Count,
+                    productId);
             }
 
             return newRoutes.Count;

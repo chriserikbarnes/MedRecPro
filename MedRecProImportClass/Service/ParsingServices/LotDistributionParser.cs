@@ -135,7 +135,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                     var lotIdentifier = await getOrCreateLotIdentifierAsync(productInstanceEl, context);
                     if (lotIdentifier?.LotIdentifierID == null)
                     {
-                        context.Logger.LogDebug($"Failed to create LotIdentifier for {lotType}, skipping.");
+                    context.Logger.LogDebug(
+                        "Failed to create LotIdentifier for {LotType}, skipping.",
+                        lotType);
                         continue;
                     }
 
@@ -411,7 +413,9 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate lot number format according to SPL IG 16.2.5.4
             if (!isValidLotNumber(lotNumber))
             {
-                context.Logger.LogDebug($"Invalid lot number format: {lotNumber}. Must contain only digits, uppercase letters, '-', and '/'.");
+                context.Logger.LogDebug(
+                    "Invalid lot number format: {LotNumber}. Must contain only digits, uppercase letters, '-', and '/'.",
+                    lotNumber);
                 return null;
             }
 
@@ -428,7 +432,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var existingLot = await findExistingLotIdentifierAsync(lotIdentifier, context);
             if (existingLot != null)
             {
-                context.Logger.LogDebug($"Found existing LotIdentifier for lot number {lotNumber}");
+                context.Logger.LogDebug("Found existing LotIdentifier for lot number {LotNumber}", lotNumber);
                 return existingLot;
             }
 
@@ -436,7 +440,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             var repo = context.GetRepository<LotIdentifier>();
             await repo.CreateAsync(lotIdentifier);
 
-            context.Logger.LogInformation($"Created LotIdentifier: LotNumber={lotNumber}, RootOID={computedRootOid}");
+            context.Logger.LogInformation(
+                "Created LotIdentifier: LotNumber={LotNumber}, RootOID={RootOid}",
+                lotNumber,
+                computedRootOid);
             return lotIdentifier;
             #endregion
         }
@@ -568,7 +575,9 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (!productIdentifiers.Any())
                 {
-                    context.Logger.LogDebug($"No ProductIdentifiers found for ProductID {product.ProductID}");
+                context.Logger.LogDebug(
+                    "No ProductIdentifiers found for ProductID {ProductId}",
+                    product.ProductID);
                     return null;
                 }
 
@@ -576,7 +585,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var ndcIdentifier = findIdentifierByOidPattern(productIdentifiers, "2.16.840.1.113883.6.69");
                 if (ndcIdentifier != null)
                 {
-                    context.Logger.LogDebug($"Found NDC product code: {ndcIdentifier.IdentifierValue}");
+                context.Logger.LogDebug(
+                    "Found NDC product code: {IdentifierValue}",
+                    ndcIdentifier.IdentifierValue);
                     return ndcIdentifier.IdentifierValue;
                 }
 
@@ -584,7 +595,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var isbtIdentifier = findIdentifierByOidPattern(productIdentifiers, "2.16.840.1.113883.6.18");
                 if (isbtIdentifier != null)
                 {
-                    context.Logger.LogDebug($"Found ISBT 128 product code: {isbtIdentifier.IdentifierValue}");
+                context.Logger.LogDebug(
+                    "Found ISBT 128 product code: {IdentifierValue}",
+                    isbtIdentifier.IdentifierValue);
                     return isbtIdentifier.IdentifierValue;
                 }
 
@@ -592,7 +605,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var gs1Identifier = findIdentifierByOidPattern(productIdentifiers, "1.3.160");
                 if (gs1Identifier != null)
                 {
-                    context.Logger.LogDebug($"Found GS1 GTIN product code: {gs1Identifier.IdentifierValue}");
+                context.Logger.LogDebug(
+                    "Found GS1 GTIN product code: {IdentifierValue}",
+                    gs1Identifier.IdentifierValue);
                     return gs1Identifier.IdentifierValue;
                 }
 
@@ -604,16 +619,24 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (firstValidIdentifier != null)
                 {
-                    context.Logger.LogDebug($"Using fallback product code: {firstValidIdentifier.IdentifierValue} (Type: {firstValidIdentifier.IdentifierType})");
+                context.Logger.LogDebug(
+                    "Using fallback product code: {IdentifierValue} (Type: {IdentifierType})",
+                    firstValidIdentifier.IdentifierValue,
+                    firstValidIdentifier.IdentifierType);
                     return firstValidIdentifier.IdentifierValue;
                 }
 
-                context.Logger.LogDebug($"No valid product identifiers found for ProductID {product.ProductID}");
+            context.Logger.LogDebug(
+                "No valid product identifiers found for ProductID {ProductId}",
+                product.ProductID);
                 return null;
             }
             catch (Exception ex)
             {
-                context.Logger.LogError(ex, $"Error retrieving product code for ProductID {product.ProductID}");
+            context.Logger.LogError(
+                ex,
+                "Error retrieving product code for ProductID {ProductId}",
+                product.ProductID);
                 return null;
             }
             #endregion
@@ -864,7 +887,9 @@ namespace MedRecProImportClass.Service.ParsingServices
             var existingInstance = await findExistingProductInstanceAsync(productInstance, context);
             if (existingInstance != null)
             {
-                context.Logger.LogDebug($"Found existing ProductInstance for lot {lotIdentifier.LotNumber}");
+                context.Logger.LogDebug(
+                    "Found existing ProductInstance for lot {LotNumber}",
+                    lotIdentifier.LotNumber);
                 return existingInstance;
             }
 
@@ -872,7 +897,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             var repo = context.GetRepository<ProductInstance>();
             await repo.CreateAsync(productInstance);
 
-            context.Logger.LogInformation($"Created ProductInstance: Type={instanceType}, LotNumber={lotIdentifier.LotNumber}");
+            context.Logger.LogInformation(
+                "Created ProductInstance: Type={InstanceType}, LotNumber={LotNumber}",
+                instanceType,
+                lotIdentifier.LotNumber);
             return productInstance;
             #endregion
         }
@@ -1047,7 +1075,9 @@ namespace MedRecProImportClass.Service.ParsingServices
             var existingIngredient = await findExistingIngredientInstanceAsync(ingredientInstance, context);
             if (existingIngredient != null)
             {
-                context.Logger.LogDebug($"Found existing IngredientInstance for bulk lot {bulkLotIdentifier.LotNumber}");
+                context.Logger.LogDebug(
+                    "Found existing IngredientInstance for bulk lot {LotNumber}",
+                    bulkLotIdentifier.LotNumber);
                 return existingIngredient;
             }
 
@@ -1055,7 +1085,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             var repo = context.GetRepository<IngredientInstance>();
             await repo.CreateAsync(ingredientInstance);
 
-            context.Logger.LogInformation($"Created IngredientInstance: BulkLot={bulkLotIdentifier.LotNumber}, FillLot={fillLotInstance.ProductInstanceID}");
+            context.Logger.LogInformation(
+                "Created IngredientInstance: BulkLot={BulkLotNumber}, FillLot={FillProductInstanceId}",
+                bulkLotIdentifier.LotNumber,
+                fillLotInstance.ProductInstanceID);
             return ingredientInstance;
             #endregion
         }
@@ -1145,7 +1178,10 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (substance == null)
             {
-                context.Logger.LogDebug($"IngredientSubstance not found for code {substanceCode} or name {substanceName}");
+                context.Logger.LogDebug(
+                    "IngredientSubstance not found for code {SubstanceCode} or name {SubstanceName}",
+                    substanceCode,
+                    substanceName);
             }
 
             return substance?.IngredientSubstanceID;
@@ -1195,7 +1231,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate DUNS number format and root OID
             if (string.IsNullOrWhiteSpace(dunsNumber) || rootOid != "1.3.6.1.4.1.519.1")
             {
-                context.Logger.LogDebug($"Invalid DUNS number or root OID for manufacturer: DUNS={dunsNumber}, Root={rootOid}");
+                context.Logger.LogDebug(
+                    "Invalid DUNS number or root OID for manufacturer: DUNS={DunsNumber}, Root={RootOid}",
+                    dunsNumber,
+                    rootOid);
                 return null;
             }
 
@@ -1231,7 +1270,7 @@ namespace MedRecProImportClass.Service.ParsingServices
 
             if (organization == null)
             {
-                context.Logger.LogDebug($"Organization not found for DUNS number {dunsNumber}");
+                context.Logger.LogDebug("Organization not found for DUNS number {DunsNumber}", dunsNumber);
             }
 
             return organization?.OrganizationID;
@@ -1306,7 +1345,9 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Validate lot number format according to SPL IG 16.2.5.4
             if (!isValidLotNumber(lotNumber))
             {
-                context.Logger.LogDebug($"Invalid lot number format: {lotNumber}. Must contain only digits, uppercase letters, '-', and '/'.");
+                context.Logger.LogDebug(
+                    "Invalid lot number format: {LotNumber}. Must contain only digits, uppercase letters, '-', and '/'.",
+                    lotNumber);
                 return null;
             }
 
@@ -1323,7 +1364,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             var existingLot = await findExistingLotIdentifierAsync(lotIdentifier, context);
             if (existingLot != null)
             {
-                context.Logger.LogDebug($"Found existing LotIdentifier for lot number {lotNumber}");
+                context.Logger.LogDebug("Found existing LotIdentifier for lot number {LotNumber}", lotNumber);
                 return existingLot;
             }
 
@@ -1331,7 +1372,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             var repo = context.GetRepository<LotIdentifier>();
             await repo.CreateAsync(lotIdentifier);
 
-            context.Logger.LogInformation($"Created LotIdentifier: LotNumber={lotNumber}, RootOID={computedRootOid}");
+            context.Logger.LogInformation(
+                "Created LotIdentifier: LotNumber={LotNumber}, RootOID={RootOid}",
+                lotNumber,
+                computedRootOid);
             return lotIdentifier;
             #endregion
         }
@@ -1420,7 +1464,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             // Use batch processing if we have multiple children, otherwise process individually
             if (childInstanceIds.Count > 1)
             {
-                context.Logger.LogDebug($"Using batch processing for {childInstanceIds.Count} LotHierarchy relationships for parent {parentInstance.ProductInstanceID}");
+            context.Logger.LogDebug(
+                "Using batch processing for {RelationshipCount} LotHierarchy relationships for parent {ParentProductInstanceId}",
+                childInstanceIds.Count,
+                parentInstance.ProductInstanceID);
 
                 count = await createMultipleLotHierarchiesAsync(
                     parentInstance.ProductInstanceID, childInstanceIds, context);
@@ -1479,7 +1526,9 @@ namespace MedRecProImportClass.Service.ParsingServices
             var existingInstance = await findExistingProductInstanceAsync(productInstance, context);
             if (existingInstance != null)
             {
-                context.Logger.LogDebug($"Found existing ProductInstance for lot {lotIdentifier.LotNumber}");
+                context.Logger.LogDebug(
+                    "Found existing ProductInstance for lot {LotNumber}",
+                    lotIdentifier.LotNumber);
                 return existingInstance;
             }
 
@@ -1487,7 +1536,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             var repo = context.GetRepository<ProductInstance>();
             await repo.CreateAsync(productInstance);
 
-            context.Logger.LogInformation($"Created ProductInstance: Type={instanceType}, LotNumber={lotIdentifier.LotNumber}");
+            context.Logger.LogInformation(
+                "Created ProductInstance: Type={InstanceType}, LotNumber={LotNumber}",
+                instanceType,
+                lotIdentifier.LotNumber);
             return productInstance;
             #endregion
         }
@@ -1543,14 +1595,20 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (existingHierarchy != null)
                 {
-                    context.Logger.LogDebug($"Found existing LotHierarchy: Parent={parentInstanceId}, Child={childInstanceId}");
+                context.Logger.LogDebug(
+                    "Found existing LotHierarchy: Parent={ParentProductInstanceId}, Child={ChildProductInstanceId}",
+                    parentInstanceId,
+                    childInstanceId);
                     return existingHierarchy;
                 }
 
                 // Validate that both parent and child instances exist
                 if (!await validateProductInstancesExistAsync(parentInstanceId, childInstanceId, context))
                 {
-                    context.Logger.LogDebug($"Parent or child ProductInstance does not exist: Parent={parentInstanceId}, Child={childInstanceId}");
+                context.Logger.LogDebug(
+                    "Parent or child ProductInstance does not exist: Parent={ParentProductInstanceId}, Child={ChildProductInstanceId}",
+                    parentInstanceId,
+                    childInstanceId);
                     return null;
                 }
 
@@ -1565,12 +1623,20 @@ namespace MedRecProImportClass.Service.ParsingServices
                 hierarchyDbSet.Add(newHierarchy);
                 await dbContext.SaveChangesAsync();
 
-                context.Logger.LogInformation($"Created LotHierarchy: ID={newHierarchy.LotHierarchyID}, Parent={parentInstanceId}, Child={childInstanceId}");
+            context.Logger.LogInformation(
+                "Created LotHierarchy: ID={LotHierarchyId}, Parent={ParentProductInstanceId}, Child={ChildProductInstanceId}",
+                newHierarchy.LotHierarchyID,
+                parentInstanceId,
+                childInstanceId);
                 return newHierarchy;
             }
             catch (Exception ex)
             {
-                context.Logger.LogError(ex, $"Error creating LotHierarchy: Parent={parentInstanceId}, Child={childInstanceId}");
+            context.Logger.LogError(
+                ex,
+                "Error creating LotHierarchy: Parent={ParentProductInstanceId}, Child={ChildProductInstanceId}",
+                parentInstanceId,
+                childInstanceId);
                 return null;
             }
             #endregion
@@ -1613,7 +1679,11 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (Exception ex)
             {
-                context.Logger.LogError(ex, $"Error searching for existing LotHierarchy: Parent={parentInstanceId}, Child={childInstanceId}");
+            context.Logger.LogError(
+                ex,
+                "Error searching for existing LotHierarchy: Parent={ParentProductInstanceId}, Child={ChildProductInstanceId}",
+                parentInstanceId,
+                childInstanceId);
                 return null;
             }
             #endregion
@@ -1653,7 +1723,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var parentExists = await instanceDbSet.AnyAsync(pi => pi.ProductInstanceID == parentInstanceId);
                 if (!parentExists)
                 {
-                    context.Logger.LogDebug($"Parent ProductInstance {parentInstanceId} does not exist.");
+                context.Logger.LogDebug(
+                    "Parent ProductInstance {ParentProductInstanceId} does not exist.",
+                    parentInstanceId);
                     return false;
                 }
 
@@ -1661,7 +1733,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var childExists = await instanceDbSet.AnyAsync(pi => pi.ProductInstanceID == childInstanceId);
                 if (!childExists)
                 {
-                    context.Logger.LogDebug($"Child ProductInstance {childInstanceId} does not exist.");
+                context.Logger.LogDebug(
+                    "Child ProductInstance {ChildProductInstanceId} does not exist.",
+                    childInstanceId);
                     return false;
                 }
 
@@ -1669,7 +1743,11 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (Exception ex)
             {
-                context.Logger.LogError(ex, $"Error validating ProductInstance existence: Parent={parentInstanceId}, Child={childInstanceId}");
+            context.Logger.LogError(
+                ex,
+                "Error validating ProductInstance existence: Parent={ParentProductInstanceId}, Child={ChildProductInstanceId}",
+                parentInstanceId,
+                childInstanceId);
                 return false;
             }
             #endregion
@@ -1720,12 +1798,19 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 catch (Exception ex)
                 {
-                    context.Logger.LogError(ex, $"Error creating LotHierarchy in batch: Parent={parentInstanceId}, Child={childInstanceId}");
+                context.Logger.LogError(
+                    ex,
+                    "Error creating LotHierarchy in batch: Parent={ParentProductInstanceId}, Child={ChildProductInstanceId}",
+                    parentInstanceId,
+                    childInstanceId);
                     // Continue with next child instead of failing entire batch
                 }
             }
 
-            context.Logger.LogInformation($"Created {count} LotHierarchy relationships for parent {parentInstanceId}");
+        context.Logger.LogInformation(
+            "Created {RelationshipCount} LotHierarchy relationships for parent {ParentProductInstanceId}",
+            count,
+            parentInstanceId);
             return count;
             #endregion
         }

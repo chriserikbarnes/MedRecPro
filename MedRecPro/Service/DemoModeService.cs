@@ -470,12 +470,9 @@ namespace MedRecPro.Services
                     connection.DataSource,
                     connection.Database);
             }
-            catch (SqlException ex)
+            catch (SqlException)
             {
-                _logger.LogError(ex,
-                    "[DemoModeService] Failed to open database connection. Server: {Server}, Error: {Message}",
-                    connection.DataSource,
-                    ex.Message);
+                // The scheduled-truncation boundary owns the single failure record and retry diagnostics.
                 throw;
             }
 
@@ -514,25 +511,14 @@ namespace MedRecPro.Services
                     truncatedCount,
                     duration.TotalSeconds);
             }
-            catch (SqlException ex)
+            catch (SqlException)
             {
-                var duration = DateTime.UtcNow - startTime;
-                _logger.LogError(ex,
-                    "[DemoModeService] SQL error during truncation after {Duration:F2} seconds. " +
-                    "Error Number: {Number}, State: {State}, Message: {Message}",
-                    duration.TotalSeconds,
-                    ex.Number,
-                    ex.State,
-                    ex.Message);
+                // The scheduled-truncation boundary owns the single SQL failure record and retry diagnostics.
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                var duration = DateTime.UtcNow - startTime;
-                _logger.LogError(ex,
-                    "[DemoModeService] Unexpected error during truncation after {Duration:F2} seconds: {Message}",
-                    duration.TotalSeconds,
-                    ex.Message);
+                // The scheduled-truncation boundary owns the single unexpected-failure record and retry diagnostics.
                 throw;
             }
             #endregion
@@ -683,9 +669,9 @@ namespace MedRecPro.Services
 
                 await deleteTableContents(connection, schema, tableName, cancellationToken);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Failed to truncate table {Schema}.{TableName}", schema, tableName);
+                // The scheduled-truncation boundary owns the error record for a failed table operation.
                 throw;
             }
             #endregion

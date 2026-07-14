@@ -493,7 +493,8 @@ namespace MedRecPro.Service
             }
             catch (Exception ex)
             {
-                // Log detailed error information and re-throw for upstream handling
+                // Error-rethrow allowlist: template rendering is also used outside HTTP, and the template key is
+                // required diagnostic context that RazorLight exceptions do not consistently preserve.
                 _logger.LogError(ex, "Error rendering template {TemplateName}", templateName);
                 throw;
             }
@@ -890,10 +891,9 @@ namespace MedRecPro.Service
                 // Return the complete SPL XML content
                 return xmlContent;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                // Log detailed error information for diagnostics and re-throw for upstream handling
-                _logger.LogError(ex, "Error exporting document {DocumentGuid} to SPL", documentGuid);
+                // Propagate to the request boundary that owns the terminal error record.
                 throw;
             }
 

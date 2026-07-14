@@ -188,11 +188,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                 query = query.Where(p => p.HasWithdrawnCommercialReasonFlag == hasWithdrawnCommercialReasonFlag.Value);
             }
 
-#if DEBUG
-            var sql = query.ToQueryString();
-            Debug.WriteLine($"=== {nameof(SearchOrangeBookPatentsAsync)} SQL ===\n{sql}");
-#endif
-
             // Order by soonest expiring first, then by trade name
             query = query.OrderBy(p => p.PatentExpireDate).ThenBy(p => p.TradeName);
 

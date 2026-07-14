@@ -270,9 +270,10 @@ namespace MedRecPro.Controllers
             {
                 return ClaimHelper.GetEncryptedUserIdOrThrow(User.Claims, _pkSecret);
             }
-            catch (Exception e)
+            // Broad-catch allowlist: claim parsing failures are rethrown for callers to map to the established
+            // unauthorized response; this helper does not own the terminal diagnostic record.
+            catch (Exception)
             {
-                _logger.LogError(e, "Failed to get encrypted id from claims");
                 throw;
             }
             #endregion
@@ -299,6 +300,8 @@ namespace MedRecPro.Controllers
             {
                 return Unauthorized("Unable to determine user ID from authentication context.");
             }
+            // Broad-catch allowlist: malformed or unavailable claim identity is an expected authentication failure
+            // and is converted to the established 401 response with a warning-level terminal diagnostic.
             catch (Exception e)
             {
                 _logger.LogWarning(e, "Unable to resolve the authenticated user from claims.");
@@ -416,6 +419,7 @@ namespace MedRecPro.Controllers
                     return BadRequest("Invalid encrypted user ID.");
                 }
             }
+            // Broad-catch allowlist: any decrypt-format failure maps to the established invalid-ID 400 response.
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error decrypting user ID.");
@@ -594,6 +598,7 @@ namespace MedRecPro.Controllers
                     return BadRequest("Invalid encrypted user ID.");
                 }
             }
+            // Broad-catch allowlist: any decrypt-format failure maps to the established invalid-ID 400 response.
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error decrypting user ID.");
@@ -1087,6 +1092,8 @@ namespace MedRecPro.Controllers
                 {
                     return Unauthorized("Unable to determine user ID from authentication context.");
                 }
+                // Broad-catch allowlist: malformed or unavailable claim identity is an expected authentication failure
+                // and is converted to the established 401 response with a warning-level terminal diagnostic.
                 catch (Exception e)
                 {
                     _logger.LogWarning(e, "Unable to resolve the authenticated user from claims.");
@@ -1382,6 +1389,8 @@ namespace MedRecPro.Controllers
                         });
                     }
                 }
+                // Broad-catch allowlist: writing the optional encrypted identity cookie is best effort and must not
+                // fail an otherwise successful authentication response.
                 catch (Exception)
                 {
                     _logger.LogWarning("Failed to write encrypted user cookie.");
@@ -1559,6 +1568,8 @@ namespace MedRecPro.Controllers
             {
                 return Unauthorized("Unable to determine user ID from authentication context.");
             }
+            // Broad-catch allowlist: malformed or unavailable deleter identity is an expected authentication failure
+            // and is converted to the established 401 response with a warning-level terminal diagnostic.
             catch (Exception e)
             {
                 _logger.LogWarning(e, "Unable to resolve the authenticated user from claims.");

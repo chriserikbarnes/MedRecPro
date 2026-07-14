@@ -143,9 +143,8 @@ namespace MedRecPro.Service
 
                 return false;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error in IsDuplicateSplDataAsync for GUID {SplDataGuid}", splDataGuid);
                 throw;
             }
             #endregion
@@ -202,9 +201,8 @@ namespace MedRecPro.Service
                 // Create new record if no duplicate found
                 return await CreateSplDataAsync(xmlContent, splDataGuid, userId);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error in GetOrCreateSplDataAsync for user {UserId}", userId);
                 throw;
             }
             #endregion
@@ -260,9 +258,8 @@ namespace MedRecPro.Service
 
                 return encryptedId;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error creating SPL data record for user {UserId}", userId);
                 throw;
             }
             #endregion
@@ -313,9 +310,8 @@ namespace MedRecPro.Service
               
                 return ret;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error retrieving SPL data record.");
                 throw;
             }
             #endregion
@@ -364,9 +360,8 @@ namespace MedRecPro.Service
 
                 return updateResult > 0;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error archiving SPL data record.");
                 throw;
             }
             #endregion
@@ -412,10 +407,8 @@ namespace MedRecPro.Service
 
                 return allRecords;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error retrieving SPL data list with pageNumber {PageNumber}, pageSize {PageSize}, includeArchived {IncludeArchived}",
-                    pageNumber, pageSize, includeArchived);
                 throw;
             }
             #endregion
@@ -484,9 +477,8 @@ namespace MedRecPro.Service
 
                 return record;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error finding existing SPL data by hash {ContentHash}", contentHash);
                 throw;
             }
             #endregion

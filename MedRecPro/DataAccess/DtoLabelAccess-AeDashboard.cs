@@ -259,10 +259,9 @@ namespace MedRecPro.DataAccess
                     .Distinct()
                     .CountAsync();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                // Surface the failure to the controller, which translates it into a 500.
-                logger.LogError(ex, "Error counting distinct AE dashboard products.");
+                // Surface the failure to the controller, where the global handler owns the error record and 500 response.
                 throw;
             }
 

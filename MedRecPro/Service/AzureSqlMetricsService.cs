@@ -2,9 +2,7 @@
 using Azure.Monitor.Query.Metrics;
 using Azure.Monitor.Query.Metrics.Models;
 using Microsoft.Extensions.Caching.Memory;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -142,31 +140,6 @@ public class AzureSqlMetricsService
 
     /**************************************************************/
     /// <summary>
-    /// Writes a debug message and a formatted JSON representation of the specified object to the debug output when
-    /// running in a debug build.
-    /// </summary>
-    /// <remarks>This method only produces output in debug builds. The object is serialized using indented
-    /// JSON formatting for readability.</remarks>
-    /// <typeparam name="T">The type of the object to be serialized and written to the debug output.</typeparam>
-    /// <param name="obj">The object to serialize and output. If <paramref name="obj"/> is <see langword="null"/>, no output is written.</param>
-    /// <param name="msg">An optional message to precede the serialized object in the debug output. If <paramref name="msg"/> is <see
-    /// langword="null"/>, a default message is used.</param>
-    private void toDebug<T>(T obj, string msg)
-    {
-
-#if DEBUG
-        if (obj != null)
-        {
-            var debugJson = JsonConvert.SerializeObject(obj, Formatting.Indented);
-
-            Debug.WriteLine(msg ?? "Azure SQL Metrics Query Result:");
-            Debug.Write(debugJson);
-        }
-#endif
-    }
-
-    /**************************************************************/
-    /// <summary>
     /// Queries the Azure Monitor Metrics REST endpoint for <c>free_amount_remaining</c>
     /// using 15-minute granularity for the specified time window.
     /// </summary>
@@ -237,21 +210,11 @@ public class AzureSqlMetricsService
 
             if (!response.IsSuccessStatusCode)
             {
-                // If REST call fails, log in debug and return null so callers can fall back
-                toDebug(
-                    new
-                    {
-                        StatusCode = response.StatusCode,
-                        ReasonPhrase = response.ReasonPhrase
-                    },
-                    "Azure SQL Metrics REST call failed.");
+                // A failed REST call returns null so callers can use the SDK fallback.
                 return null;
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            // Log raw JSON for troubleshooting
-            toDebug(content, "Azure SQL Metrics REST JSON (free_amount_remaining):");
 
             var root = JObject.Parse(content);
             var remainingSamples = new List<double>();
@@ -299,17 +262,9 @@ public class AzureSqlMetricsService
 
             return minRemaining;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // Any exception should not break the caller; log and fall back
-            toDebug(
-                new
-                {
-                    Exception = ex.GetType().FullName,
-                    ex.Message,
-                    ex.StackTrace
-                },
-                "Azure SQL Metrics REST call threw an exception.");
+            // A REST-path exception must not break the caller; use the SDK fallback.
             return null;
         }
 
@@ -359,8 +314,6 @@ public class AzureSqlMetricsService
             options: options);
 
         var metricsResult = response.Value;
-
-        toDebug(metricsResult, "Azure SQL Metrics Query Result (free_amount_remaining):");
 
         var remainingSamples = new List<double>();
 

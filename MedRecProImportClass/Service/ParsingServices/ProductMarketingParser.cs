@@ -347,7 +347,11 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                         await dbContext.SaveChangesAsync();
 
-                        context.Logger.LogInformation($"MarketingCategory updated: ProductID={categoryData.ProductID}, Code={categoryData.CategoryCode}, ApplicationID={categoryData.ApplicationOrMonographIDValue}");
+                context.Logger.LogInformation(
+                    "MarketingCategory updated: ProductID={ProductId}, Code={CategoryCode}, ApplicationID={ApplicationId}",
+                    categoryData.ProductID,
+                    categoryData.CategoryCode,
+                    categoryData.ApplicationOrMonographIDValue);
                     }
 
                     return new getOrSaveResult<MarketingCategory>
@@ -362,7 +366,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                 // Entity doesn't exist - create new one using repository pattern
                 await repo.CreateAsync(categoryData);
 
-                context.Logger.LogInformation($"MarketingCategory created: ProductID={categoryData.ProductID}, Code={categoryData.CategoryCode}, ApplicationID={categoryData.ApplicationOrMonographIDValue}");
+                context.Logger.LogInformation(
+                    "MarketingCategory created: ProductID={ProductId}, Code={CategoryCode}, ApplicationID={ApplicationId}",
+                    categoryData.ProductID,
+                    categoryData.CategoryCode,
+                    categoryData.ApplicationOrMonographIDValue);
 
                 // Return entity if successfully created with valid ID
                 return new getOrSaveResult<MarketingCategory>
@@ -496,7 +504,10 @@ namespace MedRecProImportClass.Service.ParsingServices
                     await repo.CreateAsync(policy);
                     count++;
                     context.Logger.LogInformation(
-                        $"Policy (DEA Schedule) created: ProductID={product.ProductID}, PolicyCode={policyCode}, DisplayName={displayName}");
+                        "Policy (DEA Schedule) created: ProductID={ProductId}, PolicyCode={PolicyCode}, DisplayName={DisplayName}",
+                        product.ProductID,
+                        policyCode,
+                        displayName);
                 }
             }
 

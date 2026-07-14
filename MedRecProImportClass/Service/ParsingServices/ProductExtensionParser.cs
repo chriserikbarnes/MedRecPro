@@ -146,7 +146,10 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 await repo.CreateAsync(genMed);
                 createdCount++;
-                context.Logger?.LogInformation($"Created GenericMedicine '{genericName}' for ProductID {product.ProductID}");
+                context.Logger?.LogInformation(
+                    "Created GenericMedicine '{GenericName}' for ProductID {ProductId}",
+                    genericName,
+                    product.ProductID);
             }
             return createdCount;
             #endregion
@@ -219,7 +222,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                     await repo.CreateAsync(productWebLink);
                     count++;
                     context.Logger.LogInformation(
-                        $"ProductWebLink created: ProductID={product.ProductID}, WebURL={url}");
+                        "ProductWebLink created: ProductID={ProductId}, WebURL={WebUrl}",
+                        product.ProductID,
+                        url);
                 }
             }
 

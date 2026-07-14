@@ -25,25 +25,62 @@ namespace MedRecPro.Service.Test
     /// <seealso cref="StandardizationProgressTracker"/>
     /// <seealso cref="StandardizationProgressFile"/>
     [TestClass]
+    [DoNotParallelize]
     public class StandardizationProgressTrackerTests
     {
         #region Helper Methods
 
         /**************************************************************/
         /// <summary>
-        /// Creates a tracker that uses a temp directory as the app base directory.
-        /// This prevents test interference with the real progress file.
+        /// Removes progress artifacts before each test so a failed prior run cannot contaminate connection-hash assertions.
         /// </summary>
-        private static (StandardizationProgressTracker tracker, string tempDir) createTrackerWithTempDir()
+        [TestInitialize]
+        public void RemoveProgressArtifactsBeforeTest()
         {
             #region implementation
 
-            var tempDir = Path.Combine(Path.GetTempPath(), $"medrecpro-test-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
+            deleteProgressArtifacts();
 
-            // The tracker uses AppDomain.CurrentDomain.BaseDirectory which we can't override,
-            // so we test the public API and clean up after
-            return (new StandardizationProgressTracker(), tempDir);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Removes progress artifacts after each test, including when an assertion or atomic write fails.
+        /// </summary>
+        [TestCleanup]
+        public void RemoveProgressArtifactsAfterTest()
+        {
+            #region implementation
+
+            deleteProgressArtifacts();
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Deletes the production-shaped progress and temporary files from the isolated test output directory.
+        /// </summary>
+        /// <remarks>
+        /// This is containment until the tracker accepts an injected per-instance path; the class is non-parallel because the
+        /// production implementation currently derives one process-wide filename from <see cref="AppDomain.BaseDirectory"/>.
+        /// </remarks>
+        private static void deleteProgressArtifacts()
+        {
+            #region implementation
+
+            var progressPath = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                StandardizationProgressFile.DefaultFileName);
+
+            foreach (var artifactPath in new[] { progressPath, progressPath + ".tmp" })
+            {
+                if (File.Exists(artifactPath))
+                {
+                    File.Delete(artifactPath);
+                }
+            }
 
             #endregion
         }

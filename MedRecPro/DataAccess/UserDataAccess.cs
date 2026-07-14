@@ -320,9 +320,8 @@ namespace MedRecPro.DataAccess
                 _logger.LogError(ex, "Database error creating user {Email}.", user.PrimaryEmail);
                 return null;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Unexpected error creating user {Email}.", user.PrimaryEmail);
                 throw;
             } 
             #endregion
@@ -358,9 +357,8 @@ namespace MedRecPro.DataAccess
                 }
                 return user;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error fetching user by {e}).", ex.Message);
                 throw;
             } 
             #endregion
@@ -391,9 +389,8 @@ namespace MedRecPro.DataAccess
                 }
                 return user;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error fetching user by email {Email}.", email);
                 throw;
             } 
             #endregion
@@ -434,9 +431,8 @@ namespace MedRecPro.DataAccess
                 }
                 return users;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error fetching all users.");
                 throw;
             } 
             #endregion
@@ -505,9 +501,8 @@ namespace MedRecPro.DataAccess
                 _logger.LogError(ex, "Database error updating user {UserIdToUpdate}.", encryptedUpdaterUserId);
                 return false;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error updating user {UserIdToUpdate}.", encryptedUpdaterUserId);
                 throw;
             } 
             #endregion
@@ -646,9 +641,8 @@ namespace MedRecPro.DataAccess
                 await _dbContext.SaveChangesAsync();
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error updating profile for user {e}.", ex.Message);
                 throw;
             } 
             #endregion
@@ -771,9 +765,8 @@ namespace MedRecPro.DataAccess
                 await _dbContext.SaveChangesAsync();
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error performing admin update. {e}", ex.Message);
                 throw;
             } 
             #endregion
@@ -844,9 +837,8 @@ namespace MedRecPro.DataAccess
 
                 return false; // Unauthorized to update password
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error rotating password for target user {TargetUserId}.", encryptedTargetUserId);
                 throw;
             } 
             #endregion
@@ -910,9 +902,8 @@ namespace MedRecPro.DataAccess
 
                 return false; // Unauthorized to delete user
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error soft-deleting user {TargetUserId}.", encryptedTargetUserId);
                 throw;
             } 
             #endregion
@@ -960,9 +951,8 @@ namespace MedRecPro.DataAccess
                 await _dbContext.SaveChangesAsync();
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error updating last login for user {UserId}.", encryptedUserId);
                 throw;
             } 
             #endregion

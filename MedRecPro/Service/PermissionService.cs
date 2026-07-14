@@ -750,9 +750,9 @@ namespace MedRecPro.Service
 
                 return StringCipher.Encrypt(json, _encryptionKey, StringCipher.EncryptionStrength.Fast);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Permission encryption failed.");
+                // Propagate to the request boundary that owns the terminal error record.
                 throw;
             }
             #endregion
@@ -830,9 +830,9 @@ namespace MedRecPro.Service
 
                 return FromJson(json);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Permission decryption failed.");
+                // Propagate to the request boundary that owns the terminal error record.
                 throw;
             }
             #endregion

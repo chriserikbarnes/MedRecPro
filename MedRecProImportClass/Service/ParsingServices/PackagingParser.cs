@@ -178,7 +178,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                 product, parentProductInstanceId, quantityInfo, packageFormInfo, context);
 
             int count = 1;
-            context.Logger.LogInformation($"PackagingLevel created: ID={packagingLevel.PackagingLevelID}, ProductID={packagingLevel.ProductID}, FormCode={packageFormInfo.FormCode}");
+                context.Logger.LogInformation(
+                    "PackagingLevel created: ID={PackagingLevelId}, ProductID={ProductId}, FormCode={FormCode}",
+                    packagingLevel.PackagingLevelID,
+                    packagingLevel.ProductID,
+                    packageFormInfo.FormCode);
 
             if (packagingLevel != null)
             {
@@ -513,7 +517,10 @@ namespace MedRecProImportClass.Service.ParsingServices
                     sequenceNumber);
 
                 context?.Logger?.LogInformation(
-                    $"PackagingHierarchy created: OuterID={parentPackagingLevelId}, InnerID={childPackagingLevel.PackagingLevelID}, Seq={sequenceNumber}");
+                    "PackagingHierarchy created: OuterID={OuterPackagingLevelId}, InnerID={InnerPackagingLevelId}, Seq={SequenceNumber}",
+                    parentPackagingLevelId,
+                    childPackagingLevel.PackagingLevelID,
+                    sequenceNumber);
             }
             #endregion
         }

@@ -655,12 +655,9 @@ namespace MedRecPro.Services
                     connection.DataSource,
                     connection.Database);
             }
-            catch (SqlException ex)
+            catch (SqlException)
             {
-                _logger.LogError(ex,
-                    "[DatabaseKeepAliveService] Failed to open database connection. Server: {Server}, Error: {Message}",
-                    connection.DataSource,
-                    ex.Message);
+                // The scheduled-ping boundary owns the single failure record and retry diagnostics.
                 throw;
             }
 

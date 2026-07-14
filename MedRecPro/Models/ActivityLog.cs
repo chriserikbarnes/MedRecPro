@@ -478,9 +478,9 @@ namespace MedRecPro.Models
                 logger.LogDebug("Successfully transformed {Count} ActivityLog entities to encrypted dictionary representations.", activityLogs.Count);
                 return securedData;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                logger.LogError(ex, "Error occurred during ActivityLog to dictionary transformation with encryption.");
+                // Propagate to the request or background terminal boundary that owns the single error record.
                 throw;
             }
             #endregion

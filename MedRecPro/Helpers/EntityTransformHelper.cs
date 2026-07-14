@@ -578,13 +578,9 @@ namespace MedRecPro.Helpers
                 }
                 #endregion
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                // Log the error with context and rethrow to maintain original behavior
-                if (logger != null)
-                    logger.LogError(e, "Error in DtoTransformer.ToEntityMenu for type {EntityType}", entity?.GetType().FullName);
-
-                // Preserve original exception handling by rethrowing
+                // Preserve the original propagation contract; the caller's terminal boundary owns the error record.
                 throw;
             }
 

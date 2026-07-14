@@ -745,12 +745,6 @@ namespace MedRecPro.Helpers
             // Attempt to retrieve the cached string value
             string? cachedResult = (string?)GetCache(key);
 
-#if DEBUG
-            var json = @"{""DocumentGUID"":""c66c2034-75c9-4d2c-ad86-725e59af45eb""}";
-            var result = JsonConvert.DeserializeObject<MedRecPro.Models.Label.Document>(json);
-            Debug.WriteLine($"DocumentGUID: {result?.DocumentGUID}");
-#endif
-
             // Check if a valid cached string exists
             if (!string.IsNullOrWhiteSpace(cachedResult) && cachedResult.Length > 0)
             {

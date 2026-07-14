@@ -206,18 +206,27 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                             if (disciplineParserResult.DisciplinaryActionsCreated > 0)
                             {
-                                logger.LogInformation($"Created {disciplineParserResult.DisciplinaryActionsCreated} disciplinary actions for License {license.LicenseID}");
+                    logger.LogInformation(
+                        "Created {DisciplinaryActionCount} disciplinary actions for License {LicenseId}",
+                        disciplineParserResult.DisciplinaryActionsCreated,
+                        license.LicenseID);
                             }
                         }
                         catch (Exception ex)
                         {
-                            logger.LogError(ex, $"Error parsing disciplinary actions for License {license.LicenseID}");
+                    logger.LogError(
+                        ex,
+                        "Error parsing disciplinary actions for License {LicenseId}",
+                        license.LicenseID);
                             // Don't fail the entire license parsing due to disciplinary action errors
                             result.Errors.Add($"Failed to parse disciplinary actions for License {license.LicenseID}: {ex.Message}");
                         }
 
                         licensesCreated++;
-                        logger.LogInformation($"Created License ID {license.LicenseID} for BusinessOperation {businessOperation.BusinessOperationID}");
+                logger.LogInformation(
+                    "Created License ID {LicenseId} for BusinessOperation {BusinessOperationId}",
+                    license.LicenseID,
+                    businessOperation.BusinessOperationID);
                     }
                 }
                 catch (Exception ex)
@@ -432,7 +441,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                     return expirationDate;
                 }
 
-                logger.LogDebug($"Could not parse expiration date: {expirationValue}");
+                logger.LogDebug("Could not parse expiration date: {ExpirationValue}", expirationValue);
                 return null;
             }
             catch (Exception ex)
@@ -494,7 +503,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                     }
                     else
                     {
-                        logger.LogDebug($"Existing territorial authority failed validation: {existing.TerritorialAuthorityID}");
+                logger.LogDebug(
+                    "Existing territorial authority failed validation: {TerritorialAuthorityId}",
+                    existing.TerritorialAuthorityID);
                         return null;
                     }
                 }
@@ -519,7 +530,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 dbContext.Set<TerritorialAuthority>().Add(newTerritorialAuthority);
                 await dbContext.SaveChangesAsync();
 
-                logger.LogInformation($"Created new territorial authority: {newTerritorialAuthority.TerritorialAuthorityID}");
+            logger.LogInformation(
+                "Created new territorial authority: {TerritorialAuthorityId}",
+                newTerritorialAuthority.TerritorialAuthorityID);
                 return newTerritorialAuthority;
             }
             catch (Exception ex)
@@ -592,12 +605,12 @@ namespace MedRecProImportClass.Service.ParsingServices
                     if (validateLicense(existing, logger))
                     {
                         await dbContext.SaveChangesAsync();
-                        logger.LogInformation($"Updated existing license: {existing.LicenseID}");
+                    logger.LogInformation("Updated existing license: {LicenseId}", existing.LicenseID);
                         return existing;
                     }
                     else
                     {
-                        logger.LogDebug($"Updated license failed validation: {existing.LicenseID}");
+                logger.LogDebug("Updated license failed validation: {LicenseId}", existing.LicenseID);
                         return null;
                     }
                 }
@@ -626,7 +639,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 dbContext.Set<License>().Add(newLicense);
                 await dbContext.SaveChangesAsync();
 
-                logger.LogInformation($"Created new license: {newLicense.LicenseID}");
+            logger.LogInformation("Created new license: {LicenseId}", newLicense.LicenseID);
                 return newLicense;
             }
             catch (Exception ex)
@@ -671,7 +684,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 {
                     // Handle the case where ErrorMessage might be null and safely access member names
                     var errorMessage = validationResult.ErrorMessage ?? "Unknown validation error";
-                    logger.LogDebug($"License validation error: {errorMessage}");
+                logger.LogDebug("License validation error: {ErrorMessage}", errorMessage);
                 }
                 return false;
             }
@@ -716,7 +729,7 @@ namespace MedRecProImportClass.Service.ParsingServices
                 {
                     // Handle the case where ErrorMessage might be null
                     var errorMessage = validationResult.ErrorMessage ?? "Unknown validation error";
-                    logger.LogDebug($"TerritorialAuthority validation error: {errorMessage}");
+                logger.LogDebug("TerritorialAuthority validation error: {ErrorMessage}", errorMessage);
                 }
                 return false;
             }

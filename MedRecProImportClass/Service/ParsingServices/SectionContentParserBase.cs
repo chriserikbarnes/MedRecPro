@@ -177,7 +177,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 if (textEl == null)
                 {
                     // No text element - this shouldn't happen in valid SPL but handle gracefully
-                    context.Logger?.LogDebug($"Highlight element without text child in SectionID {sectionId}");
+                    context.Logger?.LogDebug(
+                        "Highlight element without text child in SectionID {SectionId}",
+                        sectionId);
                     continue;
                 }
 
@@ -205,14 +207,19 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 catch (Exception ex)
                 {
-                    context.Logger?.LogError(ex, $"Error extracting highlight XML for SectionID {sectionId}");
+                    context.Logger?.LogError(
+                        ex,
+                        "Error extracting highlight XML for SectionID {SectionId}",
+                        sectionId);
                     continue;
                 }
 
                 // Skip if no actual content was extracted
                 if (string.IsNullOrWhiteSpace(txt))
                 {
-                    context.Logger?.LogDebug($"Empty highlight text extracted for SectionID {sectionId}");
+                    context.Logger?.LogDebug(
+                        "Empty highlight text extracted for SectionID {SectionId}",
+                        sectionId);
                     continue;
                 }
 
@@ -245,7 +252,10 @@ namespace MedRecProImportClass.Service.ParsingServices
                 await repo.CreateAsync(newHighlight);
                 highlights.Add(newHighlight);
 
-                context.Logger?.LogInformation($"Created SectionExcerptHighlight for SectionID {sectionId} with {txt.Length} characters");
+                context.Logger?.LogInformation(
+                    "Created SectionExcerptHighlight for SectionID {SectionId} with {CharacterCount} characters",
+                    sectionId,
+                    txt.Length);
             }
 
             return highlights;

@@ -667,9 +667,9 @@ namespace MedRecPro.Service
 
                 return claudeResponse?.Content?.FirstOrDefault()?.Text ?? "No response generated";
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error calling Claude API for document comparison");
+                // Propagate to the comparison coordinator or HTTP handler that owns the terminal error record.
                 throw;
             }
         }

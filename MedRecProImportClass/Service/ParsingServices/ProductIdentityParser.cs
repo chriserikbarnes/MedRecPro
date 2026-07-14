@@ -166,7 +166,11 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 await repo.CreateAsync(entity);
                 createdCount++;
-                context?.Logger?.LogInformation($"Created EquivalentEntity for ProductID {product.ProductID}: EquivCode={equivalenceCode}, DefMatCode={definingMaterialKindCode}");
+                context?.Logger?.LogInformation(
+                    "Created EquivalentEntity for ProductID {ProductId}: EquivCode={EquivalenceCode}, DefMatCode={DefiningMaterialKindCode}",
+                    product.ProductID,
+                    equivalenceCode,
+                    definingMaterialKindCode);
             }
 
             return createdCount;
@@ -274,7 +278,11 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 await repo.CreateAsync(identifier);
                 result.ProductElementsCreated++;
-                context?.Logger?.LogInformation($"ProductIdentifier created: ProductID={product.ProductID} Value={codeVal} OID={codeSystem}");
+                context?.Logger?.LogInformation(
+                    "ProductIdentifier created: ProductID={ProductId} Value={CodeValue} OID={CodeSystem}",
+                    product.ProductID,
+                    codeVal,
+                    codeSystem);
 
                 // If this is a certification document and the identifier was successfully saved, create the link.
                 // The section code "BNCC" is an example for "Blanket No Changes Certification".
@@ -482,8 +490,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                 await repo.CreateAsync(kind);
                 createdCount++;
                 logger.LogInformation(
-                    $"Created SpecializedKind: code={kind.KindCode}, codeSystem={kind.KindCodeSystem}, displayName={kind.KindDisplayName} for ProductID {product.ProductID}"
-                );
+                    "Created SpecializedKind: code={KindCode}, codeSystem={KindCodeSystem}, displayName={KindDisplayName} for ProductID {ProductId}",
+                    kind.KindCode,
+                    kind.KindCodeSystem,
+                    kind.KindDisplayName,
+                    product.ProductID);
             }
 
             return createdCount;
@@ -550,8 +561,8 @@ namespace MedRecProImportClass.Service.ParsingServices
         /// <returns>A SplParseResult indicating the success status and the count of created entities.</returns>
         /// <remarks>
         /// Performance Pattern:
-        /// - Before: (3 entity types × 2) × N items × 45ms = ~270ms per item on Azure
-        /// - After: (3 entity types × 2) × 45ms = ~270ms total
+        /// - Before: (3 entity types Ã— 2) Ã— N items Ã— 45ms = ~270ms per item on Azure
+        /// - After: (3 entity types Ã— 2) Ã— 45ms = ~270ms total
         /// Parses all three identity types (EquivalentEntity, ProductIdentifier, SpecializedKind) in bulk.
         /// </remarks>
         /// <seealso cref="Product"/>
@@ -984,8 +995,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                 foreach (var kind in newKinds)
                 {
                     logger?.LogInformation(
-                        $"Created SpecializedKind: code={kind.KindCode}, codeSystem={kind.KindCodeSystem}, displayName={kind.KindDisplayName} for ProductID {productId}"
-                    );
+                        "Created SpecializedKind: code={KindCode}, codeSystem={KindCodeSystem}, displayName={KindDisplayName} for ProductID {ProductId}",
+                        kind.KindCode,
+                        kind.KindCodeSystem,
+                        kind.KindDisplayName,
+                        productId);
                 }
             }
 

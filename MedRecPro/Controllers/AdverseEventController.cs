@@ -2091,9 +2091,8 @@ namespace MedRecPro.Api.Controllers
             }
             // Broad-catch allowlist: malformed claim data is converted by the caller to the established unauthorized
             // result; the encrypted identifier itself is never written to the log.
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Failed to get encrypted id from claims for AE dashboard favorite access.");
                 throw;
             }
 

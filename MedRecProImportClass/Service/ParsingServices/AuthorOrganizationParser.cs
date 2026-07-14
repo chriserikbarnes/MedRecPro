@@ -903,7 +903,10 @@ namespace MedRecProImportClass.Service.ParsingServices
             else
             {
                 // No direct children - this might be a terminal level
-                context?.Logger?.LogInformation($"Terminal level reached at level {currentLevel} for organization {parentOrgId}");
+            context?.Logger?.LogInformation(
+                "Terminal level reached at level {CurrentLevel} for organization {ParentOrganizationId}",
+                currentLevel,
+                parentOrgId);
             }
 
             return (orgCount, bizOpCount);
@@ -1815,7 +1818,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                     if (contactParty?.ContactPartyID == null)
                     {
                         context.Logger?.LogDebug("Failed to create ContactParty for OrganizationID {OrgId}.", organizationId);
-                        context.Logger?.LogError($"Failed to create contact party for organization {organizationId}.");
+                    context.Logger?.LogError(
+                        "Failed to create contact party for organization {OrganizationId}.",
+                        organizationId);
                     }
                     else if (partyCreated)
                     {

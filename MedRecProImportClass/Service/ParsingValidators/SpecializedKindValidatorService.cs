@@ -130,8 +130,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                             removeCodes.Add(codeB);
 
                             logger.LogDebug(
-                                $"Cosmetic category codes '{codeA}' and '{codeB}' are mutually exclusive for this product and document type '{documentTypeCode}'. Removing '{codeB}'."
-                            );
+                                "Cosmetic category codes '{CodeA}' and '{CodeB}' are mutually exclusive for this product and document type '{DocumentTypeCode}'. Removing '{RemovedCode}'.",
+                                codeA,
+                                codeB,
+                                documentTypeCode,
+                                codeB);
                         }
                     }
 

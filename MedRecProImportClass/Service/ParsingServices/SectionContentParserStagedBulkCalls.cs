@@ -1695,7 +1695,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                 var textEl = highlightEl.Element(ns + sc.E.Text);
                 if (textEl == null)
                 {
-                    context.Logger?.LogDebug($"Highlight element without text child in SectionID {sectionId}");
+                    context.Logger?.LogDebug(
+                        "Highlight element without text child in SectionID {SectionId}",
+                        sectionId);
                     continue;
                 }
 
@@ -1714,7 +1716,10 @@ namespace MedRecProImportClass.Service.ParsingServices
                 }
                 catch (Exception ex)
                 {
-                    context.Logger?.LogError(ex, $"Error extracting highlight XML for SectionID {sectionId}");
+                    context.Logger?.LogError(
+                        ex,
+                        "Error extracting highlight XML for SectionID {SectionId}",
+                        sectionId);
                     continue;
                 }
 
@@ -1744,7 +1749,10 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 highlights.Add(newHighlight);
 
-                context.Logger?.LogInformation($"Staged SectionExcerptHighlight for SectionID {sectionId} with {txt.Length} characters");
+                context.Logger?.LogInformation(
+                    "Staged SectionExcerptHighlight for SectionID {SectionId} with {CharacterCount} characters",
+                    sectionId,
+                    txt.Length);
             }
 
             return highlights;

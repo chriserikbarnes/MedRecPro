@@ -478,10 +478,9 @@ namespace MedRecPro.Service
 
                 return response;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                // Log comprehensive error information for troubleshooting
-                _logger.LogError(ex, "Error generating comparison for SPL data GUID {SplDataGuid}", splDataGuid);
+                // Propagate to the comparison coordinator or HTTP handler that owns the terminal error record.
                 throw;
             }
 
@@ -573,9 +572,9 @@ namespace MedRecPro.Service
 
                 return analysisResult;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.LogError(ex, "Error performing document comparison analysis for GUID {DocumentGuid}", documentGuid);
+                // Propagate to the comparison coordinator or HTTP handler that owns the terminal error record.
                 throw;
             }
 

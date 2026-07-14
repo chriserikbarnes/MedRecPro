@@ -1432,6 +1432,8 @@ namespace MedRecPro.Controllers
                 {
                     decryptedUserId = userId.Decrypt(_pkEncryptionSecret) ?? userId;
                 }
+                // Broad-catch allowlist: the endpoint intentionally accepts encrypted or legacy plain-text user IDs,
+                // so decrypt failures retain the compatibility fallback and warning diagnostic.
                 catch (Exception decryptEx)
                 {
                     _logger.LogWarning(decryptEx, "Failed to decrypt userId parameter. It may be in plain text format.");

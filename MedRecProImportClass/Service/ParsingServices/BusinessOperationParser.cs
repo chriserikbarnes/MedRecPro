@@ -411,7 +411,9 @@ namespace MedRecProImportClass.Service.ParsingServices
                         // Check if this approval represents a license (C118777 = licensing)
                         if (string.Equals(qualifierCode, "C118777", StringComparison.OrdinalIgnoreCase))
                         {
-                            context.Logger?.LogInformation($"Processing license for BusinessOperation {bizOp.BusinessOperationID}");
+                        context.Logger?.LogInformation(
+                            "Processing license for BusinessOperation {BusinessOperationId}",
+                            bizOp.BusinessOperationID);
 
                             // Delegate license parsing to specialized parser
                             var licenseParser = new LicenseParser();
@@ -421,12 +423,15 @@ namespace MedRecProImportClass.Service.ParsingServices
                             {
                                 foreach (var error in licenseResult.Errors)
                                 {
-                                    context.Logger?.LogDebug($"License parsing warning: {error}");
+                            context.Logger?.LogDebug("License parsing warning: {Error}", error);
                                 }
                             }
                             else if (licenseResult.LicensesCreated > 0)
                             {
-                                context.Logger?.LogInformation($"Created {licenseResult.LicensesCreated} license(s) for BusinessOperation {bizOp.BusinessOperationID}");
+                        context.Logger?.LogInformation(
+                            "Created {LicensesCreated} license(s) for BusinessOperation {BusinessOperationId}",
+                            licenseResult.LicensesCreated,
+                            bizOp.BusinessOperationID);
                             }
                         }
                     }
@@ -573,7 +578,10 @@ namespace MedRecProImportClass.Service.ParsingServices
 
                 if (product == null)
                 {
-                    logger.LogDebug($"No Product found for item code {itemCode} (op={bizOp?.OperationCode}).");
+                logger.LogDebug(
+                    "No Product found for item code {ItemCode} (op={OperationCode}).",
+                    itemCode,
+                    bizOp?.OperationCode);
                     continue;
                 }
 
@@ -581,7 +589,11 @@ namespace MedRecProImportClass.Service.ParsingServices
                     if (!await businessOperationProductLinkExistsAsync(dbContext, bizOp.BusinessOperationID, product.ProductID))
                     {
                         await saveBusinessOperationProductLinkAsync(dbContext, bizOp.BusinessOperationID, product.ProductID);
-                        logger.LogInformation($"BusinessOperationProductLink created: OperationID={bizOp.BusinessOperationID}, ProductID={product.ProductID} (item code={itemCode})");
+            logger.LogInformation(
+                "BusinessOperationProductLink created: OperationID={BusinessOperationId}, ProductID={ProductId} (item code={ItemCode})",
+                bizOp.BusinessOperationID,
+                product.ProductID,
+                itemCode);
                         linksCreated++;
                     }
             }

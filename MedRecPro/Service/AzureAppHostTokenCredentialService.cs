@@ -233,13 +233,9 @@ public class AzureAppTokenProvider
             throw new AuthenticationFailedException(
                 $"No Azure credential available in {_environment}. See inner exception for details.", eex);
         }
-        catch (AuthenticationFailedException ex)
+        catch (AuthenticationFailedException)
         {
-            _logger?.LogError(
-                ex,
-                "Failed to acquire Azure Management token in {Environment}. " +
-                "Ensure managed identity is enabled (Azure) or you're signed in (local).",
-                _environment);
+            // The request or hosted-service terminal boundary owns the error record for propagated authentication failures.
             throw;
         }
     }

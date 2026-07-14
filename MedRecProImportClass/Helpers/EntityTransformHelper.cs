@@ -146,7 +146,7 @@ namespace MedRecProImportClass.Helpers
                 catch (Exception e)
                 {
                     if (logger != null)
-                        logger.LogDebug($"DtoTransformer.getPkProp() {e.Message}");
+                        logger.LogDebug("DtoTransformer.getPkProp() {Message}", e.Message);
                 }
             }
 

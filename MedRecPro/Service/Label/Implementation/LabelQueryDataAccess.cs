@@ -411,10 +411,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                     x => x.MarketingCategoryCode,
                     x => x.MarketingCategoryName);
 
-#if DEBUG
-                var sql = query.ToQueryString();
-                Debug.WriteLine($"Generated SQL: {sql}");
-#endif
             }
 
             query = query.OrderByDescending(s => s.ProductCount);
@@ -891,12 +887,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             }
 
 
-#if DEBUG
-            var sql = query.ToQueryString();
-            Debug.WriteLine($"Generated SQL: {sql}");
-#endif
-
-
             query = query.OrderBy(p => p.SubstanceName).ThenBy(p => p.ProductName);
 
             query = applyPagination(query, page, size);
@@ -1092,10 +1082,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                 ret = buildIngredientViewDtos(db, entities, pkSecret, logger);
             }
 
-#if DEBUG
-            Debug.WriteLine($"=== {"DtoLabelAccess"}.{nameof(SearchIngredientsAdvancedAsync)} returned {ret.Count} results ===");
-#endif
-
             // Cache results
             if (ret.Count > 0)
             {
@@ -1182,10 +1168,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             var entities = await query.ToListAsync();
             var ret = buildActiveIngredientViewDtos(db, entities, pkSecret, logger);
-
-#if DEBUG
-            Debug.WriteLine($"=== {"DtoLabelAccess"}.{nameof(FindProductsByApplicationNumberWithSameIngredientAsync)} returned {ret.Count} results ===");
-#endif
 
             // Cache results
             if (ret.Count > 0)
@@ -1299,10 +1281,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                 .ToList();
             result.RelatedProducts = buildActiveIngredientViewDtos(db, uniqueProducts, pkSecret, logger);
             result.TotalProductCount = productIds.Count;
-
-#if DEBUG
-            Debug.WriteLine($"=== {"DtoLabelAccess"}.{nameof(FindRelatedIngredientsAsync)} found {result.TotalProductCount} products, {result.TotalActiveCount} active, {result.TotalInactiveCount} inactive ===");
-#endif
 
             // Cache results
             Cached.SetCacheManageKey(key, result, 1.0);
@@ -2711,11 +2689,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                     p => p.ActiveIngredient);
             }
 
-#if DEBUG
-            var sql = query.ToQueryString();
-            Debug.WriteLine($"Generated SQL: {sql}");
-#endif
-
             // Order by active ingredient then product name
             query = query.OrderBy(p => p.ActiveIngredient).ThenBy(p => p.ProductName);
 
@@ -2841,11 +2814,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                     PhoneticMatchOptions.None,
                     p => p.ContentText);
             }
-
-#if DEBUG
-            var sql = query.ToQueryString();
-            Debug.WriteLine($"Generated SQL: {sql}");
-#endif
 
             // Order by substance name then product name
             query = query.OrderBy(p => p.SubstanceName).ThenBy(p => p.ProductName);
