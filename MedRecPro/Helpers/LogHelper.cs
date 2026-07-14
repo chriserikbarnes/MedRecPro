@@ -118,7 +118,7 @@ namespace MedRecPro.Helpers
         /// <remarks>
         /// The logger deliberately does not retain the live <see cref="Exception"/> object graph. This prevents
         /// captured stack frames, inner exceptions, tokens, and request state from remaining in memory for the
-        /// configured retention period.
+        /// configured retention period. Summaries are redacted and limited to 1,024 characters.
         /// </remarks>
         public string? ExceptionMessage { get; set; }
 
@@ -211,6 +211,9 @@ namespace MedRecPro.Helpers
 
         // Last cleanup timestamp to avoid excessive cleanup operations
         private DateTime _lastCleanup;
+
+        // Automatic cleanup cadence that keeps retention scans off the per-write hot path.
+        private static readonly TimeSpan cleanupInterval = TimeSpan.FromSeconds(30);
 
         #endregion
 
@@ -449,39 +452,84 @@ namespace MedRecPro.Helpers
         /// Performs cleanup of expired and excess log entries.
         /// </summary>
         /// <remarks>
-        /// Called automatically by loggers during log operations, but can be
-        /// called manually to force immediate cleanup.
+        /// This public path always runs immediately for administrative or maintenance callers.
+        /// Ordinary log writes use the throttled <see cref="performCleanupIfDue"/> path.
         /// </remarks>
         public void PerformCleanup()
         {
             #region implementation
+
             lock (_cleanupLock)
             {
-                _lastCleanup = _timeProvider.GetUtcNow().UtcDateTime;
-
-                var cutoffTime = _lastCleanup.AddMinutes(-_settings.RetentionMinutes);
-
-                // Clean up each logger
-                foreach (var logger in _loggers.Values)
-                {
-                    logger.CleanupExpiredEntries(cutoffTime, _settings.MaxEntriesPerCategory);
-                }
-
-                // Check total entries and purge if needed
-                var totalEntries = _loggers.Values.Sum(l => l.GetEntryCount());
-                if (totalEntries > _settings.MaxTotalEntries)
-                {
-                    // Calculate how many entries to remove
-                    var entriesToRemove = totalEntries - _settings.MaxTotalEntries;
-                    purgeOldestEntries(entriesToRemove);
-                }
+                performCleanup(_timeProvider.GetUtcNow().UtcDateTime);
             }
+
             #endregion
         }
 
         #endregion
 
         #region Private Methods
+
+        /*************************************************************/
+        /// <summary>
+        /// Performs automatic cleanup only after the configured cleanup cadence has elapsed.
+        /// </summary>
+        /// <remarks>
+        /// The inexpensive outer check avoids lock contention for ordinary writes. The inner check prevents
+        /// concurrent writers that observed the same elapsed window from repeating the retention scan.
+        /// </remarks>
+        /// <seealso cref="PerformCleanup"/>
+        internal void performCleanupIfDue()
+        {
+            #region implementation
+
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+            if (now - _lastCleanup < cleanupInterval)
+            {
+                return;
+            }
+
+            lock (_cleanupLock)
+            {
+                now = _timeProvider.GetUtcNow().UtcDateTime;
+                if (now - _lastCleanup < cleanupInterval)
+                {
+                    return;
+                }
+
+                performCleanup(now);
+            }
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Applies retention and capacity limits at a supplied cleanup timestamp.
+        /// </summary>
+        /// <param name="cleanupTime">UTC timestamp used for all cleanup decisions in this pass.</param>
+        /// <seealso cref="UserLogger.CleanupExpiredEntries"/>
+        private void performCleanup(DateTime cleanupTime)
+        {
+            #region implementation
+
+            _lastCleanup = cleanupTime;
+            var cutoffTime = cleanupTime.AddMinutes(-_settings.RetentionMinutes);
+
+            foreach (var logger in _loggers.Values)
+            {
+                logger.CleanupExpiredEntries(cutoffTime, _settings.MaxEntriesPerCategory);
+            }
+
+            var totalEntries = _loggers.Values.Sum(logger => logger.GetEntryCount());
+            if (totalEntries > _settings.MaxTotalEntries)
+            {
+                purgeOldestEntries(totalEntries - _settings.MaxTotalEntries);
+            }
+
+            #endregion
+        }
 
         /*************************************************************/
         /// <summary>
@@ -634,6 +682,18 @@ namespace MedRecPro.Helpers
                 sanitized,
                 @"(?i)\b(password|passwd|secret|token|api[-_]?key|connection\s*string|authorization)\b\s*([:=])\s*([^\s,;\}\]]+)",
                 "$1$2[REDACTED]");
+            sanitized = Regex.Replace(
+                sanitized,
+                @"(?i)(@\w+\s*=\s*)([^\s,;\}\]]+)",
+                "$1[REDACTED]");
+            sanitized = Regex.Replace(
+                sanitized,
+                @"(?i)(?<![A-Za-z0-9])(?:[A-Z]:\\|\\\\)[^\s\r\n,;""']+",
+                "[REDACTED_PATH]");
+            sanitized = Regex.Replace(
+                sanitized,
+                @"(?i)(?<![A-Za-z0-9])/(?:home|var|tmp|etc|usr|opt|root|mnt|srv)/[^\s\r\n,;""']+",
+                "[REDACTED_PATH]");
 
             return sanitized.Length <= 1024 ? sanitized : sanitized[..1024];
 
@@ -851,7 +911,7 @@ namespace MedRecPro.Helpers
                 TraceId = getTraceId(state),
                 ExceptionMessage = exception == null
                     ? null
-                    : "An exception was recorded. See the correlated server-side log event.",
+                    : UserLoggerProvider.sanitizeValue(exception.Message),
                 ExceptionType = exception?.GetType().Name,
                 ScopeValues = _provider?.getScopeValues(),
                 UserId = userId,
@@ -862,7 +922,7 @@ namespace MedRecPro.Helpers
             _logEntries.Enqueue(entry);
 
             // Trigger cleanup via provider (throttled internally)
-            _provider?.PerformCleanup();
+            _provider?.performCleanupIfDue();
             #endregion
         }
 

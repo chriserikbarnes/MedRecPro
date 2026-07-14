@@ -1,5 +1,7 @@
 using MedRecPro.Data;
+using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
+using MedRecPro.Models;
 using MedRecProTest.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -7,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Text;
 using System.Text.Json;
 
 namespace MedRecProTest.Integration;
@@ -36,6 +39,7 @@ public class LabelHttpContractTests
 
     private static readonly Guid seededDocumentGuid = Guid.Parse("44444444-4444-4444-4444-444444444444");
     private static readonly Guid seededSetGuid = Guid.Parse("55555555-5555-5555-5555-555555555555");
+    private const long SeededAdminUserId = 7777L;
 
     /**************************************************************/
     /// <summary>
@@ -49,6 +53,7 @@ public class LabelHttpContractTests
         #region implementation
 
         ArgumentNullException.ThrowIfNull(testContext);
+        UserDataAccess.resetPkSecretForTests();
 
         MedRecProHostFixture.Factory.SeedApplicationDatabaseAsync(async context =>
         {
@@ -57,6 +62,23 @@ public class LabelHttpContractTests
                 seededDocumentGuid,
                 seededSetGuid,
                 "HOST ASPIRIN");
+            context.AppUsers.Add(new User
+            {
+                Id = SeededAdminUserId,
+                PrimaryEmail = "label.contract.admin@example.com",
+                UserName = "label.contract.admin@example.com",
+                NormalizedUserName = "LABEL.CONTRACT.ADMIN@EXAMPLE.COM",
+                Email = "label.contract.admin@example.com",
+                NormalizedEmail = "LABEL.CONTRACT.ADMIN@EXAMPLE.COM",
+                DisplayName = "Label Contract Admin",
+                CanonicalUsername = "label.contract.admin",
+                UserRole = "Admin",
+                Timezone = "UTC",
+                Locale = "en-US",
+                CreatedAt = DateTime.UtcNow,
+                SecurityStamp = Guid.NewGuid().ToString()
+            });
+            await context.SaveChangesAsync();
             var connection = (SqliteConnection)context.Database.GetDbConnection();
 
             DtoLabelAccessTestHelper.SeedProductSummaryView(
@@ -120,6 +142,25 @@ public class LabelHttpContractTests
                 fullSectionText: "## INDICATIONS AND USAGE\nHost contract markdown content.",
                 contentBlockCount: 1);
         }).GetAwaiter().GetResult();
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Releases the legacy process-wide user encryption key after the non-parallel HTTP contract fixture completes.
+    /// </summary>
+    /// <remarks>
+    /// Symmetric setup and cleanup prevent this real-host fixture from consuming or contaminating another fixture's
+    /// primary-key configuration while the production user data-access class still retains a static secret cache.
+    /// </remarks>
+    /// <seealso cref="UserDataAccess.resetPkSecretForTests"/>
+    [ClassCleanup]
+    public static void ResetUserDataAccessSecret()
+    {
+        #region implementation
+
+        UserDataAccess.resetPkSecretForTests();
 
         #endregion
     }
@@ -224,6 +265,45 @@ public class LabelHttpContractTests
 
             Assert.AreEqual(System.Net.HttpStatusCode.BadRequest, response.StatusCode, requestUri);
         }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies malformed encrypted section identifiers preserve the established read, update, and delete boundaries.
+    /// </summary>
+    /// <returns>A task representing the asynchronous HTTP assertions.</returns>
+    /// <remarks>
+    /// Read continues to treat an undecryptable identifier as an unknown record, while protected mutations reject it
+    /// as invalid input before the repository performs any database mutation.
+    /// </remarks>
+    /// <seealso cref="MedRecPro.Api.Controllers.LabelSectionController.GetByIdAsync"/>
+    /// <seealso cref="MedRecPro.Api.Controllers.LabelSectionController.UpdateAsync"/>
+    /// <seealso cref="MedRecPro.Api.Controllers.LabelSectionController.DeleteAsync"/>
+    [TestMethod]
+    public async Task SectionCrud_MalformedEncryptedId_PreservesReadAndMutationStatusCodes()
+    {
+        #region implementation
+
+        const string malformedEncryptedId = "not-an-encrypted-id";
+        using var client = createClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", SeededAdminUserId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        using var readResponse = await client.GetAsync(
+            $"{LabelRoutePrefix}/Document/{malformedEncryptedId}");
+        using var updateResponse = await client.PutAsync(
+            $"{LabelRoutePrefix}/Document/{malformedEncryptedId}",
+            new StringContent("{}", Encoding.UTF8, "application/json"));
+        using var deleteResponse = await client.DeleteAsync(
+            $"{LabelRoutePrefix}/Document/{malformedEncryptedId}");
+
+        Assert.AreEqual(System.Net.HttpStatusCode.NotFound, readResponse.StatusCode);
+        Assert.AreEqual(System.Net.HttpStatusCode.BadRequest, updateResponse.StatusCode);
+        Assert.AreEqual(System.Net.HttpStatusCode.BadRequest, deleteResponse.StatusCode);
+        StringAssert.Contains(
+            await deleteResponse.Content.ReadAsStringAsync(),
+            "Invalid encrypted ID format for section Document.");
 
         #endregion
     }

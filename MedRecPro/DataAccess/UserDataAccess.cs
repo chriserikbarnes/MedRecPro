@@ -82,6 +82,27 @@ namespace MedRecPro.DataAccess
 
         /**************************************************************/
         /// <summary>
+        /// Clears the process-wide primary-key secret cache for deterministic test-host isolation.
+        /// </summary>
+        /// <remarks>
+        /// Production code never calls this seam. It exists so a friend test assembly can prevent a prior fixture's
+        /// configuration from contaminating a real-host authorization contract test while the legacy static cache remains.
+        /// </remarks>
+        /// <seealso cref="getPkSecret"/>
+        internal static void resetPkSecretForTests()
+        {
+            #region implementation
+
+            lock (_lock)
+            {
+                _pkSecret = null;
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Helper method to decrypt a user ID string.
         /// </summary>
         /// <param name="encryptedId">The encrypted ID string.</param>

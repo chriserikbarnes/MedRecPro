@@ -120,9 +120,8 @@ namespace MedRecProTest
             Assert.IsNotNull(page);
             Assert.AreEqual(1, page.TotalCount);
             Assert.AreEqual("InvalidOperationException", page.Entries[0].ExceptionType);
-            Assert.AreEqual(
-                "An exception was recorded. See the correlated server-side log event.",
-                page.Entries[0].ExceptionMessage);
+            Assert.AreEqual("token=[REDACTED]", page.Entries[0].ExceptionMessage);
+            Assert.IsFalse(page.Entries[0].ExceptionMessage!.Contains("must-not-be-exposed", StringComparison.Ordinal));
             Assert.IsFalse(page.Entries[0].Message!.Contains("must-not-be-exposed", StringComparison.Ordinal));
 
             #endregion

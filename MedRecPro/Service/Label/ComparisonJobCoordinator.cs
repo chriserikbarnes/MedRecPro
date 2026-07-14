@@ -179,6 +179,11 @@ namespace MedRecPro.Service
         {
             #region implementation
 
+            var createdAt = _statusStore.TryGetComparisonStatus(operationId, out var existingStatus)
+                && existingStatus is not null
+                    ? existingStatus.CreatedAt
+                    : DateTime.UtcNow;
+
             _statusStore.SetComparisonStatus(operationId, new ComparisonOperationStatus
             {
                 OperationId = operationId,
@@ -188,6 +193,7 @@ namespace MedRecPro.Service
                 ProgressUrl = request.ProgressUrl,
                 Result = result,
                 Error = error,
+                CreatedAt = createdAt,
                 UpdatedAt = DateTime.UtcNow
             });
 

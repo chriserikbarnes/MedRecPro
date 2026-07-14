@@ -218,12 +218,98 @@ namespace MedRecPro.Service.Test
             Assert.AreEqual(1, entries.Count);
             Assert.IsFalse(entries[0].Message!.Contains("abc123", StringComparison.Ordinal));
             Assert.IsFalse(entries[0].ExceptionMessage!.Contains("secret", StringComparison.OrdinalIgnoreCase));
+            StringAssert.Contains(entries[0].ExceptionMessage, "connection string=[REDACTED]");
             Assert.AreEqual(nameof(InvalidOperationException), entries[0].ExceptionType);
             Assert.IsNotNull(entries[0].ScopeValues);
             var scopeValues = entries[0].ScopeValues!;
             Assert.AreEqual("trace-123", scopeValues["TraceId"]);
             Assert.AreEqual("operation-456", scopeValues["OperationId"]);
             Assert.IsFalse(scopeValues.ContainsKey("UnapprovedScopeValue"));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies safe exception diagnostics remain useful while SQL, HTTP, and IO secret shapes are redacted.
+        /// </summary>
+        /// <seealso cref="LogEntry.ExceptionMessage"/>
+        /// <seealso cref="UserLoggerProvider.sanitizeValue"/>
+        [TestMethod]
+        public void UserLogger_ExceptionMessages_KeepSafeSummaryAndRedactSensitiveDetails()
+        {
+            #region implementation
+
+            var provider = new UserLoggerProvider(
+                settings: Options.Create(createLoggingSettings()),
+                timeProvider: new FakeTimeProvider(DateTimeOffset.Parse("2026-07-14T12:00:00Z")));
+            var logger = provider.CreateLogger("Coverage.ExceptionMessages");
+
+            logger.LogError(
+                new InvalidOperationException("SQL command failed safely; connection string=Server=db;Password=sql-secret; @UserId=42"),
+                "SQL failure");
+            logger.LogError(
+                new HttpRequestException("HTTP dependency rejected Authorization: Bearer http-secret"),
+                "HTTP failure");
+            logger.LogError(
+                new IOException(@"IO failure reading C:\outside-app\private-file.txt and /var/secrets/private-file.txt token=io-secret"),
+                "IO failure");
+
+            var entries = provider.GetLogs();
+            var exceptionMessages = entries.Select(entry => entry.ExceptionMessage).ToList();
+
+            Assert.AreEqual(3, entries.Count);
+            Assert.IsTrue(exceptionMessages.Any(message => message!.Contains("SQL command failed safely", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.Any(message => message!.Contains("HTTP dependency rejected", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.Any(message => message!.Contains("IO failure reading", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.All(message => !message!.Contains("sql-secret", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.All(message => !message!.Contains("http-secret", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.All(message => !message!.Contains("io-secret", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.All(message => !message!.Contains("@UserId=42", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.All(message => !message!.Contains(@"C:\outside-app\private-file.txt", StringComparison.Ordinal)));
+            Assert.IsTrue(exceptionMessages.All(message => !message!.Contains("/var/secrets/private-file.txt", StringComparison.Ordinal)));
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies automatic cleanup remains off the hot path within the throttle window and runs after it elapses.
+        /// </summary>
+        /// <remarks>
+        /// Capacity eviction is the observable signal: entries may temporarily exceed the category bound inside the
+        /// throttle window, then the first later write restores the configured bound without inspecting locks.
+        /// </remarks>
+        /// <seealso cref="UserLoggerProvider.PerformCleanup"/>
+        /// <seealso cref="TimeProvider"/>
+        [TestMethod]
+        public void UserLoggerProvider_AutomaticCleanup_ThrottlesHotPathAndRunsAfterWindow()
+        {
+            #region implementation
+
+            var timeProvider = new FakeTimeProvider(DateTimeOffset.Parse("2026-07-14T12:00:00Z"));
+            var provider = new UserLoggerProvider(
+                settings: Options.Create(new LoggingSettings
+                {
+                    RetentionMinutes = 60,
+                    MaxEntriesPerCategory = 100,
+                    MaxTotalEntries = 1000,
+                    CaptureUserContext = false
+                }),
+                timeProvider: timeProvider);
+            var logger = provider.CreateLogger("Coverage.CleanupThrottle");
+
+            for (var index = 0; index < 101; index++)
+            {
+                logger.LogInformation("Entry {EntryIndex}", index);
+            }
+
+            Assert.AreEqual(101, provider.GetLogs().Count);
+
+            timeProvider.Advance(TimeSpan.FromSeconds(31));
+            logger.LogInformation("Entry after throttle window");
+
+            Assert.AreEqual(100, provider.GetLogs().Count);
 
             #endregion
         }

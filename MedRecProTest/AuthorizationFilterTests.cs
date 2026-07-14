@@ -27,9 +27,9 @@ namespace MedRecPro.Service.Test
     /// <remarks>
     /// <see cref="UserDataAccess"/> is a concrete class with non-virtual
     /// methods, so the filters are fed real instances over EF InMemory
-    /// databases. The PK secret must be the assembly-wide
-    /// "TestEncryptionSecretKey12345!@#" because <see cref="UserDataAccess"/>
-    /// caches the secret in a process-wide static field.
+    /// databases. The class runs without parallel neighbors and resets the
+    /// process-wide <see cref="UserDataAccess"/> secret before each test so its
+    /// dedicated PK configuration cannot leak across fixtures.
     /// </remarks>
     /// <seealso cref="UserRoleAuthorizationFilter"/>
     /// <seealso cref="ActorAuthorizationFilter"/>
@@ -37,6 +37,7 @@ namespace MedRecPro.Service.Test
     /// <seealso cref="UserDataAccess"/>
     /// <seealso cref="PermissionService"/>
     [TestClass]
+    [DoNotParallelize]
     public class AuthorizationFilterTests
     {
         #region implementation
@@ -46,6 +47,25 @@ namespace MedRecPro.Service.Test
         /// <see cref="UserDataAccess"/> statics across the test run.
         /// </summary>
         private const string TestPkSecret = "TestEncryptionSecretKey12345!@#";
+
+        /**************************************************************/
+        /// <summary>
+        /// Clears the legacy process-wide user encryption key before each isolated authorization test.
+        /// </summary>
+        /// <remarks>
+        /// These fixtures intentionally supply their own PK secret. Isolation prevents a real-host or another
+        /// data-access fixture from leaking a different cached secret into authorization behavior.
+        /// </remarks>
+        /// <seealso cref="UserDataAccess.resetPkSecretForTests"/>
+        [TestInitialize]
+        public void ResetUserDataAccessSecret()
+        {
+            #region implementation
+
+            UserDataAccess.resetPkSecretForTests();
+
+            #endregion
+        }
 
         #region UserRoleAuthorizationFilter
 

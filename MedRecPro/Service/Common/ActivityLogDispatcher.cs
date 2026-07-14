@@ -44,14 +44,15 @@ internal sealed class ActivityLogDispatcher : IActivityLogDispatcher
 {
     #region implementation
 
+    // A bounded queue prevents a stalled persistence dependency from consuming memory without limit.
+    internal const int DefaultQueueCapacity = 1024;
+
+    // Hosted shutdown waits at most this long for normal queued persistence before yielding to host termination.
+    internal static readonly TimeSpan ShutdownDrainTimeout = TimeSpan.FromSeconds(30);
+
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<ActivityLogDispatcher> _logger;
-    private readonly Channel<ActivityLog> _activityLogs = Channel.CreateUnbounded<ActivityLog>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false
-        });
+    private readonly Channel<ActivityLog> _activityLogs;
 
     /**************************************************************/
     /// <summary>
@@ -63,11 +64,45 @@ internal sealed class ActivityLogDispatcher : IActivityLogDispatcher
     public ActivityLogDispatcher(
         IServiceScopeFactory serviceScopeFactory,
         ILogger<ActivityLogDispatcher> logger)
+        : this(serviceScopeFactory, logger, DefaultQueueCapacity)
+    {
+        #region implementation
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Initializes a dispatcher with an explicit bounded queue capacity for focused verification.
+    /// </summary>
+    /// <param name="serviceScopeFactory">Factory used to create an independent persistence scope.</param>
+    /// <param name="logger">Logger used to report persistence failures and dropped entries.</param>
+    /// <param name="queueCapacity">Maximum number of activity logs retained before the oldest entry is dropped.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="queueCapacity"/> is not positive.</exception>
+    /// <seealso cref="DefaultQueueCapacity"/>
+    internal ActivityLogDispatcher(
+        IServiceScopeFactory serviceScopeFactory,
+        ILogger<ActivityLogDispatcher> logger,
+        int queueCapacity)
     {
         #region implementation
 
         _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        if (queueCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(queueCapacity), queueCapacity, "Activity-log queue capacity must be positive.");
+        }
+
+        _activityLogs = Channel.CreateBounded<ActivityLog>(
+            new BoundedChannelOptions(queueCapacity)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            },
+            _ => _logger.LogWarning(
+                "Activity-log queue reached its capacity of {QueueCapacity}; the oldest queued entry was dropped",
+                queueCapacity));
 
         #endregion
     }
@@ -99,9 +134,13 @@ internal sealed class ActivityLogDispatcher : IActivityLogDispatcher
     {
         #region implementation
 
-        await foreach (var activityLog in _activityLogs.Reader.ReadAllAsync(stoppingToken))
+        using var completionRegistration = stoppingToken.Register(
+            static state => ((ChannelWriter<ActivityLog>)state!).TryComplete(),
+            _activityLogs.Writer);
+
+        await foreach (var activityLog in _activityLogs.Reader.ReadAllAsync())
         {
-            await persistAsync(activityLog);
+            await persistAsync(activityLog).ConfigureAwait(false);
         }
 
         #endregion
@@ -182,6 +221,28 @@ internal sealed class ActivityLogDispatcherHostedService : BackgroundService
         #region implementation
 
         return _dispatcher.processQueueAsync(stoppingToken);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Signals queue completion and waits within the documented shutdown drain window.
+    /// </summary>
+    /// <param name="cancellationToken">Host-provided token that can shorten the drain window.</param>
+    /// <returns>A task representing the bounded hosted-service shutdown.</returns>
+    /// <remarks>
+    /// <see cref="BackgroundService.StopAsync"/> cancels the execution token, which completes the channel writer.
+    /// The consumer then drains queued entries until it finishes, the host cancels, or the 30-second grace period elapses.
+    /// </remarks>
+    /// <seealso cref="ActivityLogDispatcher.ShutdownDrainTimeout"/>
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        #region implementation
+
+        using var drainTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        drainTimeout.CancelAfter(ActivityLogDispatcher.ShutdownDrainTimeout);
+        await base.StopAsync(drainTimeout.Token).ConfigureAwait(false);
 
         #endregion
     }

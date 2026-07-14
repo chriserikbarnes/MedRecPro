@@ -320,15 +320,7 @@ namespace MedRecPro.Service
             var repository = getRepository(entityType);
             var readByIdMethod = repository.GetType().GetMethod("ReadByIdAsync", new[] { typeof(string) })
                 ?? throw new MissingMethodException($"ReadByIdAsync not found on repository for {entityType.Name}");
-            object? entity;
-            try
-            {
-                entity = await invokeTaskAsync(repository, readByIdMethod, new object?[] { encryptedId }).ConfigureAwait(false);
-            }
-            catch (TargetInvocationException exception) when (exception.InnerException is KeyNotFoundException)
-            {
-                return notFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
-            }
+            var entity = await invokeTaskAsync(repository, readByIdMethod, new object?[] { encryptedId }).ConfigureAwait(false);
 
             if (entity is null)
             {
@@ -352,10 +344,6 @@ namespace MedRecPro.Service
             {
                 await invokeTaskAsync(repository, updateMethod, new[] { entity }).ConfigureAwait(false);
                 return success();
-            }
-            catch (TargetInvocationException exception) when (exception.InnerException is KeyNotFoundException)
-            {
-                return notFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
             }
             catch (KeyNotFoundException)
             {
@@ -382,6 +370,17 @@ namespace MedRecPro.Service
                 return invalid("Encrypted ID cannot be empty.");
             }
 
+            var primaryKey = getPrimaryKeyProperty(entityType);
+            if (primaryKey is null)
+            {
+                return invalid($"Could not determine primary key for section {menuSelection}. Delete cannot proceed.");
+            }
+
+            if (!tryDecryptPk(encryptedId, primaryKey.PropertyType, out var decryptedPrimaryKey) || decryptedPrimaryKey is null)
+            {
+                return invalid($"Invalid encrypted ID format for section {menuSelection}.");
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             var repository = getRepository(entityType);
             var deleteMethod = repository.GetType().GetMethod("DeleteAsync", new[] { typeof(string) })
@@ -393,14 +392,6 @@ namespace MedRecPro.Service
                 return rowsAffected == 0
                     ? notFound($"record with id {encryptedId} not found in section {menuSelection} for deletion, or no rows affected.")
                     : success();
-            }
-            catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException { Message: var message } && message.Contains("Failed to decrypt ID", StringComparison.Ordinal))
-            {
-                return invalid($"Invalid encrypted ID format for section {menuSelection}.");
-            }
-            catch (TargetInvocationException exception) when (exception.InnerException is KeyNotFoundException)
-            {
-                return notFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
             }
             catch (KeyNotFoundException)
             {

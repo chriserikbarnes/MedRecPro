@@ -1,5 +1,6 @@
 using MedRecPro.Api.Controllers;
 using MedRecPro.Models;
+using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -85,6 +86,62 @@ public class LabelComparisonControllerScopeTests
         queuedComparison.Verify(
             service => service.GenerateDocumentComparisonAsync(documentGuid),
             Times.Once);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies every queued comparison status transition preserves the original enqueue timestamp.
+    /// </summary>
+    /// <returns>A task representing the queued status-transition verification.</returns>
+    /// <remarks>
+    /// The comparison service captures the analyzing state from the real operation store before returning a result;
+    /// the terminal assertion then proves both an intermediate and final transition retained the initial timestamp.
+    /// </remarks>
+    /// <seealso cref="ComparisonJobCoordinator.Enqueue"/>
+    /// <seealso cref="ComparisonOperationStatus.CreatedAt"/>
+    [TestMethod]
+    public async Task ComparisonJobCoordinator_StatusTransitions_PreserveEnqueueCreatedAt()
+    {
+        #region implementation
+
+        var operationId = $"created-at-{Guid.NewGuid():N}";
+        var documentGuid = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        var statusStore = new InMemoryOperationStatusStore();
+        ComparisonOperationStatus? analyzingStatus = null;
+        var comparisonService = new Mock<IComparisonService>();
+        comparisonService
+            .Setup(service => service.GenerateDocumentComparisonAsync(documentGuid))
+            .Callback(() => statusStore.TryGetComparisonStatus(operationId, out analyzingStatus))
+            .ReturnsAsync(new DocumentComparisonResult { DocumentGuid = documentGuid });
+
+        var services = new ServiceCollection();
+        services.AddScoped<IComparisonService>(_ => comparisonService.Object);
+        using var rootProvider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        var queue = new BackgroundTaskQueueService();
+        var applicationLifetime = new Mock<IHostApplicationLifetime>();
+        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(CancellationToken.None);
+        var coordinator = new ComparisonJobCoordinator(
+            queue,
+            statusStore,
+            rootProvider.GetRequiredService<IServiceScopeFactory>(),
+            applicationLifetime.Object,
+            NullLogger<ComparisonJobCoordinator>.Instance);
+
+        var initialStatus = coordinator.Enqueue(new ComparisonJobRequest(operationId, documentGuid, "/comparison/status"));
+        Assert.IsTrue(queue.TryDequeue(out var queuedWork));
+
+        await queuedWork.Item2(CancellationToken.None);
+        var foundFinalStatus = statusStore.TryGetComparisonStatus(operationId, out var finalStatus);
+
+        Assert.IsNotNull(analyzingStatus);
+        Assert.AreEqual(ComparisonConstants.STATUS_ANALYZING, analyzingStatus.Status);
+        Assert.AreEqual(initialStatus.CreatedAt, analyzingStatus.CreatedAt);
+        Assert.IsTrue(foundFinalStatus);
+        Assert.IsNotNull(finalStatus);
+        Assert.AreEqual(ComparisonConstants.STATUS_COMPLETED, finalStatus.Status);
+        Assert.AreEqual(initialStatus.CreatedAt, finalStatus.CreatedAt);
 
         #endregion
     }
