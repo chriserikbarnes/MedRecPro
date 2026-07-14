@@ -6051,3 +6051,14 @@ Completed Phase 4 of the [Post-Remediation Regression and Residual Debt Cleanup 
 **Verification.** Focused `SecretBoundaryArchitectureTests|ServiceRegistrationTests` passed 16/16 and the full architecture slice passed 21/21. `dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false -p:UseSharedCompilation=false` passed with 0 warnings and 0 errors. `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-MedRecProVerification.ps1 -Gate DebugContract` and `-Gate ReleaseContract` each passed 24/24 with no OpenAPI drift; the bypass was necessary because direct local script execution is signing-policy blocked, and the gates required normal local NuGet configuration access. The final no-build Debug suite passed 2,681/2,682 with 0 failures and the reviewed `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip in 6 minutes 22 seconds. `git diff --check` passed.
 
 ---
+
+### 2026-07-14 6:38 PM EST — Tightened Post-Remediation Phase 5 Plan
+Expanded Phase 5 of the [Post-Remediation Regression and Residual Debt Cleanup Plan](Plans/%28pending%29%20MedRecPro%20Post-Remediation%20Regression%20and%20Residual%20Debt%20Cleanup%20Plan.md) into an implementation-ready cache-policy handoff while preserving its internal, behavior-parity scope. No production or test code changed.
+
+**Verified baseline and targets.** Recorded the 72 executable static cache calls as 35 read/write pairs in the main `LabelQueryDataAccess` partial plus one Orange Book pair, nine additional stale `Cached` aliases, the duplicate `generateCacheKey` helper, three production and five test parameterless construction sites, and the AE catalog fixture's spaces-versus-hyphens mismatch. Added explicit production, composition, policy, and test target-file inventories.
+
+**Implementation and guardrails.** Required constructor injection of `LabelQueryCachePolicy` with no parameterless, optional, static, or service-locator fallback; retained singleton-safe policy dependencies and scoped `LabelQueryDataAccess` through an explicit DI factory; centralized legacy composition in `LabelQueryLegacyCompatibility`; made `LegacyDtoLabelCacheKeyBuilder` the sole non-AE key authority; split the 70-site main migration by logical query family; and specified architecture guards for `PerformanceHelper`, `Cached`, `generateCacheKey`, and zero-argument construction. Added illustrative DI, policy-call, and AE discriminator shapes plus a five-commit sequence.
+
+**Verification.** Direct exact-path reads confirmed the ignored pending plan contains the Phase 5 scope boundary, verified baseline, target files, implementation shape, examples, commit sequence, phase-specific verification, strengthened acceptance criterion, and expanded risk control. No build or test was run because this was a planning-only documentation change with no production or test code modification.
+
+---
