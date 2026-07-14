@@ -19,6 +19,9 @@ MedRecPro is a pharmaceutical structured product label (SPL) management platform
 - **Hosting**: Azure App Service (Windows, IIS) with Cloudflare CDN/WAF/DNS
 - **Secrets**: Azure Key Vault
 - **API Documentation**: Swagger/OpenAPI
+- **Error Contracts**: Centralized ASP.NET Core `IExceptionHandler` with sanitized RFC 7807 `ProblemDetails` responses and request trace correlation
+- **Testing**: MSTest, `WebApplicationFactory<Program>`, kept-open SQLite test databases, reviewed Debug/Release OpenAPI snapshots, and real-host HTTP contracts
+- **Verification**: PowerShell gate runner plus GitHub Actions for fast architecture checks, Debug/Release contracts, and the full regression suite
 - **SPL Rendering**: RazorLight templates for SPL XML-to-HTML generation
 
 ## Solution Architecture
@@ -54,7 +57,7 @@ The solution's three web projects are deployed to a single Azure App Service usi
 | _(library)_ | **MedRecProImportClass** | Shared class library: entity models, parsing services, table-standardization pipeline, and EF Core context for SPL and Orange Book import |
 | _(SPA source)_ | **MedRecProReact** | React + Vite source for the adverse-event dashboard; builds into MedRecProStatic's web root |
 | _(prototypes)_ | **MedRecProPrototypes** | Standalone HTML/JS prototypes (e.g. the AE dashboard) that seed production UI work |
-| _(test)_ | **MedRecProTest** | Unit and integration tests |
+| _(test)_ | **MedRecProTest** | MSTest unit, relational, real-host integration, architecture, and Debug/Release contract coverage |
 
 ### Build and Solution Boundary
 
@@ -72,331 +75,270 @@ If a local apphost executable is locked by a running process, keep output inside
 
 **MedRecProStatic** is the user-facing front end. Its AI chat interface (`/Home/Chat`) communicates with the API using a request-interpret-execute-synthesize pattern: user queries are sent to the API's AI endpoints, which use Claude to map natural language to API calls. The static site also serves OAuth/MCP discovery metadata (`/.well-known/*`) at the domain root on behalf of the MCP server, because the MCP SDK resolves discovery URLs relative to the domain root rather than the `/mcp` path.
 
-**MedRecPro (API)** is the core backend. It handles label data CRUD, user authentication, AI query interpretation via Claude, database views for navigation, SPL document rendering via RazorLight templates, and the HTTP/progress boundary for SPL ZIP uploads. The actual SPL ZIP traversal, XML parsing, duplicate checks, and parser orchestration now live in **MedRecProImportClass**; the API keeps thin compatibility adapters and maps import-library result DTOs back into the web import-progress models.
+**MedRecPro (API)** is the core backend. It handles label data CRUD, user authentication, AI query interpretation via Claude, database views for navigation, SPL document rendering via RazorLight templates, and the HTTP/progress boundary for SPL ZIP uploads. The public Label surface remains one 51-operation `/api/Label` route family, but its implementation is split across small feature controllers and injected query/operation services. The former `DtoLabelAccess` implementation is now owned by those services; one forwarding-only static facade remains for external .NET compatibility. The actual SPL ZIP traversal, XML parsing, duplicate checks, and parser orchestration live in **MedRecProImportClass**; the API keeps thin compatibility adapters and maps import-library result DTOs back into the web import-progress models.
 
 **MedRecProMCP** is an OAuth 2.1 gateway that exposes MedRecPro API capabilities as MCP tools. When Claude.ai connects, it authenticates users through Google/Microsoft OAuth, resolves upstream identity provider identities to numeric database user IDs (auto-provisioning new users if needed), then forwards authenticated MCP JWTs to the MedRecPro API. It uses JWT tokens, PKCE (S256), Dynamic Client Registration (RFC 7591), and a shared PKSecret for encrypted user ID exchange with the API.
 
 **MedRecProReact** is the source for the adverse-event risk dashboard — a React + Vite single-page "island". Its Vite build emits a deterministic bundle directly into `MedRecProStatic/wwwroot/ae-dashboard`, which MedRecProStatic serves at `/adverse-events`. The dashboard reads only from the API's `/api/AdverseEvent` surface (`AdverseEventController`), which in turn queries the materialized AE risk tables produced by the table-standardization pipeline (Stage 5). Current dashboard focuses cover product-level risk, pharmacologic-class SOC correlation, and MedDRA-system-scoped class correlation. See the [MedRecProReact README](MedRecProReact/README.md) for the dashboard, and the [MedRecProImportClass README](MedRecProImportClass/README.md) for the risk-statistics contract.
 
+### Backend Boundaries and Compatibility Safeguards
+
+| Area | Current design |
+|---|---|
+| Startup | `Program.cs` is an ordered composition shell. Capability-focused extensions under `MedRecPro/Configuration` own data access, platform services, authentication, MVC, Swagger, middleware, rendering, import, and background-service registration. |
+| Label routing | `ApiControllerBase` retains the compile-time Debug/Release prefix split. `LabelFeatureControllerModelConvention` pins all split Label controllers to the public `Label` controller name, so implementation class names never leak into routes. |
+| Controller ownership | The original `LabelController` and `LabelSearchController` are empty compatibility shells. Search, document, section, markdown, import, comparison, and metadata operations live in feature controllers with no more than eight actions each. |
+| Label data access | Scoped feature services own EF Core query and document-graph behavior. `DtoLabelAccess.Compatibility.cs` preserves the 57 public names/58 overloads as forwarding-only adapters; first-party runtime callers use DI services. |
+| Queued work | Import progress crosses an explicit `IImportOperationStatusStore` boundary. Comparison jobs use a singleton coordinator that snapshots inputs, creates a fresh scope per job, and links cancellation to application shutdown instead of the originating request. |
+| Encryption | `DatabaseSecurityOptions` is bound centrally and `IPrimaryKeyCipher` is the injected encryption boundary for migrated Label, authentication, AI, authorization-filter, Claude-search, and Orange Book paths. Architecture tests freeze the explicitly deferred legacy-reader inventory. |
+| Errors and logs | `MedRecProExceptionHandler` owns unexpected HTTP failures in every environment, returning sanitized `ProblemDetails` and logging the same trace ID. Production logging uses structured templates, filtered/redacted in-memory administration records, and safe typed log DTOs; see [logging conventions](MedRecPro/docs/logging-conventions.md). |
+| Verification | A deterministic real host replaces both SQL contexts with SQLite, removes reviewed unsafe workers, and supplies test authentication/configuration. Debug and separately compiled Release suites protect all 51 Label routes, OpenAPI, headers, files, validation, authorization, and error bodies; see [verification gates](MedRecPro/docs/verification-gates.md). |
+
 ## Repository File Structure
 
-```
-MedRecPro/                          # Root repository
-  README.md                         # This file
-  .gitignore
-  LICENSE.txt
+The tree below is intentionally curated around deployable projects and the current architecture/verification boundaries. Every named path was checked against the live repository on 2026-07-14.
+
+```text
+./
+  README.md
+  MedRecPro.sln                     # Focused API/import/test solution
+  .github/
+    workflows/
+      medrecpro-verification.yml    # Fast + Debug/Release contract + full CI gates
+  scripts/
+    Invoke-MedRecProVerification.ps1
 
   MedRecPro/                        # ASP.NET Core Web API
-    Program.cs                      # App startup, DI, middleware
-    MedRecPro.csproj                # .NET 8.0 project file
-    appsettings.json                # Base configuration
-    appsettings.Development.json    # Local dev overrides
-    web.Release.config              # IIS release config
+    Program.cs                      # Ordered composition and middleware shell
+    MedRecPro.csproj                # Excludes bin/** and .codex-build/** from source discovery
+    Configuration/
+      DatabaseSecurityOptions.cs
+      MedRecProApplicationServiceExtensions.cs
+      MedRecProAuthenticationExtensions.cs
+      MedRecProMiddlewareExtensions.cs
+      MedRecProMvcExtensions.cs
+      MedRecProStartupDiagnosticsExtensions.cs
+      MedRecProSwaggerExtensions.cs
     Controllers/
-      ApiControllerBase.cs          # Base controller (route prefix, #if DEBUG directives)
-      AuthController.cs             # OAuth login/logout, user info
-      UsersController.cs            # User CRUD, activity logs, authentication, MCP user resolution/provisioning
-                                      #   [Authorize(Policy = "ApiAccess")] — accepts both cookie auth and McpBearer JWT
-                                      #   signup and authenticate endpoints use [AllowAnonymous]
-      LabelController.cs            # Label CRUD, views, search, import, AI endpoints
-      AiController.cs               # AI interpret/synthesize, conversations, context
-      SettingsController.cs         # App info, feature flags, metrics, logs, cache
-      AdverseEventController.cs     # Adverse-event dashboard data: products, favorites,
-                                      #   triage/forest/quadrant, reverse-lookup, interchange,
-                                      #   class SOC correlation, and MedDRA-system-scoped
-                                      #   class correlation map/heatmap/cell (gated by AeDashboard flag)
+      ApiControllerBase.cs          # Debug api/[controller] vs Release [controller]
+      LabelController.cs            # Empty compatibility shell
+      LabelSearchController.cs      # Empty compatibility shell
+      LabelApplicationController.cs
+      LabelClassificationController.cs
+      LabelComparisonController.cs
+      LabelDocumentController.cs
+      LabelImportController.cs
+      LabelIngredientController.cs
+      LabelMarkdownController.cs
+      LabelMetadataController.cs
+      LabelProductIdentifierController.cs
+      LabelProductSearchController.cs
+      LabelSectionController.cs
+      LabelSectionNavigationController.cs
+      LabelFeatureControllerAttribute.cs
+      LabelFeatureSwaggerTagAttribute.cs
+      AdverseEventController.cs
+      AiController.cs
+      AuthController.cs
+      OrangeBookController.cs
+      SettingsController.cs
+      UsersController.cs
     Service/
-      SplImportService.cs           # Compatibility adapter delegating SPL ZIP imports to MedRecProImportClass
-      SplParsingService.cs          # Legacy SplXmlParser adapter over MedRecProImportClass.Service.SplXmlParser
-      SplDataService.cs             # Database operations for label data
-      SplContextService.cs          # SPL document context management
-      SplDocumentRenderingService.cs    # SPL-to-HTML rendering via RazorLight
-      SplStructuredBodyRenderingService.cs
-      SplSectionRenderingService.cs
-      SplIngredientRenderingService.cs
-      SplPackageRenderingService.cs
-      SplCharacteristicRenderingService.cs
-      SplAuthorRenderingService.cs
-      SplTextContentRenderingService.cs
-      SplRenderingRegistrationService.cs
-      TarpitService.cs              # IP tracking, delay calculation, endpoint abuse detection
-      ViewRenderService.cs          # Razor view rendering
-      ZipImportWorkerService.cs     # Background ZIP import worker
-      BackgroudTaskService.cs       # Background task management
-      DatabaseKeepAliveService.cs   # Keeps Azure SQL Serverless awake during business hours
-      AzureTokenCredentialService.cs
-      AzureAppHostTokenCredentialService.cs
-      ParsingValidators/            # SPL validation services retained for existing web references
+      AeDashboardServices.cs        # Injected AE dashboard use-case services and policies
+      AppCacheService.cs            # IAppCache and user-context seams
+      PrimaryKeyCipher.cs           # IPrimaryKeyCipher encryption boundary
+      ClaudeSkillNameMapper.cs
+      SplImportService.cs           # Web compatibility adapter over the import library
+      SplParsingService.cs          # Legacy parser adapter over the import library
+      Common/
+        ActivityLogDispatcher.cs    # Channel dispatcher + scoped hosted consumer
+      Label/
+        ComparisonJobCoordinator.cs
+        CompleteLabelService.cs
+        LabelAiSearchService.cs
+        LabelQueryServiceContracts.cs
+        LabelQueryServices.cs
+        LabelSectionCrudService.cs
+        LabelXmlDocumentService.cs
+        Common/
+          LabelQueryCachePolicy.cs
+          LegacyDtoLabelCacheKeyBuilder.cs
+        Implementation/
+          LabelQueryDataAccess.cs
+          LabelQueryDataAccess-BatchLoaders.cs
+          LabelQueryDataAccess-Document.cs
+          LabelQueryDataAccess-Views.cs
+          LabelQueryLegacyCompatibility.cs
     DataAccess/
-      RepositoryDataAccess.cs       # Core data access layer
-      UserDataAccess.cs             # User-specific queries
-      DtoLabelAccess.cs             # Label DTO queries (base)
-      DtoLabelAccess-Views.cs       # Database view queries
-      DtoLabelAccess-Document.cs    # Document queries
-      DtoLabelAccess-Ingredient.cs  # Ingredient queries
-      DtoLabelAccess-Organization.cs
-      DtoLabelAccess-ProductHierarchy.cs
-      DtoLabelAccess-ContentHierarchy.cs
-      DtoLabelAccess-BatchLoaders.cs
-      DtoLabelAccess-AeDashboard.cs # Adverse-event dashboard queries and derivations
-      AeDashboardDerivation.cs      # Pure signal/triage/interchange/correlation math
-      AeDashboardFavoriteAccess.cs  # User favorite product persistence
-      AeCorrelationPipelineModels.cs # Internal (non-response) correlation pipeline records
-      ... (and more)
-    Middleware/
-      TarpitMiddleware.cs           # Progressive delay for 404 abuse and endpoint rate limiting
-    Models/                         # Domain models, DTOs, enums
-      Labels.cs                     # Core label entities
-      User.cs                       # User model
-      Import.cs                     # Import models
-      Comparison.cs                 # Label comparison models
-      SectionStructure.cs           # Section hierarchy
-      DocumentRendering.cs          # Rendering models
-      TarpitSettings.cs             # Tarpit configuration (thresholds, delays, monitored endpoints)
-      ... (and more)
-    Mappers/
-      ImportResultMapper.cs         # Converts import-library import results into web import-progress DTOs
-    Skills/                         # AI skill definitions (markdown prompts for Claude)
-      skills.md                     # Master skill index
-      selectors.md                  # Query routing rules
-      retryPrompt.md                # Retry logic prompt
-      labelProductIndication.md     # Indication discovery skill
-      equianalgesicConversion.md    # Opioid conversion skill
-      product-extraction.md         # Product extraction skill
-      pharmacologic-class-matching.md
-      interfaces/                   # Modular skill interface definitions
-        response-format.md
-        synthesis-rules.md
-        api/                        # API-specific skill docs
-          indication-discovery.md
-          label-content.md
-          equianalgesic-conversion.md
-          pharmacologic-class.md
-          product-extraction-api.md
-          user-activity.md
-          cache-management.md
-          session-management.md
-          data-rescue.md
-          retry-fallback.md
-      prompts/                      # AI prompt templates
-        product-extraction-prompt.md
-        pharmacologic-class-matching-prompt.md
-    Views/
-      SplTemplates/                 # RazorLight templates for SPL XML rendering
-        GenerateSpl.cshtml          # Main SPL generation template
-        _Section.cshtml             # Section partial
-        _Product.cshtml             # Product partial
-        _Ingredient.cshtml          # Ingredient partial
-        _Packaging.cshtml           # Packaging partial
-        _Author.cshtml              # Author partial
-        ... (18 templates total)
-      Stylesheets/                  # SPL rendering stylesheets
-    Helpers/                        # Utility classes
-      ClaimHelper.cs                # Centralized claim extraction (cookie auth + MCP JWT)
-      EncryptionHelper.cs           # ID encryption/decryption
-      ConnectionStringHelper.cs     # DB connection management
-      XmlHelpers.cs                 # XML parsing utilities
-      ... (and more)
-    Auth/
-      BasicAuthenticationHandler.cs # Basic auth handler
-    Attributes/                     # Custom validation attributes for SPL fields
-    Filters/
-      ActivityLogActionFilter.cs    # Request activity logging
-      RequireActorAttributeFilter.cs      # Actor-based authorization filter
-      RequireUserRoleAttributeFilter.cs   # Role-based authorization filter
-    Migrations/                     # EF Core migrations
+      DtoLabelAccess.Compatibility.cs   # Forwarding-only 57-name/58-overload facade
+      DtoLabelAccess-AeDashboard.cs     # AeDashboardDataAccess query implementation
+      AeDashboardFavoriteAccess.cs
+      AeDashboardDerivation.cs
+      AeCorrelationPipelineModels.cs
+      RepositoryDataAccess.cs
+      UserDataAccess.cs
+    Features/
+      AeDashboard/
+        Mapping/
+          AeDashboardDtoMapper.cs
+        Models/
+          AeDashboardDto.cs
+        Persistence/
+          AeDashboardModelConfigurations.cs
+      Label/
+        Mapping/
+          LabelDocumentAssembler.cs
     Exceptions/
-    SQL/                            # Database schema and maintenance scripts
-      MedRecPro.sql                 # Full database schema
-      MedRecPro_Views.sql           # View definitions
-      MedRecPro_Indexes.sql         # Index definitions
-      MedRecPro-Deployment.sql      # Deployment scripts
-      DbTriggerSetup.sql            # Database triggers
-      MedRecPro-Export-Import.ps1   # PowerShell export/import script
-      MedRecPro-AzureStatus.sql     # Azure status queries
-      MedRecPro-AzureRebuildIndex.sql
-      MedRecPro-AzureDisableIndex.sql
-      MedRecPro-AzureNuke.sql       # Full database reset (use with caution)
-      MedRecPro-AzureOnlineQueryEditorRebuildIndex.sql
-      MedRecPro-TableNames.sql
-      MedRecPro-TableTruncate.sql
-      MedRecPro-TableMissingIndexes.sql
-      MedRecPro-TableCreate-OrangeBook.sql  # Orange Book table definitions (7 tables)
-      MedRecPro-AzureOrangeBookNuke.sql     # Orange Book targeted truncation
-      MedRecPro-Table-tmp_FlattenedAdverseEventCoverageTable.sql  # Stage 5 AE source-row coverage audit
-      MedRecPro-Table-tmp_FlattenedAdverseEventTable.sql          # Stage 5 RR-ready AE stats (RR/DNRR/CI + PERSISTED log columns)
-      MedRecPro-Table-tmp_FlattenedAdverseEventRiskTable.sql      # Materialized dbo.vw_AeRisk for the dashboard
-      MedRecPro-Table-tmp_AeDashboardProductCatalog.sql           # Materialized dbo.vw_AeDashboardProductCatalog (picker)
-      MedRecPro-AdverseEvent-Export-Import.ps1  # BCP full-refresh of the AE tables (local -> Azure SQL)
-
-  MedRecProStatic/                  # Static site and AI chat interface
-    Program.cs                      # Startup, middleware, OAuth discovery endpoints
-    MedRecProStatic.csproj          # .NET 8.0 project file
-    web.config                      # IIS config (httpErrors PassThrough, handler isolation)
-    appsettings.json
-    appsettings.Development.json
-    Controllers/
-      HomeController.cs             # Index, Terms, Privacy, Chat pages
-      AdverseEventDashboardController.cs  # /adverse-events React island host
-    Middleware/
-      TarpitMiddleware.cs           # Progressive delay for 404 abuse and endpoint rate limiting
+      AuthorizationExceptions.cs
+      MedRecProExceptionHandler.cs
+      RequestCorrelation.cs
+    Filters/
+      ActivityLogActionFilter.cs
+      RequireActorAttributeFilter.cs
+      RequireUserRoleAttributeFilter.cs
+    Mappers/
+      ImportResultMapper.cs
     Models/
-      PageContent.cs                # Strongly-typed content models
-      TarpitSettings.cs             # Tarpit configuration (thresholds, delays, monitored endpoints)
+      ImportStatus.cs               # Web/import operation-status boundary
+    Middleware/
+      TarpitMiddleware.cs
+    Skills/
+      skills.md                     # Capability contracts
+      selectors.md                  # Skill routing rules
+      interfaces/                   # API and response mappings
+    Views/
+      SplTemplates/                 # RazorLight SPL templates
+      Stylesheets/
+    SQL/                            # Schema, views, indexes, import/export, AE materialization
+    docs/
+      logging-conventions.md
+      verification-gates.md
+
+  MedRecProImportClass/             # Shared SPL/Orange Book import and analytics library
+    Models/
+      Import.cs
+      ImportStatus.cs
+      OrangeBook.cs
+    DataAccess/
+      RepositoryDataAccess.cs
+      UserDataAccess.cs
+    Service/
+      SplImportService.cs
+      SplParsingService.cs
+      SplDataService.cs
+      ParsingServices/              # SPL and Orange Book parsers
+      ParsingValidators/
+      TransformationServices/
+        TableStandardizationServiceCollectionExtensions.cs
+        ClaudeCorrectionPayloadBuilder.cs
+        BaseTableFlattening/
+          ColumnStandardizationService.cs
+        AdverseEventTableFlattening/
+    TableStandards/
+      normalization-rules.md
+      column-contracts.md
+      table-types.md
+    Context/
+      ApplicationDbContext.cs
+
+  MedRecProConsole/                 # Bulk SPL/Orange Book import CLI
+    Program.cs
     Services/
-      ContentService.cs             # JSON content loader
-      TarpitService.cs              # IP tracking, delay calculation, endpoint abuse detection
+      ImportService.cs
+      ImportProgressTracker.cs
+      OrangeBookImportService.cs
+    Models/
+    Helpers/
+
+  MedRecProStatic/                  # Static site, AI chat, and dashboard host
+    Program.cs
+    Controllers/
+      HomeController.cs
+      AdverseEventDashboardController.cs
     Views/
       Home/
-        Index.cshtml                # Landing page
-        Terms.cshtml                # Terms of Service
-        Privacy.cshtml              # Privacy Policy
-        Chat.cshtml                 # AI chat interface
       AdverseEventDashboard/
-        Index.cshtml                # Layout-free React dashboard host (mounts ae-dashboard bundle)
       Shared/
-        _Layout.cshtml              # Master layout
-        _Masthead.cshtml            # Shared masthead partial (logo, nav incl. "Insight" -> /adverse-events)
-    Content/
-      config.json                   # Site config (URLs, branding, version)
-      pages.json                    # Page content (home, terms, privacy)
     wwwroot/
-      ae-dashboard/                 # Committed Vite build output from MedRecProReact
-      css/                          # Stylesheets (incl. masthead.css)
+      ae-dashboard/                 # Committed MedRecProReact build
       js/
-        site.js                     # Global scripts
-        chat/                       # AI chat modules (18 files)
-          index.js                  # Main orchestrator
-          api-service.js            # API communication
-          endpoint-executor.js      # API endpoint execution
-          batch-synthesizer.js      # Response synthesis
-          checkpoint-manager.js     # State checkpoints
-          checkpoint-renderer.js    # Progress UI rendering
-          message-renderer.js       # Chat message rendering
-          markdown.js               # Markdown-to-HTML
-          config.js                 # Chat configuration
-          state.js                  # Client state management
-          ... (and more)
-      lib/                          # Third-party (Bootstrap, jQuery)
+        chat/
 
-  MedRecProMCP/                     # MCP Server (OAuth 2.1 gateway)
-    Program.cs                      # Startup, DI, endpoint mappings
-    MedRecProMCP.csproj             # .NET 8.0 project file
-    server.json                     # MCP registry metadata
-    web.config                      # IIS config
-    appsettings.json / .Development.json / .Production.json
-    Configuration/
-      McpServerSettings.cs
-      MedRecProApiSettings.cs
-      JwtSettings.cs
-      OAuthProviderSettings.cs
-    Endpoints/
-      OAuthEndpoints.cs             # OAuth authorize, token, register, callbacks
-      OAuthMetadataEndpoints.cs     # .well-known metadata
-    Services/
-      McpTokenService.cs            # JWT token generation/validation
-      OAuthService.cs               # OAuth flow orchestration
-      ClientRegistrationService.cs  # Dynamic Client Registration (RFC 7591)
-      PkceService.cs                # PKCE implementation
-      FilePersistedCacheService.cs  # File-based persistent cache
-      MedRecProApiClient.cs         # HTTP client for API calls
-      UserResolutionService.cs      # Resolves upstream IdP email to numeric DB user ID
-    Handlers/
-      TokenForwardingHandler.cs     # Forwards MCP JWT to API (DelegatingHandler)
-    Helpers/
-      StringCipher.cs               # AES encryption (copy from API for user ID decryption)
-    Tools/
-      DrugLabelTools.cs             # MCP tools: drug label search and export
-      UserTools.cs                  # MCP tools: user/account operations
-    Models/
-      AiAgentDtos.cs                # AI integration models
-      WorkPlanModels.cs             # Work plan models
-    Templates/
-      McpDocumentation.html         # Embedded docs page
-
-  MedRecProConsole/                 # Bulk import CLI tool (SPL + Orange Book)
-    Program.cs                      # Entry point, interactive menu, CLI argument dispatch
-    Services/
-      ImportService.cs              # Console orchestration over MedRecProImportClass.SplImportService
-      ImportProgressTracker.cs      # SPL progress tracking
-      OrangeBookImportService.cs    # Orange Book import orchestration (ZIP extraction, truncation, progress)
-    Models/
-      AppSettings.cs
-      CommandLineArgs.cs            # CLI args: --orange-book, --nuke, --connection, --auto-quit, --verbose
-      ImportParameters.cs
-      ImportQueueItem.cs
-      ImportResults.cs
-      ImportProgressFile.cs
-    Helpers/
-      ConfigurationHelper.cs
-      ConsoleHelper.cs              # Interactive menu (import, orange-book/ob, database/db, help, quit)
-      HelpDocumentation.cs
-
-  MedRecProImportClass/             # Shared class library for import operations
-    Models/
-      BufferedFile.cs               # Import-library file reference used by web and console adapters
-      Import.cs                     # Import-library SPL result/progress models
-      ImportStatus.cs               # Import-library operation status model
-      OrangeBook.cs                 # Orange Book entity classes (Applicant, Product, Patent, Exclusivity, junctions)
-      ... (SPL models)
-    DataAccess/
-      RepositoryDataAccess.cs       # Import-library repository/data-access helpers
-      UserDataAccess.cs             # Import-side user lookup helpers
-    Service/
-      SplImportService.cs           # SPL ZIP traversal, XML extraction, duplicate checks, parser orchestration
-      SplParsingService.cs          # SPL XML parser orchestrator used by the import library
-      SplDataService.cs             # Import-library database operations for SPL persistence
-      ParsingServices/
-        SectionParser.cs            # SPL section parsing
-        ProductIdentityParser.cs    # SPL product identity parsing
-        PackagingParser.cs          # SPL package parsing
-        OrangeBookProductParsingService.cs  # Orange Book products.txt parsing, batch upserts, entity matching
-        ... (SPL and Orange Book parsers)
-      ParsingValidators/            # SPL parser validation rules shared by the import workflow
-      TransformationServices/             # SPL table-standardization pipeline (Stage 0 -> Stage 5)
-        TableStandardizationServiceCollectionExtensions.cs  # AddTableStandardization(...) DI graph
-        ColumnStandardizationService.cs   # Stage 3.25 column standardization (SOC normalization, Phase 2 content)
-        AeParameterCategoryDictionaryService.cs  # Scoped service (1,189 entries) resolving NULL ParameterCategory → canonical SOC
-        IAeParameterCategoryDictionaryService.cs # Interface for AE ParameterCategory dictionary lookup
-        AdverseEventTableFlattening/      # Stage 5 AE denormalization (RR/DNRR/CI) + RelativeRiskCalculator
-        ... (parsers, validators, dictionaries — see MedRecProImportClass/README.md)
-    TableStandards/                 # Normalization rules, column contracts, and table-type definitions
-      normalization-rules.md        # Deterministic Tier 1 rules + ML.NET Tier 2 guidance
-      column-contracts.md           # Per-TableCategory column contracts
-      table-types.md                # TableCategory classification decision tree
-    Context/
-      ApplicationDbContext.cs       # EF Core context (auto-registers OrangeBook entities via reflection)
-
-  MedRecProReact/                   # React + Vite source for the adverse-event dashboard
-    index.html                      # Vite entry (mounts #aeDashboardApp / #root)
-    vite.config.js                  # base /ae-dashboard/, builds into MedRecProStatic/wwwroot/ae-dashboard
-    package.json                    # React 19, Vite 8, Vitest 4, ESLint 10
+  MedRecProReact/                   # React + Vite adverse-event dashboard source
+    package.json
+    vite.config.js
     src/
-      App.jsx                       # Dashboard shell (product + class + system focus, all panels)
-      api/                          # /api/AdverseEvent client + dev/prod base resolution
-      lib/ hooks/ components/       # Normalizers, scales, hooks, charts (forest/quadrant/correlation/system)
-      test/                         # Vitest specs (see MedRecProReact/README.md)
+      App.jsx
+      api/
+      components/
+      hooks/
+      lib/
+      test/
 
-  MedRecProTest/                    # Unit and integration tests
-    SplImportServiceTests.cs
-    ProductRenderingServiceTests.cs
-    ComparisonServiceTests.cs
-    ColumnStandardizationServiceTests.cs  # Column standardization + AE dictionary integration tests
-    AeParameterCategoryDictionaryServiceTests.cs  # AE dictionary service unit tests (17 tests)
-    UserDataAccessTests.cs
-    LogActivityAsyncTests.cs
-    StringCipherTests.cs
-    ResolveMcpUserTests.cs          # MCP user resolution and auto-provisioning tests
-    TarpitServiceTests.cs           # Tarpit service unit tests (404 tracking + endpoint abuse)
-    TarpitMiddlewareTests.cs        # Tarpit middleware integration tests
-    AdverseEventControllerTests.cs  # AE dashboard controller routing, auth, validation, feature gating
-    AeDashboardDataAccessTests.cs   # AE dashboard query + correlation data-access tests
-    AeDashboardDerivationTests.cs   # AE signal/triage/interchange/correlation derivation math tests
+  MedRecProMCP/                     # OAuth 2.1 MCP gateway
+    Program.cs
+    Endpoints/
+      OAuthEndpoints.cs
+      OAuthMetadataEndpoints.cs
+    Services/
+    Tools/
+      DrugLabelTools.cs
+      UserTools.cs
+
+  MedRecProPrototypes/              # Standalone UI prototypes
+
+  MedRecProTest/                    # MSTest unit, relational, host, and contract suite
+    MedRecProTest.csproj
+    TestInfrastructure/
+      MedRecProTestConfiguration.cs
+      MedRecProWebApplicationFactory.cs
+      MedRecProHostFixture.cs
+      TestAuthenticationHandler.cs
+      TestExceptionThrowingStartupFilter.cs
+      CountingDbCommandInterceptor.cs
+      ControllerArchitectureTests.cs
+      LoggingAndErrorHandlingArchitectureTests.cs
+      ReflectionUsageArchitectureTests.cs
+      TestProjectDependencyGuardTests.cs
+    Contracts/
+      LabelOpenApiContractTests.cs
+    Integration/
+      LabelHttpContractTests.cs
+      StartupSmokeTests.cs
+    TestData/
+      OpenApi/
+        label-debug.contract.json
+        label-release.contract.json
+    ColumnStandardizationServiceTests.cs   # Thin shared-fixture shell
+    ColumnStandardizationTestFixture.cs
+    ColumnStandardization/
+      ColumnStandardizationCleanupTests.cs
+      ColumnStandardizationColumnContractTests.cs
+      ColumnStandardizationInitializationAndCategoryTests.cs
+      ColumnStandardizationPipelineTests.cs
+      ColumnStandardizationPkAndDefectRegressionTests.cs
+      ColumnStandardizationTreatmentArmRulesPart1Tests.cs
+      ColumnStandardizationTreatmentArmRulesPart2Tests.cs
+    TableParserTests.cs                    # Thin shared-parser shell
+    TableParserTestHelper.cs
+    TableParsing/
+      TableParserEfficacyAndRouterTests.cs
+      TableParserGeneralRegressionTests.cs
+      TableParserPkBasicAndCompoundTests.cs
+      TableParserPkHeaderRegressionTests.cs
+      TableParserPkRoutingTests.cs
+      TableParserPkWaveAndHygieneTests.cs
+      TableParserSimpleArmAndAeTests.cs
+    DtoLabelAccessFacadeArchitectureTests.cs
+    DtoLabelAccessSignatureCompatibilityTests.cs
+    LabelControllerRouteCompatibilityTests.cs
+    MedRecProPublicSurfaceInventoryTests.cs
+    ServiceRegistrationTests.cs
 ```
 
 ## API Endpoints Summary
 
-All API endpoints are accessed under `/api` in production (IIS virtual application). Controllers use `#if DEBUG` directives to handle the path prefix difference between local development (`/api/[controller]`) and production where IIS strips the `/api` prefix.
+All API endpoints are accessed under `/api` in production (IIS virtual application). API controllers inherit the `#if DEBUG` route in `ApiControllerBase`, preserving the local `/api/[controller]` prefix and the production app-relative route where IIS supplies and strips `/api`.
 
 ### Authentication (`/api/Auth`)
 
@@ -432,7 +374,7 @@ All API endpoints are accessed under `/api` in production (IIS virtual applicati
 
 ### Labels (`/api/Label`)
 
-The main data controller with 40+ endpoints covering navigation views, search, CRUD, import, rendering, and AI features.
+The compatibility-stable Label route family contains 51 operations covering navigation views, search, CRUD, import, rendering, and AI features. Internally, those actions are distributed across feature controllers; `LabelController` and `LabelSearchController` remain empty shells so the public controller name and Swagger/route contracts stay unchanged.
 
 **Navigation & Search Views:**
 
@@ -489,6 +431,7 @@ The main data controller with 40+ endpoints covering navigation views, search, C
 | Method | Route | Description |
 |---|---|---|
 | GET | `extract-product` | AI-powered product extraction from text |
+| GET | `indication/search` | AI-assisted indication search with label-text validation |
 | GET | `comparison/analysis/{documentGuid}` | Get comparison analysis |
 | POST | `comparison/analysis/{documentGuid}` | Start AI comparison analysis |
 | GET | `comparison/progress/{operationId}` | Check comparison progress |
@@ -498,6 +441,7 @@ The main data controller with 40+ endpoints covering navigation views, search, C
 | Method | Route | Description |
 |---|---|---|
 | GET | `{menuSelection}/{encryptedId}` | Get single entity by type |
+| GET | `section/{menuSelection}` | Get records for a label entity type |
 | POST | `{menuSelection}` | Create entity by type |
 | PUT | `{menuSelection}/{encryptedId}` | Update entity by type |
 | DELETE | `{menuSelection}/{encryptedId}` | Delete entity by type |
@@ -547,6 +491,8 @@ The main data controller with 40+ endpoints covering navigation views, search, C
 | GET | `logs/users` | Users with log entries |
 | GET | `test/app-credential` | Test Azure credentials |
 | GET | `test/app-metrics-pipeline` | Test metrics pipeline |
+
+Administrative log endpoints remain Admin-only and return typed, redacted projections. Invalid log filters use validation `ProblemDetails`; unexpected failures use the global trace-correlated `ProblemDetails` contract.
 
 ### Adverse Event Dashboard (`/api/AdverseEvent`)
 
@@ -807,11 +753,31 @@ SPL ZIP files can be downloaded from the [DailyMed SPL Resources](https://dailym
 
 Orange Book ZIP files can be downloaded from the [FDA Orange Book Data Files](https://www.fda.gov/drugs/drug-approvals-and-databases/approved-drug-products-therapeutic-equivalence-evaluations-orange-book) page. See the [FDA Orange Book Integration](#fda-orange-book-integration) section for import details.
 
+### 6. Run verification
+
+The repository-level runner provides the same named gates used by CI:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-MedRecProVerification.ps1 -Gate Fast
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-MedRecProVerification.ps1 -Gate DebugContract
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-MedRecProVerification.ps1 -Gate ReleaseContract
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-MedRecProVerification.ps1 -Gate Full
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-MedRecProVerification.ps1 -Gate All
+```
+
+- `Fast` runs dependency, reflection, public-surface, and route guards for ordinary changes.
+- `DebugContract` runs real-host integration and contract tests in Debug.
+- `ReleaseContract` separately compiles the same contract lane in Release under `MedRecPro/.codex-build/test-contract-release`.
+- `Full` builds the solution, runs every MSTest test, performs deterministic-test/source inventories, and checks the diff.
+- `All` executes every gate in order and is the phase/merge-boundary command used by the `MedRecPro Verification` workflow.
+
+See [MedRecPro verification gates](MedRecPro/docs/verification-gates.md) for gate boundaries and CI behavior.
+
 ## Setup Pitfalls and Fixes
 
 ### IIS Virtual Application Path Stripping
 
-IIS strips the virtual application prefix from requests before forwarding to ASP.NET Core. A request to `/api/Label/search` arrives at Kestrel as `/Label/search`. All controllers use `#if DEBUG` compiler directives to handle this:
+IIS strips the virtual application prefix from requests before forwarding to ASP.NET Core. A request to `/api/Label/search` arrives at Kestrel as `/Label/search`. API controllers inherit the conditional route from `ApiControllerBase`:
 
 ```csharp
 #if DEBUG
@@ -821,7 +787,7 @@ IIS strips the virtual application prefix from requests before forwarding to ASP
 #endif
 ```
 
-The same pattern applies to MCP routes and Swagger paths.
+Split Label controllers do not declare type-level routes. `LabelFeatureControllerModelConvention` resolves their `[controller]` token to `Label`, preserving the same 51 Debug and Release operations. The same virtual-application consideration applies to MCP routes and Swagger paths.
 
 ### Cloudflare + Azure App Service Managed Certificates
 
@@ -906,13 +872,14 @@ See the detailed deployment guides in each project's README:
 
 ### Deployment Checklist
 
-1. Publish each project to its virtual application path on Azure App Service
-2. Verify Azure Key Vault secrets are configured
-3. Purge Cloudflare cache after deployment
-4. Test authentication flows (Google and Microsoft OAuth)
-5. Verify Swagger UI loads at `/api/swagger/index.html`
-6. Verify MCP health check at `/mcp/health`
-7. Test AI chat at the static site
+1. Run `Invoke-MedRecProVerification.ps1 -Gate All`
+2. Publish each project to its virtual application path on Azure App Service
+3. Verify Azure Key Vault secrets are configured
+4. Purge Cloudflare cache after deployment
+5. Test authentication flows (Google and Microsoft OAuth)
+6. Verify Swagger UI loads at `/api/swagger/index.html`
+7. Verify MCP health check at `/mcp/health`
+8. Test AI chat at the static site
 
 ## License
 
