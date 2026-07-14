@@ -4,6 +4,7 @@ using MedRecPro.Service;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
@@ -24,13 +25,13 @@ public class LabelComparisonControllerScopeTests
 {
     /**************************************************************/
     /// <summary>
-    /// Verifies a queued comparison resolves its scoped service after the originating request scope is disposed.
+    /// Verifies a queued comparison outlives the originating request scope and request-aborted token.
     /// </summary>
     /// <returns>A task representing the background callback verification.</returns>
     /// <seealso cref="LabelComparisonController.QueueDocumentComparisonAnalysis"/>
     /// <seealso cref="IBackgroundTaskQueueService"/>
     [TestMethod]
-    public async Task QueueDocumentComparisonAnalysis_RequestScopeDisposed_UsesFreshBackgroundScope()
+    public async Task QueueDocumentComparisonAnalysis_RequestCompleted_UsesFreshBackgroundScopeWithoutRequestCancellation()
     {
         #region implementation
 
@@ -46,18 +47,27 @@ public class LabelComparisonControllerScopeTests
         var requestScope = rootProvider.CreateScope();
         var queue = new BackgroundTaskQueueService();
         var statusStore = new Mock<IOperationStatusStore>();
+        var applicationLifetime = new Mock<IHostApplicationLifetime>();
+        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(CancellationToken.None);
+        var coordinator = new ComparisonJobCoordinator(
+            queue,
+            statusStore.Object,
+            rootProvider.GetRequiredService<IServiceScopeFactory>(),
+            applicationLifetime.Object,
+            NullLogger<ComparisonJobCoordinator>.Instance);
+        using var requestAborted = new CancellationTokenSource();
         var controller = new LabelComparisonController(
             new Mock<IComparisonService>().Object,
             NullLogger<LabelComparisonController>.Instance,
-            queue,
-            statusStore.Object,
-            rootProvider.GetRequiredService<IServiceScopeFactory>())
+            coordinator,
+            statusStore.Object)
         {
             ControllerContext = new ControllerContext
             {
                 HttpContext = new DefaultHttpContext
                 {
-                    RequestServices = requestScope.ServiceProvider
+                    RequestServices = requestScope.ServiceProvider,
+                    RequestAborted = requestAborted.Token
                 }
             },
             Url = new Mock<IUrlHelper>().Object
@@ -66,6 +76,7 @@ public class LabelComparisonControllerScopeTests
         var queuedResult = controller.QueueDocumentComparisonAnalysis(documentGuid, CancellationToken.None);
 
         requestScope.Dispose();
+        requestAborted.Cancel();
         Assert.IsInstanceOfType(queuedResult.Result, typeof(AcceptedResult));
         Assert.IsTrue(queue.TryDequeue(out var queuedWork));
 

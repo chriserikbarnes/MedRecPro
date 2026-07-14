@@ -10,7 +10,6 @@ using MedRecPro.Exceptions;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service;
-using Microsoft.Extensions.Configuration;
 using static MedRecPro.Models.Constant;
 
 namespace MedRecPro.Filters
@@ -121,7 +120,7 @@ namespace MedRecPro.Filters
         private readonly UserDataAccess _userDataAccess;
         private readonly IPermissionService _permissionService;
         private readonly ILogger<ActorAuthorizationFilter> _logger;
-        private readonly string _pkSecret;
+        private readonly IPrimaryKeyCipher _primaryKeyCipher;
 
         #endregion
 
@@ -134,30 +133,23 @@ namespace MedRecPro.Filters
         /// <param name="allowedActors">The actor types that are permitted to access the resource.</param>
         /// <param name="userDataAccess">The data access service for retrieving user information.</param>
         /// <param name="permissionService">The permission service for decrypting and validating permissions.</param>
-        /// <param name="configuration">The application configuration for encryption settings.</param>
+        /// <param name="primaryKeyCipher">The boundary cipher for user identifiers.</param>
         /// <param name="logger">The logger for diagnostic output.</param>
         /// <exception cref="ArgumentNullException">Thrown when required dependencies are null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when encryption key is not configured.</exception>
+        /// <seealso cref="IPrimaryKeyCipher"/>
         public ActorAuthorizationFilter(
             string[] allowedActors,
             UserDataAccess userDataAccess,
             IPermissionService permissionService,
-            IConfiguration configuration,
+            IPrimaryKeyCipher primaryKeyCipher,
             ILogger<ActorAuthorizationFilter> logger)
         {
             #region implementation
             _allowedActors = allowedActors ?? throw new ArgumentNullException(nameof(allowedActors));
             _userDataAccess = userDataAccess ?? throw new ArgumentNullException(nameof(userDataAccess));
             _permissionService = permissionService ?? throw new ArgumentNullException(nameof(permissionService));
+            _primaryKeyCipher = primaryKeyCipher ?? throw new ArgumentNullException(nameof(primaryKeyCipher));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-            _pkSecret = configuration?["Security:DB:PKSecret"] ?? string.Empty;
-
-            if (string.IsNullOrWhiteSpace(_pkSecret))
-            {
-                _logger.LogError("Encryption key (Security:DB:PKSecret) is missing or empty in configuration.");
-                throw new InvalidOperationException("Encryption key (Security:DB:PKSecret) is missing or empty in configuration.");
-            }
             #endregion
         }
 
@@ -269,7 +261,7 @@ namespace MedRecPro.Filters
         /// </summary>
         /// <param name="context">The authorization filter context containing the HTTP context.</param>
         /// <returns>The encrypted user ID, or null if unable to retrieve.</returns>
-        /// <seealso cref="StringCipher"/>
+        /// <seealso cref="IPrimaryKeyCipher"/>
         private string? getEncryptedIdFromClaim(AuthorizationFilterContext context)
         {
             #region implementation
@@ -282,10 +274,7 @@ namespace MedRecPro.Filters
                     return null;
                 }
 
-                return StringCipher.Encrypt(
-                    userId.Value.ToString(),
-                    _pkSecret,
-                    StringCipher.EncryptionStrength.Fast);
+                return _primaryKeyCipher.Encrypt(userId.Value);
             }
             catch (Exception ex)
             {

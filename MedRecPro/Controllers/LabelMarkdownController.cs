@@ -1,5 +1,4 @@
 using MedRecPro.Controllers;
-using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Models;
@@ -29,13 +28,6 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Entity Framework database context used by markdown data-access operations.
-        /// </summary>
-        /// <seealso cref="ApplicationDbContext"/>
-        private readonly ApplicationDbContext _dbContext;
-
-        /**************************************************************/
-        /// <summary>
         /// Logger instance for markdown endpoint diagnostics.
         /// </summary>
         /// <seealso cref="ILogger"/>
@@ -57,21 +49,18 @@ namespace MedRecPro.Api.Controllers
         /// Initializes a new instance of the <see cref="LabelMarkdownController"/> class.
         /// </summary>
         /// <param name="logger">Logger instance for markdown endpoint diagnostics.</param>
-        /// <param name="applicationDbContext">Entity Framework database context for label read models.</param>
         /// <param name="claudeApiService">Claude API service used for clean display markdown generation.</param>
         /// <param name="labelMarkdownService">Markdown query service for Label endpoints.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <seealso cref="LabelController"/>
         public LabelMarkdownController(
             ILogger<LabelMarkdownController> logger,
-            ApplicationDbContext applicationDbContext,
             IClaudeApiService claudeApiService,
             ILabelMarkdownService labelMarkdownService)
         {
             #region implementation
 
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
             _labelMarkdownService = labelMarkdownService ?? throw new ArgumentNullException(nameof(labelMarkdownService));
             #endregion

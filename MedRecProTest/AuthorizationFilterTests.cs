@@ -4,6 +4,7 @@ using MedRecPro.Exceptions;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -211,24 +212,22 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
-        /// Verifies the filter constructor demands the PK secret configuration
-        /// key.
+        /// Verifies the filter constructor rejects a missing primary-key cipher.
         /// </summary>
         /// <seealso cref="UserRoleAuthorizationFilter"/>
         [TestMethod]
-        public void UserRoleAuthorizationFilter_Constructor_MissingPkSecret_ThrowsInvalidOperation()
+        public void UserRoleAuthorizationFilter_Constructor_MissingPrimaryKeyCipher_ThrowsArgumentNull()
         {
             #region implementation
-            // Arrange - configuration without Security:DB:PKSecret.
+            // Arrange - encryption configuration is validated by the shared cipher.
             using var context = createContext();
-            var emptyConfig = new ConfigurationBuilder().Build();
 
             // Act + Assert
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            Assert.ThrowsException<ArgumentNullException>(() =>
                 new UserRoleAuthorizationFilter(
                     new[] { "Admin" },
                     createUserDataAccess(context),
-                    emptyConfig,
+                    null!,
                     NullLogger<UserRoleAuthorizationFilter>.Instance));
             #endregion
         }
@@ -612,7 +611,7 @@ namespace MedRecPro.Service.Test
             return new UserRoleAuthorizationFilter(
                 allowedRoles,
                 createUserDataAccess(context),
-                createConfiguration(),
+                createPrimaryKeyCipher(),
                 NullLogger<UserRoleAuthorizationFilter>.Instance);
             #endregion
         }
@@ -634,8 +633,25 @@ namespace MedRecPro.Service.Test
                 allowedActors,
                 createUserDataAccess(context),
                 permissionService,
-                createConfiguration(),
+                createPrimaryKeyCipher(),
                 NullLogger<ActorAuthorizationFilter>.Instance);
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates the primary-key cipher shared by the authorization filters.
+        /// </summary>
+        /// <returns>A cipher configured with the test database-security secret.</returns>
+        /// <seealso cref="IPrimaryKeyCipher"/>
+        private static IPrimaryKeyCipher createPrimaryKeyCipher()
+        {
+            #region implementation
+            return new PrimaryKeyCipher(Microsoft.Extensions.Options.Options.Create(
+                new MedRecPro.Configuration.DatabaseSecurityOptions
+                {
+                    PKSecret = TestPkSecret
+                }));
             #endregion
         }
 

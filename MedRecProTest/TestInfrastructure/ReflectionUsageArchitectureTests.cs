@@ -23,6 +23,7 @@ public class ReflectionUsageArchitectureTests
     {
         "AdverseEventControllerTests.cs",
         "ApplicationDbContextFunctionTests.cs",
+        "ControllerArchitectureTests.cs",
         "DtoLabelAccessTestHelper.cs",
         "DtoLabelAccessSignatureCompatibilityTests.cs",
         "LabelControllerRouteCompatibilityTests.cs",

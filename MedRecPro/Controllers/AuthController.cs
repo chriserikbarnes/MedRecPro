@@ -2,6 +2,7 @@
 using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -69,7 +70,7 @@ namespace MedRecPro.Controllers
         /// or memory leaks.</remarks>
         private readonly IServiceScopeFactory _scopeFactory;
 
-        private readonly string _pkSecret;
+        private readonly IPrimaryKeyCipher _primaryKeyCipher;
         #endregion
 
         #region Constructor
@@ -83,12 +84,14 @@ namespace MedRecPro.Controllers
         /// <param name="configuration"></param>
         /// <param name="applicationDbContext">Used for waking the database early during authentication</param>
         /// <param name="serviceScopeFactory">Factory for creating scoped services during authentication workflows.</param>
+        /// <param name="primaryKeyCipher">Boundary cipher for encrypted user identifiers.</param>
         public AuthController(SignInManager<User> signInManager,
             UserManager<User> userManager,
             ILogger<AuthController> logger,
             IConfiguration configuration,
             ApplicationDbContext applicationDbContext,
-            IServiceScopeFactory serviceScopeFactory)
+            IServiceScopeFactory serviceScopeFactory,
+            IPrimaryKeyCipher primaryKeyCipher)
         {
             #region implementation
             _signInManager = signInManager;
@@ -98,12 +101,7 @@ namespace MedRecPro.Controllers
 
             _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _scopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
-
-            _pkSecret = _configuration["Security:DB:PKSecret"] ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing.");
-            if (string.IsNullOrWhiteSpace(_pkSecret))
-            {
-                throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' cannot be empty.");
-            }
+            _primaryKeyCipher = primaryKeyCipher ?? throw new ArgumentNullException(nameof(primaryKeyCipher));
             #endregion
         }
         #endregion
@@ -827,7 +825,7 @@ namespace MedRecPro.Controllers
                 return Ok(new
                 {
                     encryptedUserId = userId.HasValue
-                        ? StringCipher.Encrypt(userId.Value.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast)
+                        ? _primaryKeyCipher.Encrypt(userId.Value)
                         : null,
                     Name = User.Identity?.Name,
                     Claims = claims

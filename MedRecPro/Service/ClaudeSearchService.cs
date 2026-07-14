@@ -325,12 +325,6 @@ namespace MedRecPro.Service
         private readonly IServiceScopeFactory _serviceScopeFactory;
 
         /**************************************************************/
-        /// <summary>
-        /// Encryption secret for ID encryption in DTOs.
-        /// </summary>
-        private readonly string _pkEncryptionSecret;
-
-        /**************************************************************/
         /// <summary>Provides pharmacologic-class query operations for AI-assisted searches.</summary>
         private readonly IPharmacologicClassSearchService _pharmacologicClassSearchService;
 
@@ -417,9 +411,6 @@ namespace MedRecPro.Service
             _productSearchService = productSearchService ?? throw new ArgumentNullException(nameof(productSearchService));
             _labelMarkdownService = labelMarkdownService ?? throw new ArgumentNullException(nameof(labelMarkdownService));
 
-            // Get encryption secret from configuration
-            _pkEncryptionSecret = _configuration.GetValue<string>("Security:DB:PKSecret")
-                ?? throw new InvalidOperationException("PrimaryKeySecret not configured");
         }
 
         #endregion

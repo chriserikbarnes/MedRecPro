@@ -1,17 +1,10 @@
 using MedRecPro.Controllers;
-using MedRecPro.Data;
-using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
-using MedRecPro.Mappers;
 using MedRecPro.Models;
-using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
-using System.Reflection;
-using System.Security.Claims;
 using static MedRecPro.Models.UserRole;
 
 namespace MedRecPro.Api.Controllers
@@ -41,137 +34,18 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Logger instance for dynamic section endpoint diagnostics.
-        /// </summary>
-        /// <seealso cref="ILogger"/>
-        private readonly ILogger<LabelSectionController> _logger;
-
-        /**************************************************************/
-        /// <summary>
         /// Initializes a new instance of the <see cref="LabelSectionController"/> class.
         /// </summary>
         /// <param name="sectionCrudService">Service for dynamic repository and encrypted-ID operations.</param>
-        /// <param name="logger">Logger instance for dynamic section endpoint diagnostics.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <seealso cref="LabelController"/>
-        public LabelSectionController(
-            ILabelSectionCrudService sectionCrudService,
-            ILogger<LabelSectionController> logger)
+        public LabelSectionController(ILabelSectionCrudService sectionCrudService)
         {
             #region implementation
 
             _sectionCrudService = sectionCrudService ?? throw new ArgumentNullException(nameof(sectionCrudService));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Resolves the entity type based on the menu selection parameter using reflection.
-        /// </summary>
-        /// <param name="menuSelection">The name of the nested class within Label to resolve</param>
-        /// <returns>The Type representing the nested class, or null if not found</returns>
-        /// <remarks>
-        /// Uses reflection to find public instance nested types within the Label class.
-        /// The menuSelection should match exactly with a nested class name.
-        /// </remarks>
-        private Type? getEntityType(string menuSelection)
-        {
-            #region Implementation
-
-            return _sectionCrudService.GetEntityType(menuSelection);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Creates and resolves a generic repository instance for the specified entity type.
-        /// </summary>
-        /// <param name="entityType">The entity type for which to create a repository</param>
-        /// <returns>An instance of Repository&lt;T&gt; for the specified type</returns>
-        /// <exception cref="InvalidOperationException">Thrown when repository cannot be resolved</exception>
-        /// <remarks>
-        /// Uses the service provider to resolve a Repository&lt;T&gt; instance.
-        /// The repository and its dependencies must be properly registered in DI container.
-        /// </remarks>
-        private object getRepository(Type entityType)
-        {
-            #region Implementation
-
-            return _sectionCrudService.GetRepository(entityType);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Identifies the primary key property for an entity type using naming conventions.
-        /// </summary>
-        /// <param name="entityType">The entity type to analyze for primary key property</param>
-        /// <returns>PropertyInfo for the primary key, or null if not found</returns>
-        /// <remarks>
-        /// Attempts to find primary key using conventions in this order:
-        /// 1. {EntityName}ID (e.g., DocumentID)
-        /// 2. {EntityName}Id (e.g., DocumentId)
-        /// 3. Id (case-insensitive)
-        /// Does not use EF Core metadata unlike Repository constructor.
-        /// </remarks>
-        private PropertyInfo? getPrimaryKeyProperty(Type entityType)
-        {
-            #region Implementation
-
-            return _sectionCrudService.GetPrimaryKeyProperty(entityType);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Attempts to decrypt an encrypted primary key value and convert it to the appropriate type.
-        /// </summary>
-        /// <param name="encryptedPk">The encrypted primary key string to decrypt</param>
-        /// <param name="pkPropertyType">The target type for the decrypted primary key</param>
-        /// <param name="decryptedPkValue">Output parameter containing the decrypted and converted value</param>
-        /// <returns>True if decryption and conversion succeeded, false otherwise</returns>
-        /// <remarks>
-        /// Supports int and long primary key types (including nullable versions).
-        /// Delegates encrypted identifier parsing to the section CRUD service.
-        /// Logs warnings for unsupported types or parsing failures.
-        /// </remarks>
-        private bool tryDecryptPk(string? encryptedPk, Type pkPropertyType, out object? decryptedPkValue)
-        {
-            #region Implementation
-
-            return _sectionCrudService.TryDecryptPk(encryptedPk, pkPropertyType, out decryptedPkValue);
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Gets the current user ID from the HTTP context.
-        /// This method should be called while the HTTP context is still available.
-        /// </summary>
-        /// <returns>The current user's ID if authenticated; otherwise, null.</returns>
-        private long? getCurrentUserId()
-        {
-            try
-            {
-                if (HttpContext?.User?.Identity?.IsAuthenticated == true)
-                {
-                    return ClaimHelper.GetUserIdFromClaims(HttpContext.User.Claims);
-                }
-                return null;
-            }
-            // Broad-catch allowlist: optional claim extraction must fail closed to anonymous context rather than
-            // blocking a section operation when an identity is malformed.
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to get current user ID from context");
-                return null;
-            }
         }
 
         /**************************************************************/
@@ -260,24 +134,10 @@ namespace MedRecPro.Api.Controllers
         public ActionResult<ClassDocumentation> GetSectionDocumentation(string menuSelection)
         {
             #region Implementation
-            var entityType = getEntityType(menuSelection);
-            if (entityType == null)
-            {
-                _logger.LogWarning("GetSectionDocumentation called with invalid menuSelection: {MenuSelection}", menuSelection);
-
-                return BadRequest($"Invalid menu selection: {menuSelection}. No matching class found within MedRecPro.DataModels.Label.");
-            }
-
-            var documentation = _sectionCrudService.GetDocumentation(entityType);
-
-                if (documentation == null)
-                {
-                    // This case should ideally be handled by GetClassDocumentation logging or internal errors.
-                    // It might mean the type was valid but something went wrong during doc generation.
-                    throw new InvalidOperationException(
-                        $"Documentation generation unexpectedly returned no value for {entityType.FullName}.");
-                }
-            return Ok(documentation);
+            var outcome = _sectionCrudService.GetDocumentation(menuSelection);
+            return outcome.Status == SectionCrudStatus.InvalidInput
+                ? BadRequest(outcome.Error)
+                : Ok((ClassDocumentation)outcome.Payload!);
             #endregion
         }
 
@@ -345,83 +205,23 @@ namespace MedRecPro.Api.Controllers
             [FromQuery] int? pageNumber,
             [FromQuery] int? pageSize)
         {
-            #region Input Validation
-            if (pageNumber.HasValue && pageNumber.Value <= 0)
+            #region implementation
+
+            var outcome = await _sectionCrudService.GetAsync(menuSelection, pageNumber, pageSize, HttpContext.RequestAborted);
+            if (outcome.Status == SectionCrudStatus.Success && outcome.Payload is IReadOnlyCollection<Dictionary<string, object?>> payload && pageNumber.HasValue && pageSize.HasValue)
             {
-                return BadRequest($"Invalid page number: {pageNumber.Value}. Page number must be greater than 0 if provided.");
+                Response.Headers.Append("X-Page-Number", pageNumber.Value.ToString());
+                Response.Headers.Append("X-Page-Size", pageSize.Value.ToString());
+                Response.Headers.Append("X-Total-Count", payload.Count.ToString());
             }
 
-            if (pageSize.HasValue && pageSize.Value <= 0)
+            return outcome.Status switch
             {
-                return BadRequest($"Invalid page size: {pageSize.Value}. Page size must be greater than 0 if provided.");
-            }
+                SectionCrudStatus.InvalidInput => BadRequest(outcome.Error),
+                SectionCrudStatus.NotFound => NotFound(outcome.Error),
+                _ => Ok((IEnumerable<Dictionary<string, object?>>)outcome.Payload!)
+            };
 
-            // Enforce both or neither
-            if (pageNumber.HasValue != pageSize.HasValue)
-            {
-                return BadRequest("If providing paging, both pageNumber and pageSize must be specified.");
-            }
-            #endregion
-
-            #region Implementation
-
-            var entityType = getEntityType(menuSelection);
-            if (entityType == null)
-            {
-                _logger.LogWarning("Invalid menu selection received: {MenuSelection}", menuSelection);
-                return BadRequest($"Invalid menu selection: {menuSelection}");
-            }
-
-            var repository = getRepository(entityType);
-
-                // The repository's GetSection method accepts nullable ints.
-                var readAllMethod = repository.GetType().GetMethod("ReadAllAsync", new Type[] { typeof(int?), typeof(int?) });
-
-                if (readAllMethod == null)
-                {
-                    throw new MissingMethodException(
-                        $"ReadAllAsync(int?, int?) was not found on the {entityType.Name} repository.");
-                }
-
-                // pageSize is passed as is (it's either null or a positive value)
-                var methodParams = new object?[] { pageNumber, pageSize };
-
-                var task = (Task)readAllMethod.Invoke(repository, methodParams)!;
-                await task;
-
-                var resultProperty = task.GetType().GetProperty("Result");
-
-                if (resultProperty == null)
-                {
-                    throw new InvalidOperationException(
-                        $"The {readAllMethod.Name} task for {entityType.Name} did not expose a result.");
-                }
-
-                var entities = (IEnumerable<object>?)resultProperty.GetValue(task);
-
-                if (entities == null)
-                {
-                    _logger.LogWarning(
-                        "GetSection for {EntityType} returned null (page {PageNumber}, size {PageSize}); treating as empty.",
-                        entityType.Name,
-                        pageNumber,
-                        pageSize);
-                    entities = Enumerable.Empty<object>();
-                }
-
-                var dtoList = entities.Select(_sectionCrudService.ToEncryptedEntity).ToList();
-
-                // Add pagination headers if paging was applied and total count is available
-                if (pageNumber.HasValue
-                    && pageSize.HasValue)
-                {
-                    int totalCount = dtoList?.Count() ?? 0;
-                    Response.Headers.Append("X-Page-Number", pageNumber.Value.ToString());
-                    Response.Headers.Append("X-Page-Size", pageSize.Value.ToString());
-                    Response.Headers.Append("X-Total-Count", totalCount.ToString());
-                }
-
-            return Ok(dtoList);
             #endregion
         }
 
@@ -466,36 +266,13 @@ namespace MedRecPro.Api.Controllers
         {
             #region Implementation
 
-            // Resolve the entity type from the menu selection
-            var entityType = getEntityType(menuSelection);
-            if (entityType == null)
+            var outcome = await _sectionCrudService.GetByIdAsync(menuSelection, encryptedId, HttpContext.RequestAborted);
+            return outcome.Status switch
             {
-                return BadRequest($"Invalid menu selection: {menuSelection}");
-            }
-
-            // Get the appropriate repository for this entity type
-            var repository = getRepository(entityType);
-
-                // Use reflection to invoke ReadByIdAsync method with encrypted ID parameter
-                var readByIdMethod = repository.GetType().GetMethod("ReadByIdAsync", new[] { typeof(string) });
-                if (readByIdMethod == null) throw new MissingMethodException($"ReadByIdAsync not found on repository for {entityType.Name}");
-
-                // Execute the async method and await its completion
-                var task = (Task)readByIdMethod.Invoke(repository, new object[] { encryptedId })!;
-                await task;
-
-                // Extract the result from the completed task
-                var resultProperty = task.GetType().GetProperty("Result");
-                object? entity = resultProperty?.GetValue(task);
-
-                // Return NotFound if entity doesn't exist
-                if (entity == null)
-                {
-                    return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
-                }
-
-                // Transform entity to include encrypted ID and remove numeric PK
-            return Ok(_sectionCrudService.ToEncryptedEntity(entity));
+                SectionCrudStatus.InvalidInput => BadRequest(outcome.Error),
+                SectionCrudStatus.NotFound => NotFound(outcome.Error),
+                _ => Ok((Dictionary<string, object?>)outcome.Payload!)
+            };
 
             #endregion
         }
@@ -548,107 +325,15 @@ namespace MedRecPro.Api.Controllers
         {
             #region Implementation
 
-            string? json;
-
-            // Resolve the entity type from the menu selection
-            var entityType = getEntityType(menuSelection);
-
-            if (entityType == null)
-            {
-                _logger.LogWarning("Invalid menu selection received for create: {MenuSelection}", menuSelection);
-                return BadRequest($"Invalid menu selection: {menuSelection}");
-            }
-
-            // Validate that jsonData is not null
-            if (jsonData == null)
-            {
-                _logger.LogWarning("JSON data is null for menu selection: {MenuSelection}", menuSelection);
-                return BadRequest("Request body with JSON data is required.");
-            }
-
-            json = Convert.ToString(jsonData);
-
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                _logger.LogWarning("JSON data is null or whitespace for menu selection: {MenuSelection}", menuSelection);
-                return BadRequest("Request body with JSON data is required.");
-            }
-
-            // ModelState might not have much unless other model binders fail first.
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            object? entityToCreate;
-
-                // Deserialize the JSON string to an object of the resolved entityType
-                try
-                {
-                    var settings = new JsonSerializerSettings
-                    {
-                        // JSON has properties not in your C# class and you want to ignore them
-                        MissingMemberHandling = MissingMemberHandling.Ignore,
-
-                        // Ensures that when creating objects they are replaced if present in JSON,
-                        // rather than merged with default/constructed values.
-                        ObjectCreationHandling = ObjectCreationHandling.Replace
-                    };
-
-                    entityToCreate = JsonConvert.DeserializeObject(json, entityType, settings);
-
-                    if (entityToCreate == null)
-                    {
-                        // This can happen if the JSON string is "null" or cannot be deserialized to the target type.
-                        _logger.LogWarning("JSON deserialization resulted in a null object for {EntityType} with data: {JsonData}", entityType.Name, json);
-
-                        return BadRequest($"Invalid JSON data. Deserialization resulted in a null object for {menuSelection}.");
-                    }
-                }
-                catch (JsonException jsonEx) // Catches errors from Newtonsoft.Json
-                {
-                    _logger.LogWarning(jsonEx, "JSON deserialization failed for {EntityType} with data: {JsonData}", entityType.Name, json);
-
-                    return BadRequest($"Invalid JSON format for {menuSelection}.");
-                }
-
-                // Get the appropriate repository for this entity type
-                var repository = getRepository(entityType);
-
-                if (repository == null)
-                {
-                    throw new InvalidOperationException(
-                        $"No repository is registered for {entityType.FullName}.");
-                }
-
-                // Use reflection to invoke CreateAsync method on the repository
-                var createMethod = repository.GetType().GetMethod("CreateAsync", new[] { entityType });
-
-                if (createMethod == null)
-                {
-                    _logger.LogError("CreateAsync method not found on repository for {EntityType}", entityType.Name);
-
-                    // This is a server configuration issue, so throw to be caught by the generic error handlers below.
-                    throw new MissingMethodException($"CreateAsync not found on repository for {entityType.Name}");
-                }
-
-                // Execute the async creation and get the encrypted ID of the new record
-                var task = (Task<string?>)createMethod.Invoke(repository, new object[] { entityToCreate })!;
-
-                // Await the task to complete the creation operation
-                string? newEncryptedId = await task;
-
-                // Validate that we received an encrypted ID for the new record
-                if (string.IsNullOrWhiteSpace(newEncryptedId))
-                {
-                    throw new InvalidOperationException(
-                        $"CreateAsync did not return an encrypted identifier for {entityType.Name}.");
-                }
-
-                _logger.LogInformation("Successfully created record in section {MenuSelection} (EntityType: {EntityType}).", menuSelection, entityType.Name);
-
-                // Return encrypted ID
-            return newEncryptedId;
+            var outcome = await _sectionCrudService.CreateAsync(menuSelection, Convert.ToString(jsonData), HttpContext.RequestAborted);
+            return outcome.Status == SectionCrudStatus.InvalidInput
+                ? BadRequest(outcome.Error)
+                : Ok(outcome.Payload);
             #endregion
         }
 
@@ -696,156 +381,18 @@ namespace MedRecPro.Api.Controllers
         {
             #region Implementation
 
-            string? json;
-
-            // Resolve the entity type from the menu selection
-            var entityType = getEntityType(menuSelection);
-            if (entityType == null)
-            {
-                _logger.LogWarning("Invalid menu selection received: {MenuSelection}", menuSelection);
-                return BadRequest($"Invalid menu selection: {menuSelection}");
-            }
-
-            // Validate input parameters
-            if (string.IsNullOrWhiteSpace(encryptedId))
-            {
-                _logger.LogWarning("Encrypted ID is null or whitespace for menu selection: {MenuSelection}", menuSelection);
-                return BadRequest("Encrypted ID is required.");
-            }
-
-            // Validate that jsonData is not null or empty
-            if (jsonData == null)
-            {
-                _logger.LogWarning("JSON data is null for menu selection: {MenuSelection}", menuSelection);
-                return BadRequest("Request body with JSON data is required.");
-            }
-
-            json = Convert.ToString(jsonData);
-
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                _logger.LogWarning("JSON data is null or whitespace for menu selection: {MenuSelection}", menuSelection);
-                return BadRequest("Request body with JSON data is required.");
-            }
-
-            if (!ModelState.IsValid) // Though with raw string, ModelState might not have much unless other model binders fail first.
+            if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            // Identify the primary key property for this entity type
-            var pkProperty = getPrimaryKeyProperty(entityType);
-            if (pkProperty == null)
+            var outcome = await _sectionCrudService.UpdateAsync(menuSelection, encryptedId, Convert.ToString(jsonData), HttpContext.RequestAborted);
+            return outcome.Status switch
             {
-                _logger.LogError("Could not determine primary key for section {MenuSelection} (EntityType: {EntityType}). Update cannot proceed.", menuSelection, entityType.FullName);
-                return BadRequest($"Could not determine primary key for section {menuSelection}. Update cannot proceed.");
-            }
-
-            // Decrypt the primary key from the route parameter
-            if (!tryDecryptPk(encryptedId, pkProperty.PropertyType, out object? decryptedPkValue) || decryptedPkValue == null)
-            {
-                _logger.LogWarning("Invalid encrypted ID format or value for section {MenuSelection}.", menuSelection);
-                return BadRequest($"Invalid encrypted ID format or value for section {menuSelection}.");
-            }
-
-            try
-            {
-                // First, check if the entity exists using the generic repository's ReadByIdAsync
-                var repository = getRepository(entityType);
-
-                if (repository == null)
-                {
-                    throw new InvalidOperationException(
-                        $"No repository is registered for {entityType.FullName}.");
-                }
-
-                var readByIdMethod = repository.GetType().GetMethod("ReadByIdAsync", new[] { typeof(string) });
-
-                if (readByIdMethod == null)
-                {
-                    throw new MissingMethodException($"ReadByIdAsync not found on repository for {entityType.Name}");
-                }
-
-                // Verify the record exists before attempting update
-                var checkTask = (Task)readByIdMethod.Invoke(repository, new object[] { encryptedId })!;
-
-                await checkTask;
-
-                var checkResultProp = checkTask.GetType().GetProperty("Result");
-
-                if (checkResultProp?.GetValue(checkTask) == null)
-                {
-                    _logger.LogInformation("Record was not found in section {MenuSelection} for update.", menuSelection);
-
-                    return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
-                }
-
-                // Get the actual entity that was loaded and is being tracked
-                object? entityToUpdate = checkResultProp?.GetValue(checkTask);
-
-                if (entityToUpdate == null)
-                {
-                    _logger.LogInformation("Record was not found in section {MenuSelection} for update.", menuSelection);
-                    return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
-                }
-
-                try
-                {
-                    var settings = new JsonSerializerSettings
-                    {
-                        // JSON has properties not in your C# class and you want to ignore them
-                        MissingMemberHandling = MissingMemberHandling.Ignore,
-
-                        // Ensure objects are replaced, not merged
-                        ObjectCreationHandling = ObjectCreationHandling.Replace
-                    };
-
-                    JsonConvert.PopulateObject(json, entityToUpdate, settings);
-                }
-                catch (JsonException jsonEx) // Catches errors from Newtonsoft.Json
-                {
-                    _logger.LogWarning(jsonEx, "JSON deserialization failed for {EntityType} with data: {JsonData}", entityType.Name, jsonData);
-
-                    return BadRequest($"Invalid JSON format for {menuSelection}.");
-                }
-
-                // Set the PK property on the instance with the decrypted value from the route.
-                // This ensures the PK from the URL is authoritative.
-                var targetPkType = Nullable.GetUnderlyingType(pkProperty.PropertyType) ?? pkProperty.PropertyType;
-
-                var convertedPkValue = Convert.ChangeType(decryptedPkValue, targetPkType);
-
-                pkProperty.SetValue(entityToUpdate, convertedPkValue);
-
-                // Execute the update operation using reflection
-                var updateMethod = repository.GetType().GetMethod("UpdateAsync", new[] { entityType });
-
-                if (updateMethod == null)
-                {
-                    _logger.LogError("UpdateAsync method not found on repository for {EntityType}", entityType.Name);
-                    throw new MissingMethodException($"UpdateAsync not found on repository for {entityType.Name}");
-                }
-
-                var updateTask = (Task<int>)updateMethod.Invoke(repository, new object[] { entityToUpdate })!;
-
-                var recordsAffected = await updateTask;
-
-                _logger.LogInformation("Successfully updated record in section {MenuSelection}. Records affected: {RecordsAffected}", menuSelection, recordsAffected);
-
-                return NoContent();
-            }
-            catch (KeyNotFoundException knfEx) // This might be thrown by your repository or related logic
-            {
-                _logger.LogWarning(knfEx, "Record was not found in section {MenuSelection} during update attempt.", menuSelection);
-
-                return NotFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
-            }
-            catch (TargetInvocationException tiEx) when (tiEx.InnerException is KeyNotFoundException) // For KNF thrown inside invoked method
-            {
-                _logger.LogWarning(tiEx.InnerException, "Record was not found in section {MenuSelection} during update attempt.", menuSelection);
-
-                return NotFound($"Record with ID {encryptedId} not found in section {menuSelection} during update attempt.");
-            }
+                SectionCrudStatus.InvalidInput => BadRequest(outcome.Error),
+                SectionCrudStatus.NotFound => NotFound(outcome.Error),
+                _ => NoContent()
+            };
 
             #endregion
         }
@@ -884,53 +431,13 @@ namespace MedRecPro.Api.Controllers
         {
             #region Implementation
 
-            // Resolve the entity type from the menu selection
-            var entityType = getEntityType(menuSelection);
-            if (entityType == null)
+            var outcome = await _sectionCrudService.DeleteAsync(menuSelection, encryptedId, HttpContext.RequestAborted);
+            return outcome.Status switch
             {
-                return BadRequest($"Invalid menu selection: {menuSelection}");
-            }
-
-            // Validate the encrypted ID parameter
-            if (string.IsNullOrWhiteSpace(encryptedId))
-            {
-                return BadRequest("Encrypted ID cannot be empty.");
-            }
-
-            try
-            {
-                // Get the appropriate repository for this entity type
-                var repository = getRepository(entityType);
-
-                // Use reflection to invoke DeleteAsync method with encrypted ID parameter
-                var deleteMethod = repository.GetType().GetMethod("DeleteAsync", new[] { typeof(string) });
-                if (deleteMethod == null) throw new MissingMethodException($"DeleteAsync not found on repository for {entityType.Name}");
-
-                // Execute the async deletion and get the number of affected rows
-                var task = (Task<int>)deleteMethod.Invoke(repository, new object[] { encryptedId })!;
-                var rowsAffected = await task;
-
-                // Repository.DeleteAsync(string encryptedId) throws KeyNotFoundException if not found.
-                // So if we reach here, it was successful or an unhandled error occurred.
-                // If it returned 0 without exception (e.g., if FindAsync returned null and it didn't throw),
-                // then it would be a NotFound scenario. However, the current Repository throws.
-                if (rowsAffected == 0)
-                {
-                    return NotFound($"record with id {encryptedId} not found in section {menuSelection} for deletion, or no rows affected.");
-                }
-
-                return NoContent();
-            }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("Failed to decrypt ID")) // From Repository
-            {
-                _logger.LogWarning(ex, "Decryption failed for a record identifier in section {MenuSelection} during delete operation.", menuSelection);
-                return BadRequest($"Invalid encrypted ID format for section {menuSelection}.");
-            }
-            catch (KeyNotFoundException ex) // From Repository
-            {
-                _logger.LogWarning(ex, "Record was not found in section {MenuSelection} for deletion.", menuSelection);
-                return NotFound($"Record with ID {encryptedId} not found in section {menuSelection}.");
-            }
+                SectionCrudStatus.InvalidInput => BadRequest(outcome.Error),
+                SectionCrudStatus.NotFound => NotFound(outcome.Error),
+                _ => NoContent()
+            };
 
             #endregion
         }

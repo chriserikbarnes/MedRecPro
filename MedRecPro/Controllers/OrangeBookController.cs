@@ -1,12 +1,8 @@
 using MedRecPro.Controllers;
-using MedRecPro.Data;
-using MedRecPro.DataAccess;
 using MedRecPro.Filters;
-using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service.LabelQuery;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using System.Text;
 using static MedRecPro.Models.LabelView;
 
@@ -19,7 +15,7 @@ namespace MedRecPro.Api.Controllers
     /// cross-references to SPL drug labels.
     /// </summary>
     /// <remarks>
-    /// Uses <see cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/> for data retrieval.
+    /// Uses <see cref="IOrangeBookPatentQueryService.SearchOrangeBookPatentsAsync"/> for data retrieval.
     /// Applies pediatric deduplication when <c>*PED</c> companion patents exist,
     /// and generates pre-rendered markdown tables for display.
     ///
@@ -28,7 +24,7 @@ namespace MedRecPro.Api.Controllers
     /// the base row is filtered out and only the <c>*PED</c> row (with the extended
     /// pediatric exclusivity expiration date) is retained.
     /// </remarks>
-    /// <seealso cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>
+    /// <seealso cref="IOrangeBookPatentQueryService.SearchOrangeBookPatentsAsync"/>
     /// <seealso cref="OrangeBookPatentDto"/>
     /// <seealso cref="LabelView.OrangeBookPatent"/>
     [ApiController]
@@ -56,33 +52,9 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Configuration provider for accessing application settings.
-        /// </summary>
-        private readonly IConfiguration _configuration;
-
-        /**************************************************************/
-        /// <summary>
         /// Logger instance for this controller.
         /// </summary>
         private readonly ILogger<OrangeBookController> _logger;
-
-        /**************************************************************/
-        /// <summary>
-        /// String cipher utility for encrypting and decrypting primary keys.
-        /// </summary>
-        private readonly StringCipher _stringCipher;
-
-        /**************************************************************/
-        /// <summary>
-        /// Database context for Entity Framework Core queries.
-        /// </summary>
-        private readonly ApplicationDbContext _dbContext;
-
-        /**************************************************************/
-        /// <summary>
-        /// Secret key used for primary key encryption, retrieved from configuration.
-        /// </summary>
-        private readonly string _pkEncryptionSecret;
 
         /**************************************************************/
         /// <summary>Provides Orange Book patent search and count operations.</summary>
@@ -94,32 +66,17 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Initializes a new instance of the <see cref="OrangeBookController"/> with required dependencies.
         /// </summary>
-        /// <param name="configuration">Configuration provider for application settings.</param>
         /// <param name="logger">Logger instance for this controller.</param>
-        /// <param name="stringCipher">String cipher utility for encryption operations.</param>
-        /// <param name="applicationDbContext">Database context for data access.</param>
         /// <param name="orangeBookPatentQueryService">Orange Book patent query service.</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when PKSecret configuration is missing.</exception>
         public OrangeBookController(
-            IConfiguration configuration,
             ILogger<OrangeBookController> logger,
-            StringCipher stringCipher,
-            ApplicationDbContext applicationDbContext,
             IOrangeBookPatentQueryService orangeBookPatentQueryService)
         {
             #region implementation
 
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
-            _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _orangeBookPatentQueryService = orangeBookPatentQueryService ?? throw new ArgumentNullException(nameof(orangeBookPatentQueryService));
-
-            // Retrieve and validate the primary key encryption secret from configuration
-            _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
-                ?? throw new InvalidOperationException(
-                    "Configuration key 'Security:DB:PKSecret' is missing or empty.");
 
             #endregion
         }
@@ -192,7 +149,7 @@ namespace MedRecPro.Api.Controllers
         /// GET /api/OrangeBook/expiring?expiringInMonths=12&amp;pageNumber=2&amp;pageSize=25
         /// </code>
         /// </example>
-        /// <seealso cref="DtoLabelAccess.SearchOrangeBookPatentsAsync"/>
+        /// <seealso cref="IOrangeBookPatentQueryService.SearchOrangeBookPatentsAsync"/>
         /// <seealso cref="OrangeBookPatentExpirationResponseDto"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [HttpGet("expiring")]

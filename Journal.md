@@ -5947,3 +5947,14 @@ Completed Phases 0-3 of [the Controller Decomposition and Compatibility Remediat
 **Verification.** Final Debug build passed with 0 warnings and 0 errors. The focused Debug compatibility suite passed 52/52. An isolated Release compile and route/OpenAPI/HTTP run passed 17/17, preserving the Debug `api/Label` and Release `Label` route pair. The final full Debug suite passed 2,655/2,656 with 0 failures and the reviewed `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip in 6 minutes 40 seconds.
 
 ---
+
+### 2026-07-14 10:50 AM EST — Controller Decomposition Phases 4-6
+Completed Phases 4-6 of the Controller Decomposition and Compatibility Remediation plan and recorded the acceptance evidence in its ignored handoff before closing it as `(done)`.
+
+**Controller and background boundaries.** Moved dynamic section reflection, repository selection, encrypted-ID handling, and CRUD outcome classification into `LabelSectionCrudService`; moved Label XML retrieval and normalization into `LabelXmlDocumentService`; and moved queued comparison status, fresh-scope creation, and application-stop cancellation into singleton `IComparisonJobCoordinator`. `LabelComparisonController` no longer owns the queue/scope lifetime, and `LabelMarkdownController` no longer accepts its unused `ApplicationDbContext` dependency.
+
+**Security and architectural guards.** Migrated AI, Auth, Orange Book, Basic auth, authorization filters, and Claude search off direct raw PK-secret reads to `IPrimaryKeyCipher`. Added `ControllerArchitectureTests` for Label dependency/routing boundaries, exact action-count exceptions, and a fixed primary-key-reader inventory. The remaining AE, Users, Settings, and lower compatibility/service readers are explicitly deferred in the closed plan; the architecture inventory makes any drift fail tests.
+
+**Verification.** `dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false -p:UseSharedCompilation=false` passed with 0 warnings/errors. Focused Debug route/OpenAPI/HTTP, service, DI, architecture, security, and public-surface coverage passed 74/74; isolated Release Label contracts passed 17/17. The final no-build Debug suite with a two-minute per-test hang detector passed 2,661/2,662 with 0 failures and the reviewed `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip in 4 minutes 42 seconds. `git diff --check` passed and no OpenAPI snapshot changed.
+
+---

@@ -9,7 +9,7 @@ using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using MedRecPro.DataAccess;
 using MedRecPro.Models; // Required for User model
-using MedRecPro.Helpers; // Required for StringCipher
+using MedRecPro.Service;
 
 namespace MedRecPro.Security
 {
@@ -19,31 +19,18 @@ namespace MedRecPro.Security
     public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
         private readonly UserDataAccess _userDataAccess;
-        private readonly IConfiguration _configuration; // To get PkSecret for UpdateLastLoginAsync
-        private readonly string _pkSecret; // To get PkSecret for UpdateLastLoginAsync
-
-        // private readonly IConfiguration _configuration; // To get PkSecret for UpdateLastLoginAsync
+        private readonly IPrimaryKeyCipher _primaryKeyCipher;
 
         public BasicAuthenticationHandler(
             IOptionsMonitor<AuthenticationSchemeOptions> options,
             ILoggerFactory logger,
             UrlEncoder encoder,
             UserDataAccess userDataAccess,
-            IConfiguration configuration // Inject IConfiguration
+            IPrimaryKeyCipher primaryKeyCipher
             ) : base(options, logger, encoder)
         {
             _userDataAccess = userDataAccess ?? throw new ArgumentNullException(nameof(userDataAccess));
-
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-
-            _pkSecret = _configuration["Security:DB:PKSecret"] ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing.");
-
-            // Check if PKSecret is empty or null
-            if (string.IsNullOrWhiteSpace(_pkSecret))
-            {
-                throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' cannot be empty.");
-            }
-
+            _primaryKeyCipher = primaryKeyCipher ?? throw new ArgumentNullException(nameof(primaryKeyCipher));
         }
 
         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -87,17 +74,10 @@ namespace MedRecPro.Security
                     }
 
                     // Update last login information
-                    if (string.IsNullOrWhiteSpace(_pkSecret))
-                    {
-                        Logger.LogError("PKSecret not configured, cannot update last login for basic auth.");
-                    }
-                    else
-                    {
-                        string encryptedUserId = StringCipher.Encrypt(user.Id.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast);
-                        await _userDataAccess.UpdateLastLoginAsync(encryptedUserId, 
-                            loginTime:DateTime.UtcNow, 
-                            ipAddress:Context.Connection.RemoteIpAddress?.ToString());
-                    }
+                    string encryptedUserId = _primaryKeyCipher.Encrypt(user.Id);
+                    await _userDataAccess.UpdateLastLoginAsync(encryptedUserId,
+                        loginTime:DateTime.UtcNow,
+                        ipAddress:Context.Connection.RemoteIpAddress?.ToString());
                    
                     var claims = new[] {
                         new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
@@ -106,7 +86,7 @@ namespace MedRecPro.Security
                         // Add other claims as needed, e.g., roles
                         new Claim(ClaimTypes.Role, user.UserRole ?? "User"), // Add user role
                         new Claim("EncryptedUserId", user.EncryptedUserId
-                            ?? StringCipher.Encrypt(user.Id.ToString(), _pkSecret, StringCipher.EncryptionStrength.Fast)) // Custom claim for encrypted ID if needed elsewhere
+                            ?? _primaryKeyCipher.Encrypt(user.Id)) // Custom claim for encrypted ID if needed elsewhere
                     };
                     var identity = new ClaimsIdentity(claims, Scheme.Name);
                     var principal = new ClaimsPrincipal(identity);

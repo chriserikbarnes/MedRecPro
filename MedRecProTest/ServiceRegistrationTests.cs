@@ -263,8 +263,10 @@ namespace MedRecPro.Service.Test
             assertService<ActivityLogActionFilter>(builder.Services, ServiceLifetime.Scoped);
             assertService<IClaudeSkillService>(builder.Services, ServiceLifetime.Singleton);
             assertService<IComparisonService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<IComparisonJobCoordinator>(builder.Services, ServiceLifetime.Singleton);
             assertService<ICompleteLabelService>(builder.Services, ServiceLifetime.Scoped);
             assertService<ILabelSectionCrudService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<ILabelXmlDocumentService>(builder.Services, ServiceLifetime.Scoped);
             assertService<ILabelAiSearchService>(builder.Services, ServiceLifetime.Scoped);
             assertService<IActivityLogService>(builder.Services, ServiceLifetime.Scoped);
             assertService<IPermissionService>(builder.Services, ServiceLifetime.Scoped);
@@ -314,6 +316,7 @@ namespace MedRecPro.Service.Test
             assertScoped<ILabelContentQueryService, LabelContentQueryService>(services);
             assertScoped<ILabelMarkdownService, LabelMarkdownService>(services);
             assertScoped<ILabelDocumentQueryService, LabelDocumentQueryService>(services);
+            assertScoped<ILabelXmlDocumentService, LabelXmlDocumentService>(services);
             assertScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>(services);
 
             #endregion

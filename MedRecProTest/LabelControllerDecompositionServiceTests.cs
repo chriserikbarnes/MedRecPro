@@ -45,11 +45,11 @@ public class LabelControllerDecompositionServiceTests
 
     /**************************************************************/
     /// <summary>
-    /// Verifies the dynamic section seam owns type discovery and encrypted entity projection.
+    /// Verifies the dynamic section seam classifies malformed and unsupported requests without touching a repository.
     /// </summary>
     /// <seealso cref="LabelSectionCrudService"/>
     [TestMethod]
-    public void LabelSectionCrudService_ResolvesEntityAndProjectsEncryptedPrimaryKey()
+    public async Task LabelSectionCrudService_InvalidRequests_ReturnEstablishedOutcomes()
     {
         #region implementation
 
@@ -60,15 +60,19 @@ public class LabelControllerDecompositionServiceTests
             NullLogger<LabelSectionCrudService>.Instance,
             cipher);
 
-        Assert.AreEqual(typeof(Label.Document), service.GetEntityType(nameof(Label.Document)));
+        var documentation = service.GetDocumentation("not-a-label-section");
+        var invalidPage = await service.GetAsync(nameof(Label.Document), 0, 10, CancellationToken.None);
+        var invalidRead = await service.GetByIdAsync("not-a-label-section", "invalid", CancellationToken.None);
+        var invalidCreate = await service.CreateAsync("not-a-label-section", "{}", CancellationToken.None);
+        var invalidUpdate = await service.UpdateAsync("not-a-label-section", "invalid", "{}", CancellationToken.None);
+        var invalidDelete = await service.DeleteAsync("not-a-label-section", "invalid", CancellationToken.None);
 
-        var entity = new Label.Document { DocumentID = 42 };
-        var projection = service.ToEncryptedEntity(entity);
-        var encrypted = projection["EncryptedDocumentID"]?.ToString();
-
-        Assert.IsNotNull(encrypted);
-        Assert.AreEqual(42L, cipher.TryDecrypt(encrypted));
-        Assert.IsFalse(projection.ContainsKey(nameof(Label.Document.DocumentID)));
+        Assert.AreEqual(SectionCrudStatus.InvalidInput, documentation.Status);
+        Assert.AreEqual(SectionCrudStatus.InvalidInput, invalidPage.Status);
+        Assert.AreEqual(SectionCrudStatus.InvalidInput, invalidRead.Status);
+        Assert.AreEqual(SectionCrudStatus.InvalidInput, invalidCreate.Status);
+        Assert.AreEqual(SectionCrudStatus.InvalidInput, invalidUpdate.Status);
+        Assert.AreEqual(SectionCrudStatus.InvalidInput, invalidDelete.Status);
 
         #endregion
     }

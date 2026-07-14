@@ -280,6 +280,7 @@ namespace MedRecPro.Configuration
             services.AddScoped<ILabelDocumentQueryService, LabelDocumentQueryService>();
             services.AddScoped<ICompleteLabelService, CompleteLabelService>();
             services.AddScoped<ILabelSectionCrudService, LabelSectionCrudService>();
+            services.AddScoped<ILabelXmlDocumentService, LabelXmlDocumentService>();
             services.AddScoped<ILabelAiSearchService, LabelAiSearchService>();
             services.AddScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>();
 
@@ -490,8 +491,12 @@ namespace MedRecPro.Configuration
         {
             #region implementation
 
-            if (configuration.GetValue<bool>("FeatureFlags:BackgroundProcessingEnabled", true))
-                services.AddSingleton<IBackgroundTaskQueueService, BackgroundTaskQueueService>();
+            // The queue is a lightweight singleton dependency of comparison coordination even when a host opts out
+            // of processing work. Keeping the descriptor present lets DI validation remain deterministic; the
+            // feature flag controls worker execution rather than whether controllers can be constructed.
+            services.AddSingleton<IBackgroundTaskQueueService, BackgroundTaskQueueService>();
+
+            services.AddSingleton<IComparisonJobCoordinator, ComparisonJobCoordinator>();
 
             services.AddSingleton<InMemoryOperationStatusStore>();
 

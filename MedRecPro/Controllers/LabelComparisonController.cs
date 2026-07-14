@@ -1,17 +1,11 @@
 using MedRecPro.Controllers;
-using MedRecPro.Data;
-using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
-using MedRecPro.Mappers;
 using MedRecPro.Models;
 using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
-using System.Reflection;
-using System.Security.Claims;
 using static MedRecPro.Models.UserRole;
 
 namespace MedRecPro.Api.Controllers
@@ -48,10 +42,10 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Queue service for long-running comparison operations.
+        /// Coordinator that owns queued comparison status and background scope management.
         /// </summary>
-        /// <seealso cref="IBackgroundTaskQueueService"/>
-        private readonly IBackgroundTaskQueueService _queue;
+        /// <seealso cref="IComparisonJobCoordinator"/>
+        private readonly IComparisonJobCoordinator _comparisonJobCoordinator;
 
         /**************************************************************/
         /// <summary>
@@ -62,63 +56,27 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Scope factory used by background comparison work after the HTTP request completes.
-        /// </summary>
-        /// <seealso cref="IServiceScopeFactory"/>
-        private readonly IServiceScopeFactory _scopeFactory;
-
-        /**************************************************************/
-        /// <summary>
         /// Initializes a new instance of the <see cref="LabelComparisonController"/> class.
         /// </summary>
         /// <param name="comparisonService">Comparison service for synchronous analysis.</param>
         /// <param name="logger">Logger instance for comparison endpoint diagnostics.</param>
-        /// <param name="queue">Queue service for long-running comparison operations.</param>
+        /// <param name="comparisonJobCoordinator">Coordinator for queued comparison operations.</param>
         /// <param name="statusStore">Store for comparison operation progress state.</param>
-        /// <param name="scopeFactory">Scope factory for background comparison work.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <seealso cref="LabelController"/>
         public LabelComparisonController(
             IComparisonService comparisonService,
             ILogger<LabelComparisonController> logger,
-            IBackgroundTaskQueueService queue,
-            IOperationStatusStore statusStore,
-            IServiceScopeFactory scopeFactory)
+            IComparisonJobCoordinator comparisonJobCoordinator,
+            IOperationStatusStore statusStore)
         {
             #region implementation
 
             _comparisonService = comparisonService ?? throw new ArgumentNullException(nameof(comparisonService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _queue = queue ?? throw new ArgumentNullException(nameof(queue));
+            _comparisonJobCoordinator = comparisonJobCoordinator ?? throw new ArgumentNullException(nameof(comparisonJobCoordinator));
             _statusStore = statusStore ?? throw new ArgumentNullException(nameof(statusStore));
-            _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
 
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Creates the initial status object for a new comparison operation.
-        /// </summary>
-        /// <param name="operationId">The unique operation identifier</param>
-        /// <param name="documentGuid">The document GUID being analyzed</param>
-        /// <param name="progressUrl">The URL for progress monitoring</param>
-        /// <returns>A new ComparisonOperationStatus with initial values</returns>
-        /// <seealso cref="ComparisonOperationStatus"/>
-        /// <seealso cref="Label"/>
-        private ComparisonOperationStatus createInitialComparisonStatus(string operationId, Guid documentGuid, string? progressUrl)
-        {
-            #region implementation
-            return new ComparisonOperationStatus
-            {
-                OperationId = operationId,
-                DocumentGuid = documentGuid,
-                Status = ComparisonConstants.STATUS_QUEUED,
-                PercentComplete = ComparisonConstants.PROGRESS_QUEUED,
-                ProgressUrl = progressUrl,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
             #endregion
         }
 
@@ -139,150 +97,6 @@ namespace MedRecPro.Api.Controllers
             Response.Headers.Append(ComparisonConstants.HEADER_ANALYSIS_METHOD,
                 isAsynchronous ? ComparisonConstants.ANALYSIS_METHOD_ASYNCHRONOUS : ComparisonConstants.ANALYSIS_METHOD_SYNCHRONOUS);
             Response.Headers.Append(ComparisonConstants.HEADER_ANALYSIS_TIMESTAMP, DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"));
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Updates the comparison operation status with new information using extension methods.
-        /// </summary>
-        /// <param name="operationId">The unique operation identifier</param>
-        /// <param name="status">The status message</param>
-        /// <param name="percentComplete">The completion percentage</param>
-        /// <param name="progressUrl">The progress monitoring URL</param>
-        /// <param name="documentGuid">The document GUID being analyzed</param>
-        /// <param name="result">The analysis result when complete</param>
-        /// <param name="error">Any error message</param>
-        /// <remarks>
-        /// Uses the generic extension method to store ComparisonOperationStatus while maintaining
-        /// backward compatibility with the strongly-typed IOperationStatusStore interface.
-        /// </remarks>
-        /// <seealso cref="ComparisonOperationStatus"/>
-        /// <seealso cref="OperationStatusStoreExtensions"/>
-        /// <seealso cref="Label"/>
-        private void updateComparisonStatus(
-            string operationId,
-            string status,
-            int percentComplete,
-            string? progressUrl,
-            Guid documentGuid,
-            DocumentComparisonResult? result = null,
-            string? error = null)
-        {
-            #region implementation
-            var comparisonStatus = new ComparisonOperationStatus
-            {
-                OperationId = operationId,
-                DocumentGuid = documentGuid,
-                Status = status,
-                PercentComplete = percentComplete,
-                ProgressUrl = progressUrl,
-                Result = result,
-                Error = error,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            // Preserve creation time if status exists using generic extension method
-            if (_statusStore.TryGet<ComparisonOperationStatus>(operationId, out ComparisonOperationStatus? existingStatus) &&
-                existingStatus is not null)
-            {
-                comparisonStatus.CreatedAt = existingStatus.CreatedAt;
-            }
-
-            // Use generic extension method to store the status
-            _statusStore.Set(operationId, comparisonStatus);
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Executes the comparison analysis operation in the background using a scoped service provider.
-        /// </summary>
-        /// <param name="operationId">The unique operation identifier</param>
-        /// <param name="documentGuid">The document GUID to analyze</param>
-        /// <param name="progressUrl">The progress monitoring URL</param>
-        /// <param name="cancellationToken">Cancellation token for the operation</param>
-        /// <remarks>
-        /// Creates a new service scope for background processing to ensure proper dependency injection
-        /// container lifecycle management. This prevents "ObjectDisposedException" errors that occur
-        /// when accessing services from a disposed scope in background tasks.
-        /// </remarks>
-        /// <seealso cref="IComparisonService"/>
-        /// <seealso cref="DocumentComparisonResult"/>
-        /// <seealso cref="IServiceScopeFactory"/>
-        /// <seealso cref="Label"/>
-        private async Task executeComparisonAnalysisAsync(
-            string operationId,
-            Guid documentGuid,
-            string? progressUrl,
-            CancellationToken cancellationToken)
-        {
-            #region implementation
-            try
-            {
-                // Update status to indicate processing has started
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_PROCESSING,
-                    ComparisonConstants.PROGRESS_PROCESSING_STARTED, progressUrl, documentGuid);
-
-                _logger.LogInformation("Starting background comparison analysis for document {DocumentGuid}, operation {OperationId}",
-                    documentGuid, operationId);
-
-                // Create a new scope for background processing to avoid disposed context issues
-                using var scope = _scopeFactory.CreateScope();
-                var comparisonService = scope.ServiceProvider.GetRequiredService<IComparisonService>();
-
-                // Update progress during analysis
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_ANALYZING,
-                    ComparisonConstants.PROGRESS_ANALYZING, progressUrl, documentGuid);
-
-                var analysisResult = await comparisonService.GenerateDocumentComparisonAsync(documentGuid);
-
-                // Update progress as analysis completes
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_FINALIZING,
-                    ComparisonConstants.PROGRESS_FINALIZING, progressUrl, documentGuid);
-
-                // Mark operation as completed and store results
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_COMPLETED,
-                    ComparisonConstants.PROGRESS_COMPLETED, progressUrl, documentGuid, analysisResult);
-
-                _logger.LogInformation("Successfully completed background comparison analysis for document {DocumentGuid}, operation {OperationId}",
-                    documentGuid, operationId);
-            }
-            catch (OperationCanceledException)
-            {
-                // Handle cancellation gracefully
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_CANCELED,
-                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid);
-                _logger.LogInformation("Comparison analysis was canceled for document {DocumentGuid}, operation {OperationId}",
-                    documentGuid, operationId);
-            }
-            catch (ArgumentException ex)
-            {
-                // Handle validation errors
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_FAILED,
-                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid, error: "The comparison operation failed.");
-                _logger.LogWarning(ex, "Invalid argument during comparison analysis for document {DocumentGuid}, operation {OperationId}",
-                    documentGuid, operationId);
-            }
-            catch (InvalidOperationException ex)
-            {
-                // Handle business logic errors
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_FAILED,
-                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid, error: "The comparison operation failed.");
-                _logger.LogWarning(ex, "Invalid operation during comparison analysis for document {DocumentGuid}, operation {OperationId}",
-                    documentGuid, operationId);
-            }
-            // Broad-catch allowlist: this background callback owns the terminal operation status after the HTTP
-            // request has ended, so the failure must be recorded here rather than by request middleware.
-            catch (Exception ex)
-            {
-                // Handle any unexpected processing errors
-                updateComparisonStatus(operationId, ComparisonConstants.STATUS_FAILED,
-                    ComparisonConstants.PROGRESS_QUEUED, progressUrl, documentGuid,
-                    error: ComparisonConstants.ERROR_ANALYSIS_FAILED);
-                _logger.LogError(ex, "Unexpected error during comparison analysis for document {DocumentGuid}, operation {OperationId}",
-                    documentGuid, operationId);
-            }
             #endregion
         }
 
@@ -557,47 +371,21 @@ namespace MedRecPro.Api.Controllers
             CancellationToken cancellationToken)
         {
             #region implementation
-            // Use helper method for validation
             var validationResult = validateDocumentGuid(documentGuid);
-            if (validationResult != null) return validationResult;
-
-            try
+            if (validationResult != null)
             {
-                _logger.LogInformation("Queuing document comparison analysis for GUID {DocumentGuid}", documentGuid);
-
-                // Generate unique operation identifier
-                var operationId = Guid.NewGuid().ToString();
-                var progressUrl = Url.Action("GetComparisonProgress", new { operationId });
-
-                // Create linked cancellation token to handle client disconnection
-                var disconnectedToken = HttpContext.RequestAborted;
-                var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, disconnectedToken);
-
-                // Use helper method to create initial status
-                var status = createInitialComparisonStatus(operationId, documentGuid, progressUrl);
-
-                // Store the initial status for client polling
-                _statusStore.Set(operationId, status);
-
-                // Queue the background processing task
-                _queue.Enqueue(operationId, async token =>
-                {
-                    await executeComparisonAnalysisAsync(operationId, documentGuid, progressUrl, linkedTokenSource.Token);
-                });
-
-                _logger.LogInformation("Successfully queued document comparison analysis for GUID {DocumentGuid}", documentGuid);
-
-                // Use helper method for response headers
-                addComparisonResponseHeaders(documentGuid, operationId, isAsynchronous: true);
-
-                return Accepted(status);
+                return validationResult;
             }
-            catch (OperationCanceledException)
-            {
-                // Handle cancellation gracefully
-                _logger.LogInformation("Document comparison analysis queuing was canceled for GUID {DocumentGuid}", documentGuid);
-                return StatusCode(StatusCodes.Status499ClientClosedRequest);
-            }
+
+            // This parameter remains in the public action signature for route and binding compatibility. A queued
+            // operation must not inherit it because ASP.NET cancels it with the originating HTTP request.
+            _ = cancellationToken;
+            var operationId = Guid.NewGuid().ToString();
+            var progressUrl = Url.Action("GetComparisonProgress", new { operationId });
+            var status = _comparisonJobCoordinator.Enqueue(new ComparisonJobRequest(operationId, documentGuid, progressUrl));
+
+            addComparisonResponseHeaders(documentGuid, operationId, isAsynchronous: true);
+            return Accepted(status);
             #endregion
         }
 

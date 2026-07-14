@@ -99,27 +99,15 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// String cipher utility for encrypting user IDs.
+        /// Boundary cipher for encrypting user IDs.
         /// </summary>
-        private readonly StringCipher _stringCipher;
-
-        /**************************************************************/
-        /// <summary>
-        /// Configuration provider for accessing application settings.
-        /// </summary>
-        private readonly IConfiguration _configuration;
+        private readonly IPrimaryKeyCipher _primaryKeyCipher;
 
         /**************************************************************/
         /// <summary>
         /// Logger instance for this controller.
         /// </summary>
         private readonly ILogger<AiController> _logger;
-
-        /**************************************************************/
-        /// <summary>
-        /// Secret key used for user ID encryption.
-        /// </summary>
-        private readonly string _pkEncryptionSecret;
 
         #endregion
 
@@ -131,30 +119,24 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         /// <param name="claudeApiService">Claude API service for interpretation and synthesis.</param>
         /// <param name="claudeConversationService">Claude conversation service for managing conversation sessions.</param>
-        /// <param name="stringCipher">String cipher utility for encryption.</param>
-        /// <param name="configuration">Configuration provider.</param>
+        /// <param name="primaryKeyCipher">Boundary cipher for encrypted user IDs.</param>
         /// <param name="logger">Logger instance.</param>
         /// <exception cref="ArgumentNullException">Thrown when any required parameter is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when encryption secret is not configured.</exception>
+        /// <seealso cref="IPrimaryKeyCipher"/>
         /// <seealso cref="IClaudeApiService"/>
         /// <seealso cref="IClaudeConversationService"/>
         public AiController(
             IClaudeApiService claudeApiService,
             IClaudeConversationService claudeConversationService,
-            StringCipher stringCipher,
-            IConfiguration configuration,
+            IPrimaryKeyCipher primaryKeyCipher,
             ILogger<AiController> logger)
         {
             #region implementation
 
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
             _claudeConversationService = claudeConversationService ?? throw new ArgumentNullException(nameof(claudeConversationService));
-            _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _primaryKeyCipher = primaryKeyCipher ?? throw new ArgumentNullException(nameof(primaryKeyCipher));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-            _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
-                ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
 
             #endregion
         }
@@ -542,10 +524,7 @@ namespace MedRecPro.Api.Controllers
                 return null;
             }
 
-            return StringCipher.Encrypt(
-                userId.Value.ToString(),
-                _pkEncryptionSecret,
-                StringCipher.EncryptionStrength.Fast);
+            return _primaryKeyCipher.Encrypt(userId.Value);
             #endregion
         }
 

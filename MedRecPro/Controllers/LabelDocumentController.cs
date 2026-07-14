@@ -1,19 +1,9 @@
 using MedRecPro.Controllers;
-using MedRecPro.Data;
-using MedRecPro.DataAccess;
 using MedRecPro.Filters;
-using MedRecPro.Helpers;
-using MedRecPro.Mappers;
 using MedRecPro.Models;
-using MedRecPro.Models.Extensions;
 using MedRecPro.Service;
 using MedRecPro.Service.LabelQuery;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
-using System.Reflection;
-using System.Security.Claims;
-using static MedRecPro.Models.UserRole;
 
 namespace MedRecPro.Api.Controllers
 {
@@ -41,65 +31,32 @@ namespace MedRecPro.Api.Controllers
         private readonly ICompleteLabelService _completeLabelService;
 
         /**************************************************************/
-        /// <summary>
-        /// Configuration provider for SPL export feature flags and encryption settings.
-        /// </summary>
-        /// <seealso cref="IConfiguration"/>
-        private readonly IConfiguration _configuration;
-
-        /**************************************************************/
-        /// <summary>
-        /// Logger instance for document endpoint diagnostics.
-        /// </summary>
-        /// <seealso cref="ILogger"/>
-        private readonly ILogger<LabelDocumentController> _logger;
-
-        /**************************************************************/
-        /// <summary>
-        /// Service for generating rendered SPL XML documents.
-        /// </summary>
-        /// <seealso cref="ISplExportService"/>
-        private readonly ISplExportService _splExportService;
-
-        /**************************************************************/
-        /// <summary>
-        /// Service for retrieving original imported SPL XML payloads.
-        /// </summary>
-        /// <seealso cref="SplDataService"/>
-        private readonly SplDataService _splDataService;
-
-        /**************************************************************/
         /// <summary>Provides complete document graph and navigation queries.</summary>
         private readonly ILabelDocumentQueryService _labelDocumentQueryService;
+
+        /**************************************************************/
+        /// <summary>Provides generated and original XML retrieval outcomes.</summary>
+        private readonly ILabelXmlDocumentService _labelXmlDocumentService;
 
         /**************************************************************/
         /// <summary>
         /// Initializes a new instance of the <see cref="LabelDocumentController"/> class.
         /// </summary>
         /// <param name="completeLabelService">Service for complete document graph retrieval.</param>
-        /// <param name="configuration">Configuration provider for feature flags and encryption settings.</param>
-        /// <param name="logger">Logger instance for document endpoint diagnostics.</param>
-        /// <param name="splExportService">SPL export service for generated XML documents.</param>
-        /// <param name="splDataService">SPL data service for original XML documents.</param>
         /// <param name="labelDocumentQueryService">Document query service for graph and navigation reads.</param>
+        /// <param name="labelXmlDocumentService">XML retrieval service for generated and original documents.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <seealso cref="LabelController"/>
         public LabelDocumentController(
             ICompleteLabelService completeLabelService,
-            IConfiguration configuration,
-            ILogger<LabelDocumentController> logger,
-            ISplExportService splExportService,
-            SplDataService splDataService,
-            ILabelDocumentQueryService labelDocumentQueryService)
+            ILabelDocumentQueryService labelDocumentQueryService,
+            ILabelXmlDocumentService labelXmlDocumentService)
         {
             #region implementation
 
             _completeLabelService = completeLabelService ?? throw new ArgumentNullException(nameof(completeLabelService));
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
-            _splDataService = splDataService ?? throw new ArgumentNullException(nameof(splDataService));
             _labelDocumentQueryService = labelDocumentQueryService ?? throw new ArgumentNullException(nameof(labelDocumentQueryService));
+            _labelXmlDocumentService = labelXmlDocumentService ?? throw new ArgumentNullException(nameof(labelXmlDocumentService));
 
             #endregion
         }
@@ -137,47 +94,6 @@ namespace MedRecPro.Api.Controllers
             }
 
             return false;
-
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Ensures the XML declaration specifies UTF-8 encoding as required by FDA specification.
-        /// </summary>
-        /// <param name="xmlContent">The XML content to process.</param>
-        /// <returns>XML content with corrected encoding declaration.</returns>
-        /// <remarks>
-        /// FDA SPL specification 2.1.2.1 requires UTF-8 encoding.
-        /// Replaces any other encoding declarations (e.g., UTF-16) with UTF-8.
-        /// </remarks>
-        /// <seealso cref="GenerateXmlDocument"/>
-        private string ensureUtf8Encoding(string xmlContent)
-        {
-            #region implementation
-
-            if (!string.IsNullOrWhiteSpace(xmlContent))
-            {
-                // Replace any encoding declaration with UTF-8
-                if (xmlContent.Contains("encoding=\"UTF-16\"", StringComparison.OrdinalIgnoreCase))
-                {
-                    xmlContent = xmlContent.Replace(
-                        "encoding=\"UTF-16\"",
-                        "encoding=\"UTF-8\"",
-                        StringComparison.OrdinalIgnoreCase);
-                }
-                else if (xmlContent.Contains("encoding=\"utf-16\"", StringComparison.OrdinalIgnoreCase))
-                {
-                    xmlContent = xmlContent.Replace(
-                        "encoding=\"utf-16\"",
-                        "encoding=\"UTF-8\"",
-                        StringComparison.OrdinalIgnoreCase);
-                }
-
-                return xmlContent.Trim();
-            }
-
-            return xmlContent;
 
             #endregion
         }
@@ -277,7 +193,7 @@ namespace MedRecPro.Api.Controllers
         /// GET /api/Label/document/navigation?latestOnly=false&amp;setGuid=12345678-1234-1234-1234-123456789012
         /// </code>
         /// </example>
-        /// <seealso cref="DtoLabelAccess.GetDocumentNavigationAsync"/>
+        /// <seealso cref="ILabelDocumentQueryService.GetDocumentNavigationAsync"/>
         /// <seealso cref="LabelView.DocumentNavigation"/>
         /// <seealso cref="Label.Document"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
@@ -304,9 +220,6 @@ namespace MedRecPro.Api.Controllers
             #endregion
 
             #region Implementation
-
-            _logger.LogInformation("Getting document navigation. LatestOnly: {LatestOnly}, SetGUID: {SetGUID}, Page: {PageNumber}, Size: {PageSize}",
-                    latestOnly, setGuid, pageNumber, pageSize);
 
                 var results = await _labelDocumentQueryService.GetDocumentNavigationAsync(latestOnly, setGuid, pageNumber, pageSize);
 
@@ -351,7 +264,7 @@ namespace MedRecPro.Api.Controllers
         ///
         /// Results are ordered by VersionNumber in descending order (newest first).
         /// </remarks>
-        /// <seealso cref="DtoLabelAccess.GetDocumentVersionHistoryAsync"/>
+        /// <seealso cref="ILabelDocumentQueryService.GetDocumentVersionHistoryAsync"/>
         /// <seealso cref="LabelView.DocumentVersionHistory"/>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
@@ -375,15 +288,11 @@ namespace MedRecPro.Api.Controllers
 
             #region Implementation
 
-            _logger.LogInformation("Getting document version history for GUID: {SetGuidOrDocumentGuid}",
-                    setGuidOrDocumentGuid);
-
                 var results = await _labelDocumentQueryService.GetDocumentVersionHistoryAsync(setGuidOrDocumentGuid);
 
                 // Check if any history was found
                 if (results == null || !results.Any())
                 {
-                    _logger.LogWarning("No version history found for GUID: {SetGuidOrDocumentGuid}", setGuidOrDocumentGuid);
                     return NotFound($"No version history found for GUID {setGuidOrDocumentGuid}.");
                 }
 
@@ -438,7 +347,6 @@ namespace MedRecPro.Api.Controllers
                 // Check if document was found
                 if (completeLabels == null || !completeLabels.Any())
                 {
-                    _logger.LogWarning("Document with GUID {DocumentGuid} was not found.", documentGuid);
                     return NotFound($"Document with GUID {documentGuid} was not found.");
                 }
 
@@ -537,50 +445,24 @@ namespace MedRecPro.Api.Controllers
         public async Task<IActionResult> GenerateXmlDocument(Guid documentGuid, bool minify = false)
         {
             #region implementation
-            try
+            var outcome = await _labelXmlDocumentService.GetGeneratedAsync(documentGuid, minify, HttpContext.RequestAborted);
+            if (outcome.Status == LabelXmlDocumentStatus.Disabled)
             {
-                var exportEnabled = _configuration.GetValue<bool>("FeatureFlags:SplExportEnabled", true);
-
-                if (!exportEnabled)
-                {
-                    return StatusCode(503, new
-                    {
-                        error = "Export functionality is currently disabled"
-                    });
-                }
-
-                _logger.LogInformation("Generating XML document for GUID: {DocumentGuid}", documentGuid);
-                var startTime = DateTime.UtcNow;
-
-                // Generate XML with FDA-compliant URLs
-                var xmlContent = await _splExportService.ExportDocumentToSplAsync(documentGuid, minify);
-
-                // Fix encoding to UTF-8 as required by FDA specification
-                xmlContent = ensureUtf8Encoding(xmlContent);
-
-                // Detect if request is from browser for direct viewing
-                var isBrowserView = isBrowserViewRequest(Request);
-
-                if (isBrowserView)
-                {
-                    // Modify URLs to local resources for browser rendering
-                    xmlContent = convertToLocalResources(xmlContent);
-                    _logger.LogInformation("Converted to browser-friendly format for GUID: {DocumentGuid}", documentGuid);
-                }
-
-                var processingTime = DateTime.UtcNow - startTime;
-                _logger.LogInformation(
-                    "Successfully generated XML document for GUID: {DocumentGuid} in {ProcessingTime}ms (Browser: {IsBrowserView})",
-                    documentGuid, processingTime.TotalMilliseconds, isBrowserView);
-
-                // Set proper content type with UTF-8 charset
-                return Content(xmlContent, "application/xml; charset=utf-8");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = outcome.Error });
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("No document found"))
+
+            if (outcome.Status == LabelXmlDocumentStatus.NotFound)
             {
-                _logger.LogWarning("Document not found for GUID: {DocumentGuid}", documentGuid);
-                return NotFound($"Document not found for GUID: {documentGuid}");
+                return NotFound(outcome.Error);
             }
+
+            var xmlContent = outcome.Xml!;
+            if (isBrowserViewRequest(Request))
+            {
+                xmlContent = convertToLocalResources(xmlContent);
+            }
+
+            return Content(xmlContent, "application/xml; charset=utf-8");
             #endregion
         }
 
@@ -640,65 +522,29 @@ namespace MedRecPro.Api.Controllers
         public async Task<IActionResult> OriginalXmlDocument(Guid documentGuid, bool minify = false)
         {
             #region implementation
-            try
+            var outcome = await _labelXmlDocumentService.GetOriginalAsync(documentGuid, minify, HttpContext.RequestAborted);
+            if (outcome.Status == LabelXmlDocumentStatus.Disabled)
             {
-                // Check if export functionality is enabled
-                var exportEnabled = _configuration.GetValue<bool>("FeatureFlags:SplExportEnabled", true);
-
-                if (!exportEnabled)
-                {
-                    return StatusCode(503, new
-                    {
-                        error = "Export functionality is currently disabled"
-                    });
-                }
-
-                _logger.LogInformation("Retrieving original XML document for GUID: {DocumentGuid}", documentGuid);
-                var startTime = DateTime.UtcNow;
-
-                // Retrieve the original XML from SplData table
-                var splData = await _splDataService.GetSplDataByGuidAsync(documentGuid);
-
-                if (splData == null || string.IsNullOrEmpty(splData.SplXML))
-                {
-                    _logger.LogWarning("Original XML not found for GUID: {DocumentGuid}", documentGuid);
-                    return NotFound($"Original XML document not found for GUID: {documentGuid}");
-                }
-
-                var xmlContent = splData.SplXML;
-
-                // Fix encoding to UTF-8 as required by FDA specification
-                xmlContent = ensureUtf8Encoding(xmlContent);
-
-                // Optional: Minify the XML output if requested to reduce size for transmission/storage
-                if (minify)
-                {
-                    xmlContent = xmlContent.MinifyXml() ?? string.Empty;
-                }
-
-                // Detect if request is from browser for direct viewing
-                var isBrowserView = isBrowserViewRequest(Request);
-
-                if (isBrowserView)
-                {
-                    // Modify URLs to local resources for browser rendering
-                    xmlContent = convertToLocalResources(xmlContent);
-                    _logger.LogInformation("Converted to browser-friendly format for GUID: {DocumentGuid}", documentGuid);
-                }
-
-                var processingTime = DateTime.UtcNow - startTime;
-                _logger.LogInformation(
-                    "Successfully retrieved original XML document for GUID: {DocumentGuid} in {ProcessingTime}ms (Browser: {IsBrowserView}, Minified: {Minify})",
-                    documentGuid, processingTime.TotalMilliseconds, isBrowserView, minify);
-
-                // Set proper content type with UTF-8 charset
-                return Content(xmlContent, "application/xml; charset=utf-8");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = outcome.Error });
             }
-            catch (ArgumentException ex)
+
+            if (outcome.Status == LabelXmlDocumentStatus.InvalidInput)
             {
-                _logger.LogWarning(ex, "Invalid argument for original XML retrieval: {DocumentGuid}", documentGuid);
-                return BadRequest($"Invalid document GUID: {documentGuid}");
+                return BadRequest(outcome.Error);
             }
+
+            if (outcome.Status == LabelXmlDocumentStatus.NotFound)
+            {
+                return NotFound(outcome.Error);
+            }
+
+            var xmlContent = outcome.Xml!;
+            if (isBrowserViewRequest(Request))
+            {
+                xmlContent = convertToLocalResources(xmlContent);
+            }
+
+            return Content(xmlContent, "application/xml; charset=utf-8");
             #endregion
         }
 
