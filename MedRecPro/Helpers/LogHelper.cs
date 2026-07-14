@@ -183,7 +183,7 @@ namespace MedRecPro.Helpers
     /// </remarks>
     /// <seealso cref="UserLogger"/>
     /// <seealso cref="LoggingSettings"/>
-    [ProviderAlias("UserLogger")]
+    [ProviderAlias(nameof(UserLogger))]
     public class UserLoggerProvider : ILoggerProvider, ISupportExternalScope
     {
         #region fields
@@ -581,30 +581,130 @@ namespace MedRecPro.Helpers
             }
 
             var options = _filterOptions.CurrentValue;
-            LogLevel minimumLevel = options.MinLevel;
-            LoggerFilterRule? matchingRule = null;
+            var matchingRule = selectBestRule(options, categoryName);
+            LogLevel? minimumLevel = matchingRule is null
+                ? options.MinLevel
+                : matchingRule.LogLevel;
+
+            if (minimumLevel.HasValue && logLevel < minimumLevel.Value)
+            {
+                return false;
+            }
+
+            return matchingRule?.Filter?.Invoke(
+                typeof(UserLoggerProvider).FullName,
+                categoryName,
+                logLevel) ?? true;
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Selects the single provider/category filter rule that the framework would apply to this logger.
+        /// </summary>
+        /// <param name="options">Current logger filter options and ordered rules.</param>
+        /// <param name="categoryName">Logger category requesting the write.</param>
+        /// <returns>The best matching rule, or <see langword="null"/> when the global minimum applies.</returns>
+        /// <remarks>
+        /// Provider-specific rules beat global rules, the longest category match wins within the selected provider
+        /// group, and the last rule wins ties. Both the provider type name and its configured alias are supported.
+        /// </remarks>
+        /// <seealso cref="LoggerFilterRule"/>
+        /// <seealso cref="ProviderAliasAttribute"/>
+        private static LoggerFilterRule? selectBestRule(LoggerFilterOptions options, string categoryName)
+        {
+            #region implementation
+
+            LoggerFilterRule? currentRule = null;
+            var providerName = typeof(UserLoggerProvider).FullName;
+            var providerAlias = nameof(UserLogger);
 
             foreach (var rule in options.Rules)
             {
-                bool providerMatches = string.IsNullOrWhiteSpace(rule.ProviderName)
-                    || string.Equals(rule.ProviderName, nameof(UserLoggerProvider), StringComparison.Ordinal)
-                    || string.Equals(rule.ProviderName, "UserLogger", StringComparison.Ordinal)
-                    || string.Equals(rule.ProviderName, typeof(UserLoggerProvider).FullName, StringComparison.Ordinal);
-                bool categoryMatches = string.IsNullOrWhiteSpace(rule.CategoryName)
-                    || categoryName.StartsWith(rule.CategoryName, StringComparison.OrdinalIgnoreCase);
-
-                if (providerMatches && categoryMatches)
+                if (isBetterRule(rule, currentRule, providerName, categoryName)
+                    || isBetterRule(rule, currentRule, providerAlias, categoryName))
                 {
-                    matchingRule = rule;
+                    currentRule = rule;
                 }
             }
 
-            if (matchingRule?.LogLevel is LogLevel configuredMinimumLevel)
+            return currentRule;
+
+            #endregion
+        }
+
+        /*************************************************************/
+        /// <summary>
+        /// Determines whether one filter rule is a better framework match than the current selection.
+        /// </summary>
+        /// <param name="rule">Candidate filter rule.</param>
+        /// <param name="currentRule">Current best rule, if any.</param>
+        /// <param name="providerName">Provider type name or alias being evaluated.</param>
+        /// <param name="categoryName">Logger category requesting the write.</param>
+        /// <returns><see langword="true"/> when the candidate should replace the current rule.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when a category rule contains multiple wildcards.</exception>
+        /// <seealso cref="LoggerFilterRule"/>
+        private static bool isBetterRule(
+            LoggerFilterRule rule,
+            LoggerFilterRule? currentRule,
+            string? providerName,
+            string categoryName)
+        {
+            #region implementation
+
+            if (rule.ProviderName is not null
+                && !string.Equals(rule.ProviderName, providerName, StringComparison.Ordinal))
             {
-                minimumLevel = configuredMinimumLevel;
+                return false;
             }
 
-            return logLevel >= minimumLevel;
+            if (rule.CategoryName is string ruleCategory)
+            {
+                const char wildcard = '*';
+                var wildcardIndex = ruleCategory.IndexOf(wildcard);
+                if (wildcardIndex >= 0 && ruleCategory.IndexOf(wildcard, wildcardIndex + 1) >= 0)
+                {
+                    throw new InvalidOperationException("Logger filter category rules may contain at most one wildcard.");
+                }
+
+                var prefix = wildcardIndex < 0
+                    ? ruleCategory.AsSpan()
+                    : ruleCategory.AsSpan(0, wildcardIndex);
+                var suffix = wildcardIndex < 0
+                    ? default
+                    : ruleCategory.AsSpan(wildcardIndex + 1);
+
+                if (!categoryName.AsSpan().StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    || !categoryName.AsSpan().EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            if (currentRule?.ProviderName is not null)
+            {
+                if (rule.ProviderName is null)
+                {
+                    return false;
+                }
+            }
+            else if (rule.ProviderName is not null)
+            {
+                // Switching from a global rule to a provider rule always increases specificity.
+                return true;
+            }
+
+            if (currentRule?.CategoryName is not null)
+            {
+                if (rule.CategoryName is null
+                    || currentRule.CategoryName.Length > rule.CategoryName.Length)
+                {
+                    return false;
+                }
+            }
+
+            return true;
 
             #endregion
         }

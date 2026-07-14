@@ -231,6 +231,128 @@ namespace MedRecPro.Service.Test
 
         /**************************************************************/
         /// <summary>
+        /// Verifies a provider-specific filter delegate added through <c>AddFilter</c> controls direct admin-store writes.
+        /// </summary>
+        /// <remarks>
+        /// The logger factory evaluates this delegate before ordinary writes, while <see cref="UserLogger.IsEnabled(LogLevel)"/>
+        /// must also honor it for callers that resolve the concrete provider and write directly.
+        /// </remarks>
+        /// <seealso cref="FilterLoggingBuilderExtensions.AddFilter{T}(ILoggingBuilder, string, Func{LogLevel, bool})"/>
+        /// <seealso cref="UserLoggerProvider.CreateLogger"/>
+        [TestMethod]
+        public void UserLoggerProvider_CodeAddedFilterDelegate_IsHonoredForDirectWrites()
+        {
+            #region implementation
+
+            var services = new ServiceCollection();
+            services.AddSingleton<IHttpContextAccessor>(createAccessor());
+            services.AddSingleton<IConfiguration>(createConfiguration());
+            services.AddUserLogger();
+            services.AddLogging(builder => builder.AddFilter<UserLoggerProvider>(
+                "Coverage.CodeAdded",
+                level => level >= LogLevel.Error));
+            using var serviceProvider = services.BuildServiceProvider();
+            var provider = serviceProvider.GetRequiredService<UserLoggerProvider>();
+            var logger = provider.CreateLogger("Coverage.CodeAdded.Component");
+
+            logger.LogWarning("The code-added delegate rejects this warning.");
+            logger.LogError("The code-added delegate retains this error.");
+
+            var entries = provider.GetLogs();
+
+            Assert.AreEqual(1, entries.Count);
+            Assert.AreEqual(LogLevel.Error, entries[0].Level);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies provider-specific rules beat global rules and the longest matching provider category wins.
+        /// </summary>
+        /// <remarks>
+        /// The alias-specific rules intentionally precede a more specific global rule and place the shorter provider
+        /// category last. Framework best-rule selection must still choose the alias rule for the longest prefix.
+        /// </remarks>
+        /// <seealso cref="ProviderAliasAttribute"/>
+        /// <seealso cref="LoggerFilterRule"/>
+        [TestMethod]
+        public void UserLoggerProvider_ProviderAliasAndLongestCategory_SelectBestRule()
+        {
+            #region implementation
+
+            var filterOptions = new LoggerFilterOptions
+            {
+                MinLevel = LogLevel.Trace
+            };
+            filterOptions.Rules.Add(new LoggerFilterRule(
+                "UserLogger",
+                "Coverage.Semantics.Deep",
+                LogLevel.Error,
+                filter: null));
+            filterOptions.Rules.Add(new LoggerFilterRule(
+                "UserLogger",
+                "Coverage.Semantics",
+                LogLevel.Warning,
+                filter: null));
+            filterOptions.Rules.Add(new LoggerFilterRule(
+                providerName: null,
+                "Coverage.Semantics.Deep",
+                LogLevel.Critical,
+                filter: null));
+            var provider = new UserLoggerProvider(
+                settings: Options.Create(createLoggingSettings()),
+                filterOptions: new StaticOptionsMonitor<LoggerFilterOptions>(filterOptions));
+            var logger = provider.CreateLogger("Coverage.Semantics.Deep.Component");
+
+            logger.LogWarning("The selected Error rule rejects this warning.");
+            logger.LogError("The longest provider-alias rule retains this error.");
+
+            var entries = provider.GetLogs();
+
+            Assert.AreEqual(1, entries.Count);
+            Assert.AreEqual(LogLevel.Error, entries[0].Level);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the admin-visible in-memory store intentionally excludes Debug diagnostics by default.
+        /// </summary>
+        /// <remarks>
+        /// The application-wide default remains Information. Debug events stay available to providers configured for
+        /// them, but are not retained by the queryable admin store unless an explicit UserLogger rule lowers the floor.
+        /// </remarks>
+        /// <seealso cref="LoggerFilterOptions.MinLevel"/>
+        /// <seealso cref="UserLogger.IsEnabled(LogLevel)"/>
+        [TestMethod]
+        public void UserLoggerProvider_DefaultInformationPolicy_DoesNotRetainDebugDiagnostics()
+        {
+            #region implementation
+
+            var filterOptions = new LoggerFilterOptions
+            {
+                MinLevel = LogLevel.Information
+            };
+            var provider = new UserLoggerProvider(
+                settings: Options.Create(createLoggingSettings()),
+                filterOptions: new StaticOptionsMonitor<LoggerFilterOptions>(filterOptions));
+            var logger = provider.CreateLogger("Coverage.AdminRetention");
+
+            logger.LogDebug("Debug diagnostics are intentionally not admin-visible by default.");
+            logger.LogInformation("Information diagnostics remain admin-visible.");
+
+            var entries = provider.GetLogs();
+
+            Assert.AreEqual(1, entries.Count);
+            Assert.AreEqual(LogLevel.Information, entries[0].Level);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies safe exception diagnostics remain useful while SQL, HTTP, and IO secret shapes are redacted.
         /// </summary>
         /// <seealso cref="LogEntry.ExceptionMessage"/>

@@ -145,4 +145,105 @@ public class LabelComparisonControllerScopeTests
 
         #endregion
     }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies application shutdown classifies queued comparison cancellation as canceled.
+    /// </summary>
+    /// <returns>A task representing the queued shutdown-cancellation verification.</returns>
+    /// <remarks>
+    /// Host or worker cancellation is an external stop signal rather than a comparison failure, so the coordinator
+    /// must not enter the comparison body and must publish the established canceled terminal state.
+    /// </remarks>
+    /// <seealso cref="ComparisonJobCoordinator.Enqueue"/>
+    /// <seealso cref="IHostApplicationLifetime.ApplicationStopping"/>
+    [TestMethod]
+    public async Task ComparisonJobCoordinator_ApplicationStoppingCancellation_SetsCanceledStatus()
+    {
+        #region implementation
+
+        var operationId = $"shutdown-canceled-{Guid.NewGuid():N}";
+        var documentGuid = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var statusStore = new InMemoryOperationStatusStore();
+        var comparisonService = new Mock<IComparisonService>();
+        var services = new ServiceCollection();
+        services.AddScoped<IComparisonService>(_ => comparisonService.Object);
+        using var rootProvider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        var queue = new BackgroundTaskQueueService();
+        using var applicationStopping = new CancellationTokenSource();
+        applicationStopping.Cancel();
+        var applicationLifetime = new Mock<IHostApplicationLifetime>();
+        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(applicationStopping.Token);
+        var coordinator = new ComparisonJobCoordinator(
+            queue,
+            statusStore,
+            rootProvider.GetRequiredService<IServiceScopeFactory>(),
+            applicationLifetime.Object,
+            NullLogger<ComparisonJobCoordinator>.Instance);
+
+        coordinator.Enqueue(new ComparisonJobRequest(operationId, documentGuid, "/comparison/status"));
+        Assert.IsTrue(queue.TryDequeue(out var queuedWork));
+
+        await queuedWork.Item2(CancellationToken.None);
+        var foundStatus = statusStore.TryGetComparisonStatus(operationId, out var finalStatus);
+
+        Assert.IsTrue(foundStatus);
+        Assert.IsNotNull(finalStatus);
+        Assert.AreEqual(ComparisonConstants.STATUS_CANCELED, finalStatus.Status);
+        comparisonService.Verify(
+            service => service.GenerateDocumentComparisonAsync(It.IsAny<Guid>()),
+            Times.Never);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies an unrelated cancellation exception from the comparison body is classified as failed.
+    /// </summary>
+    /// <returns>A task representing the comparison-body failure classification verification.</returns>
+    /// <remarks>
+    /// Without a host or worker cancellation signal, an <see cref="OperationCanceledException"/> indicates that the
+    /// comparison did not complete for an internal reason. The approved policy records that outcome as failed.
+    /// </remarks>
+    /// <seealso cref="ComparisonJobCoordinator.Enqueue"/>
+    /// <seealso cref="OperationCanceledException"/>
+    [TestMethod]
+    public async Task ComparisonJobCoordinator_ComparisonBodyThrowsOperationCanceledException_SetsFailedStatus()
+    {
+        #region implementation
+
+        var operationId = $"body-oce-failed-{Guid.NewGuid():N}";
+        var documentGuid = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var statusStore = new InMemoryOperationStatusStore();
+        var comparisonService = new Mock<IComparisonService>();
+        comparisonService
+            .Setup(service => service.GenerateDocumentComparisonAsync(documentGuid))
+            .ThrowsAsync(new OperationCanceledException("The comparison body canceled independently."));
+        var services = new ServiceCollection();
+        services.AddScoped<IComparisonService>(_ => comparisonService.Object);
+        using var rootProvider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        var queue = new BackgroundTaskQueueService();
+        var applicationLifetime = new Mock<IHostApplicationLifetime>();
+        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(CancellationToken.None);
+        var coordinator = new ComparisonJobCoordinator(
+            queue,
+            statusStore,
+            rootProvider.GetRequiredService<IServiceScopeFactory>(),
+            applicationLifetime.Object,
+            NullLogger<ComparisonJobCoordinator>.Instance);
+
+        coordinator.Enqueue(new ComparisonJobRequest(operationId, documentGuid, "/comparison/status"));
+        Assert.IsTrue(queue.TryDequeue(out var queuedWork));
+
+        await queuedWork.Item2(CancellationToken.None);
+        var foundStatus = statusStore.TryGetComparisonStatus(operationId, out var finalStatus);
+
+        Assert.IsTrue(foundStatus);
+        Assert.IsNotNull(finalStatus);
+        Assert.AreEqual(ComparisonConstants.STATUS_FAILED, finalStatus.Status);
+        Assert.AreEqual(ComparisonConstants.ERROR_ANALYSIS_FAILED, finalStatus.Error);
+
+        #endregion
+    }
 }

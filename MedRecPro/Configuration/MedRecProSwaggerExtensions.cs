@@ -1,5 +1,6 @@
 using MedRecPro.Filters;
 using MedRecPro.Api.Controllers;
+using MedRecPro.Exceptions;
 using MedRecPro.Models;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
@@ -494,7 +495,7 @@ For detailed examples of request/response formats, refer to the XML comments wit
                     app.Logger.LogInformation(
                         "[SwaggerCacheHeaders] Applying caching headers for {Path} (RequestId={TraceId})",
                         path,
-                        context.TraceIdentifier);
+                        RequestCorrelation.GetTraceId(context));
 
                     context.Response.OnStarting(() =>
                     {

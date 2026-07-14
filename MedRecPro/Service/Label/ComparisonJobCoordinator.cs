@@ -135,6 +135,8 @@ namespace MedRecPro.Service
                 updateStatus(operationId, request, ComparisonConstants.STATUS_FINALIZING, ComparisonConstants.PROGRESS_FINALIZING);
                 updateStatus(operationId, request, ComparisonConstants.STATUS_COMPLETED, ComparisonConstants.PROGRESS_COMPLETED, result: result);
             }
+            // Only host/worker cancellation is a canceled operation. An unrelated OCE from the comparison body
+            // falls through to the terminal failure boundary because the requested analysis did not complete.
             catch (OperationCanceledException) when (linkedCancellation.IsCancellationRequested)
             {
                 updateStatus(operationId, request, ComparisonConstants.STATUS_CANCELED, ComparisonConstants.PROGRESS_QUEUED);
