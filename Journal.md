@@ -5936,3 +5936,14 @@ Completed Phases 5-6 of [the DtoLabelAccess decomposition plan](Plans/%28done%29
 **Verification.** `dotnet build .\MedRecPro.sln --no-restore -p:UseAppHost=false -p:UseSharedCompilation=false` passed with 0 warnings/errors; the Release build passed with only the existing `CS0168` warning in `SplParseContextExtensions.cs`. DtoLabelAccess tests passed 163/163, AE/controller tests 97/97, ownership/registration/signature/public-surface guards 17/17, and Debug plus separately compiled Release Label route/OpenAPI/HTTP contracts each passed 15/15. The full no-build suite passed 2,649/2,650 with 0 failures and the reviewed pre-existing `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip (6 minutes 45 seconds). `git diff --check` passed; its only output was baseline LF-to-CRLF notices.
 
 ---
+
+### 2026-07-13 9:51 PM EST — Controller Decomposition Phases 0-3
+Completed Phases 0-3 of [the Controller Decomposition and Compatibility Remediation Plan](Plans/%28pending%29%20MedRecPro%20Controller%20Decomposition%20and%20Compatibility%20Remediation%20Plan.md), recording the phase evidence and 29-action inventory in the ignored plan while leaving Phases 4-6 pending.
+
+**Controller and service seams.** Replaced the 29-action `LabelSearchController` implementation with an empty compatibility shell plus seven sealed feature controllers: application (2 actions), classification (6), ingredient (7), product identifier (4), section navigation (3), product search (5), and metadata (2). All retain the shared `Label` controller convention, `Label Search` Swagger tag, and no type-level routes. Added `ICompleteLabelService`, `ILabelSectionCrudService`, `ILabelAiSearchService`, `IPrimaryKeyCipher`, and validated `DatabaseSecurityOptions` registration. `ComparisonService` no longer receives `IServiceProvider`; synchronous comparison work receives `IComparisonService` directly. The dead raw PK-secret read in `LabelMarkdownController` was removed.
+
+**Compatibility coverage.** Added hermetic seeded HTTP success coverage for each extracted search family and invalid-input assertions for every defined validation boundary. Added focused cipher, dynamic-section, optional-AI fallback, service-registration, public-surface, and queued-comparison fresh-scope coverage. The new scope test disposes the request scope before running the queued callback and proves its `IComparisonService` comes from a fresh background scope. No reviewed OpenAPI snapshot was changed.
+
+**Verification.** Final Debug build passed with 0 warnings and 0 errors. The focused Debug compatibility suite passed 52/52. An isolated Release compile and route/OpenAPI/HTTP run passed 17/17, preserving the Debug `api/Label` and Release `Label` route pair. The final full Debug suite passed 2,655/2,656 with 0 failures and the reviewed `EfficacyValueContext_DuplicateComparisonSuppression_ExactSourceOnly` skip in 6 minutes 40 seconds.
+
+---

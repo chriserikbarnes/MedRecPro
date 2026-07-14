@@ -171,6 +171,11 @@ namespace MedRecPro.Configuration
 
             builder.Services.Configure<ComparisonSettings>(builder.Configuration.GetSection("ComparisonSettings"));
             builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("appSettings"));
+            builder.Services.AddOptions<DatabaseSecurityOptions>()
+                .Bind(builder.Configuration.GetSection(DatabaseSecurityOptions.SectionName))
+                .Validate(options => !string.IsNullOrWhiteSpace(options.PKSecret),
+                    "Security:DB:PKSecret is required")
+                .ValidateOnStart();
 
             return builder;
 
@@ -204,6 +209,7 @@ namespace MedRecPro.Configuration
             services.AddSingleton(TimeProvider.System);
 
             services.AddSingleton<IAppCache, PerformanceAppCache>();
+            services.AddSingleton<IPrimaryKeyCipher, PrimaryKeyCipher>();
             services.AddMedRecProLabelQueryServices();
 
             services.AddScoped<IUserContextAccessor, HttpUserContextAccessor>();
@@ -272,6 +278,9 @@ namespace MedRecPro.Configuration
             services.AddScoped<ILabelContentQueryService, LabelContentQueryService>();
             services.AddScoped<ILabelMarkdownService, LabelMarkdownService>();
             services.AddScoped<ILabelDocumentQueryService, LabelDocumentQueryService>();
+            services.AddScoped<ICompleteLabelService, CompleteLabelService>();
+            services.AddScoped<ILabelSectionCrudService, LabelSectionCrudService>();
+            services.AddScoped<ILabelAiSearchService, LabelAiSearchService>();
             services.AddScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>();
 
             return services;

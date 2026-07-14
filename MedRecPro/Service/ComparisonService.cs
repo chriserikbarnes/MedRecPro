@@ -327,12 +327,6 @@ namespace MedRecPro.Service
         private readonly MedRecPro.Models.ComparisonSettings _settings;
 
         /// <summary>
-        /// Service provider for resolving additional dependencies during document comparison operations.
-        /// </summary>
-        /// <seealso cref="IServiceProvider"/>
-        private readonly IServiceProvider _serviceProvider;
-
-        /// <summary>
         /// Provider for SPL label generationg services
         /// </summary>
         private readonly ISplExportService _splExportService;
@@ -362,10 +356,6 @@ namespace MedRecPro.Service
         /// Configuration options containing comparison behavior settings, processing limits,
         /// caching preferences, and other operational parameters.
         /// </param>
-        /// <param name="serviceProvider">
-        /// Service provider for resolving additional dependencies such as repositories
-        /// during document comparison operations.
-        /// </param>
         /// <param name="splExportService">Service to generate SPL XML render from
         /// imported XML data
         /// </param>
@@ -378,13 +368,11 @@ namespace MedRecPro.Service
         /// <seealso cref="SplDataService"/>
         /// <seealso cref="IClaudeApiService"/>
         /// <seealso cref="IOptions{TOptions}"/>
-        /// <seealso cref="IServiceProvider"/>
         public ComparisonService(
             ILogger<ComparisonService> logger,
             SplDataService splDataService,
             IClaudeApiService claudeApiService,
             IOptions<MedRecPro.Models.ComparisonSettings> settings,
-            IServiceProvider serviceProvider,
             ISplExportService splExportService)
         {
             #region implementation
@@ -394,7 +382,6 @@ namespace MedRecPro.Service
             _splDataService = splDataService ?? throw new ArgumentNullException(nameof(splDataService));
             _claudeApiService = claudeApiService ?? throw new ArgumentNullException(nameof(claudeApiService));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
-            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
             _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
 
             #endregion

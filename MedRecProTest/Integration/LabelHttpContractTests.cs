@@ -66,6 +66,50 @@ public class LabelHttpContractTests
                 documentId: hierarchy.DocumentID,
                 documentGuid: seededDocumentGuid,
                 setGuid: seededSetGuid);
+            DtoLabelAccessTestHelper.SeedProductsByApplicationNumberView(
+                connection,
+                applicationNumber: "HOSTNDA001",
+                productName: "HOST APPLICATION PRODUCT",
+                productId: hierarchy.ProductID,
+                documentId: hierarchy.DocumentID,
+                documentGuid: seededDocumentGuid,
+                setGuid: seededSetGuid);
+            DtoLabelAccessTestHelper.SeedProductsByIngredientView(
+                connection,
+                substanceName: "HOST INGREDIENT",
+                unii: "R16CO5Y76E",
+                productId: hierarchy.ProductID,
+                productName: "HOST INGREDIENT PRODUCT",
+                documentId: hierarchy.DocumentID,
+                documentGuid: seededDocumentGuid,
+                setGuid: seededSetGuid);
+            DtoLabelAccessTestHelper.SeedProductsByNDCView(
+                connection,
+                productCode: "99999-111",
+                productName: "HOST NDC PRODUCT",
+                productId: hierarchy.ProductID,
+                documentId: hierarchy.DocumentID,
+                documentGuid: seededDocumentGuid,
+                setGuid: seededSetGuid);
+            DtoLabelAccessTestHelper.SeedSectionNavigationView(
+                connection,
+                sectionCode: "99999-9",
+                sectionType: "HOST SECTION",
+                documentId: hierarchy.DocumentID,
+                documentGuid: seededDocumentGuid,
+                setGuid: seededSetGuid);
+            DtoLabelAccessTestHelper.SeedDEAScheduleLookupView(
+                connection,
+                deaScheduleCode: "CII",
+                productName: "HOST DEA PRODUCT",
+                documentId: hierarchy.DocumentID,
+                documentGuid: seededDocumentGuid,
+                setGuid: seededSetGuid);
+            DtoLabelAccessTestHelper.SeedAPIEndpointGuideView(
+                connection,
+                viewName: "HOST API GUIDE",
+                endpointName: "HostGuide",
+                category: "Navigation");
             DtoLabelAccessTestHelper.SeedLabelSectionMarkdownView(
                 connection,
                 documentGuid: seededDocumentGuid,
@@ -102,6 +146,84 @@ public class LabelHttpContractTests
         Assert.AreEqual("1", response.Headers.GetValues("X-Total-Count").Single());
         StringAssert.Contains(payload, "HOST ASPIRIN");
         StringAssert.Contains(payload, "productSummary");
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies every extracted Label search family returns its seeded result through the real HTTP pipeline.
+    /// </summary>
+    /// <returns>A task representing the asynchronous HTTP assertions.</returns>
+    /// <remarks>
+    /// The endpoints deliberately cover the seven Phase 2 controller families without depending on optional AI services.
+    /// </remarks>
+    /// <seealso cref="LabelApplicationController"/>
+    /// <seealso cref="LabelClassificationController"/>
+    /// <seealso cref="LabelIngredientController"/>
+    /// <seealso cref="LabelProductIdentifierController"/>
+    /// <seealso cref="LabelSectionNavigationController"/>
+    /// <seealso cref="LabelProductSearchController"/>
+    /// <seealso cref="LabelMetadataController"/>
+    [TestMethod]
+    public async Task SearchFamilies_SeededRows_RemainReachableThroughHttp()
+    {
+        #region implementation
+
+        var endpointAssertions = new (string RequestUri, string ExpectedContent)[]
+        {
+            ($"{LabelRoutePrefix}/application-number/search?applicationNumber=HOSTNDA001&pageNumber=1&pageSize=10", "HOST APPLICATION PRODUCT"),
+            ($"{LabelRoutePrefix}/drug-safety/dea-schedule?scheduleCode=CII&pageNumber=1&pageSize=10", "HOST DEA PRODUCT"),
+            ($"{LabelRoutePrefix}/ingredient/search?unii=R16CO5Y76E&pageNumber=1&pageSize=10", "HOST INGREDIENT PRODUCT"),
+            ($"{LabelRoutePrefix}/ndc/search?productCode=99999-111&pageNumber=1&pageSize=10", "HOST NDC PRODUCT"),
+            ($"{LabelRoutePrefix}/section/search?sectionCode=99999-9&pageNumber=1&pageSize=10", "HOST SECTION"),
+            ($"{LabelRoutePrefix}/product/search?productNameSearch=HOST%20ASPIRIN&pageNumber=1&pageSize=10", "HOST ASPIRIN"),
+            ($"{LabelRoutePrefix}/guide?category=Navigation", "HOST API GUIDE")
+        };
+
+        using var client = createClient();
+
+        foreach (var endpoint in endpointAssertions)
+        {
+            using var response = await client.GetAsync(endpoint.RequestUri);
+            var payload = await response.Content.ReadAsStringAsync();
+
+            Assert.AreEqual(System.Net.HttpStatusCode.OK, response.StatusCode, endpoint.RequestUri);
+            StringAssert.Contains(payload, endpoint.ExpectedContent, endpoint.RequestUri);
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies extracted search families preserve invalid-input HTTP boundaries.
+    /// </summary>
+    /// <returns>A task representing the asynchronous bad-request assertions.</returns>
+    /// <seealso cref="SearchFamilies_SeededRows_RemainReachableThroughHttp"/>
+    [TestMethod]
+    public async Task SearchFamilies_InvalidInputs_KeepBadRequestBoundary()
+    {
+        #region implementation
+
+        var invalidRequests = new[]
+        {
+            $"{LabelRoutePrefix}/application-number/search",
+            $"{LabelRoutePrefix}/drug-safety/dea-schedule?pageNumber=0&pageSize=10",
+            $"{LabelRoutePrefix}/ingredient/search",
+            $"{LabelRoutePrefix}/ndc/search",
+            $"{LabelRoutePrefix}/section/search",
+            $"{LabelRoutePrefix}/product/search"
+        };
+
+        using var client = createClient();
+
+        foreach (var requestUri in invalidRequests)
+        {
+            using var response = await client.GetAsync(requestUri);
+
+            Assert.AreEqual(System.Net.HttpStatusCode.BadRequest, response.StatusCode, requestUri);
+        }
 
         #endregion
     }

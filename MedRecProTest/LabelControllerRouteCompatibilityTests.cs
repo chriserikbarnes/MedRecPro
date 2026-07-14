@@ -89,10 +89,17 @@ namespace MedRecPro.Service.Test
             var expectedControllerNames = new[]
             {
                 typeof(LabelComparisonController).FullName,
+                typeof(LabelApplicationController).FullName,
+                typeof(LabelClassificationController).FullName,
                 typeof(LabelDocumentController).FullName,
+                typeof(LabelIngredientController).FullName,
                 typeof(LabelImportController).FullName,
                 typeof(LabelMarkdownController).FullName,
+                typeof(LabelMetadataController).FullName,
+                typeof(LabelProductIdentifierController).FullName,
+                typeof(LabelProductSearchController).FullName,
                 typeof(LabelSearchController).FullName,
+                typeof(LabelSectionNavigationController).FullName,
                 typeof(LabelSectionController).FullName
             }
             .OrderBy(name => name, StringComparer.Ordinal)
@@ -136,6 +143,13 @@ namespace MedRecPro.Service.Test
                 "Label Documents",
                 "Label Import",
                 "Label Markdown",
+                "Label Search",
+                "Label Search",
+                "Label Search",
+                "Label Search",
+                "Label Search",
+                "Label Search",
+                "Label Search",
                 "Label Search",
                 "Label Sections"
             };

@@ -257,11 +257,15 @@ namespace MedRecPro.Service.Test
             assertService<TimeProvider>(builder.Services, ServiceLifetime.Singleton);
             assertService<IAppCache>(builder.Services, ServiceLifetime.Singleton);
             assertService<IUserContextAccessor>(builder.Services, ServiceLifetime.Scoped);
+            assertService<IPrimaryKeyCipher>(builder.Services, ServiceLifetime.Singleton);
             assertService<UserDataAccess>(builder.Services, ServiceLifetime.Scoped);
             assertService<TarpitService>(builder.Services, ServiceLifetime.Singleton);
             assertService<ActivityLogActionFilter>(builder.Services, ServiceLifetime.Scoped);
             assertService<IClaudeSkillService>(builder.Services, ServiceLifetime.Singleton);
             assertService<IComparisonService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<ICompleteLabelService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<ILabelSectionCrudService>(builder.Services, ServiceLifetime.Scoped);
+            assertService<ILabelAiSearchService>(builder.Services, ServiceLifetime.Scoped);
             assertService<IActivityLogService>(builder.Services, ServiceLifetime.Scoped);
             assertService<IPermissionService>(builder.Services, ServiceLifetime.Scoped);
             assertService<IBackgroundTaskQueueService>(builder.Services, ServiceLifetime.Singleton);

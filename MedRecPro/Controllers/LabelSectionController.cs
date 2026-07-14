@@ -34,10 +34,10 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Service provider used by dynamic section repositories while the legacy reflection seam remains in place.
+        /// Service that owns dynamic section repository and encrypted-ID operations.
         /// </summary>
-        /// <seealso cref="Repository{T}"/>
-        private readonly IServiceProvider _serviceProvider;
+        /// <seealso cref="ILabelSectionCrudService"/>
+        private readonly ILabelSectionCrudService _sectionCrudService;
 
         /**************************************************************/
         /// <summary>
@@ -48,44 +48,20 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// String cipher utility for encrypting and decrypting primary keys.
-        /// </summary>
-        /// <seealso cref="StringCipher"/>
-        private readonly StringCipher _stringCipher;
-
-        /**************************************************************/
-        /// <summary>
-        /// Secret key used for primary-key encryption during DTO projection.
-        /// </summary>
-        /// <seealso cref="DtoTransform"/>
-        private readonly string _pkEncryptionSecret;
-
-        /**************************************************************/
-        /// <summary>
         /// Initializes a new instance of the <see cref="LabelSectionController"/> class.
         /// </summary>
-        /// <param name="serviceProvider">Service provider for dynamic repository resolution.</param>
-        /// <param name="configuration">Configuration provider containing the primary-key encryption secret.</param>
+        /// <param name="sectionCrudService">Service for dynamic repository and encrypted-ID operations.</param>
         /// <param name="logger">Logger instance for dynamic section endpoint diagnostics.</param>
-        /// <param name="stringCipher">String cipher utility for encrypted route identifiers.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when the primary-key encryption secret is missing.</exception>
         /// <seealso cref="LabelController"/>
         public LabelSectionController(
-            IServiceProvider serviceProvider,
-            IConfiguration configuration,
-            ILogger<LabelSectionController> logger,
-            StringCipher stringCipher)
+            ILabelSectionCrudService sectionCrudService,
+            ILogger<LabelSectionController> logger)
         {
             #region implementation
 
-            ArgumentNullException.ThrowIfNull(configuration);
-
-            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+            _sectionCrudService = sectionCrudService ?? throw new ArgumentNullException(nameof(sectionCrudService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _stringCipher = stringCipher ?? throw new ArgumentNullException(nameof(stringCipher));
-            _pkEncryptionSecret = configuration.GetSection("Security:DB:PKSecret").Value
-                ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
 
             #endregion
         }
@@ -104,12 +80,7 @@ namespace MedRecPro.Api.Controllers
         {
             #region Implementation
 
-            // Return null for empty or whitespace menu selections
-            if (string.IsNullOrWhiteSpace(menuSelection)) return null;
-
-            // Use reflection to find the nested type within Label class
-            // Assumes menuSelection is a direct nested class name within Label
-            return typeof(Label).GetNestedType(menuSelection, BindingFlags.Public | BindingFlags.Instance);
+            return _sectionCrudService.GetEntityType(menuSelection);
 
             #endregion
         }
@@ -129,21 +100,7 @@ namespace MedRecPro.Api.Controllers
         {
             #region Implementation
 
-            // Create the generic repository type for the specific entity
-            var repoType = typeof(Repository<>).MakeGenericType(entityType);
-
-            // Attempt to resolve the repository from the service container
-            var repo = _serviceProvider.GetService(repoType);
-
-            // Validate that repository was successfully resolved
-            if (repo == null)
-            {
-                var errorMsg = $"Could not resolve repository for type {entityType.FullName}. Ensure it and its dependencies (DbContext, ILogger<{entityType.Name}>, IConfiguration, StringCipher) are registered.";
-                _logger.LogError(errorMsg);
-                throw new InvalidOperationException(errorMsg);
-            }
-
-            return repo;
+            return _sectionCrudService.GetRepository(entityType);
 
             #endregion
         }
@@ -165,34 +122,7 @@ namespace MedRecPro.Api.Controllers
         {
             #region Implementation
 
-            // Try convention 1: {EntityName}ID
-            string pkNameConvention1 = entityType.Name + "ID";
-            var pkProperty = entityType.GetProperty(pkNameConvention1, BindingFlags.Public | BindingFlags.Instance);
-
-            // Try convention 2: {EntityName}Id if first convention failed
-            if (pkProperty == null)
-            {
-                string pkNameConvention2 = entityType.Name + "Id";
-                pkProperty = entityType.GetProperty(pkNameConvention2, BindingFlags.Public | BindingFlags.Instance);
-            }
-
-            // Try convention 3: Generic "Id" property (case-insensitive) if previous failed
-            if (pkProperty == null)
-            {
-                pkProperty = entityType.GetProperty("Id", BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-            }
-
-            // Log warning if no primary key property could be identified
-            // Note: This helper does not use EF Core metadata to find PKs if conventions fail,
-            // unlike the Repository's constructor.
-            if (pkProperty == null)
-            {
-                _logger.LogWarning(
-                    "Could not find a primary-key property for type {EntityType} using configured conventions.",
-                    entityType.Name);
-            }
-
-            return pkProperty;
+            return _sectionCrudService.GetPrimaryKeyProperty(entityType);
 
             #endregion
         }
@@ -207,65 +137,14 @@ namespace MedRecPro.Api.Controllers
         /// <returns>True if decryption and conversion succeeded, false otherwise</returns>
         /// <remarks>
         /// Supports int and long primary key types (including nullable versions).
-        /// Uses the configured StringCipher and PKSecret for decryption.
+        /// Delegates encrypted identifier parsing to the section CRUD service.
         /// Logs warnings for unsupported types or parsing failures.
         /// </remarks>
         private bool tryDecryptPk(string? encryptedPk, Type pkPropertyType, out object? decryptedPkValue)
         {
             #region Implementation
 
-            decryptedPkValue = null;
-
-            // Skip processing for null or empty encrypted values
-            if (string.IsNullOrWhiteSpace(encryptedPk))
-            {
-                _logger.LogTrace("Encrypted PK is null or whitespace, decryption skipped.");
-                return false;
-            }
-
-            try
-            {
-                // Decrypt the primary key using the configured cipher and secret
-                string decryptedString = _stringCipher.Decrypt(encryptedPk, _pkEncryptionSecret);
-
-                // Handle nullable types by getting the underlying type
-                Type underlyingPkType = Nullable.GetUnderlyingType(pkPropertyType) ?? pkPropertyType;
-
-                // Convert decrypted string to appropriate primary key type
-                if (underlyingPkType == typeof(int))
-                {
-                    if (int.TryParse(decryptedString, out int idVal))
-                    {
-                        decryptedPkValue = idVal;
-                        return true;
-                    }
-                }
-                else if (underlyingPkType == typeof(long))
-                {
-                    if (long.TryParse(decryptedString, out long idVal))
-                    {
-                        decryptedPkValue = idVal;
-                        return true;
-                    }
-                }
-                // Add other supported PK types if necessary (e.g., Guid, string)
-                else
-                {
-                    _logger.LogWarning("Unsupported primary-key type {PrimaryKeyType} for decryption.", underlyingPkType.Name);
-                    return false;
-                }
-
-                // Log failure to parse decrypted value
-                _logger.LogWarning("Failed to parse decrypted primary-key value as {PrimaryKeyType}.", underlyingPkType.Name);
-                return false;
-            }
-            // Broad-catch allowlist: encrypted-key parsing is an expected validation boundary. The action converts a
-            // malformed value into its established bad-request path without emitting an HTTP 500.
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error decrypting primary key value.");
-                return false;
-            }
+            return _sectionCrudService.TryDecryptPk(encryptedPk, pkPropertyType, out decryptedPkValue);
 
             #endregion
         }
@@ -328,8 +207,7 @@ namespace MedRecPro.Api.Controllers
             #region Implementation
 
             // Generate menu using DtoTransformer helper, fallback to empty list if null
-                List<string> menu = DtoTransform.ToEntityMenu(new Label(), _logger)
-                    ?? new List<string>();
+                List<string> menu = _sectionCrudService.GetMenu();
                 return Ok(menu);
 
             #endregion
@@ -390,7 +268,7 @@ namespace MedRecPro.Api.Controllers
                 return BadRequest($"Invalid menu selection: {menuSelection}. No matching class found within MedRecPro.DataModels.Label.");
             }
 
-            var documentation = DtoTransform.GetClassDocumentation(entityType, _logger);
+            var documentation = _sectionCrudService.GetDocumentation(entityType);
 
                 if (documentation == null)
                 {
@@ -531,7 +409,7 @@ namespace MedRecPro.Api.Controllers
                     entities = Enumerable.Empty<object>();
                 }
 
-                var dtoList = entities.Select(e => e.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger)).ToList();
+                var dtoList = entities.Select(_sectionCrudService.ToEncryptedEntity).ToList();
 
                 // Add pagination headers if paging was applied and total count is available
                 if (pageNumber.HasValue
@@ -617,7 +495,7 @@ namespace MedRecPro.Api.Controllers
                 }
 
                 // Transform entity to include encrypted ID and remove numeric PK
-            return Ok(entity.ToEntityWithEncryptedId(_pkEncryptionSecret, _logger));
+            return Ok(_sectionCrudService.ToEncryptedEntity(entity));
 
             #endregion
         }

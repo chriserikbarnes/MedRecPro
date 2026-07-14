@@ -50,9 +50,7 @@ namespace MedRecPro.Service.Test
             Mock<SplDataService>? splDataService = null,
             Mock<IClaudeApiService>? claudeApiService = null)
         {
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var splExportService = new Mock<ISplExportService>();
+            var logger = new Mock<ILogger<ComparisonService>>();            var splExportService = new Mock<ISplExportService>();
 
             // Setup comparison settings
             var settings = Options.Create(new ComparisonSettings
@@ -68,9 +66,7 @@ namespace MedRecPro.Service.Test
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
         }
 
         /**************************************************************/
@@ -365,17 +361,13 @@ namespace MedRecPro.Service.Test
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -420,17 +412,13 @@ namespace MedRecPro.Service.Test
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -474,17 +462,13 @@ The data preservation was good.";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -518,17 +502,13 @@ The data preservation was good.";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -562,17 +542,13 @@ Overall the transformation was successful.";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -616,17 +592,13 @@ Overall the transformation was successful.";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -665,17 +637,13 @@ Overall the transformation was successful.";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -703,7 +671,7 @@ Overall the transformation was successful.";
 
             // Arrange
             var responseWithComplete = @"Analysis Results:
-✅ COMPLETE
+Ã¢Å“â€¦ COMPLETE
 All data was successfully preserved.
 Section 1: Complete
 Section 2: Complete";
@@ -715,17 +683,13 @@ Section 2: Complete";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -760,17 +724,13 @@ Section 2: Missing elements";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -826,17 +786,13 @@ Section 2: Missing elements";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -887,17 +843,13 @@ Section 2: Missing elements";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -941,17 +893,13 @@ Section 2: Missing elements";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);
@@ -990,17 +938,13 @@ Section 2: Missing elements";
             splExportService.Setup(x => x.ExportDocumentToSplAsync(It.IsAny<Guid>(), It.IsAny<bool>()))
                 .ReturnsAsync("<exported>content</exported>");
 
-            var logger = new Mock<ILogger<ComparisonService>>();
-            var serviceProvider = new Mock<IServiceProvider>();
-            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
+            var logger = new Mock<ILogger<ComparisonService>>();            var settings = Options.Create(new ComparisonSettings { MaxPromptLength = 100000 });
 
             var service = new ComparisonService(
                 logger.Object,
                 splDataService.Object,
                 claudeApiService.Object,
-                settings,
-                serviceProvider.Object,
-                splExportService.Object);
+                settings,                splExportService.Object);
 
             // Act
             var result = await service.GenerateDocumentComparisonAsync(ValidSplDataGuid);

@@ -35,10 +35,10 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Service provider used by complete-label repository lookups while the legacy dynamic seam remains in place.
+        /// Service for complete Label document graph retrieval.
         /// </summary>
-        /// <seealso cref="Repository{T}"/>
-        private readonly IServiceProvider _serviceProvider;
+        /// <seealso cref="ICompleteLabelService"/>
+        private readonly ICompleteLabelService _completeLabelService;
 
         /**************************************************************/
         /// <summary>
@@ -53,20 +53,6 @@ namespace MedRecPro.Api.Controllers
         /// </summary>
         /// <seealso cref="ILogger"/>
         private readonly ILogger<LabelDocumentController> _logger;
-
-        /**************************************************************/
-        /// <summary>
-        /// Secret key used for primary-key encryption during DTO projection.
-        /// </summary>
-        /// <seealso cref="DtoTransform"/>
-        private readonly string _pkEncryptionSecret;
-
-        /**************************************************************/
-        /// <summary>
-        /// Entity Framework database context used by document navigation data-access operations.
-        /// </summary>
-        /// <seealso cref="ApplicationDbContext"/>
-        private readonly ApplicationDbContext _dbContext;
 
         /**************************************************************/
         /// <summary>
@@ -90,36 +76,30 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Initializes a new instance of the <see cref="LabelDocumentController"/> class.
         /// </summary>
-        /// <param name="serviceProvider">Service provider for complete-label repository resolution.</param>
+        /// <param name="completeLabelService">Service for complete document graph retrieval.</param>
         /// <param name="configuration">Configuration provider for feature flags and encryption settings.</param>
         /// <param name="logger">Logger instance for document endpoint diagnostics.</param>
-        /// <param name="applicationDbContext">Entity Framework database context for document navigation read models.</param>
         /// <param name="splExportService">SPL export service for generated XML documents.</param>
         /// <param name="splDataService">SPL data service for original XML documents.</param>
         /// <param name="labelDocumentQueryService">Document query service for graph and navigation reads.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when the primary-key encryption secret is missing.</exception>
         /// <seealso cref="LabelController"/>
         public LabelDocumentController(
-            IServiceProvider serviceProvider,
+            ICompleteLabelService completeLabelService,
             IConfiguration configuration,
             ILogger<LabelDocumentController> logger,
-            ApplicationDbContext applicationDbContext,
             ISplExportService splExportService,
             SplDataService splDataService,
             ILabelDocumentQueryService labelDocumentQueryService)
         {
             #region implementation
 
-            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+            _completeLabelService = completeLabelService ?? throw new ArgumentNullException(nameof(completeLabelService));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _dbContext = applicationDbContext ?? throw new ArgumentNullException(nameof(applicationDbContext));
             _splExportService = splExportService ?? throw new ArgumentNullException(nameof(splExportService));
             _splDataService = splDataService ?? throw new ArgumentNullException(nameof(splDataService));
             _labelDocumentQueryService = labelDocumentQueryService ?? throw new ArgumentNullException(nameof(labelDocumentQueryService));
-            _pkEncryptionSecret = _configuration.GetSection("Security:DB:PKSecret").Value
-                ?? throw new InvalidOperationException("Configuration key 'Security:DB:PKSecret' is missing or empty.");
 
             #endregion
         }
@@ -453,10 +433,7 @@ namespace MedRecPro.Api.Controllers
             #endregion
 
             #region Implmentation
-            // We need the specific repository for Label.Document
-            var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
-
-                var completeLabels = await documentRepository.GetCompleteLabelsAsync(documentGuid);
+                var completeLabels = await _completeLabelService.GetAsync(documentGuid);
 
                 // Check if document was found
                 if (completeLabels == null || !completeLabels.Any())
@@ -516,10 +493,7 @@ namespace MedRecPro.Api.Controllers
             #endregion
 
             #region Implementation
-            // We need the specific repository for Label.Document
-            var documentRepository = _serviceProvider.GetRequiredService<Repository<Label.Document>>();
-
-                var completeLabels = await documentRepository.GetCompleteLabelsAsync(pageNumber, pageSize);
+                var completeLabels = await _completeLabelService.GetAsync(pageNumber, pageSize);
 
                 int totalCount = completeLabels?.Count() ?? 0;
                 Response.Headers.Append("X-Page-Number", (pageNumber).ToString());

@@ -34,10 +34,10 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Service provider used by synchronous comparison generation while the legacy dynamic seam remains in place.
+        /// Comparison service used by synchronous comparison generation.
         /// </summary>
         /// <seealso cref="IComparisonService"/>
-        private readonly IServiceProvider _serviceProvider;
+        private readonly IComparisonService _comparisonService;
 
         /**************************************************************/
         /// <summary>
@@ -71,7 +71,7 @@ namespace MedRecPro.Api.Controllers
         /// <summary>
         /// Initializes a new instance of the <see cref="LabelComparisonController"/> class.
         /// </summary>
-        /// <param name="serviceProvider">Service provider for synchronous comparison service resolution.</param>
+        /// <param name="comparisonService">Comparison service for synchronous analysis.</param>
         /// <param name="logger">Logger instance for comparison endpoint diagnostics.</param>
         /// <param name="queue">Queue service for long-running comparison operations.</param>
         /// <param name="statusStore">Store for comparison operation progress state.</param>
@@ -79,7 +79,7 @@ namespace MedRecPro.Api.Controllers
         /// <exception cref="ArgumentNullException">Thrown when a required dependency is null.</exception>
         /// <seealso cref="LabelController"/>
         public LabelComparisonController(
-            IServiceProvider serviceProvider,
+            IComparisonService comparisonService,
             ILogger<LabelComparisonController> logger,
             IBackgroundTaskQueueService queue,
             IOperationStatusStore statusStore,
@@ -87,7 +87,7 @@ namespace MedRecPro.Api.Controllers
         {
             #region implementation
 
-            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+            _comparisonService = comparisonService ?? throw new ArgumentNullException(nameof(comparisonService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _queue = queue ?? throw new ArgumentNullException(nameof(queue));
             _statusStore = statusStore ?? throw new ArgumentNullException(nameof(statusStore));
@@ -413,8 +413,7 @@ namespace MedRecPro.Api.Controllers
                 _logger.LogInformation("Starting document comparison analysis for GUID {DocumentGuid}", documentGuid);
 
                 // Delegate to comparison service for business logic
-                var comparisonService = _serviceProvider.GetRequiredService<IComparisonService>();
-                var analysisResult = await comparisonService.GenerateDocumentComparisonAsync(documentGuid);
+                var analysisResult = await _comparisonService.GenerateDocumentComparisonAsync(documentGuid);
 
                 _logger.LogInformation("Successfully completed document comparison analysis for GUID {DocumentGuid}", documentGuid);
 
