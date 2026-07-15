@@ -168,6 +168,36 @@ public class SettingsAndUsersRouteCompatibilityTests
 
     /**************************************************************/
     /// <summary>
+    /// Verifies every Users action declares one intent group and every used group owns one description source.
+    /// </summary>
+    /// <remarks>
+    /// Group names mirror the controller's existing activity, directory, authentication, profile, administration, and
+    /// MCP integration responsibilities without changing any action route.
+    /// </remarks>
+    /// <seealso cref="UsersController"/>
+    /// <seealso cref="SwaggerGroupAttribute"/>
+    [TestMethod]
+    public void UsersSwaggerGroups_ApiActions_HaveReviewedIntentMetadata()
+    {
+        #region implementation
+
+        var expectedGroupCounts = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["User Activity"] = 3,
+            ["User Administration"] = 3,
+            ["User Authentication"] = 2,
+            ["User Directory"] = 3,
+            ["User MCP Integration"] = 1,
+            ["User Profile"] = 2
+        };
+
+        assertSwaggerGroupInventory(typeof(UsersController), "User ", expectedGroupCounts);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
     /// Asserts one reflected route inventory against its reviewed golden master.
     /// </summary>
     /// <param name="controllerType">Controller type whose actions are inspected.</param>

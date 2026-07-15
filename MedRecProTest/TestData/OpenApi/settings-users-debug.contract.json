@@ -120,7 +120,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Administration"
       ]
     },
     "GET /api/Settings/database-limits": {
@@ -999,7 +999,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Directory"
       ]
     },
     "GET /api/Users/byemail": {
@@ -1098,7 +1098,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Directory"
       ]
     },
     "GET /api/Users/endpoint-stats": {
@@ -1255,7 +1255,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Activity"
       ]
     },
     "GET /api/Users/me": {
@@ -1345,7 +1345,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Profile"
       ]
     },
     "GET /api/Users/user/{encryptedUserId}/activity": {
@@ -1514,7 +1514,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Activity"
       ]
     },
     "GET /api/Users/user/{encryptedUserId}/activity/daterange": {
@@ -1701,7 +1701,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Activity"
       ]
     },
     "GET /api/Users/{encryptedUserId}": {
@@ -1801,7 +1801,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Directory"
       ]
     },
     "POST /api/Settings/clearmanagedcache": {
@@ -1969,7 +1969,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Authentication"
       ]
     },
     "POST /api/Users/resolve-mcp": {
@@ -2084,7 +2084,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User MCP Integration"
       ]
     },
     "POST /api/Users/rotate-password": {
@@ -2202,7 +2202,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Administration"
       ]
     },
     "POST /api/Users/signup": {
@@ -2291,7 +2291,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Authentication"
       ]
     },
     "PUT /api/Users/admin-update": {
@@ -2409,7 +2409,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Administration"
       ]
     },
     "PUT /api/Users/{encryptedUserId}/profile": {
@@ -2537,7 +2537,7 @@
         }
       },
       "tags": [
-        "Users"
+        "User Profile"
       ]
     }
   },

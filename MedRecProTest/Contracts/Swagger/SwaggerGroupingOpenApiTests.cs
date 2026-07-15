@@ -61,7 +61,14 @@ public class SwaggerGroupingOpenApiTests
                 "Non-sensitive runtime configuration for clients: demo mode, application info, feature flags, database limits.",
             ["Settings Cache"] = "Managed-cache administration.",
             ["Settings Diagnostics"] = "Admin-only Azure SQL cost metrics and credential/metrics pipeline tests.",
-            ["Settings Logs"] = "Admin-only in-memory application log queries."
+            ["Settings Logs"] = "Admin-only in-memory application log queries.",
+            ["User Activity"] = "Per-user activity history and endpoint usage statistics.",
+            ["User Administration"] = "Elevated account maintenance: admin updates, deletion, password rotation.",
+            ["User Authentication"] = "Account creation and credential authentication.",
+            ["User Directory"] = "User lookup by identifier, email, and paged listing.",
+            ["User MCP Integration"] =
+                "MCP-server identity resolution with auto-provisioning (McpBearer scheme).",
+            ["User Profile"] = "Current-user profile retrieval and self-service profile updates."
         };
 
     /**************************************************************/
@@ -118,9 +125,18 @@ public class SwaggerGroupingOpenApiTests
         Assert.AreEqual(1, tagCounts["Settings Cache"]);
         Assert.AreEqual(3, tagCounts["Settings Diagnostics"]);
         Assert.AreEqual(7, tagCounts["Settings Logs"]);
-        Assert.AreEqual(14, tagCounts["Users"]);
+        Assert.AreEqual(3, tagCounts["User Activity"]);
+        Assert.AreEqual(3, tagCounts["User Administration"]);
+        Assert.AreEqual(2, tagCounts["User Authentication"]);
+        Assert.AreEqual(3, tagCounts["User Directory"]);
+        Assert.AreEqual(1, tagCounts["User MCP Integration"]);
+        Assert.AreEqual(2, tagCounts["User Profile"]);
         Assert.IsFalse(tagCounts.ContainsKey("Label Search"),
             "The actionless compatibility shell must not contribute a rendered Label Search operation.");
+        Assert.IsFalse(tagCounts.ContainsKey("Settings"),
+            "All Settings operations must render under intent groups.");
+        Assert.IsFalse(tagCounts.ContainsKey("Users"),
+            "All Users operations must render under intent groups.");
 
         var actualDescriptions = projectHostedGroupDescriptions(swaggerJson);
         foreach (var expectedDescription in expectedGroupDescriptions)

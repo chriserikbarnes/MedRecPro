@@ -1,4 +1,5 @@
 ﻿
+using MedRecPro.Api.Controllers;
 using MedRecPro.DataAccess;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
@@ -371,6 +372,9 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("user/{encryptedUserId}/activity")]
+        [SwaggerGroup(
+            "User Activity",
+            "Per-user activity history and endpoint usage statistics.")]
         public async Task<IActionResult> GetUserActivity(
             string encryptedUserId,
             [FromQuery] int pageNumber = 1,
@@ -533,6 +537,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("user/{encryptedUserId}/activity/daterange")]
+        [SwaggerGroup("User Activity")]
         public async Task<IActionResult> GetUserActivityByDateRange(
             string encryptedUserId,
             [FromQuery] DateTime startDate,
@@ -712,6 +717,7 @@ namespace MedRecPro.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("endpoint-stats")]
+        [SwaggerGroup("User Activity")]
         public async Task<IActionResult> GetEndpointStats(
             [FromQuery] string controllerName,
             [FromQuery] string? actionName = null,
@@ -894,6 +900,9 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [HttpGet("{encryptedUserId}")]
+        [SwaggerGroup(
+            "User Directory",
+            "User lookup by identifier, email, and paged listing.")]
         [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -956,6 +965,7 @@ namespace MedRecPro.Controllers
         /// <response code="403">If the user does not have admin privileges.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet]
+        [SwaggerGroup("User Directory")]
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [ProducesResponseType(typeof(IEnumerable<UserManagementDto>), StatusCodes.Status200OK)]
@@ -1016,6 +1026,7 @@ namespace MedRecPro.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("byemail")]
+        [SwaggerGroup("User Directory")]
         [ProducesResponseType(typeof(UserManagementDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -1071,6 +1082,9 @@ namespace MedRecPro.Controllers
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [DatabaseIntensive(OperationCriticality.Critical)]
         [HttpGet("me")]
+        [SwaggerGroup(
+            "User Profile",
+            "Current-user profile retrieval and self-service profile updates.")]
         [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -1156,6 +1170,9 @@ namespace MedRecPro.Controllers
         [AllowAnonymous]
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("signup")]
+        [SwaggerGroup(
+            "User Authentication",
+            "Account creation and credential authentication.")]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)] // Returns { encryptedUserId: "..." }
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
@@ -1223,6 +1240,7 @@ namespace MedRecPro.Controllers
         [AllowAnonymous]
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("authenticate")]
+        [SwaggerGroup("User Authentication")]
         [ProducesResponseType(typeof(UserFacingDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -1444,6 +1462,7 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPut("{encryptedUserId}/profile")]
+        [SwaggerGroup("User Profile")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -1531,6 +1550,7 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpDelete("{encryptedUserId}")]
+        [SwaggerGroup("User Administration")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -1653,6 +1673,9 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPut("admin-update")]
+        [SwaggerGroup(
+            "User Administration",
+            "Elevated account maintenance: admin updates, deletion, password rotation.")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -1738,6 +1761,7 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         [DatabaseLimit(OperationCriticality.Critical, Wait = 100)]
         [HttpPost("rotate-password")]
+        [SwaggerGroup("User Administration")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -1954,6 +1978,9 @@ namespace MedRecPro.Controllers
         [Microsoft.AspNetCore.Authorization.Authorize(AuthenticationSchemes = "McpBearer")]
         [DatabaseLimit(OperationCriticality.Normal, Wait = 100)]
         [HttpPost("resolve-mcp")]
+        [SwaggerGroup(
+            "User MCP Integration",
+            "MCP-server identity resolution with auto-provisioning (McpBearer scheme).")]
         [ProducesResponseType(typeof(McpUserResolveResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
