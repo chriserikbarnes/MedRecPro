@@ -153,7 +153,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Application Info"
       ]
     },
     "GET /Settings/demomode": {
@@ -186,7 +186,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Application Info"
       ]
     },
     "GET /Settings/features": {
@@ -219,7 +219,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Application Info"
       ]
     },
     "GET /Settings/info": {
@@ -252,7 +252,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Application Info"
       ]
     },
     "GET /Settings/logs": {
@@ -327,7 +327,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Logs"
       ]
     },
     "GET /Settings/logs/by-category": {
@@ -410,7 +410,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Logs"
       ]
     },
     "GET /Settings/logs/by-date": {
@@ -503,7 +503,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Logs"
       ]
     },
     "GET /Settings/logs/by-user": {
@@ -586,7 +586,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Logs"
       ]
     },
     "GET /Settings/logs/categories": {
@@ -635,7 +635,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Logs"
       ]
     },
     "GET /Settings/logs/statistics": {
@@ -681,7 +681,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Logs"
       ]
     },
     "GET /Settings/logs/users": {
@@ -730,7 +730,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Logs"
       ]
     },
     "GET /Settings/metrics/database-cost": {
@@ -782,7 +782,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Diagnostics"
       ]
     },
     "GET /Settings/test/app-credential": {
@@ -826,7 +826,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Diagnostics"
       ]
     },
     "GET /Settings/test/app-metrics-pipeline": {
@@ -870,7 +870,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Diagnostics"
       ]
     },
     "GET /Users": {
@@ -1854,7 +1854,7 @@
         }
       },
       "tags": [
-        "Settings"
+        "Settings Cache"
       ]
     },
     "POST /Users/authenticate": {

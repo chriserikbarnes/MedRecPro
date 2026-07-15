@@ -140,6 +140,34 @@ public class SettingsAndUsersRouteCompatibilityTests
 
     /**************************************************************/
     /// <summary>
+    /// Verifies every Settings action declares one intent group and every used group owns one description source.
+    /// </summary>
+    /// <remarks>
+    /// This reflection guard deliberately excludes route and response metadata; the route golden master and hosted
+    /// OpenAPI snapshot independently protect those contracts.
+    /// </remarks>
+    /// <seealso cref="SettingsController"/>
+    /// <seealso cref="SwaggerGroupAttribute"/>
+    [TestMethod]
+    public void SettingsSwaggerGroups_ApiActions_HaveReviewedIntentMetadata()
+    {
+        #region implementation
+
+        var expectedGroupCounts = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["Settings Application Info"] = 4,
+            ["Settings Cache"] = 1,
+            ["Settings Diagnostics"] = 3,
+            ["Settings Logs"] = 7
+        };
+
+        assertSwaggerGroupInventory(typeof(SettingsController), "Settings ", expectedGroupCounts);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
     /// Asserts one reflected route inventory against its reviewed golden master.
     /// </summary>
     /// <param name="controllerType">Controller type whose actions are inspected.</param>
@@ -162,6 +190,53 @@ public class SettingsAndUsersRouteCompatibilityTests
         {
             Assert.AreEqual(expected[index], actual[index],
                 $"{controllerType.Name} route inventory mismatch at index {index}.");
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Asserts exact Swagger group counts, family prefixing, and single-description ownership for one controller.
+    /// </summary>
+    /// <param name="controllerType">Controller type whose API actions are inspected.</param>
+    /// <param name="groupPrefix">Required family prefix for every action group.</param>
+    /// <param name="expectedGroupCounts">Expected action count for every exact group name.</param>
+    /// <seealso cref="SwaggerGroupAttribute"/>
+    private static void assertSwaggerGroupInventory(
+        Type controllerType,
+        string groupPrefix,
+        IReadOnlyDictionary<string, int> expectedGroupCounts)
+    {
+        #region implementation
+
+        var groupedMetadata = controllerType
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+            .Where(method => method.GetCustomAttributes<HttpMethodAttribute>(inherit: false).Any())
+            .Select(method =>
+            {
+                var attributes = method.GetCustomAttributes<SwaggerGroupAttribute>(inherit: true).ToArray();
+                Assert.AreEqual(1, attributes.Length,
+                    $"{controllerType.Name}.{method.Name} must declare exactly one {nameof(SwaggerGroupAttribute)}.");
+                Assert.IsTrue(attributes[0].Name.StartsWith(groupPrefix, StringComparison.Ordinal),
+                    $"{controllerType.Name}.{method.Name} group must start with '{groupPrefix}'.");
+                return attributes[0];
+            })
+            .GroupBy(attribute => attribute.Name, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+
+        CollectionAssert.AreEquivalent(
+            expectedGroupCounts.Keys.ToArray(),
+            groupedMetadata.Keys.ToArray(),
+            $"{controllerType.Name} Swagger group names changed.");
+
+        foreach (var expectedGroup in expectedGroupCounts)
+        {
+            var metadata = groupedMetadata[expectedGroup.Key];
+            Assert.AreEqual(expectedGroup.Value, metadata.Length,
+                $"{expectedGroup.Key} action count changed.");
+            Assert.AreEqual(1, metadata.Count(attribute => !string.IsNullOrWhiteSpace(attribute.Description)),
+                $"{expectedGroup.Key} must have exactly one nonblank description source.");
         }
 
         #endregion

@@ -56,7 +56,12 @@ public class SwaggerGroupingOpenApiTests
             ["Label Metadata"] = "API endpoint guide and dataset inventory summaries.",
             ["Label Product Identifiers"] = "NDC product/package code and labeler discovery.",
             ["Label Products"] = "Product-name search, latest labels, related products, and indications.",
-            ["Label Section Navigation"] = "Section-code search, summaries, and section content retrieval."
+            ["Label Section Navigation"] = "Section-code search, summaries, and section content retrieval.",
+            ["Settings Application Info"] =
+                "Non-sensitive runtime configuration for clients: demo mode, application info, feature flags, database limits.",
+            ["Settings Cache"] = "Managed-cache administration.",
+            ["Settings Diagnostics"] = "Admin-only Azure SQL cost metrics and credential/metrics pipeline tests.",
+            ["Settings Logs"] = "Admin-only in-memory application log queries."
         };
 
     /**************************************************************/
@@ -109,7 +114,10 @@ public class SwaggerGroupingOpenApiTests
         Assert.AreEqual(5, tagCounts["Label Products"]);
         Assert.AreEqual(3, tagCounts["Label Section Navigation"]);
         Assert.AreEqual(7, tagCounts["Label Sections"]);
-        Assert.AreEqual(15, tagCounts["Settings"]);
+        Assert.AreEqual(4, tagCounts["Settings Application Info"]);
+        Assert.AreEqual(1, tagCounts["Settings Cache"]);
+        Assert.AreEqual(3, tagCounts["Settings Diagnostics"]);
+        Assert.AreEqual(7, tagCounts["Settings Logs"]);
         Assert.AreEqual(14, tagCounts["Users"]);
         Assert.IsFalse(tagCounts.ContainsKey("Label Search"),
             "The actionless compatibility shell must not contribute a rendered Label Search operation.");

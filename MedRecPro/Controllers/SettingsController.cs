@@ -1,6 +1,7 @@
 ﻿
 using Azure;
 using Azure.Identity;
+using MedRecPro.Api.Controllers;
 using MedRecPro.Filters;
 using MedRecPro.Helpers;
 using MedRecPro.Service;
@@ -108,6 +109,9 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         /// <seealso cref="IConfiguration"/>
         [HttpGet("demomode")]
+        [SwaggerGroup(
+            "Settings Application Info",
+            "Non-sensitive runtime configuration for clients: demo mode, application info, feature flags, database limits.")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetDemoModeStatus()
@@ -167,6 +171,7 @@ namespace MedRecPro.Controllers
         /// <response code="200">Returns application name, version, environment, and demo mode status.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("info")]
+        [SwaggerGroup("Settings Application Info")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetApplicationInfo()
@@ -262,6 +267,7 @@ namespace MedRecPro.Controllers
         /// <response code="200">Returns all feature flags and capability statuses.</response>
         /// <response code="500">If an internal server error occurs.</response>
         [HttpGet("features")]
+        [SwaggerGroup("Settings Application Info")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetFeatures()
@@ -389,6 +395,7 @@ namespace MedRecPro.Controllers
         /// <response code="500">If an internal server error occurs.</response>
         /// <seealso cref="GetFeatures"/>
         [HttpGet("database-limits")]
+        [SwaggerGroup("Settings Application Info")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         public IActionResult GetDatabaseLimits()
@@ -519,6 +526,9 @@ namespace MedRecPro.Controllers
         /// <seealso cref="AzureSqlMetricsService"/>
         /// <seealso cref="AzureManagementTokenProvider"/>
         [HttpGet("metrics/database-cost")]
+        [SwaggerGroup(
+            "Settings Diagnostics",
+            "Admin-only Azure SQL cost metrics and credential/metrics pipeline tests.")]
         [Authorize]
         [RequireUserRole(Admin)] // Using UserRole constants
         [Produces("application/json")]
@@ -654,6 +664,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="AzureAppTokenProvider"/>
         /// <seealso cref="DefaultAzureCredential"/>dotnet list package | grep Azure.Identity
         [HttpGet("test/app-credential")]
+        [SwaggerGroup("Settings Diagnostics")]
         [Authorize]
         [RequireUserRole(Admin)] // Using UserRole constants
         [Produces("application/json")]
@@ -743,6 +754,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="AzureAppTokenProvider"/>
         /// <seealso cref="AzureSqlMetricsService"/>
         [HttpGet("test/app-metrics-pipeline")]
+        [SwaggerGroup("Settings Diagnostics")]
         [Authorize]
         [RequireUserRole(Admin)] // Using UserRole constants
         [Produces("application/json")]
@@ -828,6 +840,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="IAppCache.ResetManaged"/>
         /// <seealso cref="IConfiguration"/>
         [HttpPost("clearmanagedcache")]
+        [SwaggerGroup("Settings Cache", "Managed-cache administration.")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
@@ -918,6 +931,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="UserLoggerProvider"/>
         /// <seealso cref="LogStatistics"/>
         [HttpGet("logs/statistics")]
+        [SwaggerGroup("Settings Logs")]
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
@@ -978,6 +992,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="UserLoggerProvider.GetCategories"/>
         /// <seealso cref="CategorySummary"/>
         [HttpGet("logs/categories")]
+        [SwaggerGroup("Settings Logs")]
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
@@ -1033,6 +1048,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="UserLoggerProvider.GetUserSummaries"/>
         /// <seealso cref="UserLogSummary"/>
         [HttpGet("logs/users")]
+        [SwaggerGroup("Settings Logs")]
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
@@ -1099,6 +1115,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="UserLoggerProvider.GetLogs"/>
         /// <seealso cref="LogEntry"/>
         [HttpGet("logs")]
+        [SwaggerGroup("Settings Logs", "Admin-only in-memory application log queries.")]
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
@@ -1203,6 +1220,7 @@ namespace MedRecPro.Controllers
         /// </example>
         /// <seealso cref="UserLoggerProvider.GetLogsByDateRange"/>
         [HttpGet("logs/by-date")]
+        [SwaggerGroup("Settings Logs")]
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
@@ -1304,6 +1322,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="UserLoggerProvider.GetLogsByCategory"/>
         /// <seealso cref="GetLogCategories"/>
         [HttpGet("logs/by-category")]
+        [SwaggerGroup("Settings Logs")]
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
@@ -1404,6 +1423,7 @@ namespace MedRecPro.Controllers
         /// <seealso cref="UserLoggerProvider.GetLogsByUser"/>
         /// <seealso cref="GetLogUsers"/>
         [HttpGet("logs/by-user")]
+        [SwaggerGroup("Settings Logs")]
         [Authorize]
         [RequireUserRole(Admin)]
         [Produces("application/json")]
