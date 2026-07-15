@@ -50,18 +50,28 @@ public class SwaggerGroupingOpenApiTests
     private static readonly IReadOnlyDictionary<string, string> expectedGroupDescriptions =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            ["Label"] =
+                "Structured Product Labeling operations grouped by documents, sections, products, ingredients, classification, imports, comparisons, and search.",
             ["Label Application Numbers"] = "FDA application-number discovery and marketing-category summaries.",
             ["Label Classification"] = "Pharmacologic class, indication, and DEA-schedule discovery.",
+            ["Label Comparison"] = "SPL document comparison generation, queueing, and progress tracking.",
+            ["Label Documents"] = "Complete label documents, navigation, and generated or source SPL XML retrieval.",
+            ["Label Import"] = "SPL ZIP import queueing, execution, and progress tracking.",
             ["Label Ingredients"] = "Active/inactive ingredient search, summaries, and relationships.",
+            ["Label Markdown"] = "Label markdown retrieval, generation, and AI-assisted cleanup.",
             ["Label Metadata"] = "API endpoint guide and dataset inventory summaries.",
             ["Label Product Identifiers"] = "NDC product/package code and labeler discovery.",
             ["Label Products"] = "Product-name search, latest labels, related products, and indications.",
             ["Label Section Navigation"] = "Section-code search, summaries, and section content retrieval.",
+            ["Label Sections"] = "Dynamic label-section metadata, content retrieval, and CRUD operations.",
+            ["Settings"] = "Application configuration, diagnostics, cache, and administrative log operations.",
             ["Settings Application Info"] =
                 "Non-sensitive runtime configuration for clients: demo mode, application info, feature flags, database limits.",
             ["Settings Cache"] = "Managed-cache administration.",
             ["Settings Diagnostics"] = "Admin-only Azure SQL cost metrics and credential/metrics pipeline tests.",
             ["Settings Logs"] = "Admin-only in-memory application log queries.",
+            ["Users"] =
+                "User authentication, directory, activity, profile, MCP integration, and account-administration operations.",
             ["User Activity"] = "Per-user activity history and endpoint usage statistics.",
             ["User Administration"] = "Elevated account maintenance: admin updates, deletion, password rotation.",
             ["User Authentication"] = "Account creation and credential authentication.",
@@ -147,8 +157,60 @@ public class SwaggerGroupingOpenApiTests
                 $"Swagger description changed for {expectedDescription.Key}.");
         }
 
+#if !DEBUG
+        Assert.AreEqual(
+            "MedRecPro application status and API entry-point information.",
+            actualDescriptions["MedRecPro"],
+            "The Release-only root endpoint tag must have stable documentation.");
+#endif
+
         Assert.IsFalse(actualDescriptions.ContainsKey("Label Search"),
             "The actionless compatibility shell must not contribute a described Label Search document tag.");
+
+        var actualFamilies = projectHostedTagFamilies(swaggerJson);
+        CollectionAssert.AreEquivalent(new[] { "Label", "Settings", "Users" }, actualFamilies.Keys.ToArray());
+        Assert.AreEqual("Label ", actualFamilies["Label"]);
+        Assert.AreEqual("Settings ", actualFamilies["Settings"]);
+        Assert.AreEqual("User ", actualFamilies["Users"]);
+
+        var renderedTitles = projectHostedRenderedTitles(swaggerJson);
+        var undocumentedTitles = renderedTitles
+            .Where(title => !actualDescriptions.ContainsKey(title))
+            .OrderBy(title => title, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.AreEqual(0, undocumentedTitles.Length,
+            $"Every rendered Swagger section title must have a document-level description. Missing: {string.Join(", ", undocumentedTitles)}");
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies the hosted Swagger UI loads the family hierarchy behavior and styling assets.
+    /// </summary>
+    /// <returns>A task representing the hosted HTML and static-asset assertions.</returns>
+    /// <seealso cref="MedRecPro.Configuration.MedRecProSwaggerExtensions"/>
+    [TestMethod]
+    public async Task SwaggerUi_HostedPage_LoadsTagFamilyHierarchyAssets()
+    {
+        #region implementation
+
+        using var client = MedRecProHostFixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var swaggerPage = await client.GetStringAsync("/swagger/index.html");
+        StringAssert.Contains(swaggerPage, "/stylesheets/swagger-tag-families.css");
+        StringAssert.Contains(swaggerPage, "/stylesheets/swagger-tag-families.js");
+
+        var stylesheet = await client.GetStringAsync("/stylesheets/swagger-tag-families.css");
+        var script = await client.GetStringAsync("/stylesheets/swagger-tag-families.js");
+
+        StringAssert.Contains(stylesheet, ".medrecpro-swagger-family-child[hidden]");
+        StringAssert.Contains(script, "x-medrecpro-child-tag-prefix");
+        StringAssert.Contains(script, "medrecpro-swagger-family-child");
 
         #endregion
     }
@@ -173,6 +235,7 @@ public class SwaggerGroupingOpenApiTests
 
         CollectionAssert.Contains(registeredTypes, typeof(SwaggerGroupOperationFilter));
         CollectionAssert.Contains(registeredTypes, typeof(SwaggerGroupDocumentFilter));
+        CollectionAssert.Contains(registeredTypes, typeof(SwaggerTagDocumentationDocumentFilter));
 
         #endregion
     }
@@ -271,6 +334,80 @@ public class SwaggerGroupingOpenApiTests
         }
 
         return descriptions;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Projects every section title rendered from document tags or operation tags.
+    /// </summary>
+    /// <param name="swaggerJson">Swagger JSON returned by the real test host.</param>
+    /// <returns>A unique set of rendered Swagger section titles.</returns>
+    private static HashSet<string> projectHostedRenderedTitles(string swaggerJson)
+    {
+        #region implementation
+
+        using var document = JsonDocument.Parse(swaggerJson);
+        var titles = new HashSet<string>(StringComparer.Ordinal);
+
+        if (document.RootElement.TryGetProperty("tags", out var documentTags))
+        {
+            foreach (var tag in documentTags.EnumerateArray())
+            {
+                if (tag.TryGetProperty("name", out var name) && !string.IsNullOrWhiteSpace(name.GetString()))
+                {
+                    titles.Add(name.GetString()!);
+                }
+            }
+        }
+
+        foreach (var path in document.RootElement.GetProperty("paths").EnumerateObject())
+        {
+            foreach (var operation in path.Value.EnumerateObject().Where(member => httpMethods.Contains(member.Name)))
+            {
+                foreach (var tag in operation.Value.GetProperty("tags").EnumerateArray())
+                {
+                    if (!string.IsNullOrWhiteSpace(tag.GetString()))
+                    {
+                        titles.Add(tag.GetString()!);
+                    }
+                }
+            }
+        }
+
+        return titles;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Projects declared parent tags and their exact child-tag prefixes from the hosted document.
+    /// </summary>
+    /// <param name="swaggerJson">Swagger JSON returned by the real test host.</param>
+    /// <returns>A map of parent tag names to child-tag prefixes.</returns>
+    /// <seealso cref="SwaggerTagDocumentationDocumentFilter.ChildTagPrefixExtensionName"/>
+    private static Dictionary<string, string> projectHostedTagFamilies(string swaggerJson)
+    {
+        #region implementation
+
+        using var document = JsonDocument.Parse(swaggerJson);
+        var families = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var tag in document.RootElement.GetProperty("tags").EnumerateArray())
+        {
+            if (!tag.TryGetProperty(SwaggerTagDocumentationDocumentFilter.ChildTagPrefixExtensionName, out var prefix))
+            {
+                continue;
+            }
+
+            var name = tag.GetProperty("name").GetString()!;
+            Assert.IsFalse(families.ContainsKey(name), $"Swagger family parent {name} must be declared exactly once.");
+            families.Add(name, prefix.GetString()!);
+        }
+
+        return families;
 
         #endregion
     }

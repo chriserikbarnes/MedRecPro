@@ -1,0 +1,21 @@
+/**
+ * Makes OpenAPI parent tags visually distinct and indents their child tag sections.
+ */
+.swagger-ui .medrecpro-swagger-family > .opblock-tag {
+    border-left: 4px solid #49cc90;
+    padding-left: 16px;
+}
+
+.swagger-ui .medrecpro-swagger-family-child > .opblock-tag {
+    padding-left: 48px;
+}
+
+.swagger-ui .medrecpro-swagger-family-child[hidden] {
+    display: none !important;
+}
+
+@media (max-width: 640px) {
+    .swagger-ui .medrecpro-swagger-family-child > .opblock-tag {
+        padding-left: 28px;
+    }
+}

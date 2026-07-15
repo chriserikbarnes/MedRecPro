@@ -20,7 +20,7 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="LabelController"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Sections")]
+    [SwaggerGroup("Label Sections", "Dynamic label-section metadata, content retrieval, and CRUD operations.")]
     public class LabelSectionController : ApiControllerBase
     {
         #region implementation

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -22,6 +23,7 @@ namespace MedRecProTest.Contracts.Swagger;
 /// <seealso cref="FeatureControllerNameConvention"/>
 /// <seealso cref="SwaggerGroupOperationFilter"/>
 /// <seealso cref="SwaggerGroupDocumentFilter"/>
+/// <seealso cref="SwaggerTagDocumentationDocumentFilter"/>
 [TestClass]
 [TestCategory("Contract")]
 public class SwaggerGroupingFilterTests
@@ -50,6 +52,30 @@ public class SwaggerGroupingFilterTests
         Assert.AreEqual("Widget Search", describedGroup.Name);
         Assert.AreEqual("Finds widgets.", describedGroup.Description);
         Assert.IsNull(undescribedGroup.Description);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies Swagger tag-documentation declarations reject blanks and normalize their presentation metadata.
+    /// </summary>
+    /// <seealso cref="SwaggerTagDocumentationAttribute"/>
+    [TestMethod]
+    public void SwaggerTagDocumentationAttribute_RequiredMetadata_ValidatesAndNormalizes()
+    {
+        #region implementation
+
+        Assert.ThrowsException<ArgumentException>(() => new SwaggerTagDocumentationAttribute(" ", "Description.", "Child "));
+        Assert.ThrowsException<ArgumentException>(() => new SwaggerTagDocumentationAttribute("Parent", " ", "Child "));
+
+        var family = new SwaggerTagDocumentationAttribute("  Parent  ", "  Parent documentation.  ", "  Child ");
+        var standalone = new SwaggerTagDocumentationAttribute("Standalone", "Standalone documentation.");
+
+        Assert.AreEqual("Parent", family.Name);
+        Assert.AreEqual("Child ", family.ChildTagPrefix);
+        Assert.AreEqual("Parent documentation.", family.Description);
+        Assert.IsNull(standalone.ChildTagPrefix);
 
         #endregion
     }
@@ -227,6 +253,49 @@ public class SwaggerGroupingFilterTests
         var exception = Assert.ThrowsException<InvalidOperationException>(() =>
             new SwaggerGroupDocumentFilter().Apply(new OpenApiDocument(), conflictingContext));
         StringAssert.Contains(exception.Message, "Conflicting Group");
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies assembly-declared family metadata adds stable parent descriptions and child-prefix extensions.
+    /// </summary>
+    /// <seealso cref="SwaggerTagDocumentationDocumentFilter"/>
+    /// <seealso cref="OpenApiString"/>
+    [TestMethod]
+    public void SwaggerTagDocumentationDocumentFilter_AssemblyMetadata_NormalizesParentTags()
+    {
+        #region implementation
+
+        var document = new OpenApiDocument
+        {
+            Tags = new List<OpenApiTag>
+            {
+                new() { Name = "Label", Description = "First controller-derived description." },
+                new() { Name = "Label", Description = "Second controller-derived description." }
+            }
+        };
+
+        new SwaggerTagDocumentationDocumentFilter().Apply(document, createDocumentFilterContext());
+
+        var families = typeof(SwaggerTagDocumentationDocumentFilter).Assembly
+            .GetCustomAttributes<SwaggerTagDocumentationAttribute>()
+            .Where(documentation => documentation.ChildTagPrefix != null)
+            .OrderBy(family => family.Name, StringComparer.Ordinal)
+            .ToArray();
+        Assert.AreEqual(3, families.Length);
+        CollectionAssert.AreEqual(new[] { "Label", "Settings", "Users" }, families.Select(family => family.Name).ToArray());
+
+        var label = document.Tags.Single(tag => tag.Name == "Label");
+        Assert.AreEqual(
+            "Structured Product Labeling operations grouped by documents, sections, products, ingredients, classification, imports, comparisons, and search.",
+            label.Description);
+        Assert.IsInstanceOfType<OpenApiString>(
+            label.Extensions[SwaggerTagDocumentationDocumentFilter.ChildTagPrefixExtensionName]);
+        Assert.AreEqual(
+            "Label ",
+            ((OpenApiString)label.Extensions[SwaggerTagDocumentationDocumentFilter.ChildTagPrefixExtensionName]).Value);
 
         #endregion
     }

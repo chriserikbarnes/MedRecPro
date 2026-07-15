@@ -43,6 +43,7 @@ namespace MedRecPro.Configuration
         /// <returns>The same service collection for chaining.</returns>
         /// <seealso cref="IncludeLabelNestedTypesDocumentFilter"/>
         /// <seealso cref="OpenApiSecurityScheme"/>
+        /// <seealso cref="SwaggerTagDocumentationDocumentFilter"/>
         public static IServiceCollection AddMedRecProSwagger(this IServiceCollection services, IConfiguration configuration)
         {
             #region implementation
@@ -438,6 +439,7 @@ For detailed examples of request/response formats, refer to the XML comments wit
 
                 // Merge optional group descriptions after XML comments have contributed their document-level tags.
                 c.DocumentFilter<SwaggerGroupDocumentFilter>();
+                c.DocumentFilter<SwaggerTagDocumentationDocumentFilter>();
             });
 
             return services;
@@ -447,7 +449,7 @@ For detailed examples of request/response formats, refer to the XML comments wit
 
         /**************************************************************/
         /// <summary>
-        /// Registers Swagger JSON and UI middleware, including long-lived Swagger JSON cache headers.
+        /// Registers Swagger JSON and UI middleware, including long-lived Swagger JSON cache headers and tag families.
         /// </summary>
         /// <remarks>
         /// The server URL pre-serialization logic uses a runtime <c>IsDevelopment()</c> check and must remain separate from compile-time controller routing.
@@ -461,6 +463,7 @@ For detailed examples of request/response formats, refer to the XML comments wit
         /// <returns>The same web application for chaining.</returns>
         /// <seealso cref="OpenApiServer"/>
         /// <seealso cref="OpenApiSecurityScheme"/>
+        /// <seealso cref="SwaggerTagDocumentationDocumentFilter"/>
         public static WebApplication UseMedRecProSwagger(this WebApplication app)
         {
             #region implementation
@@ -574,12 +577,17 @@ For detailed examples of request/response formats, refer to the XML comments wit
             var swaggerdocs = app.Environment.IsDevelopment()
                 ? $"/swagger/v1/swagger.json?v={DateTime.UtcNow.Ticks}" // Cache buster
                 : "/api/swagger/v1/swagger.json";
+            var swaggerAssetRoot = app.Environment.IsDevelopment()
+                ? "/stylesheets"
+                : "/api/stylesheets";
 
             app.UseSwaggerUI(c =>
             {
                 c.SwaggerEndpoint(swaggerdocs, "MedRecPro API V1");
                 c.ConfigObject.AdditionalItems["operationsSorter"] = "method";
                 c.ConfigObject.AdditionalItems["tagsSorter"] = "alpha";
+                c.InjectStylesheet($"{swaggerAssetRoot}/swagger-tag-families.css");
+                c.InjectJavascript($"{swaggerAssetRoot}/swagger-tag-families.js");
                 c.RoutePrefix = "swagger";
             });
 

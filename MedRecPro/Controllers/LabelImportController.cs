@@ -29,7 +29,7 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="LabelController"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Import")]
+    [SwaggerGroup("Label Import", "SPL ZIP import queueing, execution, and progress tracking.")]
     public class LabelImportController : ApiControllerBase
     {
         #region implementation

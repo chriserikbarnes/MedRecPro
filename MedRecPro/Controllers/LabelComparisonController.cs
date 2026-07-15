@@ -21,7 +21,7 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="LabelController"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Comparison")]
+    [SwaggerGroup("Label Comparison", "SPL document comparison generation, queueing, and progress tracking.")]
     public class LabelComparisonController : ApiControllerBase
     {
         #region implementation

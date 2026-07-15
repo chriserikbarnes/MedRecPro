@@ -21,7 +21,7 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="DtoLabelAccess"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Markdown")]
+    [SwaggerGroup("Label Markdown", "Label markdown retrieval, generation, and AI-assisted cleanup.")]
     public class LabelMarkdownController : ApiControllerBase
     {
         #region implementation

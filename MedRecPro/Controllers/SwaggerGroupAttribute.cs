@@ -1,7 +1,26 @@
 using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System.Reflection;
+
+[assembly: MedRecPro.Api.Controllers.SwaggerTagDocumentationAttribute(
+    "Label",
+    "Structured Product Labeling operations grouped by documents, sections, products, ingredients, classification, imports, comparisons, and search.",
+    "Label ")]
+[assembly: MedRecPro.Api.Controllers.SwaggerTagDocumentationAttribute(
+    "Settings",
+    "Application configuration, diagnostics, cache, and administrative log operations.",
+    "Settings ")]
+[assembly: MedRecPro.Api.Controllers.SwaggerTagDocumentationAttribute(
+    "Users",
+    "User authentication, directory, activity, profile, MCP integration, and account-administration operations.",
+    "User ")]
+#if !DEBUG
+[assembly: MedRecPro.Api.Controllers.SwaggerTagDocumentationAttribute(
+    "MedRecPro",
+    "MedRecPro application status and API entry-point information.")]
+#endif
 
 namespace MedRecPro.Api.Controllers
 {
@@ -56,6 +75,77 @@ namespace MedRecPro.Api.Controllers
 
             Name = name.Trim();
             Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+
+            #endregion
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Declares stable documentation for a Swagger tag and, optionally, the prefix shared by child tags.
+    /// </summary>
+    /// <remarks>
+    /// Assembly-level declarations keep tag presentation metadata independent from controller routing. An optional child
+    /// prefix lets the Swagger UI hierarchy script discover parent-child relationships from the OpenAPI document.
+    /// </remarks>
+    /// <seealso cref="SwaggerTagDocumentationDocumentFilter"/>
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true, Inherited = false)]
+    internal sealed class SwaggerTagDocumentationAttribute : Attribute
+    {
+        #region implementation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the normalized document-level tag name.
+        /// </summary>
+        /// <seealso cref="OpenApiTag.Name"/>
+        public string Name { get; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the optional normalized prefix used by child tags in a UI family.
+        /// </summary>
+        /// <remarks>
+        /// Standalone documented tags return <see langword="null"/> and are not treated as collapsible parents.
+        /// </remarks>
+        /// <seealso cref="SwaggerTagDocumentationDocumentFilter.ChildTagPrefixExtensionName"/>
+        public string? ChildTagPrefix { get; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the normalized sentence displayed beside the tag title.
+        /// </summary>
+        /// <seealso cref="OpenApiTag.Description"/>
+        public string Description { get; }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a Swagger tag-documentation declaration.
+        /// </summary>
+        /// <param name="name">Document-level tag name.</param>
+        /// <param name="description">Tag documentation sentence.</param>
+        /// <param name="childTagPrefix">Optional exact prefix shared by child operation tags.</param>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> or <paramref name="description"/> is blank.</exception>
+        /// <seealso cref="SwaggerTagDocumentationDocumentFilter"/>
+        public SwaggerTagDocumentationAttribute(string name, string description, string? childTagPrefix = null)
+        {
+            #region implementation
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException("Swagger tag name cannot be blank.", nameof(name));
+            }
+
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                throw new ArgumentException("Swagger tag description cannot be blank.", nameof(description));
+            }
+
+            Name = name.Trim();
+            Description = description.Trim();
+            ChildTagPrefix = string.IsNullOrWhiteSpace(childTagPrefix) ? null : childTagPrefix.TrimStart();
 
             #endregion
         }
@@ -207,6 +297,97 @@ namespace MedRecPro.Api.Controllers
                 else if (string.IsNullOrWhiteSpace(existingTag.Description))
                 {
                     existingTag.Description = describedGroup.Description;
+                }
+            }
+
+            #endregion
+        }
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Publishes stable tag descriptions and optional child-prefix metadata for Swagger UI families.
+    /// </summary>
+    /// <remarks>
+    /// Tag definitions come from assembly metadata, keeping this filter generic. Duplicate declared tags contributed by
+    /// split controllers are consolidated, and explicit descriptions replace arbitrary controller summaries.
+    /// </remarks>
+    /// <seealso cref="SwaggerTagDocumentationAttribute"/>
+    /// <seealso cref="OpenApiTag.Extensions"/>
+    internal sealed class SwaggerTagDocumentationDocumentFilter : IDocumentFilter
+    {
+        #region implementation
+
+        /**************************************************************/
+        /// <summary>
+        /// Gets the OpenAPI extension name that carries a documented tag's exact child-tag prefix.
+        /// </summary>
+        /// <seealso cref="OpenApiString"/>
+        internal const string ChildTagPrefixExtensionName = "x-medrecpro-child-tag-prefix";
+
+        /**************************************************************/
+        /// <summary>
+        /// Adds or normalizes all declared tags in the generated OpenAPI document.
+        /// </summary>
+        /// <param name="swaggerDoc">Generated OpenAPI document.</param>
+        /// <param name="context">Document filter context for the current generation pass.</param>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the assembly declares conflicting definitions for one tag.
+        /// </exception>
+        /// <seealso cref="IDocumentFilter"/>
+        public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
+        {
+            #region implementation
+
+            var documentedTags = typeof(SwaggerTagDocumentationDocumentFilter).Assembly
+                .GetCustomAttributes<SwaggerTagDocumentationAttribute>()
+                .GroupBy(documentation => documentation.Name, StringComparer.Ordinal)
+                .Select(group =>
+                {
+                    var definitions = group.ToArray();
+                    var first = definitions[0];
+
+                    if (definitions.Any(definition =>
+                            !string.Equals(definition.ChildTagPrefix, first.ChildTagPrefix, StringComparison.Ordinal) ||
+                            !string.Equals(definition.Description, first.Description, StringComparison.Ordinal)))
+                    {
+                        throw new InvalidOperationException(
+                            $"Swagger tag '{group.Key}' declares conflicting prefixes or descriptions.");
+                    }
+
+                    return first;
+                })
+                .OrderBy(documentation => documentation.Name, StringComparer.Ordinal)
+                .ToArray();
+
+            swaggerDoc.Tags ??= new List<OpenApiTag>();
+
+            foreach (var documentation in documentedTags)
+            {
+                var matchingTags = swaggerDoc.Tags
+                    .Where(tag => string.Equals(tag.Name, documentation.Name, StringComparison.Ordinal))
+                    .ToArray();
+                var documentedTag = matchingTags.FirstOrDefault();
+
+                if (documentedTag == null)
+                {
+                    documentedTag = new OpenApiTag { Name = documentation.Name };
+                    swaggerDoc.Tags.Add(documentedTag);
+                }
+
+                foreach (var duplicateTag in matchingTags.Skip(1))
+                {
+                    swaggerDoc.Tags.Remove(duplicateTag);
+                }
+
+                // Assembly metadata is authoritative and must not depend on which split controller XML summary ran first.
+                documentedTag.Description = documentation.Description;
+
+                if (documentation.ChildTagPrefix != null)
+                {
+                    documentedTag.Extensions[ChildTagPrefixExtensionName] = new OpenApiString(documentation.ChildTagPrefix);
                 }
             }
 

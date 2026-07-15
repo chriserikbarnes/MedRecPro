@@ -18,7 +18,7 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="LabelController"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Documents")]
+    [SwaggerGroup("Label Documents", "Complete label documents, navigation, and generated or source SPL XML retrieval.")]
     public class LabelDocumentController : ApiControllerBase
     {
         #region implementation
