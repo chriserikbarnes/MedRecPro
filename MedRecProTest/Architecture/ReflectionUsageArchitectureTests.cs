@@ -14,6 +14,9 @@ namespace MedRecProTest.Architecture;
 /// </remarks>
 /// <seealso cref="MedRecProPublicSurfaceInventoryTests"/>
 /// <seealso cref="LabelControllerRouteCompatibilityTests"/>
+/// <seealso cref="SettingsAndUsersRouteCompatibilityTests"/>
+/// <seealso cref="SwaggerGroupingFilterTests"/>
+/// <seealso cref="SwaggerGroupingOpenApiTests"/>
 [TestClass]
 [TestCategory("Architecture")]
 public class ReflectionUsageArchitectureTests
@@ -30,6 +33,9 @@ public class ReflectionUsageArchitectureTests
         "LabelControllerRouteCompatibilityTests.cs",
         "MedRecProPublicSurfaceInventoryTests.cs",
         "ParsingServicesPublicSurfaceInventoryTests.cs",
+        "SettingsAndUsersRouteCompatibilityTests.cs",
+        "SwaggerGroupingFilterTests.cs",
+        "SwaggerGroupingOpenApiTests.cs",
         "TestOrganizationArchitectureTests.cs"
     };
 
