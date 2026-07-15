@@ -121,24 +121,6 @@ namespace MedRecPro.Api.Controllers
 
         /**************************************************************/
         /// <summary>
-        /// Validates the operation ID parameter and returns appropriate error response if invalid.
-        /// </summary>
-        /// <param name="operationId">The operation ID to validate</param>
-        /// <returns>BadRequest result if invalid, null if valid</returns>
-        /// <seealso cref="Label"/>
-        private ActionResult? validateOperationId(string operationId)
-        {
-            #region implementation
-            if (string.IsNullOrWhiteSpace(operationId))
-            {
-                return BadRequest(ComparisonConstants.ERROR_EMPTY_OPERATION_ID);
-            }
-            return null;
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
         /// NOTE: This is a long running process (e.g. > 30 sec). Consider
         /// Using the POST method to queue the job in the background and
         /// use polling to check on the progress.
@@ -288,10 +270,6 @@ namespace MedRecPro.Api.Controllers
         public IActionResult GetComparisonProgress(string operationId)
         {
             #region implementation
-            // Use helper method for validation
-            var validationResult = validateOperationId(operationId);
-            if (validationResult != null) return validationResult;
-
             // Attempt to retrieve the operation status from the status store
             if (_statusStore.TryGet(operationId, out ComparisonOperationStatus? status) && status != null)
             {
