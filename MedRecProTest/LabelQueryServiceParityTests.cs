@@ -1,6 +1,9 @@
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
+using MedRecPro.Models;
+using MedRecPro.Service.Common;
 using MedRecPro.Service.LabelQuery;
+using MedRecPro.Service.LabelQuery.Common;
 using MedRecPro.Service.LabelQuery.Implementation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -150,6 +153,171 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
+        /// Verifies a generic inventory query returns injected cache hits without database access and
+        /// records exactly one managed miss write with the frozen key and ten-hour TTL.
+        /// </summary>
+        /// <seealso cref="LabelQueryDataAccess.GetInventorySummaryAsync"/>
+        [TestMethod]
+        public async Task InventorySummaryCache_HitAndMiss_PreserveKeyTtlAndDatabaseBoundary()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            DtoLabelAccessTestHelper.SeedInventorySummaryView(
+                connection,
+                category: "TOTALS",
+                dimension: "Documents",
+                dimensionValue: "All",
+                itemCount: 1,
+                sortOrder: 1);
+
+            var key = new LegacyDtoLabelCacheKeyBuilder().BuildQueryKey(
+                "GetInventorySummaryAsync",
+                "TOTALS",
+                null,
+                null);
+            var cachedSentinel = new List<InventorySummaryDto>
+            {
+                new() { InventorySummary = new Dictionary<string, object?>() }
+            };
+            var hitCache = new RecordingQueryCache();
+            hitCache.Seed(key, cachedSentinel);
+            var disposedContext = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            disposedContext.Dispose();
+
+            var hit = await DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(hitCache)
+                .GetInventorySummaryAsync(disposedContext, "TOTALS", DtoLabelAccessTestHelper.CreateTestLogger());
+
+            Assert.AreSame(cachedSentinel, hit);
+            Assert.AreEqual(0, hitCache.ManagedWrites.Count);
+
+            var missCache = new RecordingQueryCache();
+            var miss = await DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(missCache)
+                .GetInventorySummaryAsync(context, "TOTALS", DtoLabelAccessTestHelper.CreateTestLogger());
+
+            Assert.AreEqual(1, miss.Count);
+            Assert.AreEqual(1, missCache.ManagedWrites.Count);
+            Assert.AreEqual(key, missCache.ManagedWrites[0].Key);
+            Assert.AreEqual(10.0, missCache.ManagedWrites[0].DurationHours);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies batch document graph cache hits bypass the database and misses preserve the
+        /// loading-mode key, managed membership, and one-hour TTL.
+        /// </summary>
+        /// <seealso cref="LabelQueryDataAccess.BuildDocumentsAsync(ApplicationDbContext, string, ILogger, int?, int?, bool?)"/>
+        [TestMethod]
+        public async Task DocumentGraphCache_HitAndMiss_PreserveLoadingModeKeyAndTtl()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            await DtoLabelAccessTestHelper.SeedDocumentAsync(
+                context,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                DtoLabelAccessTestHelper.TestSetGuid,
+                "Cache Document");
+
+            var key = new LegacyDtoLabelCacheKeyBuilder().BuildDocumentPageKey(null, null, useBatchLoading: true);
+            var cachedSentinel = new List<DocumentDto>
+            {
+                new() { Document = new Dictionary<string, object?>() }
+            };
+            var hitCache = new RecordingQueryCache();
+            hitCache.Seed(key, cachedSentinel);
+            var disposedContext = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            disposedContext.Dispose();
+
+            var hit = await DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(hitCache).BuildDocumentsAsync(
+                disposedContext,
+                DtoLabelAccessTestHelper.TestPkSecret,
+                DtoLabelAccessTestHelper.CreateTestLogger(),
+                useBatchLoading: true);
+
+            Assert.AreSame(cachedSentinel, hit);
+            Assert.AreEqual(0, hitCache.ManagedWrites.Count);
+
+            var missCache = new RecordingQueryCache();
+            var miss = await DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(missCache).BuildDocumentsAsync(
+                context,
+                DtoLabelAccessTestHelper.TestPkSecret,
+                DtoLabelAccessTestHelper.CreateTestLogger(),
+                useBatchLoading: true);
+
+            Assert.AreEqual(1, miss.Count);
+            Assert.AreEqual(1, missCache.ManagedWrites.Count);
+            Assert.AreEqual(key, missCache.ManagedWrites[0].Key);
+            Assert.AreEqual(1.0, missCache.ManagedWrites[0].DurationHours);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies Orange Book cache hits bypass the database and misses preserve the frozen
+        /// composite key, managed membership, and one-hour TTL.
+        /// </summary>
+        /// <seealso cref="LabelQueryDataAccess.SearchOrangeBookPatentsAsync"/>
+        [TestMethod]
+        public async Task OrangeBookCache_HitAndMiss_PreserveCompositeKeyAndTtl()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            DtoLabelAccessTestHelper.SeedOrangeBookPatentView(
+                connection,
+                patentNo: "US-CACHE",
+                patentExpireDate: new DateTime(2030, 1, 1));
+
+            var key = new LegacyDtoLabelCacheKeyBuilder().BuildOrangeBookSearchKey(
+                null, null, null, null, null, null, null, null, null, null, null);
+            var cachedSentinel = new List<OrangeBookPatentDto>
+            {
+                new() { OrangeBookPatent = new Dictionary<string, object?>() }
+            };
+            var hitCache = new RecordingQueryCache();
+            hitCache.Seed(key, cachedSentinel);
+            var disposedContext = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            disposedContext.Dispose();
+
+            var hit = await DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(hitCache).SearchOrangeBookPatentsAsync(
+                disposedContext,
+                null, null, null, null, null, null, null, null, null,
+                DtoLabelAccessTestHelper.TestPkSecret,
+                DtoLabelAccessTestHelper.CreateTestLogger());
+
+            Assert.AreSame(cachedSentinel, hit);
+            Assert.AreEqual(0, hitCache.ManagedWrites.Count);
+
+            var missCache = new RecordingQueryCache();
+            var miss = await DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(missCache).SearchOrangeBookPatentsAsync(
+                context,
+                null, null, null, null, null, null, null, null, null,
+                DtoLabelAccessTestHelper.TestPkSecret,
+                DtoLabelAccessTestHelper.CreateTestLogger());
+
+            Assert.AreEqual(1, miss.Count);
+            Assert.AreEqual(1, missCache.ManagedWrites.Count);
+            Assert.AreEqual(key, missCache.ManagedWrites[0].Key);
+            Assert.AreEqual(1.0, missCache.ManagedWrites[0].DurationHours);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Creates configuration consistent with the static facade test secret.
         /// </summary>
         /// <returns>In-memory configuration for direct service construction.</returns>
@@ -180,7 +348,7 @@ namespace MedRecProTest
             return new ProductSearchService(
                 context,
                 createConfiguration(),
-                new LabelQueryDataAccess(),
+                DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(),
                 NullLogger<ProductSearchService>.Instance);
 
             #endregion
@@ -199,7 +367,7 @@ namespace MedRecProTest
             return new OrangeBookPatentQueryService(
                 context,
                 createConfiguration(),
-                new LabelQueryDataAccess(),
+                DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(),
                 NullLogger<OrangeBookPatentQueryService>.Instance);
 
             #endregion
@@ -218,10 +386,93 @@ namespace MedRecProTest
             return new LabelDocumentQueryService(
                 context,
                 createConfiguration(),
-                new LabelQueryDataAccess(),
+                DtoLabelAccessTestHelper.CreateLabelQueryDataAccess(),
                 NullLogger<LabelDocumentQueryService>.Instance);
 
             #endregion
         }
+
+        /**************************************************************/
+        /// <summary>
+        /// Records typed query-cache reads and managed writes for parity assertions.
+        /// </summary>
+        /// <seealso cref="IAppCache"/>
+        private sealed class RecordingQueryCache : IAppCache
+        {
+            private readonly Dictionary<string, object> entries = new(StringComparer.Ordinal);
+
+            /**************************************************************/
+            /// <summary>
+            /// Gets the managed writes recorded by this cache.
+            /// </summary>
+            public List<ManagedCacheWrite> ManagedWrites { get; } = new();
+
+            /**************************************************************/
+            /// <summary>
+            /// Seeds a typed cache hit without recording a managed write.
+            /// </summary>
+            /// <param name="key">The opaque cache key.</param>
+            /// <param name="value">The value returned for the key.</param>
+            public void Seed(string key, object value)
+            {
+                #region implementation
+
+                entries[key] = value;
+
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public object? Get(string key) => entries.TryGetValue(key, out var value) ? value : null;
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public T? Get<T>(string key) => Get(key) is T value ? value : default;
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public T? GetCachedJson<T>(string key) => default;
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public void Set(string key, object value, double durationHours = 1.0) => entries[key] = value;
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public void SetManaged(string key, object value, double durationHours = 4.0)
+            {
+                #region implementation
+
+                entries[key] = value;
+                ManagedWrites.Add(new ManagedCacheWrite(key, durationHours));
+
+                #endregion
+            }
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public void Remove(string key) => entries.Remove(key);
+
+            /**************************************************************/
+            /// <inheritdoc/>
+            public void ResetManaged()
+            {
+                #region implementation
+
+                entries.Clear();
+                ManagedWrites.Clear();
+
+                #endregion
+            }
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Describes one managed cache write captured by a parity test.
+        /// </summary>
+        /// <param name="Key">The opaque key written by the query.</param>
+        /// <param name="DurationHours">The requested absolute expiration in hours.</param>
+        private sealed record ManagedCacheWrite(string Key, double DurationHours);
     }
 }

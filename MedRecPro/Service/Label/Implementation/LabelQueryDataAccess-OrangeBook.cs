@@ -3,10 +3,10 @@ using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.Common;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using static MedRecPro.Models.LabelView;
-using Cached = MedRecPro.Helpers.PerformanceHelper;
 
 namespace MedRecPro.Service.LabelQuery.Implementation
 {
@@ -18,7 +18,8 @@ namespace MedRecPro.Service.LabelQuery.Implementation
     /// </summary>
     /// <remarks>
     /// All query methods use AsNoTracking() for optimal read performance.
-    /// Search results are cached via <see cref="PerformanceHelper"/>.
+    /// Search results are cached through <see cref="QueryCachePolicy"/> with
+    /// keys composed by the Label-owned legacy key builder.
     /// </remarks>
     /// <seealso cref="OrangeBookPatentDto"/>
     /// <seealso cref="LabelView.OrangeBookPatent"/>
@@ -97,20 +98,21 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            // Build composite cache key from all search parameters
-            string searchKey = string.Join("-",
-                expiringInMonths?.ToString() ?? "",
-                documentGuid?.ToString() ?? "",
-                applicationNumber ?? "",
-                ingredient ?? "",
-                tradeName ?? "",
-                patentNo ?? "",
-                patentExpireDate?.ToString("yyyy-MM-dd") ?? "",
-                hasPediatricFlag?.ToString() ?? "",
-                hasWithdrawnCommercialReasonFlag?.ToString() ?? "");
-            string key = generateCacheKey(nameof(SearchOrangeBookPatentsAsync), searchKey, page, size);
+            // Keep the frozen composite ordering inside the Label-owned key builder.
+            string key = _keyBuilder.BuildOrangeBookSearchKey(
+                expiringInMonths,
+                documentGuid,
+                applicationNumber,
+                ingredient,
+                tradeName,
+                patentNo,
+                patentExpireDate,
+                hasPediatricFlag,
+                hasWithdrawnCommercialReasonFlag,
+                page,
+                size);
 
-            var cached = Cached.GetCache<List<OrangeBookPatentDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<OrangeBookPatentDto>>(key);
 
             if (cached != null)
             {
@@ -199,7 +201,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 

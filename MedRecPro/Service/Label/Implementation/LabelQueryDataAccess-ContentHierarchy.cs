@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 using static MedRecPro.Models.Label;
-using Cached = MedRecPro.Helpers.PerformanceHelper;
 
 namespace MedRecPro.Service.LabelQuery.Implementation
 {

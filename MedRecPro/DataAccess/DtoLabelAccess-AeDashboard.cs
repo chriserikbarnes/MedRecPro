@@ -27,6 +27,17 @@ namespace MedRecPro.DataAccess
     /// <seealso cref="AeDashboardDerivation"/>
     public sealed partial class AeDashboardDataAccess
     {
+        /**************************************************************/
+        /// <summary>
+        /// Identifies the anonymous per-document AE product-catalog cache shape.
+        /// </summary>
+        /// <remarks>
+        /// Increment this discriminator only when the cached catalog projection changes.
+        /// </remarks>
+        /// <seealso cref="getCachedAeProductCatalogAsync"/>
+        internal const string AnonymousCatalogByDocumentCacheDiscriminator =
+            "anonymous-catalog-by-document-v1";
+
         private readonly IAeDashboardCachePolicy _cachePolicy;
         private readonly IAeDashboardEncryptedIdMapper _encryptedIdMapper;
         private readonly IAeDashboardCorrelationPolicy _correlationPolicy;
@@ -1847,7 +1858,11 @@ namespace MedRecPro.DataAccess
 
             // A new version token keeps this per-document shape from colliding with
             // any older per-stratum cache entry.
-            var cacheKey = _cachePolicy.GenerateKey(nameof(getCachedAeProductCatalogAsync), "anonymous-catalog-by-document-v1", null, null);
+            var cacheKey = _cachePolicy.GenerateKey(
+                nameof(getCachedAeProductCatalogAsync),
+                AnonymousCatalogByDocumentCacheDiscriminator,
+                null,
+                null);
 
             // Return the shared catalog when present. Callers clone before mutating.
             var cached = _cachePolicy.Get<List<AeDrugSummaryDto>>(cacheKey);

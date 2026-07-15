@@ -4,13 +4,14 @@ using MedRecPro.DataAccess;
 using MedRecPro.Features.Label.Mapping;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery.Common;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Diagnostics;
 using static MedRecPro.Models.Label;
 using System.Text.RegularExpressions;
-using Cached = MedRecPro.Helpers.PerformanceHelper;
 
 namespace MedRecPro.Service.LabelQuery.Implementation
 {
@@ -23,6 +24,37 @@ namespace MedRecPro.Service.LabelQuery.Implementation
     /// <seealso cref="DocumentDto"/>
     internal partial class LabelQueryDataAccess
     {
+        #region implementation
+
+        private readonly QueryCachePolicy _cachePolicy;
+        private readonly LegacyDtoLabelCacheKeyBuilder _keyBuilder;
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a label query implementation with its required cache boundaries.
+        /// </summary>
+        /// <remarks>
+        /// The shared policy owns cache operations while the feature builder owns the
+        /// frozen DtoLabelAccess key format. The implementation retains no DbContext.
+        /// </remarks>
+        /// <param name="cachePolicy">The shared opaque-key query cache policy.</param>
+        /// <param name="keyBuilder">The Label-specific legacy cache-key builder.</param>
+        /// <seealso cref="QueryCachePolicy"/>
+        /// <seealso cref="LegacyDtoLabelCacheKeyBuilder"/>
+        internal LabelQueryDataAccess(
+            QueryCachePolicy cachePolicy,
+            LegacyDtoLabelCacheKeyBuilder keyBuilder)
+        {
+            #region implementation
+
+            _cachePolicy = cachePolicy ?? throw new ArgumentNullException(nameof(cachePolicy));
+            _keyBuilder = keyBuilder ?? throw new ArgumentNullException(nameof(keyBuilder));
+
+            #endregion
+        }
+
+        #endregion
+
         #region LOINC Section Number Lookup
 
         /**************************************************************/
@@ -121,9 +153,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Include loading mode in cache key to prevent cross-mode cache hits
             var loadingMode = useBatchLoading == true ? "batch" : "sequential";
-            string key = ($"{"DtoLabelAccess"}.{nameof(BuildDocumentsAsync)}_{page}_{size}_{loadingMode}").Base64Encode();
+            string key = _keyBuilder.BuildDocumentPageKey(page, size, useBatchLoading);
 
-            var cached = Cached.GetCache<List<DocumentDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<DocumentDto>>(key);
 
             if(cached != null && page == null && size == null)
             {
@@ -150,7 +182,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if(ret != null)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} documents (loading mode: {LoadingMode}).", key, ret.Count, loadingMode);
             }
 
@@ -216,9 +248,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Include loading mode in cache key to prevent cross-mode cache hits
             var loadingMode = useBatchLoading == true ? "batch" : "sequential";
-            string key = ($"{"DtoLabelAccess"}.{nameof(BuildDocumentsAsync)}.{documentGuid}_{loadingMode}").Base64Encode();
+            string key = _keyBuilder.BuildDocumentGuidKey(documentGuid, useBatchLoading);
 
-            var cached = Cached.GetCache<List<DocumentDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<DocumentDto>>(key);
 
             if(cached != null)
             {
@@ -237,7 +269,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if(ret != null)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} documents (loading mode: {LoadingMode}).", key, ret.Count, loadingMode);
             }
 
@@ -305,9 +337,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             // Generate cache key including search and pagination parameters
-            string key = generateCacheKey(nameof(SearchByApplicationNumberAsync), applicationNumber, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchByApplicationNumberAsync), applicationNumber, page, size);
 
-            var cached = Cached.GetCache<List<ProductsByApplicationNumberDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductsByApplicationNumberDto>>(key);
 
             if (cached != null)
             {
@@ -345,7 +377,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -382,9 +414,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetApplicationNumberSummariesAsync), marketingCategory, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetApplicationNumberSummariesAsync), marketingCategory, page, size);
 
-            var cached = Cached.GetCache<List<ApplicationNumberSummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ApplicationNumberSummaryDto>>(key);
 
             if (cached != null)
             {
@@ -422,7 +454,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -468,9 +500,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                 throw new ArgumentException("Class name search and PK secret must be provided.");
             }
 
-            string key = generateCacheKey(nameof(SearchByPharmacologicClassAsync), classNameSearch, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchByPharmacologicClassAsync), classNameSearch, page, size);
 
-            var cached = Cached.GetCache<List<ProductsByPharmacologicClassDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductsByPharmacologicClassDto>>(key);
 
             if (cached != null)
             {
@@ -492,7 +524,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -537,9 +569,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                 throw new ArgumentException("Class name search and PK secret must be provided.");
             }
 
-            string key = generateCacheKey(nameof(SearchByPharmacologicClassExactAsync), classNameSearch, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchByPharmacologicClassExactAsync), classNameSearch, page, size);
 
-            var cached = Cached.GetCache<List<ProductsByPharmacologicClassDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductsByPharmacologicClassDto>>(key);
 
             if (cached != null)
             {
@@ -561,7 +593,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -591,9 +623,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetPharmacologicClassHierarchyAsync), null, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetPharmacologicClassHierarchyAsync), null, page, size);
 
-            var cached = Cached.GetCache<List<PharmacologicClassHierarchyViewDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<PharmacologicClassHierarchyViewDto>>(key);
 
             if (cached != null)
             {
@@ -613,7 +645,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -643,9 +675,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetPharmacologicClassSummariesAsync), null, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetPharmacologicClassSummariesAsync), null, page, size);
 
-            var cached = Cached.GetCache<List<PharmacologicClassSummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<PharmacologicClassSummaryDto>>(key);
 
             if (cached != null)
             {
@@ -664,7 +696,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -704,9 +736,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Include ingredient in cache key for varied results (concatenate filter params for cache key)
             string searchParams = $"{minProductCount}_{ingredient}";
-            string key = generateCacheKey(nameof(GetIngredientActiveSummariesAsync), searchParams, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetIngredientActiveSummariesAsync), searchParams, page, size);
 
-            var cached = Cached.GetCache<List<IngredientActiveSummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<IngredientActiveSummaryDto>>(key);
 
             if (cached != null)
             {
@@ -741,7 +773,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -777,9 +809,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Include ingredient in cache key for varied results (concatenate filter params for cache key)
             string searchParams = $"{minProductCount}_{ingredient}";
-            string key = generateCacheKey(nameof(GetIngredientInactiveSummariesAsync), searchParams, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetIngredientInactiveSummariesAsync), searchParams, page, size);
 
-            var cached = Cached.GetCache<List<IngredientInactiveSummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<IngredientInactiveSummaryDto>>(key);
 
             if (cached != null)
             {
@@ -814,7 +846,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -857,9 +889,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             string searchKey = $"{unii ?? ""}-{substanceNameSearch ?? ""}";
-            string key = generateCacheKey(nameof(SearchByIngredientAsync), searchKey, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchByIngredientAsync), searchKey, page, size);
 
-            var cached = Cached.GetCache<List<ProductsByIngredientDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductsByIngredientDto>>(key);
 
             if (cached != null)
             {
@@ -896,7 +928,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -932,9 +964,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Include ingredient in cache key for varied results (concatenate filter params for cache key)
             string searchParams = $"{minProductCount}_{ingredient}";
-            string key = generateCacheKey(nameof(GetIngredientSummariesAsync), searchParams, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetIngredientSummariesAsync), searchParams, page, size);
 
-            var cached = Cached.GetCache<List<IngredientSummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<IngredientSummaryDto>>(key);
 
             if (cached != null)
             {
@@ -967,7 +999,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1026,9 +1058,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Build cache key from all search parameters
             string searchKey = $"{unii ?? ""}-{substanceNameSearch ?? ""}-{applicationNumber ?? ""}-{applicationType ?? ""}-{productNameSearch ?? ""}-{activeOnly?.ToString() ?? "all"}";
-            string key = generateCacheKey(nameof(SearchIngredientsAdvancedAsync), searchKey, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchIngredientsAdvancedAsync), searchKey, page, size);
 
-            var cached = Cached.GetCache<List<IngredientViewDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<IngredientViewDto>>(key);
 
             if (cached != null)
             {
@@ -1085,7 +1117,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             // Cache results
             if (ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1124,9 +1156,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(FindProductsByApplicationNumberWithSameIngredientAsync), applicationNumber, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(FindProductsByApplicationNumberWithSameIngredientAsync), applicationNumber, page, size);
 
-            var cached = Cached.GetCache<List<IngredientViewDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<IngredientViewDto>>(key);
 
             if (cached != null)
             {
@@ -1172,7 +1204,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             // Cache results
             if (ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1215,9 +1247,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             string searchKey = $"{unii ?? ""}-{substanceNameSearch ?? ""}-{(isSearchingActive ? "active" : "inactive")}";
-            string key = generateCacheKey(nameof(FindRelatedIngredientsAsync), searchKey, null, maxProducts);
+            string key = _keyBuilder.BuildQueryKey(nameof(FindRelatedIngredientsAsync), searchKey, null, maxProducts);
 
-            var cached = Cached.GetCache<IngredientRelatedResultsDto>(key);
+            var cached = _cachePolicy.GetByKey<IngredientRelatedResultsDto>(key);
 
             if (cached != null)
             {
@@ -1283,7 +1315,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             result.TotalProductCount = productIds.Count;
 
             // Cache results
-            Cached.SetCacheManageKey(key, result, 1.0);
+            _cachePolicy.SetManagedByKey(key, result, 1.0);
             logger.LogDebug("Cache set for {CacheKey}", key);
 
             return result;
@@ -1544,9 +1576,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(SearchByNDCAsync), productCode, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchByNDCAsync), productCode, page, size);
 
-            var cached = Cached.GetCache<List<ProductsByNDCDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductsByNDCDto>>(key);
 
             if (cached != null)
             {
@@ -1567,7 +1599,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1600,9 +1632,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(SearchByPackageNDCAsync), packageCode, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchByPackageNDCAsync), packageCode, page, size);
 
-            var cached = Cached.GetCache<List<PackageByNDCDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<PackageByNDCDto>>(key);
 
             if (cached != null)
             {
@@ -1622,7 +1654,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1664,9 +1696,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(SearchByLabelerAsync), labelerNameSearch, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchByLabelerAsync), labelerNameSearch, page, size);
 
-            var cached = Cached.GetCache<List<ProductsByLabelerDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductsByLabelerDto>>(key);
 
             if (cached != null)
             {
@@ -1687,7 +1719,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1717,9 +1749,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetLabelerSummariesAsync), null, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetLabelerSummariesAsync), null, page, size);
 
-            var cached = Cached.GetCache<List<LabelerSummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<LabelerSummaryDto>>(key);
 
             if (cached != null)
             {
@@ -1738,7 +1770,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1784,9 +1816,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             string searchKey = $"{latestOnly}-{setGuid?.ToString() ?? "all"}";
-            string key = generateCacheKey(nameof(GetDocumentNavigationAsync), searchKey, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetDocumentNavigationAsync), searchKey, page, size);
 
-            var cached = Cached.GetCache<List<DocumentNavigationDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<DocumentNavigationDto>>(key);
 
             if (cached != null)
             {
@@ -1819,7 +1851,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1847,9 +1879,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetDocumentVersionHistoryAsync), setGuidOrDocumentGuid.ToString(), null, null);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetDocumentVersionHistoryAsync), setGuidOrDocumentGuid.ToString(), null, null);
 
-            var cached = Cached.GetCache<List<DocumentVersionHistoryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<DocumentVersionHistoryDto>>(key);
 
             if (cached != null)
             {
@@ -1868,7 +1900,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1910,9 +1942,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(SearchBySectionCodeAsync), sectionCode, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchBySectionCodeAsync), sectionCode, page, size);
 
-            var cached = Cached.GetCache<List<SectionNavigationDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<SectionNavigationDto>>(key);
 
             if (cached != null)
             {
@@ -1932,7 +1964,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -1962,9 +1994,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetSectionTypeSummariesAsync), null, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetSectionTypeSummariesAsync), null, page, size);
 
-            var cached = Cached.GetCache<List<SectionTypeSummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<SectionTypeSummaryDto>>(key);
 
             if (cached != null)
             {
@@ -1983,7 +2015,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2049,13 +2081,13 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             // Generate cache key including all filter parameters
-            string key = generateCacheKey(
+            string key = _keyBuilder.BuildQueryKey(
                 nameof(GetSectionContentAsync),
                 $"{documentGuid}_{sectionGuid}_{sectionCode}",
                 page,
                 size);
 
-            var cached = Cached.GetCache<List<SectionContentDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<SectionContentDto>>(key);
 
             if (cached != null)
             {
@@ -2121,7 +2153,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2222,9 +2254,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             string searchKey = string.Join(",", ingredientUNIIs.OrderBy(u => u));
-            string key = generateCacheKey(nameof(GetDrugInteractionsAsync), searchKey, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetDrugInteractionsAsync), searchKey, page, size);
 
-            var cached = Cached.GetCache<List<DrugInteractionLookupDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<DrugInteractionLookupDto>>(key);
 
             if (cached != null)
             {
@@ -2246,7 +2278,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2278,9 +2310,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetDEAScheduleProductsAsync), scheduleCode, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetDEAScheduleProductsAsync), scheduleCode, page, size);
 
-            var cached = Cached.GetCache<List<DEAScheduleLookupDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<DEAScheduleLookupDto>>(key);
 
             if (cached != null)
             {
@@ -2307,7 +2339,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2348,9 +2380,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(SearchProductSummaryAsync), productNameSearch, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(SearchProductSummaryAsync), productNameSearch, page, size);
 
-            var cached = Cached.GetCache<List<ProductSummaryViewDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductSummaryViewDto>>(key);
 
             if (cached != null)
             {
@@ -2370,7 +2402,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2409,9 +2441,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Build search key including both identifiers
             string searchKey = $"{sourceProductId?.ToString() ?? "null"}-{sourceDocumentGuid?.ToString() ?? "null"}-{relationshipType ?? "all"}";
-            string key = generateCacheKey(nameof(GetRelatedProductsAsync), searchKey, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetRelatedProductsAsync), searchKey, page, size);
 
-            var cached = Cached.GetCache<List<RelatedProductsDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<RelatedProductsDto>>(key);
 
             if (cached != null)
             {
@@ -2450,7 +2482,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2478,9 +2510,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetAPIEndpointGuideAsync), category, null, null);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetAPIEndpointGuideAsync), category, null, null);
 
-            var cached = Cached.GetCache<List<APIEndpointGuideDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<APIEndpointGuideDto>>(key);
 
             if (cached != null)
             {
@@ -2504,7 +2536,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 5.0); // Cache longer since this is metadata
+                _cachePolicy.SetManagedByKey(key, ret, 5.0); // Cache longer since this is metadata
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2559,9 +2591,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            string key = generateCacheKey(nameof(GetInventorySummaryAsync), category, null, null);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetInventorySummaryAsync), category, null, null);
 
-            var cached = Cached.GetCache<List<InventorySummaryDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<InventorySummaryDto>>(key);
 
             if (cached != null)
             {
@@ -2588,7 +2620,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             if (ret != null && ret.Count > 0)
             {
                 // Cache longer since inventory counts change slowly
-                Cached.SetCacheManageKey(key, ret, 10.0);
+                _cachePolicy.SetManagedByKey(key, ret, 10.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2646,9 +2678,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Build cache key from search parameters
             string searchKey = $"{unii ?? ""}-{productNameSearch ?? ""}-{activeIngredientSearch ?? ""}";
-            string key = generateCacheKey(nameof(GetProductLatestLabelsAsync), searchKey, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetProductLatestLabelsAsync), searchKey, page, size);
 
-            var cached = Cached.GetCache<List<ProductLatestLabelDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductLatestLabelDto>>(key);
 
             if (cached != null)
             {
@@ -2700,7 +2732,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2760,9 +2792,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             // Build cache key from search parameters
             string searchKey = $"{unii ?? ""}-{productNameSearch ?? ""}-{substanceNameSearch ?? ""}-{indicationSearch ?? ""}";
-            string key = generateCacheKey(nameof(GetProductIndicationsAsync), searchKey, page, size);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetProductIndicationsAsync), searchKey, page, size);
 
-            var cached = Cached.GetCache<List<ProductIndicationsDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<ProductIndicationsDto>>(key);
 
             if (cached != null)
             {
@@ -2826,7 +2858,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -2897,9 +2929,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             // Generate cache key for this document (include sectionCode if provided)
-            string key = generateCacheKey(nameof(GetLabelSectionMarkdownAsync), $"{documentGuid.ToString()}{sectionCode}", null, null);
+            string key = _keyBuilder.BuildQueryKey(nameof(GetLabelSectionMarkdownAsync), $"{documentGuid.ToString()}{sectionCode}", null, null);
 
-            var cached = Cached.GetCache<List<LabelSectionMarkdownDto>>(key);
+            var cached = _cachePolicy.GetByKey<List<LabelSectionMarkdownDto>>(key);
 
             if (cached != null)
             {
@@ -2958,7 +2990,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
 
             if (ret != null && ret.Count > 0)
             {
-                Cached.SetCacheManageKey(key, ret, 1.0);
+                _cachePolicy.SetManagedByKey(key, ret, 1.0);
                 logger.LogDebug("Cache set for {CacheKey} with {ResultCount} results.", key, ret.Count);
             }
 
@@ -3015,9 +3047,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             // Generate cache key for this document export
-            string key = generateCacheKey(nameof(GenerateLabelMarkdownAsync), documentGuid.ToString(), null, null);
+            string key = _keyBuilder.BuildQueryKey(nameof(GenerateLabelMarkdownAsync), documentGuid.ToString(), null, null);
 
-            var cached = Cached.GetCache<LabelMarkdownExportDto>(key);
+            var cached = _cachePolicy.GetByKey<LabelMarkdownExportDto>(key);
 
             if (cached != null)
             {
@@ -3047,7 +3079,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
                 FullMarkdown = fullMarkdown
             };
 
-            Cached.SetCacheManageKey(key, ret, 1.0);
+            _cachePolicy.SetManagedByKey(key, ret, 1.0);
             logger.LogDebug("Cache set for {CacheKey} with {SectionCount} sections.", key, sections.Count);
 
             return ret;
@@ -3103,9 +3135,9 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             #region implementation
 
             // Generate cache key for this clean markdown export
-            string key = generateCacheKey(nameof(GenerateCleanLabelMarkdownAsync), documentGuid.ToString(), null, null);
+            string key = _keyBuilder.BuildQueryKey(nameof(GenerateCleanLabelMarkdownAsync), documentGuid.ToString(), null, null);
 
-            var cached = Cached.GetCache<string>(key);
+            var cached = _cachePolicy.GetByKey<string>(key);
 
             if (cached != null)
             {
@@ -3136,7 +3168,7 @@ namespace MedRecPro.Service.LabelQuery.Implementation
             var cleanMarkdown = await claudeApiService.GenerateCleanMarkdownAsync(rawSectionContent, documentTitle);
 
             // Cache the result for 1 hour
-            Cached.SetCacheManageKey(key, cleanMarkdown, 1.0);
+            _cachePolicy.SetManagedByKey(key, cleanMarkdown, 1.0);
             logger.LogDebug("Cache set for clean markdown {CacheKey}.", key);
 
             return cleanMarkdown;

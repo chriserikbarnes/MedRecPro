@@ -2,6 +2,7 @@ using MedRecPro.Models;
 using MedRecPro.Service;
 using MedRecPro.Service.LabelQuery;
 using MedRecPro.Service.LabelQuery.Implementation;
+using MedRecProTest;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -196,7 +197,7 @@ Amlodipine besylate tablets are indicated for the treatment of coronary artery d
                 .Options;
 
             var dbContext = new MedRecPro.Data.ApplicationDbContext(options);
-            var query = new LabelQueryDataAccess();
+            var query = DtoLabelAccessTestHelper.CreateLabelQueryDataAccess();
             var pharmacologicClassSearchService = new PharmacologicClassSearchService(
                 dbContext,
                 _configuration,

@@ -132,7 +132,7 @@ namespace MedRecPro.DataAccess
                 new LabelDocumentQueryService(
                     context,
                     configuration,
-                    new LabelQueryDataAccess(),
+                    LabelQueryLegacyCompatibility.Create(),
                     LoggerFactory.Create(builder => { }).CreateLogger<LabelDocumentQueryService>()))
         {
             #region implementation

@@ -266,7 +266,7 @@ namespace MedRecPro.Service
                 new LabelDocumentQueryService(
                     db,
                     configuration,
-                    new LabelQueryDataAccess(),
+                    LabelQueryLegacyCompatibility.Create(),
                     LoggerFactory.Create(builder => { }).CreateLogger<LabelDocumentQueryService>()))
         {
             #region implementation

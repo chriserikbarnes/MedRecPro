@@ -5,7 +5,6 @@ using MedRecPro.Helpers;
 using MedRecPro.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
-using Cached = MedRecPro.Helpers.PerformanceHelper;
 
 namespace MedRecPro.Service.LabelQuery.Implementation
 {
@@ -1008,31 +1007,6 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         #endregion Inventory Summary Views
 
         #region Generic Query Helpers
-
-        /**************************************************************/
-        /// <summary>
-        /// Generates a unique cache key for view queries with pagination and search parameters.
-        /// </summary>
-        /// <param name="viewName">The name of the view being queried.</param>
-        /// <param name="searchTerm">Optional search term for filtering.</param>
-        /// <param name="page">Optional page number.</param>
-        /// <param name="size">Optional page size.</param>
-        /// <returns>Base64-encoded cache key string.</returns>
-        private static string generateCacheKey(string viewName, string? searchTerm, int? page, int? size)
-        {
-            #region implementation
-
-            // Normalize search term by replacing spaces with underscores
-            searchTerm = searchTerm?.Replace(" ", "_");
-
-            // Construct key parts
-            var keyParts = $"{"DtoLabelAccess"}.{viewName}_{searchTerm ?? "all"}_{page}_{size}";
-
-
-            return keyParts.Base64Encode();
-
-            #endregion
-        }
 
         /**************************************************************/
         /// <summary>

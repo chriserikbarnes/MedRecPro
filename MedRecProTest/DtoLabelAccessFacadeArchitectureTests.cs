@@ -4,6 +4,8 @@ using MedRecPro.Features.AeDashboard.Mapping;
 using MedRecPro.Models;
 using MedRecPro.Service;
 using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery.Common;
+using MedRecPro.Service.LabelQuery.Implementation;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text.RegularExpressions;
@@ -146,6 +148,130 @@ namespace MedRecProTest
                 1,
                 Regex.Matches(source, @"public\s+static\s+partial\s+class\s+DtoLabelAccess").Count,
                 "The compatibility file must declare one consolidated facade type.");
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the non-AE implementation uses only its injected cache policy and key builder.
+        /// </summary>
+        /// <remarks>
+        /// The source scan prevents static cache calls, duplicate key builders, and zero-argument
+        /// construction from returning through production or test composition paths.
+        /// </remarks>
+        /// <seealso cref="LabelQueryDataAccess"/>
+        /// <seealso cref="QueryCachePolicy"/>
+        /// <seealso cref="LegacyDtoLabelCacheKeyBuilder"/>
+        [TestMethod]
+        public void LabelQueryDataAccess_RequiresInjectedCacheBoundariesAndContainsNoStaticResidue()
+        {
+            #region implementation
+
+            var implementationDirectory = Path.GetDirectoryName(findRepoFile(
+                @"MedRecPro\Service\Label\Implementation\LabelQueryDataAccess.cs"))!;
+            var primarySource = File.ReadAllText(Path.Combine(
+                implementationDirectory,
+                "LabelQueryDataAccess.cs"));
+            var implementationSource = string.Join(
+                Environment.NewLine,
+                Directory.EnumerateFiles(implementationDirectory, "LabelQueryDataAccess*.cs")
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .Select(File.ReadAllText));
+            Assert.AreEqual(
+                1,
+                Regex.Matches(
+                    primarySource,
+                    @"internal\s+LabelQueryDataAccess\s*\(\s*QueryCachePolicy\s+cachePolicy\s*,\s*LegacyDtoLabelCacheKeyBuilder\s+keyBuilder\s*\)",
+                    RegexOptions.CultureInvariant).Count,
+                "LabelQueryDataAccess must expose one explicit two-dependency constructor.");
+            Assert.IsTrue(
+                primarySource.Contains("private readonly QueryCachePolicy _cachePolicy;", StringComparison.Ordinal));
+            Assert.IsTrue(
+                primarySource.Contains("private readonly LegacyDtoLabelCacheKeyBuilder _keyBuilder;", StringComparison.Ordinal));
+            var forbiddenTokens = new[]
+            {
+                "PerformanceHelper",
+                "using Cached =",
+                "generateCacheKey"
+            };
+
+            foreach (var token in forbiddenTokens)
+            {
+                Assert.IsFalse(
+                    implementationSource.Contains(token, StringComparison.Ordinal),
+                    $"Label query implementation sources must not contain legacy cache token '{token}'.");
+            }
+
+            var repositoryRoot = Path.GetDirectoryName(findRepoFile("MedRecPro.sln"))!;
+            var sourceFiles = new[] { "MedRecPro", "MedRecProTest" }
+                .SelectMany(project => Directory.EnumerateFiles(
+                    Path.Combine(repositoryRoot, project),
+                    "*.cs",
+                    SearchOption.AllDirectories))
+                .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+                .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+                .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}.claude{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase));
+            var zeroArgumentConstruction = new Regex(
+                @"new\s+LabelQueryDataAccess\s*\(\s*\)",
+                RegexOptions.CultureInvariant);
+
+            foreach (var sourceFile in sourceFiles)
+            {
+                Assert.IsFalse(
+                    zeroArgumentConstruction.IsMatch(File.ReadAllText(sourceFile)),
+                    $"Zero-argument LabelQueryDataAccess construction remains in '{sourceFile}'.");
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the shared query cache policy depends only on the application-cache abstraction
+        /// and contains no Label-specific key knowledge.
+        /// </summary>
+        /// <seealso cref="QueryCachePolicy"/>
+        /// <seealso cref="IAppCache"/>
+        [TestMethod]
+        public void QueryCachePolicy_DependsOnlyOnIAppCacheAndContainsNoLabelSemantics()
+        {
+            #region implementation
+
+            var source = File.ReadAllText(findRepoFile(
+                @"MedRecPro\Service\Common\QueryCachePolicy.cs"));
+            Assert.AreEqual(
+                1,
+                Regex.Matches(
+                    source,
+                    @"internal\s+QueryCachePolicy\s*\(\s*IAppCache\s+appCache\s*\)",
+                    RegexOptions.CultureInvariant).Count,
+                "QueryCachePolicy must expose one IAppCache-only constructor.");
+            CollectionAssert.AreEqual(
+                new[] { "IAppCache" },
+                Regex.Matches(
+                        source,
+                        @"private\s+readonly\s+(?<type>\w+)\s+_\w+\s*;",
+                        RegexOptions.CultureInvariant)
+                    .Select(match => match.Groups["type"].Value)
+                    .ToArray(),
+                "QueryCachePolicy must retain only the IAppCache field.");
+            var forbiddenTokens = new[]
+            {
+                "DtoLabelAccess",
+                "LegacyDtoLabelCacheKeyBuilder",
+                "LabelQuery",
+                "OrangeBook",
+                "pagination",
+                "documentGuid"
+            };
+
+            foreach (var token in forbiddenTokens)
+            {
+                Assert.IsFalse(
+                    source.Contains(token, StringComparison.OrdinalIgnoreCase),
+                    $"Shared QueryCachePolicy must not contain Label-specific token '{token}'.");
+            }
 
             #endregion
         }

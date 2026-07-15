@@ -13,6 +13,7 @@ using MedRecPro.Service.LabelQuery;
 using MedRecPro.Service.LabelQuery.Common;
 using MedRecPro.Service.LabelQuery.Implementation;
 using MedRecPro.Services;
+using MedRecProTest.TestInfrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -256,6 +257,7 @@ namespace MedRecPro.Service.Test
             assertService<DbContextOptions<ImportApplicationDbContext>>(builder.Services, ServiceLifetime.Scoped);
             assertService<TimeProvider>(builder.Services, ServiceLifetime.Singleton);
             assertService<IAppCache>(builder.Services, ServiceLifetime.Singleton);
+            assertService<QueryCachePolicy>(builder.Services, ServiceLifetime.Singleton);
             assertService<IUserContextAccessor>(builder.Services, ServiceLifetime.Scoped);
             assertService<IPrimaryKeyCipher>(builder.Services, ServiceLifetime.Singleton);
             assertService<UserDataAccess>(builder.Services, ServiceLifetime.Scoped);
@@ -303,12 +305,23 @@ namespace MedRecPro.Service.Test
 
             var services = new ServiceCollection();
             services.AddSingleton<IAppCache, PerformanceAppCache>();
+            services.AddSingleton<QueryCachePolicy>(serviceProvider => new QueryCachePolicy(
+                serviceProvider.GetRequiredService<IAppCache>()));
+            services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Security:DB:PKSecret"] = MedRecProTestConfiguration.PkSecret
+                })
+                .Build());
+            services.AddDbContext<ApplicationDbContext>(options => options.UseInMemoryDatabase(
+                $"LabelQueryRegistration_{Guid.NewGuid():N}"));
+            services.AddLogging();
 
             var result = services.AddMedRecProLabelQueryServices();
 
             Assert.AreSame(services, result);
             assertService<LegacyDtoLabelCacheKeyBuilder>(services, ServiceLifetime.Singleton);
-            assertService<LabelQueryCachePolicy>(services, ServiceLifetime.Singleton);
+            assertService<QueryCachePolicy>(services, ServiceLifetime.Singleton);
             assertService<LabelQueryDataAccess>(services, ServiceLifetime.Scoped);
             assertScoped<IIngredientSearchService, IngredientSearchService>(services);
             assertScoped<IPharmacologicClassSearchService, PharmacologicClassSearchService>(services);
@@ -318,6 +331,24 @@ namespace MedRecPro.Service.Test
             assertScoped<ILabelDocumentQueryService, LabelDocumentQueryService>(services);
             assertScoped<ILabelXmlDocumentService, LabelXmlDocumentService>(services);
             assertScoped<IOrangeBookPatentQueryService, OrangeBookPatentQueryService>(services);
+
+            using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateScopes = true
+            });
+            var policy = provider.GetRequiredService<QueryCachePolicy>();
+            var keyBuilder = provider.GetRequiredService<LegacyDtoLabelCacheKeyBuilder>();
+            using var firstScope = provider.CreateScope();
+            using var secondScope = provider.CreateScope();
+            var firstQuery = firstScope.ServiceProvider.GetRequiredService<LabelQueryDataAccess>();
+            var repeatedFirstQuery = firstScope.ServiceProvider.GetRequiredService<LabelQueryDataAccess>();
+            var secondQuery = secondScope.ServiceProvider.GetRequiredService<LabelQueryDataAccess>();
+
+            Assert.AreSame(policy, firstScope.ServiceProvider.GetRequiredService<QueryCachePolicy>());
+            Assert.AreSame(keyBuilder, firstScope.ServiceProvider.GetRequiredService<LegacyDtoLabelCacheKeyBuilder>());
+            Assert.AreSame(firstQuery, repeatedFirstQuery);
+            Assert.AreNotSame(firstQuery, secondQuery);
+            Assert.IsNotNull(firstScope.ServiceProvider.GetRequiredService<IProductSearchService>());
 
             #endregion
         }

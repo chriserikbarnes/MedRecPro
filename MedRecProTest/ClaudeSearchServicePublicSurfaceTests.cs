@@ -505,7 +505,7 @@ namespace MedRecPro.Service.Test
             }
 
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
-            var query = new LabelQueryDataAccess();
+            var query = DtoLabelAccessTestHelper.CreateLabelQueryDataAccess();
             var pharmacologicClassSearchService = new PharmacologicClassSearchService(
                 context,
                 configuration,

@@ -2,6 +2,8 @@ using MedRecPro.Data;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery.Common;
+using MedRecPro.Service.LabelQuery.Implementation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -80,6 +82,32 @@ namespace MedRecProTest
         public static readonly Guid TestSectionGuid = Guid.Parse("CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC");
 
         #endregion Test Constants
+
+        #region Label Query Construction
+
+        /**************************************************************/
+        /// <summary>
+        /// Creates a label query implementation with explicit cache dependencies.
+        /// </summary>
+        /// <remarks>
+        /// Tests may supply a recording cache to prove hit, miss, managed-write,
+        /// and expiration behavior without using the process-wide adapter.
+        /// </remarks>
+        /// <param name="appCache">Optional cache implementation; defaults to the production adapter.</param>
+        /// <returns>A fully composed label query implementation.</returns>
+        /// <seealso cref="QueryCachePolicy"/>
+        /// <seealso cref="LegacyDtoLabelCacheKeyBuilder"/>
+        internal static LabelQueryDataAccess CreateLabelQueryDataAccess(IAppCache? appCache = null)
+        {
+            #region implementation
+
+            var cachePolicy = new QueryCachePolicy(appCache ?? new PerformanceAppCache());
+            return new LabelQueryDataAccess(cachePolicy, new LegacyDtoLabelCacheKeyBuilder());
+
+            #endregion
+        }
+
+        #endregion Label Query Construction
 
         #region Database Setup
 

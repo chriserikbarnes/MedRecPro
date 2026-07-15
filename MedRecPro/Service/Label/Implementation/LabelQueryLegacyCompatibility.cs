@@ -1,3 +1,6 @@
+using MedRecPro.Service.Common;
+using MedRecPro.Service.LabelQuery.Common;
+
 namespace MedRecPro.Service.LabelQuery.Implementation
 {
     /**************************************************************/
@@ -21,7 +24,8 @@ namespace MedRecPro.Service.LabelQuery.Implementation
         {
             #region implementation
 
-            return new LabelQueryDataAccess();
+            var cachePolicy = new QueryCachePolicy(new PerformanceAppCache());
+            return new LabelQueryDataAccess(cachePolicy, new LegacyDtoLabelCacheKeyBuilder());
 
             #endregion
         }

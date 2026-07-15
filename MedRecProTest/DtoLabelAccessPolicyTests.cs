@@ -1,4 +1,5 @@
 using MedRecPro.Helpers;
+using MedRecPro.DataAccess;
 using MedRecPro.Service;
 using MedRecPro.Service.Common;
 using MedRecPro.Service.LabelQuery.Common;
@@ -9,7 +10,7 @@ namespace MedRecProTest
 {
     /**************************************************************/
     /// <summary>
-    /// Tests Phase 1 legacy cache and encrypted-ID policies independently of the facade.
+    /// Tests legacy key, shared cache, and encrypted-ID policies independently of the facade.
     /// </summary>
     /// <remarks>
     /// The tests pin decoded cache text, Base64 encoding, managed-cache duration,
@@ -59,25 +60,52 @@ namespace MedRecProTest
 
         /**************************************************************/
         /// <summary>
-        /// Verifies extracted label queries use an injected managed cache with its supplied TTL.
+        /// Verifies the shared query policy reads an opaque caller-owned key without Label knowledge.
         /// </summary>
-        /// <seealso cref="LabelQueryCachePolicy"/>
+        /// <seealso cref="QueryCachePolicy"/>
         [TestMethod]
-        public void LabelQueryCachePolicy_Set_UsesLegacyKeyManagedMembershipAndDuration()
+        public void QueryCachePolicy_GetByKey_ReturnsInjectedTypedValue()
+        {
+            #region implementation
+
+            var sentinel = new[] { "cached" };
+            var cache = new RecordingAppCache { ValueToReturn = sentinel };
+            var policy = new QueryCachePolicy(cache);
+            const string opaqueKey = "opaque-query-key";
+
+            var result = policy.GetByKey<string[]>(opaqueKey);
+
+            Assert.AreSame(sentinel, result);
+            Assert.AreEqual(opaqueKey, cache.Key);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies the shared policy preserves managed membership and caller-supplied TTLs.
+        /// </summary>
+        /// <seealso cref="QueryCachePolicy"/>
+        /// <seealso cref="LegacyDtoLabelCacheKeyBuilder"/>
+        [TestMethod]
+        public void QueryCachePolicy_SetManagedByKey_UsesCallerKeyManagedMembershipAndDuration()
         {
             #region implementation
 
             var cache = new RecordingAppCache();
-            var policy = new LabelQueryCachePolicy(cache, new LegacyDtoLabelCacheKeyBuilder());
+            var policy = new QueryCachePolicy(cache);
+            var keyBuilder = new LegacyDtoLabelCacheKeyBuilder();
+            var inventoryKey = keyBuilder.BuildQueryKey("GetInventorySummaryAsync", "TOP LABELERS", null, null);
 
-            policy.Set("GetInventorySummaryAsync", "TOP LABELERS", null, null, new[] { "value" }, 10.0);
+            policy.SetManagedByKey(inventoryKey, new[] { "value" }, 10.0);
 
             Assert.IsTrue(cache.ManagedWrite);
             Assert.AreEqual(10.0, cache.DurationHours);
             Assert.AreEqual("DtoLabelAccess.GetInventorySummaryAsync_TOP_LABELERS__", cache.Key!.Base64Decode());
             CollectionAssert.AreEqual(new[] { "value" }, (string[])cache.Value!);
 
-            policy.Set("GetAPIEndpointGuideAsync", "clinical", null, null, new[] { "guide" }, 5.0);
+            var guideKey = keyBuilder.BuildQueryKey("GetAPIEndpointGuideAsync", "clinical", null, null);
+            policy.SetManagedByKey(guideKey, new[] { "guide" }, 5.0);
 
             Assert.AreEqual(5.0, cache.DurationHours);
             Assert.AreEqual("DtoLabelAccess.GetAPIEndpointGuideAsync_clinical__", cache.Key!.Base64Decode());
@@ -97,11 +125,15 @@ namespace MedRecProTest
 
             var cache = new RecordingAppCache();
             var policy = new AeDashboardCachePolicy(cache);
-            var key = policy.GenerateKey("getCachedAeProductCatalogAsync", "anonymous catalog by document v1", null, null);
+            var key = policy.GenerateKey(
+                "getCachedAeProductCatalogAsync",
+                AeDashboardDataAccess.AnonymousCatalogByDocumentCacheDiscriminator,
+                null,
+                null);
 
             policy.Set(key, "catalog", 1.0);
 
-            Assert.AreEqual("DtoLabelAccess.getCachedAeProductCatalogAsync_anonymous_catalog_by_document_v1__", key.Base64Decode());
+            Assert.AreEqual("DtoLabelAccess.getCachedAeProductCatalogAsync_anonymous-catalog-by-document-v1__", key.Base64Decode());
             Assert.IsTrue(cache.ManagedWrite);
             Assert.AreEqual(key, cache.Key);
             Assert.AreEqual(1.0, cache.DurationHours);
@@ -143,11 +175,21 @@ namespace MedRecProTest
         {
             public string? Key { get; private set; }
             public object? Value { get; private set; }
+            public object? ValueToReturn { get; init; }
             public double DurationHours { get; private set; }
             public bool ManagedWrite { get; private set; }
 
-            public object? Get(string key) => null;
-            public T? Get<T>(string key) => default;
+            public object? Get(string key)
+            {
+                Key = key;
+                return ValueToReturn;
+            }
+
+            public T? Get<T>(string key)
+            {
+                Key = key;
+                return ValueToReturn is T value ? value : default;
+            }
             public T? GetCachedJson<T>(string key) => default;
             public void Set(string key, object value, double durationHours = 1.0) => record(key, value, durationHours, false);
             public void SetManaged(string key, object value, double durationHours = 4.0) => record(key, value, durationHours, true);

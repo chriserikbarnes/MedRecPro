@@ -209,6 +209,8 @@ namespace MedRecPro.Configuration
             services.AddSingleton(TimeProvider.System);
 
             services.AddSingleton<IAppCache, PerformanceAppCache>();
+            services.AddSingleton<QueryCachePolicy>(serviceProvider => new QueryCachePolicy(
+                serviceProvider.GetRequiredService<IAppCache>()));
             services.AddSingleton<IPrimaryKeyCipher, PrimaryKeyCipher>();
             services.AddMedRecProLabelQueryServices();
 
@@ -243,23 +245,23 @@ namespace MedRecPro.Configuration
 
         /**************************************************************/
         /// <summary>
-        /// Registers the feature-owned label query services and their cache policies.
+        /// Registers the feature-owned label query services and cache-key builder.
         /// </summary>
         /// <remarks>
-        /// The caller must register <see cref="IAppCache"/> first. Query services are scoped because
+        /// The caller must register <see cref="QueryCachePolicy"/> first. Query services are scoped because
         /// they depend on <see cref="ApplicationDbContext"/>, while cache-key construction and the
-        /// cache policy are singleton-safe and carry no scoped state.
+        /// shared cache policy are singleton-safe and carry no scoped state.
         /// </remarks>
         /// <example>
         /// <code>
-        /// services.AddSingleton&lt;IAppCache, PerformanceAppCache&gt;();
+        /// services.AddMedRecProPlatformServices(configuration);
         /// services.AddMedRecProLabelQueryServices();
         /// </code>
         /// </example>
         /// <param name="services">The service collection to configure.</param>
         /// <returns>The same service collection for chaining.</returns>
         /// <seealso cref="ILabelDocumentQueryService"/>
-        /// <seealso cref="LabelQueryCachePolicy"/>
+        /// <seealso cref="QueryCachePolicy"/>
         public static IServiceCollection AddMedRecProLabelQueryServices(this IServiceCollection services)
         {
             #region implementation
@@ -267,11 +269,9 @@ namespace MedRecPro.Configuration
             ArgumentNullException.ThrowIfNull(services);
 
             services.AddSingleton<LegacyDtoLabelCacheKeyBuilder>(_ => new LegacyDtoLabelCacheKeyBuilder());
-            services.AddSingleton<LabelQueryCachePolicy>(serviceProvider => new LabelQueryCachePolicy(
-                serviceProvider.GetRequiredService<IAppCache>(),
+            services.AddScoped<LabelQueryDataAccess>(serviceProvider => new LabelQueryDataAccess(
+                serviceProvider.GetRequiredService<QueryCachePolicy>(),
                 serviceProvider.GetRequiredService<LegacyDtoLabelCacheKeyBuilder>()));
-
-            services.AddScoped<LabelQueryDataAccess>();
             services.AddScoped<IIngredientSearchService, IngredientSearchService>();
             services.AddScoped<IPharmacologicClassSearchService, PharmacologicClassSearchService>();
             services.AddScoped<IProductSearchService, ProductSearchService>();
