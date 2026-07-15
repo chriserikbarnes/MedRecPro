@@ -20,10 +20,10 @@ namespace MedRecPro.Api.Controllers
     /**************************************************************/
     /// <summary>Handles Label section-navigation search and content endpoints.</summary>
     /// <remarks>The inherited Label controller convention preserves the existing public Debug and Release routes.</remarks>
-    /// <seealso cref="LabelFeatureControllerAttribute"/>
+    /// <seealso cref="FeatureControllerNameAttribute"/>
     [ApiController]
-    [LabelFeatureController]
-    [LabelFeatureSwaggerTag("Label Search")]
+    [FeatureControllerName("Label")]
+    [SwaggerGroup("Label Search")]
     public sealed class LabelSectionNavigationController : ApiControllerBase
     {
         #region implementation
@@ -382,4 +382,3 @@ namespace MedRecPro.Api.Controllers
         #endregion
     }
 }
-

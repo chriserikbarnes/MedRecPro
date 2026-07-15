@@ -14,11 +14,11 @@ namespace MedRecPro.Api.Controllers
     /// <remarks>
     /// This controller owns document navigation, complete label retrieval, generated SPL XML, and original XML download/display endpoints.
     /// </remarks>
-    /// <seealso cref="LabelFeatureControllerAttribute"/>
+    /// <seealso cref="FeatureControllerNameAttribute"/>
     /// <seealso cref="LabelController"/>
     [ApiController]
-    [LabelFeatureController]
-    [LabelFeatureSwaggerTag("Label Documents")]
+    [FeatureControllerName("Label")]
+    [SwaggerGroup("Label Documents")]
     public class LabelDocumentController : ApiControllerBase
     {
         #region implementation

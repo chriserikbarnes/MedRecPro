@@ -23,7 +23,7 @@ namespace MedRecProTest.Contracts.Label
     /// isolated from production configuration fallback behavior.
     /// </remarks>
     /// <seealso cref="ApiControllerBase"/>
-    /// <seealso cref="LabelFeatureControllerModelConvention"/>
+    /// <seealso cref="FeatureControllerNameConvention"/>
     [TestClass]
     [TestCategory("Contract")]
     public class LabelControllerRouteCompatibilityTests
@@ -79,8 +79,8 @@ namespace MedRecProTest.Contracts.Label
         /// The route table must not expose implementation names such as <c>LabelMarkdown</c> when actions are moved out of
         /// <see cref="LabelController"/>.
         /// </remarks>
-        /// <seealso cref="LabelFeatureControllerAttribute"/>
-        /// <seealso cref="LabelFeatureControllerModelConvention"/>
+        /// <seealso cref="FeatureControllerNameAttribute"/>
+        /// <seealso cref="FeatureControllerNameConvention"/>
         [TestMethod]
         public void LabelFeatureConvention_MarkedControllers_ResolveToLabelControllerName()
         {
@@ -105,7 +105,7 @@ namespace MedRecProTest.Contracts.Label
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-            var markedControllers = getLabelFeatureControllerTypes();
+            var markedControllers = getPinnedLabelControllerTypes();
 
             CollectionAssert.AreEqual(expectedControllerNames, markedControllers.Select(type => type.FullName).ToArray());
 
@@ -114,7 +114,7 @@ namespace MedRecProTest.Contracts.Label
                 var model = createControllerModel(controllerType);
 
                 Assert.AreEqual(
-                    LabelFeatureControllerModelConvention.LabelControllerName,
+                    "Label",
                     model.ControllerName,
                     $"{controllerType.FullName} must resolve to the legacy Label controller route name.");
             }
@@ -130,10 +130,10 @@ namespace MedRecProTest.Contracts.Label
         /// Route compatibility stays tied to the legacy Label controller name, while the Swagger operation filter uses
         /// these tags to split the documentation page into feature sections.
         /// </remarks>
-        /// <seealso cref="LabelFeatureSwaggerTagAttribute"/>
-        /// <seealso cref="LabelFeatureSwaggerTagOperationFilter"/>
+        /// <seealso cref="SwaggerGroupAttribute"/>
+        /// <seealso cref="SwaggerGroupOperationFilter"/>
         [TestMethod]
-        public void LabelFeatureSwaggerTags_MarkedControllers_HaveSectionTags()
+        public void SwaggerGroups_PinnedLabelControllers_HaveSectionTags()
         {
             #region implementation
 
@@ -154,21 +154,21 @@ namespace MedRecProTest.Contracts.Label
                 "Label Sections"
             };
 
-            var actualTags = getLabelFeatureControllerTypes()
+            var actualTags = getPinnedLabelControllerTypes()
                 .Select(controllerType =>
                 {
-                    var attributes = controllerType.GetCustomAttributes<LabelFeatureSwaggerTagAttribute>(inherit: true).ToArray();
+                    var attributes = controllerType.GetCustomAttributes<SwaggerGroupAttribute>(inherit: true).ToArray();
 
                     Assert.AreEqual(
                         1,
                         attributes.Length,
-                        $"{controllerType.FullName} must declare exactly one {nameof(LabelFeatureSwaggerTagAttribute)}.");
+                        $"{controllerType.FullName} must declare exactly one {nameof(SwaggerGroupAttribute)}.");
 
                     Assert.IsFalse(
-                        string.IsNullOrWhiteSpace(attributes[0].Tag),
+                        string.IsNullOrWhiteSpace(attributes[0].Name),
                         $"{controllerType.FullName} must declare a non-empty Swagger tag.");
 
-                    return attributes[0].Tag;
+                    return attributes[0].Name;
                 })
                 .OrderBy(tag => tag, StringComparer.Ordinal)
                 .ToArray();
@@ -186,9 +186,9 @@ namespace MedRecProTest.Contracts.Label
         /// This keeps the route-preserving convention attached to application startup instead of only to unit-test helpers.
         /// </remarks>
         /// <seealso cref="MedRecProMvcExtensions.AddMedRecProApiControllers(IServiceCollection, IConfiguration)"/>
-        /// <seealso cref="LabelFeatureControllerModelConvention"/>
+        /// <seealso cref="FeatureControllerNameConvention"/>
         [TestMethod]
-        public void AddMedRecProApiControllers_DefaultRegistration_AddsLabelFeatureConvention()
+        public void AddMedRecProApiControllers_DefaultRegistration_AddsFeatureControllerNameConvention()
         {
             #region implementation
 
@@ -207,8 +207,8 @@ namespace MedRecProTest.Contracts.Label
             var options = provider.GetRequiredService<IOptions<MvcOptions>>().Value;
 
             Assert.IsTrue(
-                options.Conventions.OfType<LabelFeatureControllerModelConvention>().Any(),
-                $"{nameof(LabelFeatureControllerModelConvention)} must be registered with MVC options.");
+                options.Conventions.OfType<FeatureControllerNameConvention>().Any(),
+                $"{nameof(FeatureControllerNameConvention)} must be registered with MVC options.");
 
             #endregion
         }
@@ -310,7 +310,7 @@ namespace MedRecProTest.Contracts.Label
         /// Verifies actions sharing the Label controller name keep unique action names for link generation.
         /// </summary>
         /// <seealso cref="UrlHelperExtensions.Action(IUrlHelper, string?, object?)"/>
-        /// <seealso cref="LabelFeatureControllerModelConvention"/>
+        /// <seealso cref="FeatureControllerNameConvention"/>
         [TestMethod]
         public void LabelRoutes_SharedControllerName_KeepsActionNamesUnique()
         {
@@ -488,7 +488,7 @@ namespace MedRecProTest.Contracts.Label
         {
             #region implementation
             return getConcreteControllerTypes()
-                .Where(type => createControllerModel(type).ControllerName == LabelFeatureControllerModelConvention.LabelControllerName)
+                .Where(type => createControllerModel(type).ControllerName == "Label")
                 .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
                 .Where(method => method.GetCustomAttributes<HttpMethodAttribute>(inherit: false).Any())
                 .OrderBy(method => method.Name, StringComparer.Ordinal)
@@ -501,12 +501,12 @@ namespace MedRecProTest.Contracts.Label
         /// Gets the controllers participating in the route-preserving Label feature split.
         /// </summary>
         /// <returns>Marked Label feature controllers sorted by full name.</returns>
-        /// <seealso cref="LabelFeatureControllerAttribute"/>
-        private static IReadOnlyList<Type> getLabelFeatureControllerTypes()
+        /// <seealso cref="FeatureControllerNameAttribute"/>
+        private static IReadOnlyList<Type> getPinnedLabelControllerTypes()
         {
             #region implementation
             return getConcreteControllerTypes()
-                .Where(type => type.GetCustomAttributes<LabelFeatureControllerAttribute>(inherit: true).Any())
+                .Where(type => type.GetCustomAttributes<FeatureControllerNameAttribute>(inherit: true).Any())
                 .OrderBy(type => type.FullName, StringComparer.Ordinal)
                 .ToList();
             #endregion
@@ -524,7 +524,7 @@ namespace MedRecProTest.Contracts.Label
             #region implementation
             return getConcreteControllerTypes()
                 .Select(type => new { Type = type, Model = createControllerModel(type) })
-                .Where(item => item.Model.ControllerName == LabelFeatureControllerModelConvention.LabelControllerName)
+                .Where(item => item.Model.ControllerName == "Label")
                 .SelectMany(item => getActionRoutes(item.Type, item.Model.ControllerName))
                 .OrderBy(route => route, StringComparer.Ordinal)
                 .ToArray();
@@ -537,7 +537,7 @@ namespace MedRecProTest.Contracts.Label
         /// </summary>
         /// <param name="controllerType">Controller type to model.</param>
         /// <returns>The configured controller model.</returns>
-        /// <seealso cref="LabelFeatureControllerModelConvention"/>
+        /// <seealso cref="FeatureControllerNameConvention"/>
         private static ControllerModel createControllerModel(Type controllerType)
         {
             #region implementation
@@ -547,7 +547,7 @@ namespace MedRecProTest.Contracts.Label
                 ControllerName = trimControllerSuffix(controllerType.Name)
             };
 
-            new LabelFeatureControllerModelConvention().Apply(model);
+            new FeatureControllerNameConvention().Apply(model);
 
             return model;
             #endregion

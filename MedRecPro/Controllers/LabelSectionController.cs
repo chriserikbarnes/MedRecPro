@@ -16,11 +16,11 @@ namespace MedRecPro.Api.Controllers
     /// <remarks>
     /// This controller retains the legacy dynamic section repository seam while separating section CRUD from search, import, comparison, and document endpoints.
     /// </remarks>
-    /// <seealso cref="LabelFeatureControllerAttribute"/>
+    /// <seealso cref="FeatureControllerNameAttribute"/>
     /// <seealso cref="LabelController"/>
     [ApiController]
-    [LabelFeatureController]
-    [LabelFeatureSwaggerTag("Label Sections")]
+    [FeatureControllerName("Label")]
+    [SwaggerGroup("Label Sections")]
     public class LabelSectionController : ApiControllerBase
     {
         #region implementation

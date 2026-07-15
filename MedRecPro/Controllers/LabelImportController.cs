@@ -25,11 +25,11 @@ namespace MedRecPro.Api.Controllers
     /// <remarks>
     /// This controller keeps import background queuing and progress polling together so progress link generation remains action-name compatible.
     /// </remarks>
-    /// <seealso cref="LabelFeatureControllerAttribute"/>
+    /// <seealso cref="FeatureControllerNameAttribute"/>
     /// <seealso cref="LabelController"/>
     [ApiController]
-    [LabelFeatureController]
-    [LabelFeatureSwaggerTag("Label Import")]
+    [FeatureControllerName("Label")]
+    [SwaggerGroup("Label Import")]
     public class LabelImportController : ApiControllerBase
     {
         #region implementation

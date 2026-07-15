@@ -14,8 +14,8 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="LabelApplicationController"/>
     /// <seealso cref="LabelClassificationController"/>
     [ApiController]
-    [LabelFeatureController]
-    [LabelFeatureSwaggerTag("Label Search")]
+    [FeatureControllerName("Label")]
+    [SwaggerGroup("Label Search")]
     public sealed class LabelSearchController : ApiControllerBase
     {
     }

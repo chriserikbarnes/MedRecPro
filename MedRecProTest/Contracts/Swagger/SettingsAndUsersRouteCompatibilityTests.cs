@@ -1,3 +1,4 @@
+using MedRecPro.Api.Controllers;
 using MedRecPro.Controllers;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
@@ -116,7 +117,8 @@ public class SettingsAndUsersRouteCompatibilityTests
     /// Verifies Settings and Users retain their conventional controller names.
     /// </summary>
     /// <remarks>
-    /// Neither controller needs route-name pinning because its implementation class already matches its public route family.
+    /// Neither controller needs or carries route-name pinning because its implementation class already matches its public
+    /// route family.
     /// </remarks>
     /// <seealso cref="ControllerModel.ControllerName"/>
     [TestMethod]
@@ -126,6 +128,12 @@ public class SettingsAndUsersRouteCompatibilityTests
 
         Assert.AreEqual("Settings", createControllerModel(typeof(SettingsController)).ControllerName);
         Assert.AreEqual("Users", createControllerModel(typeof(UsersController)).ControllerName);
+        Assert.AreEqual(0,
+            typeof(SettingsController).GetCustomAttributes<FeatureControllerNameAttribute>(inherit: true).Count(),
+            "Settings must continue to resolve from its implementation class name.");
+        Assert.AreEqual(0,
+            typeof(UsersController).GetCustomAttributes<FeatureControllerNameAttribute>(inherit: true).Count(),
+            "Users must continue to resolve from its implementation class name.");
 
         #endregion
     }

@@ -81,7 +81,7 @@ namespace MedRecPro.Configuration
                 #endregion
 
                 c.DocumentFilter<IncludeLabelNestedTypesDocumentFilter>();
-                c.OperationFilter<LabelFeatureSwaggerTagOperationFilter>();
+                c.OperationFilter<SwaggerGroupOperationFilter>();
 
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
@@ -435,6 +435,9 @@ For detailed examples of request/response formats, refer to the XML comments wit
                 {
                     // The built application records missing XML documentation through ILogger startup diagnostics.
                 }
+
+                // Merge optional group descriptions after XML comments have contributed their document-level tags.
+                c.DocumentFilter<SwaggerGroupDocumentFilter>();
             });
 
             return services;

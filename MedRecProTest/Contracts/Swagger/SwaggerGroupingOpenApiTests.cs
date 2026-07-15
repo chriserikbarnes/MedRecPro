@@ -1,0 +1,232 @@
+using MedRecPro.Api.Controllers;
+using MedRecProTest.TestInfrastructure;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Swashbuckle.AspNetCore.SwaggerGen;
+using System.Collections;
+using System.Reflection;
+using System.Text.Json;
+
+namespace MedRecProTest.Contracts.Swagger;
+
+/**************************************************************/
+/// <summary>
+/// Verifies the production Swagger pipeline preserves the exact reviewed grouping map for all guarded operations.
+/// </summary>
+/// <remarks>
+/// Phase 1 intentionally keeps all current tag values. The configuration-specific reviewed snapshots provide the exact
+/// 80-operation expectation while a separate registration assertion proves both generic filters are installed.
+/// </remarks>
+/// <seealso cref="SwaggerGroupOperationFilter"/>
+/// <seealso cref="SwaggerGroupDocumentFilter"/>
+[TestClass]
+[TestCategory("Contract")]
+[DoNotParallelize]
+public class SwaggerGroupingOpenApiTests
+{
+    #region implementation
+
+#if DEBUG
+    private const string LabelRoutePrefix = "/api/Label";
+    private const string SettingsRoutePrefix = "/api/Settings";
+    private const string UsersRoutePrefix = "/api/Users";
+    private const string LabelSnapshotFileName = "label-debug.contract.json";
+    private const string SettingsUsersSnapshotFileName = "settings-users-debug.contract.json";
+#else
+    private const string LabelRoutePrefix = "/Label";
+    private const string SettingsRoutePrefix = "/Settings";
+    private const string UsersRoutePrefix = "/Users";
+    private const string LabelSnapshotFileName = "label-release.contract.json";
+    private const string SettingsUsersSnapshotFileName = "settings-users-release.contract.json";
+#endif
+
+    private static readonly HashSet<string> httpMethods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "get", "post", "put", "delete", "patch", "head", "options"
+    };
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies every hosted Label, Settings, and Users operation retains its reviewed Phase 0 tag.
+    /// </summary>
+    /// <returns>A task representing the hosted Swagger and exact-map assertion.</returns>
+    /// <seealso cref="SwaggerGroupOperationFilter"/>
+    [TestMethod]
+    public async Task SwaggerGroups_HostedDocument_MatchesReviewedEightyOperationTagMap()
+    {
+        #region implementation
+
+        using var client = MedRecProHostFixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        var response = await client.GetAsync("/swagger/v1/swagger.json");
+        var swaggerJson = await response.Content.ReadAsStringAsync();
+
+        Assert.AreEqual(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+        var expected = loadExpectedTagMap();
+        var actual = projectHostedTagMap(swaggerJson);
+
+        Assert.AreEqual(80, expected.Count, "Reviewed snapshots must cover all 80 guarded operations.");
+        Assert.AreEqual(expected.Count, actual.Count,
+            "Hosted Swagger must expose the same guarded operation count as the reviewed snapshots.");
+
+        foreach (var operation in expected.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            Assert.IsTrue(actual.TryGetValue(operation.Key, out var actualTag),
+                $"Hosted Swagger is missing {operation.Key}.");
+            Assert.AreEqual(operation.Value, actualTag, $"Swagger tag changed for {operation.Key}.");
+        }
+
+        var tagCounts = actual.Values
+            .GroupBy(tag => tag, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        Assert.AreEqual(29, tagCounts["Label Search"]);
+        Assert.AreEqual(3, tagCounts["Label Comparison"]);
+        Assert.AreEqual(6, tagCounts["Label Documents"]);
+        Assert.AreEqual(2, tagCounts["Label Import"]);
+        Assert.AreEqual(4, tagCounts["Label Markdown"]);
+        Assert.AreEqual(7, tagCounts["Label Sections"]);
+        Assert.AreEqual(15, tagCounts["Settings"]);
+        Assert.AreEqual(14, tagCounts["Users"]);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Verifies the production Swagger options register both generic grouping filters.
+    /// </summary>
+    /// <remarks>
+    /// Descriptor inspection is limited to public options metadata and does not instantiate or mutate filters.
+    /// </remarks>
+    /// <seealso cref="SwaggerGenOptions"/>
+    [TestMethod]
+    public void SwaggerGroups_ProductionOptions_RegisterOperationAndDocumentFilters()
+    {
+        #region implementation
+
+        var options = MedRecProHostFixture.Factory.Services
+            .GetRequiredService<IOptions<SwaggerGenOptions>>()
+            .Value;
+        var registeredTypes = getRegisteredFilterTypes(options);
+
+        CollectionAssert.Contains(registeredTypes, typeof(SwaggerGroupOperationFilter));
+        CollectionAssert.Contains(registeredTypes, typeof(SwaggerGroupDocumentFilter));
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Loads exact operation-to-tag expectations from both configuration-specific reviewed snapshots.
+    /// </summary>
+    /// <returns>A combined 80-operation tag map.</returns>
+    private static Dictionary<string, string> loadExpectedTagMap()
+    {
+        #region implementation
+
+        var expected = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var snapshotFileName in new[] { LabelSnapshotFileName, SettingsUsersSnapshotFileName })
+        {
+            var snapshotPath = Path.Combine(AppContext.BaseDirectory, "TestData", "OpenApi", snapshotFileName);
+            Assert.IsTrue(File.Exists(snapshotPath), $"Missing reviewed snapshot {snapshotFileName}.");
+
+            using var document = JsonDocument.Parse(File.ReadAllText(snapshotPath));
+            foreach (var operation in document.RootElement.GetProperty("operations").EnumerateObject())
+            {
+                var tags = operation.Value.GetProperty("tags").EnumerateArray().ToArray();
+                Assert.AreEqual(1, tags.Length, $"Reviewed {operation.Name} must carry exactly one tag.");
+                expected.Add(operation.Name, tags[0].GetString()!);
+            }
+        }
+
+        return expected;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Projects the hosted Swagger document into an exact guarded operation-to-tag map.
+    /// </summary>
+    /// <param name="swaggerJson">Swagger JSON returned by the real test host.</param>
+    /// <returns>A map keyed by uppercase HTTP method and resolved path.</returns>
+    private static Dictionary<string, string> projectHostedTagMap(string swaggerJson)
+    {
+        #region implementation
+
+        using var document = JsonDocument.Parse(swaggerJson);
+        var actual = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var path in document.RootElement.GetProperty("paths").EnumerateObject())
+        {
+            if (!isGuardedPath(path.Name))
+            {
+                continue;
+            }
+
+            foreach (var member in path.Value.EnumerateObject().Where(member => httpMethods.Contains(member.Name)))
+            {
+                var tags = member.Value.GetProperty("tags").EnumerateArray().ToArray();
+                Assert.AreEqual(1, tags.Length,
+                    $"Hosted {member.Name.ToUpperInvariant()} {path.Name} must carry exactly one tag.");
+                actual.Add($"{member.Name.ToUpperInvariant()} {path.Name}", tags[0].GetString()!);
+            }
+        }
+
+        return actual;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Determines whether a Swagger path belongs to one of the three guarded API families.
+    /// </summary>
+    /// <param name="path">Swagger path.</param>
+    /// <returns><see langword="true"/> for Label, Settings, or Users paths.</returns>
+    private static bool isGuardedPath(string path)
+    {
+        #region implementation
+
+        return path.StartsWith(LabelRoutePrefix, StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith(SettingsRoutePrefix, StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith(UsersRoutePrefix, StringComparison.OrdinalIgnoreCase);
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Extracts registered Swagger filter types from public filter-descriptor collections.
+    /// </summary>
+    /// <param name="options">Configured production Swagger options.</param>
+    /// <returns>An array of registered filter implementation types.</returns>
+    /// <seealso cref="SwaggerGenOptions"/>
+    private static Type[] getRegisteredFilterTypes(SwaggerGenOptions options)
+    {
+        #region implementation
+
+        return typeof(SwaggerGenOptions)
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .Where(property => property.Name.EndsWith("FilterDescriptors", StringComparison.Ordinal))
+            .Select(property => property.GetValue(options))
+            .OfType<IEnumerable>()
+            .SelectMany(values => values.Cast<object>())
+            .Select(descriptor => descriptor.GetType().GetProperty("Type")?.GetValue(descriptor) as Type)
+            .Where(type => type != null)
+            .Select(type => type!)
+            .Distinct()
+            .ToArray();
+
+        #endregion
+    }
+
+    #endregion
+}

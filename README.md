@@ -86,7 +86,7 @@ If a local apphost executable is locked by a running process, keep output inside
 | Area | Current design |
 |---|---|
 | Startup | `Program.cs` is an ordered composition shell. Capability-focused extensions under `MedRecPro/Configuration` own data access, platform services, authentication, MVC, Swagger, middleware, rendering, import, and background-service registration. |
-| Label routing | `ApiControllerBase` retains the compile-time Debug/Release prefix split. `LabelFeatureControllerModelConvention` pins all split Label controllers to the public `Label` controller name, so implementation class names never leak into routes. |
+| Feature routing | `ApiControllerBase` retains the compile-time Debug/Release prefix split. `FeatureControllerNameConvention` applies each split controller's `FeatureControllerNameAttribute` value, so implementation class names never leak into routes. |
 | Controller ownership | The original `LabelController` and `LabelSearchController` are empty compatibility shells. Search, document, section, markdown, import, comparison, and metadata operations live in feature controllers with no more than eight actions each. |
 | Label data access | Scoped feature services own EF Core query and document-graph behavior. `DtoLabelAccess.Compatibility.cs` preserves the 57 public names/58 overloads as forwarding-only adapters; first-party runtime callers use DI services. |
 | Queued work | Import progress crosses an explicit `IImportOperationStatusStore` boundary. Comparison jobs use a singleton coordinator that snapshots inputs, creates a fresh scope per job, and links cancellation to application shutdown instead of the originating request. |
@@ -135,8 +135,8 @@ The tree below is intentionally curated around deployable projects and the curre
       LabelProductSearchController.cs
       LabelSectionController.cs
       LabelSectionNavigationController.cs
-      LabelFeatureControllerAttribute.cs
-      LabelFeatureSwaggerTagAttribute.cs
+      FeatureControllerNameAttribute.cs
+      SwaggerGroupAttribute.cs
       AdverseEventController.cs
       AiController.cs
       AuthController.cs
@@ -787,7 +787,7 @@ IIS strips the virtual application prefix from requests before forwarding to ASP
 #endif
 ```
 
-Split Label controllers do not declare type-level routes. `LabelFeatureControllerModelConvention` resolves their `[controller]` token to `Label`, preserving the same 51 Debug and Release operations. The same virtual-application consideration applies to MCP routes and Swagger paths.
+Split controllers do not declare type-level routes. `FeatureControllerNameConvention` resolves each annotated controller's `[controller]` token from `FeatureControllerNameAttribute`; the current Label feature controllers use `"Label"`, preserving the same 51 Debug and Release operations. `SwaggerGroupAttribute` independently controls documentation grouping without participating in routing. The same virtual-application consideration applies to MCP routes and Swagger paths.
 
 ### Cloudflare + Azure App Service Managed Certificates
 

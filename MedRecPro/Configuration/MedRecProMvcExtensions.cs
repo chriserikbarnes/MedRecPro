@@ -90,8 +90,8 @@ namespace MedRecPro.Configuration
             #region Newtonsoft Options
             services.AddControllers(options =>
             {
-                // Split Label feature controllers keep the original public route name through this convention.
-                options.Conventions.Add(new LabelFeatureControllerModelConvention());
+                // Split feature controllers retain their attribute-supplied public route names through this convention.
+                options.Conventions.Add(new FeatureControllerNameConvention());
 
                 // Register the authorization exception filter globally
                 // This catches AuthorizationException, UserRoleAuthorizationException,

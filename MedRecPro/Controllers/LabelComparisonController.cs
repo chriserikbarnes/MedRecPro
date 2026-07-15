@@ -17,11 +17,11 @@ namespace MedRecPro.Api.Controllers
     /// <remarks>
     /// This controller keeps comparison queueing, progress polling, and scoped background execution together to preserve background task lifetimes.
     /// </remarks>
-    /// <seealso cref="LabelFeatureControllerAttribute"/>
+    /// <seealso cref="FeatureControllerNameAttribute"/>
     /// <seealso cref="LabelController"/>
     [ApiController]
-    [LabelFeatureController]
-    [LabelFeatureSwaggerTag("Label Comparison")]
+    [FeatureControllerName("Label")]
+    [SwaggerGroup("Label Comparison")]
     public class LabelComparisonController : ApiControllerBase
     {
         #region implementation

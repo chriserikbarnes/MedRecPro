@@ -13,15 +13,15 @@ namespace MedRecPro.Api.Controllers
     /// Handles markdown-oriented Label endpoints while preserving the original Label route surface.
     /// </summary>
     /// <remarks>
-    /// The <see cref="LabelFeatureControllerAttribute"/> marker pins this controller to the public <c>Label</c> controller
+    /// The <see cref="FeatureControllerNameAttribute"/> pins this controller to the public <c>Label</c> controller
     /// name so inherited routes remain <c>api/Label</c> in Debug builds and <c>Label</c> in Release builds.
     /// </remarks>
-    /// <seealso cref="LabelFeatureControllerAttribute"/>
+    /// <seealso cref="FeatureControllerNameAttribute"/>
     /// <seealso cref="LabelController"/>
     /// <seealso cref="DtoLabelAccess"/>
     [ApiController]
-    [LabelFeatureController]
-    [LabelFeatureSwaggerTag("Label Markdown")]
+    [FeatureControllerName("Label")]
+    [SwaggerGroup("Label Markdown")]
     public class LabelMarkdownController : ApiControllerBase
     {
         #region implementation
