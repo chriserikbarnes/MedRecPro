@@ -308,6 +308,7 @@ namespace MedRecPro.Api.Controllers
         /// <returns>The current status and progress information for the specified operation.</returns>
         /// <response code="200">Returns the current operation status and progress.</response>
         /// <response code="404">If the operation ID is not found or has expired.</response>
+        /// <response code="500">If an unexpected server error occurs.</response>
         /// <remarks>
         /// This endpoint allows clients to poll for updates on long-running import operations.
         /// The status includes completion percentage, current processing stage, any error messages,
@@ -326,7 +327,8 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="SplZipImportResult"/>
         /// <seealso cref="Label"/>
         [ProducesResponseType(typeof(WebImportOperationStatus), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("import/progress/{operationId}")]
         public IActionResult GetImportProgress(string operationId)
         {

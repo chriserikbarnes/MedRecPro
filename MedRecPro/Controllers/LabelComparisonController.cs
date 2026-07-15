@@ -266,6 +266,10 @@ namespace MedRecPro.Api.Controllers
         /// Returns an <see cref="IActionResult"/> containing the operation status if found,
         /// or NotFound if the operation doesn't exist or has expired.
         /// </returns>
+        /// <response code="200">Returns the current comparison operation status.</response>
+        /// <response code="400">If model binding rejects an empty or whitespace operation ID.</response>
+        /// <response code="404">If the operation ID is not found or has expired.</response>
+        /// <response code="500">If an unexpected server error occurs.</response>
         /// <remarks>
         /// This endpoint allows clients to poll for the status of long-running comparison operations.
         /// The operation ID is typically obtained from the initial comparison request.
@@ -276,6 +280,10 @@ namespace MedRecPro.Api.Controllers
         /// <seealso cref="Label"/>
         /// <seealso cref="ComparisonOperationStatus"/>
         /// <seealso cref="QueueDocumentComparisonAnalysis"/>
+        [ProducesResponseType(typeof(ComparisonOperationStatus), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
         [HttpGet("comparison/progress/{operationId}")]
         public IActionResult GetComparisonProgress(string operationId)
         {

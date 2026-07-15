@@ -14,7 +14,7 @@ $testProjectPath = Join-Path $repoRoot "MedRecProTest\MedRecProTest.csproj"
 $releaseOutputPath = Join-Path $repoRoot "MedRecPro\.codex-build\test-contract-release"
 $buildProperties = @("-p:UseAppHost=false", "-p:UseSharedCompilation=false")
 $fastFilter = "FullyQualifiedName~TestProjectDependencyGuardTests|FullyQualifiedName~ReflectionUsageArchitectureTests|FullyQualifiedName~MedRecProPublicSurfaceInventoryTests|FullyQualifiedName~LabelControllerRouteCompatibilityTests"
-$contractFilter = "TestCategory=Integration|TestCategory=Contract"
+$contractFilter = "(TestCategory=Contract&FullyQualifiedName!~OpenApiDocumentFilterTests)|FullyQualifiedName~StartupSmokeTests"
 
 function Invoke-DotNet
 {

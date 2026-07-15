@@ -766,8 +766,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-MedRecProVe
 ```
 
 - `Fast` runs dependency, reflection, public-surface, and route guards for ordinary changes.
-- `DebugContract` runs real-host integration and contract tests in Debug.
-- `ReleaseContract` separately compiles the same contract lane in Release under `MedRecPro/.codex-build/test-contract-release`.
+- `DebugContract` runs the reviewed 27-case Label contract lane in Debug: the original 24 public-contract/startup cases plus three progress-response contract cases, excluding isolated OpenAPI filter units.
+- `ReleaseContract` separately compiles the same 27-case contract lane in Release under `MedRecPro/.codex-build/test-contract-release`.
 - `Full` builds the solution, runs every MSTest test, performs deterministic-test/source inventories, and checks the diff.
 - `All` executes every gate in order and is the phase/merge-boundary command used by the `MedRecPro Verification` workflow.
 

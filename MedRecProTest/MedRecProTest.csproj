@@ -9,6 +9,12 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<AssemblyMetadata
+			Include="RepositoryRoot"
+			Value="$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.21" />
 		<PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.21" />
 		<PackageReference Include="Microsoft.Identity.Web" Version="4.1.1" />
