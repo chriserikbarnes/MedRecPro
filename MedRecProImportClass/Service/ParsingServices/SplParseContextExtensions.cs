@@ -120,9 +120,7 @@ namespace MedRecProImportClass.Service.ParsingServices
             }
             catch (Exception ex)
             {
-#if DEBUG
                 Debug.WriteLine($"? Error getting ID for {typeof(TEntity).Name}.{keyPropertyName}: {ex.Message}");
-#endif
                 return null;
             }
             #endregion

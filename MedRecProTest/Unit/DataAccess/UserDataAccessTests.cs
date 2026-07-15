@@ -1,11 +1,13 @@
+using MedRecPro.Configuration;
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
+using MedRecPro.Service;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -54,19 +56,20 @@ namespace MedRecProTest.Unit.DataAccess
 
         /**************************************************************/
         /// <summary>
-        /// Creates a test configuration with required settings.
+        /// Creates a primary-key cipher with the test secret.
         /// </summary>
-        /// <returns>An IConfiguration instance with test settings</returns>
-        private IConfiguration createTestConfiguration()
+        /// <returns>A primary-key cipher configured with explicit test options.</returns>
+        /// <seealso cref="PrimaryKeyCipher"/>
+        private static IPrimaryKeyCipher createPrimaryKeyCipher()
         {
-            var inMemorySettings = new Dictionary<string, string?>
-            {
-                { "Security:DB:PKSecret", TestPkSecret }
-            };
+            #region implementation
 
-            return new ConfigurationBuilder()
-                .AddInMemoryCollection(inMemorySettings)
-                .Build();
+            return new PrimaryKeyCipher(Options.Create(new DatabaseSecurityOptions
+            {
+                PKSecret = TestPkSecret
+            }));
+
+            #endregion
         }
 
         /**************************************************************/
@@ -93,14 +96,13 @@ namespace MedRecProTest.Unit.DataAccess
         private UserDataAccess createUserDataAccess(ApplicationDbContext context)
         {
             var logger = new Mock<ILogger<UserDataAccess>>();
-            var configuration = createTestConfiguration();
             var passwordHasher = new PasswordHasher<User>();
 
             return new UserDataAccess(
                 context,
                 passwordHasher,
                 logger.Object,
-                configuration);
+                createPrimaryKeyCipher());
         }
 
         /**************************************************************/
@@ -858,13 +860,69 @@ namespace MedRecProTest.Unit.DataAccess
 
             // Arrange
             using var context = createTestContext("GetById_Invalid_Test");
-            var userDataAccess = createUserDataAccess(context);
+            var logger = new Mock<ILogger<UserDataAccess>>();
+            var userDataAccess = new UserDataAccess(
+                context,
+                new PasswordHasher<User>(),
+                logger.Object,
+                createPrimaryKeyCipher());
+            const string malformedCiphertext = "InvalidEncryptedId";
 
             // Act
-            var result = await userDataAccess.GetByIdAsync("InvalidEncryptedId");
+            var result = await userDataAccess.GetByIdAsync(malformedCiphertext);
 
             // Assert
             Assert.IsNull(result, "Should return null for invalid encrypted ID");
+            logger.Verify(log => log.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((state, _) =>
+                        state.ToString() == "Unable to resolve a positive user ID from encryptedUserId." &&
+                        !state.ToString()!.Contains(malformedCiphertext, StringComparison.Ordinal)),
+                    null,
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Verifies zero and negative decrypted identifiers are rejected before an EF lookup.
+        /// </summary>
+        /// <param name="decryptedId">Non-positive identifier returned by the cipher boundary.</param>
+        /// <returns>A task representing the asynchronous rejection assertion.</returns>
+        /// <seealso cref="UserDataAccess.GetByIdAsync"/>
+        [DataTestMethod]
+        [DataRow(0L)]
+        [DataRow(-1L)]
+        public async Task GetByIdAsync_NonPositiveDecryptedId_ReturnsNull(long decryptedId)
+        {
+            #region implementation
+
+            using var context = createTestContext($"GetById_NonPositive_{decryptedId}_Test");
+            var cipher = new Mock<IPrimaryKeyCipher>();
+            var logger = new Mock<ILogger<UserDataAccess>>();
+            cipher.Setup(service => service.TryDecrypt("encrypted-user-id"))
+                .Returns(decryptedId);
+            var userDataAccess = new UserDataAccess(
+                context,
+                new PasswordHasher<User>(),
+                logger.Object,
+                cipher.Object);
+
+            var result = await userDataAccess.GetByIdAsync("encrypted-user-id");
+
+            Assert.IsNull(result);
+            cipher.Verify(service => service.TryDecrypt("encrypted-user-id"), Times.Once);
+            logger.Verify(log => log.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((state, _) =>
+                        state.ToString() == "Unable to resolve a positive user ID from encryptedUserId."),
+                    null,
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
 
             #endregion
         }

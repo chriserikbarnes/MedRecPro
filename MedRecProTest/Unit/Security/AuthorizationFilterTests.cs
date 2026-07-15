@@ -27,9 +27,8 @@ namespace MedRecProTest.Unit.Security
     /// <remarks>
     /// <see cref="UserDataAccess"/> is a concrete class with non-virtual
     /// methods, so the filters are fed real instances over EF InMemory
-    /// databases. The class runs without parallel neighbors and resets the
-    /// process-wide <see cref="UserDataAccess"/> secret before each test so its
-    /// dedicated PK configuration cannot leak across fixtures.
+    /// databases. Each data-access instance receives the same explicit test cipher
+    /// as the authorization filter that consumes it.
     /// </remarks>
     /// <seealso cref="UserRoleAuthorizationFilter"/>
     /// <seealso cref="ActorAuthorizationFilter"/>
@@ -38,35 +37,14 @@ namespace MedRecProTest.Unit.Security
     /// <seealso cref="PermissionService"/>
     [TestClass]
     [TestCategory("Unit")]
-    [DoNotParallelize]
     public class AuthorizationFilterTests
     {
         #region implementation
 
         /// <summary>
-        /// Assembly-shared PK secret; must match the value cached by
-        /// <see cref="UserDataAccess"/> statics across the test run.
+        /// PK secret shared by the explicitly constructed test cipher and dependent services.
         /// </summary>
         private const string TestPkSecret = "TestEncryptionSecretKey12345!@#";
-
-        /**************************************************************/
-        /// <summary>
-        /// Clears the legacy process-wide user encryption key before each isolated authorization test.
-        /// </summary>
-        /// <remarks>
-        /// These fixtures intentionally supply their own PK secret. Isolation prevents a real-host or another
-        /// data-access fixture from leaking a different cached secret into authorization behavior.
-        /// </remarks>
-        /// <seealso cref="UserDataAccess.resetPkSecretForTests"/>
-        [TestInitialize]
-        public void ResetUserDataAccessSecret()
-        {
-            #region implementation
-
-            UserDataAccess.resetPkSecretForTests();
-
-            #endregion
-        }
 
         #region UserRoleAuthorizationFilter
 
@@ -596,7 +574,7 @@ namespace MedRecProTest.Unit.Security
                 context,
                 new PasswordHasher<User>(),
                 new Mock<Microsoft.Extensions.Logging.ILogger<UserDataAccess>>().Object,
-                createConfiguration());
+                createPrimaryKeyCipher());
             #endregion
         }
 

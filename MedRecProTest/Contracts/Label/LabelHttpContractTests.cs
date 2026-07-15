@@ -1,5 +1,4 @@
 using MedRecPro.Data;
-using MedRecPro.DataAccess;
 using MedRecPro.Helpers;
 using MedRecPro.Models;
 using MedRecPro.Models.Extensions;
@@ -23,6 +22,7 @@ namespace MedRecProTest.Contracts.Label;
 /// <remarks>
 /// Data is seeded through the SQLite fixture boundary, while every assertion enters through HTTP
 /// so routing, binding, authorization, filters, serialization, and response headers remain covered.
+/// The class remains non-parallel because it shares one seeded SQLite host fixture across all cases.
 /// </remarks>
 /// <seealso cref="MedRecProWebApplicationFactory"/>
 [TestClass]
@@ -54,7 +54,6 @@ public class LabelHttpContractTests
         #region implementation
 
         ArgumentNullException.ThrowIfNull(testContext);
-        UserDataAccess.resetPkSecretForTests();
 
         MedRecProHostFixture.Factory.SeedApplicationDatabaseAsync(async context =>
         {
@@ -143,25 +142,6 @@ public class LabelHttpContractTests
                 fullSectionText: "## INDICATIONS AND USAGE\nHost contract markdown content.",
                 contentBlockCount: 1);
         }).GetAwaiter().GetResult();
-
-        #endregion
-    }
-
-    /**************************************************************/
-    /// <summary>
-    /// Releases the legacy process-wide user encryption key after the non-parallel HTTP contract fixture completes.
-    /// </summary>
-    /// <remarks>
-    /// Symmetric setup and cleanup prevent this real-host fixture from consuming or contaminating another fixture's
-    /// primary-key configuration while the production user data-access class still retains a static secret cache.
-    /// </remarks>
-    /// <seealso cref="UserDataAccess.resetPkSecretForTests"/>
-    [ClassCleanup]
-    public static void ResetUserDataAccessSecret()
-    {
-        #region implementation
-
-        UserDataAccess.resetPkSecretForTests();
 
         #endregion
     }

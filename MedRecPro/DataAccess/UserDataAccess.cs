@@ -1,7 +1,7 @@
 ﻿
 using MedRecPro.Models;
 using MedRecPro.Data;
-using MedRecPro.Helpers;
+using MedRecPro.Service;
 using static MedRecPro.Models.Constant;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -22,13 +22,7 @@ namespace MedRecPro.DataAccess
         private readonly ApplicationDbContext _dbContext;
         private readonly IPasswordHasher<User> _passwordHasher;
         private readonly ILogger<UserDataAccess> _logger;
-        private readonly IConfiguration _configuration;
-
-        // Store the encryption secret retrieved from configuration
-        private static string? _pkSecret;
-
-        // Static lock for thread-safe
-        private static readonly object _lock = new object();
+        private readonly IPrimaryKeyCipher _primaryKeyCipher;
 
         #region Initialization
         /// <summary>
@@ -37,70 +31,26 @@ namespace MedRecPro.DataAccess
         /// <param name="dbContext">The database context.</param>
         /// <param name="passwordHasher">The password hasher.</param>
         /// <param name="logger">The logger.</param>
-        /// <param name="configuration">The configuration.</param>
+        /// <param name="primaryKeyCipher">Provider-owned primary-key cipher.</param>
+        /// <seealso cref="IPrimaryKeyCipher"/>
         public UserDataAccess(
             ApplicationDbContext dbContext,
             IPasswordHasher<User> passwordHasher,
             ILogger<UserDataAccess> logger,
-            IConfiguration configuration)
+            IPrimaryKeyCipher primaryKeyCipher)
         {
+            #region implementation
+
             _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _primaryKeyCipher = primaryKeyCipher ?? throw new ArgumentNullException(nameof(primaryKeyCipher));
+
+            #endregion
         }
         #endregion
 
         #region Private
-        /// <summary>
-        /// Retrieves the Primary Key encryption secret from configuration.
-        /// </summary>
-        /// <returns>The encryption secret string.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if configuration is not set or the secret is missing.</exception>
-        private string getPkSecret()
-        {
-            #region Implementation
-            if (_pkSecret == null)
-            {
-                lock (_lock)
-                {
-                    if (_pkSecret == null)
-                    {
-                        string? secret = _configuration.GetSection("Security:DB:PKSecret").Value;
-                        if (string.IsNullOrWhiteSpace(secret))
-                        {
-                            _logger.LogCritical("Required configuration key 'Security:DB:PKSecret' is missing or empty.");
-                            throw new InvalidOperationException("Required configuration key 'Security:DB:PKSecret' is missing or empty.");
-                        }
-                        _pkSecret = secret;
-                    }
-                }
-            }
-            return _pkSecret; 
-            #endregion
-        }
-
-        /**************************************************************/
-        /// <summary>
-        /// Clears the process-wide primary-key secret cache for deterministic test-host isolation.
-        /// </summary>
-        /// <remarks>
-        /// Production code never calls this seam. It exists so a friend test assembly can prevent a prior fixture's
-        /// configuration from contaminating a real-host authorization contract test while the legacy static cache remains.
-        /// </remarks>
-        /// <seealso cref="getPkSecret"/>
-        internal static void resetPkSecretForTests()
-        {
-            #region implementation
-
-            lock (_lock)
-            {
-                _pkSecret = null;
-            }
-
-            #endregion
-        }
-
         /**************************************************************/
         /// <summary>
         /// Helper method to decrypt a user ID string.
@@ -113,28 +63,15 @@ namespace MedRecPro.DataAccess
         {
             #region Implementation
             decryptedId = 0;
-            if (string.IsNullOrWhiteSpace(encryptedId))
+            var id = _primaryKeyCipher.TryDecrypt(encryptedId);
+            if (id is > 0)
             {
-                _logger.LogWarning("{ParameterName} is null or whitespace.", parameterName);
-                return false;
+                decryptedId = id.Value;
+                return true;
             }
 
-            try
-            {
-                string decryptedString = new StringCipher().Decrypt(encryptedId, getPkSecret());
-                if (long.TryParse(decryptedString, out long id) && id > 0)
-                {
-                    decryptedId = id;
-                    return true;
-                }
-                _logger.LogWarning("Invalid or non-positive ID after decrypting {ParameterName}.", parameterName);
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error decrypting {ParameterName}.", parameterName);
-                return false;
-            } 
+            _logger.LogWarning("Unable to resolve a positive user ID from {ParameterName}.", parameterName);
+            return false;
             #endregion
         }
 
@@ -201,7 +138,7 @@ namespace MedRecPro.DataAccess
                     // Ensure EncryptedUserId is populated for UpdateLastLoginAsync
                     if (string.IsNullOrWhiteSpace(user.EncryptedUserId))
                     {
-                        user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
+                        user.EncryptedUserId = _primaryKeyCipher.Encrypt(user.Id);
                     }
 
                     await UpdateLastLoginAsync(user.EncryptedUserId, DateTime.UtcNow, null /* IP address */);
@@ -301,7 +238,7 @@ namespace MedRecPro.DataAccess
                     if (existingUser != null)
                     {
 
-                        var encryptedId = StringCipher.Encrypt(existingUser.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
+                        var encryptedId = _primaryKeyCipher.Encrypt(existingUser.Id);
 
                         await UpdateAsync(user, encryptedId);
 
@@ -313,7 +250,7 @@ namespace MedRecPro.DataAccess
                 _dbContext.AppUsers.Add(user);
                 await _dbContext.SaveChangesAsync();
 
-                return StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
+                return _primaryKeyCipher.Encrypt(user.Id);
             }
             catch (DbUpdateException ex)
             {
@@ -353,7 +290,7 @@ namespace MedRecPro.DataAccess
                 {
                     user.SetUserIdInternal(user.Id);
 
-                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast); // Ensure outgoing DTO has it
+                    user.EncryptedUserId = _primaryKeyCipher.Encrypt(user.Id); // Ensure outgoing DTO has it
                 }
                 return user;
             }
@@ -385,7 +322,7 @@ namespace MedRecPro.DataAccess
                 {
                     user.SetUserIdInternal(user.Id);
 
-                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
+                    user.EncryptedUserId = _primaryKeyCipher.Encrypt(user.Id);
                 }
                 return user;
             }
@@ -427,7 +364,7 @@ namespace MedRecPro.DataAccess
                 foreach (var user in users)
                 {
                     user.SetUserIdInternal(user.Id);
-                    user.EncryptedUserId = StringCipher.Encrypt(user.Id.ToString(), getPkSecret(), StringCipher.EncryptionStrength.Fast);
+                    user.EncryptedUserId = _primaryKeyCipher.Encrypt(user.Id);
                 }
                 return users;
             }

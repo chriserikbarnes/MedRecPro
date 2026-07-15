@@ -1,4 +1,5 @@
 using MedRecPro.Api.Controllers;
+using MedRecPro.Configuration;
 using MedRecPro.Controllers;
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
@@ -14,6 +15,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using System.Reflection;
@@ -826,7 +828,7 @@ namespace MedRecProTest.Unit.AeDashboard
             #region implementation
 
             var logger = new Mock<ILogger<AdverseEventController>>();
-            var userDataAccess = createUserDataAccess(context, configuration);
+            var userDataAccess = createUserDataAccess(context);
             var productCatalogService = new AeDashboardProductCatalogService(
                 context,
                 new Mock<ILogger<AeDashboardProductCatalogService>>().Object);
@@ -870,11 +872,8 @@ namespace MedRecProTest.Unit.AeDashboard
         /// Creates a user data-access service for controller claim-user resolution.
         /// </summary>
         /// <param name="context">Database context used by user access.</param>
-        /// <param name="configuration">Configuration with the test PK secret.</param>
         /// <returns>A configured user data-access service.</returns>
-        private static UserDataAccess createUserDataAccess(
-            ApplicationDbContext context,
-            IConfiguration configuration)
+        private static UserDataAccess createUserDataAccess(ApplicationDbContext context)
         {
             #region implementation
 
@@ -882,7 +881,10 @@ namespace MedRecProTest.Unit.AeDashboard
                 context,
                 new PasswordHasher<User>(),
                 new Mock<ILogger<UserDataAccess>>().Object,
-                configuration);
+                new PrimaryKeyCipher(Options.Create(new DatabaseSecurityOptions
+                {
+                    PKSecret = PkSecret
+                })));
 
             #endregion
         }

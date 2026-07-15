@@ -289,8 +289,15 @@ namespace MedRecProTest.Architecture
                 ValidateScopes = true
             });
             using var scope = provider.CreateScope();
+            using var secondScope = provider.CreateScope();
 
             Assert.IsNotNull(scope.ServiceProvider.GetRequiredService<ActivityLogActionFilter>());
+            Assert.AreSame(
+                provider.GetRequiredService<IPrimaryKeyCipher>(),
+                scope.ServiceProvider.GetRequiredService<IPrimaryKeyCipher>());
+            Assert.AreNotSame(
+                scope.ServiceProvider.GetRequiredService<UserDataAccess>(),
+                secondScope.ServiceProvider.GetRequiredService<UserDataAccess>());
             #endregion
         }
 

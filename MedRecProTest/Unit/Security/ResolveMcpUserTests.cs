@@ -1,3 +1,4 @@
+using MedRecPro.Configuration;
 using MedRecPro.Controllers;
 using MedRecPro.Data;
 using MedRecPro.DataAccess;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -97,14 +99,16 @@ namespace MedRecProTest.Unit.Security
         private UserDataAccess createUserDataAccess(ApplicationDbContext context)
         {
             var logger = new Mock<ILogger<UserDataAccess>>();
-            var configuration = createTestConfiguration();
             var passwordHasher = new PasswordHasher<User>();
 
             return new UserDataAccess(
                 context,
                 passwordHasher,
                 logger.Object,
-                configuration);
+                new PrimaryKeyCipher(Options.Create(new DatabaseSecurityOptions
+                {
+                    PKSecret = TestPkSecret
+                })));
         }
 
         /**************************************************************/

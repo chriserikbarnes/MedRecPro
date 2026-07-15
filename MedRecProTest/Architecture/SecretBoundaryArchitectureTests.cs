@@ -39,7 +39,6 @@ public class SecretBoundaryArchitectureTests
         "MedRecPro/Controllers/SettingsController.cs|SettingsController..ctor|GetSection|1",
         "MedRecPro/Controllers/UsersController.cs|UsersController..ctor|Indexer|1",
         "MedRecPro/DataAccess/RepositoryDataAccess.cs|Repository.getPkSecret|GetSection|1",
-        "MedRecPro/DataAccess/UserDataAccess.cs|UserDataAccess.getPkSecret|GetSection|1",
         "MedRecPro/Models/LabelDto.cs|SectionDto..ctor|GetSection|1",
         "MedRecPro/Models/LabelDto.cs|SectionHierarchyDto..ctor|GetSection|1",
         "MedRecPro/Models/LabelDto.cs|StructuredBodyDto..ctor|GetSection|1",
