@@ -1,5 +1,6 @@
 using MedRecProConsole.Models;
 using MedRecProImportClass.Models;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,7 +18,7 @@ namespace MedRecProConsole.Services
     /// - Fast async file I/O using System.Text.Json
     /// - Atomic writes to prevent corruption on crash (write to temp, then rename)
     /// - In-memory caching to minimize disk reads
-    /// - Thread-safe operations via SemaphoreSlim
+    /// - In-process transaction coordination by canonical progress-file path
     /// - Connection string hash validation on resume to prevent cross-database errors
     ///
     /// The progress file is stored in the application directory and contains
@@ -43,11 +44,21 @@ namespace MedRecProConsole.Services
 
         /**************************************************************/
         /// <summary>The path to the progress file on disk.</summary>
-        private string? _filePath;
+        private readonly string _filePath;
 
         /**************************************************************/
-        /// <summary>Lock object for thread-safe operations.</summary>
-        private readonly SemaphoreSlim _lock = new(1, 1);
+        /// <summary>Compares canonical paths according to the host operating system's path semantics.</summary>
+        private static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+        /**************************************************************/
+        /// <summary>Coordinates complete disk transactions for each canonical path within this process.</summary>
+        /// <remarks>
+        /// Entries intentionally remain for the process lifetime so a path can never acquire two active semaphores.
+        /// Production uses one default path and the bounded test process uses short-lived isolated paths.
+        /// </remarks>
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> PathLocks = new(PathComparer);
 
         /**************************************************************/
         /// <summary>JSON serializer options for consistent serialization.</summary>
@@ -58,6 +69,50 @@ namespace MedRecProConsole.Services
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
         };
+
+        #endregion
+
+        #region constructors
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a tracker that uses the established application-directory progress file.
+        /// </summary>
+        /// <remarks>
+        /// This constructor preserves the public default path and filename used by the console application.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var tracker = new StandardizationProgressTracker();
+        /// </code>
+        /// </example>
+        /// <seealso cref="StandardizationProgressFile.DefaultFileName"/>
+        public StandardizationProgressTracker()
+            : this(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                StandardizationProgressFile.DefaultFileName))
+        {
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Initializes a tracker with an explicit progress-file path for internal integration and isolated tests.
+        /// </summary>
+        /// <remarks>
+        /// The full path is canonicalized once. This seam is internal so it cannot become a public storage setting.
+        /// </remarks>
+        /// <param name="progressFilePath">The full or relative path to the progress JSON file.</param>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="progressFilePath"/> is blank.</exception>
+        /// <seealso cref="StandardizationProgressFile"/>
+        internal StandardizationProgressTracker(string progressFilePath)
+        {
+            #region implementation
+
+            ArgumentException.ThrowIfNullOrWhiteSpace(progressFilePath);
+            _filePath = Path.GetFullPath(progressFilePath);
+
+            #endregion
+        }
 
         #endregion
 
@@ -82,10 +137,10 @@ namespace MedRecProConsole.Services
         {
             #region implementation
 
-            await _lock.WaitAsync();
+            var pathLock = getPathLock();
+            await pathLock.WaitAsync();
             try
             {
-                _filePath = getProgressFilePath();
                 var connectionHash = computeConnectionHash(connectionString);
 
                 if (File.Exists(_filePath))
@@ -122,7 +177,7 @@ namespace MedRecProConsole.Services
             }
             finally
             {
-                _lock.Release();
+                pathLock.Release();
             }
 
             #endregion
@@ -138,7 +193,8 @@ namespace MedRecProConsole.Services
         {
             #region implementation
 
-            await _lock.WaitAsync();
+            var pathLock = getPathLock();
+            await pathLock.WaitAsync();
             try
             {
                 if (_progressFile != null)
@@ -153,7 +209,7 @@ namespace MedRecProConsole.Services
             }
             finally
             {
-                _lock.Release();
+                pathLock.Release();
             }
 
             #endregion
@@ -169,7 +225,8 @@ namespace MedRecProConsole.Services
         {
             #region implementation
 
-            await _lock.WaitAsync();
+            var pathLock = getPathLock();
+            await pathLock.WaitAsync();
             try
             {
                 if (_progressFile != null)
@@ -182,7 +239,7 @@ namespace MedRecProConsole.Services
             }
             finally
             {
-                _lock.Release();
+                pathLock.Release();
             }
 
             #endregion
@@ -196,19 +253,19 @@ namespace MedRecProConsole.Services
         {
             #region implementation
 
-            await _lock.WaitAsync();
+            var pathLock = getPathLock();
+            await pathLock.WaitAsync();
             try
             {
-                if (_filePath != null && File.Exists(_filePath))
+                if (File.Exists(_filePath))
                 {
                     File.Delete(_filePath);
                     _progressFile = null;
-                    _filePath = null;
                 }
             }
             finally
             {
-                _lock.Release();
+                pathLock.Release();
             }
 
             #endregion
@@ -250,7 +307,20 @@ namespace MedRecProConsole.Services
         /// <returns>True if a progress file exists.</returns>
         public bool ProgressFileExists()
         {
-            return File.Exists(getProgressFilePath());
+            #region implementation
+
+            var pathLock = getPathLock();
+            pathLock.Wait();
+            try
+            {
+                return File.Exists(_filePath);
+            }
+            finally
+            {
+                pathLock.Release();
+            }
+
+            #endregion
         }
 
         #endregion
@@ -259,15 +329,14 @@ namespace MedRecProConsole.Services
 
         /**************************************************************/
         /// <summary>
-        /// Gets the full path to the progress file in the application directory.
+        /// Gets the process-wide transaction lock for this tracker's canonical path.
         /// </summary>
-        /// <returns>Full path to the progress file.</returns>
-        private static string getProgressFilePath()
+        /// <returns>The retained semaphore shared by every tracker using the same canonical path.</returns>
+        private SemaphoreSlim getPathLock()
         {
             #region implementation
 
-            var appDir = AppDomain.CurrentDomain.BaseDirectory;
-            return Path.Combine(appDir, StandardizationProgressFile.DefaultFileName);
+            return PathLocks.GetOrAdd(_filePath, static _ => new SemaphoreSlim(1, 1));
 
             #endregion
         }
@@ -315,15 +384,54 @@ namespace MedRecProConsole.Services
         {
             #region implementation
 
-            if (_progressFile == null || _filePath == null)
+            if (_progressFile == null)
             {
                 return;
             }
 
-            var tempPath = _filePath + ".tmp";
+            var directory = Path.GetDirectoryName(_filePath)
+                ?? throw new InvalidOperationException("The progress file path has no parent directory.");
+            var tempPath = Path.Combine(
+                directory,
+                $".{Path.GetFileName(_filePath)}.{Guid.NewGuid():N}.tmp");
             var json = JsonSerializer.Serialize(_progressFile, JsonOptions);
-            await File.WriteAllTextAsync(tempPath, json);
-            File.Move(tempPath, _filePath, overwrite: true);
+            try
+            {
+                await File.WriteAllTextAsync(tempPath, json);
+                File.Move(tempPath, _filePath, overwrite: true);
+            }
+            finally
+            {
+                deleteTemporaryFileBestEffort(tempPath);
+            }
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
+        /// Deletes only the exact temporary file created by the current atomic write when it still exists.
+        /// </summary>
+        /// <remarks>
+        /// Cleanup failures are intentionally suppressed so they cannot replace the primary write or move exception.
+        /// </remarks>
+        /// <param name="tempPath">The unique same-directory temporary file path owned by the current write.</param>
+        private static void deleteTemporaryFileBestEffort(string tempPath)
+        {
+            #region implementation
+
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch (IOException)
+            {
+                // Preserve the original atomic-write failure; a later operator cleanup may remove this exact orphan.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Preserve the original atomic-write failure when the filesystem denies cleanup.
+            }
 
             #endregion
         }
