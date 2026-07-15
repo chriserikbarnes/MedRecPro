@@ -23,7 +23,9 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="FeatureControllerNameAttribute"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Search")]
+    [SwaggerGroup(
+        "Label Metadata",
+        "API endpoint guide and dataset inventory summaries.")]
     public sealed class LabelMetadataController : ApiControllerBase
     {
         #region implementation

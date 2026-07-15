@@ -139,18 +139,18 @@ namespace MedRecProTest.Contracts.Label
 
             var expectedTags = new[]
             {
+                "Label Application Numbers",
+                "Label Classification",
                 "Label Comparison",
                 "Label Documents",
                 "Label Import",
+                "Label Ingredients",
                 "Label Markdown",
+                "Label Metadata",
+                "Label Product Identifiers",
+                "Label Products",
                 "Label Search",
-                "Label Search",
-                "Label Search",
-                "Label Search",
-                "Label Search",
-                "Label Search",
-                "Label Search",
-                "Label Search",
+                "Label Section Navigation",
                 "Label Sections"
             };
 

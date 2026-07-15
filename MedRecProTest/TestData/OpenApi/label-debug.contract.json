@@ -195,7 +195,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Application Numbers"
       ]
     },
     "GET /api/Label/application-number/summaries": {
@@ -301,7 +301,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Application Numbers"
       ]
     },
     "GET /api/Label/comparison/analysis/{documentGuid}": {
@@ -939,7 +939,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Classification"
       ]
     },
     "GET /api/Label/extract-product": {
@@ -1018,7 +1018,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Classification"
       ]
     },
     "GET /api/Label/generate/{documentGuid}/{minify}": {
@@ -1170,7 +1170,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Metadata"
       ]
     },
     "GET /api/Label/import/progress/{operationId}": {
@@ -1342,7 +1342,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Classification"
       ]
     },
     "GET /api/Label/ingredient/active/summaries": {
@@ -1457,7 +1457,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Ingredients"
       ]
     },
     "GET /api/Label/ingredient/advanced": {
@@ -1603,7 +1603,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Ingredients"
       ]
     },
     "GET /api/Label/ingredient/by-application": {
@@ -1709,7 +1709,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Ingredients"
       ]
     },
     "GET /api/Label/ingredient/inactive/summaries": {
@@ -1824,7 +1824,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Ingredients"
       ]
     },
     "GET /api/Label/ingredient/related": {
@@ -1919,7 +1919,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Ingredients"
       ]
     },
     "GET /api/Label/ingredient/search": {
@@ -2033,7 +2033,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Ingredients"
       ]
     },
     "GET /api/Label/ingredient/summaries": {
@@ -2148,7 +2148,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Ingredients"
       ]
     },
     "GET /api/Label/inventory/summary": {
@@ -2216,7 +2216,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Metadata"
       ]
     },
     "GET /api/Label/labeler/search": {
@@ -2322,7 +2322,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Product Identifiers"
       ]
     },
     "GET /api/Label/labeler/summaries": {
@@ -2420,7 +2420,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Product Identifiers"
       ]
     },
     "GET /api/Label/markdown/display/{documentGuid}": {
@@ -2868,7 +2868,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Product Identifiers"
       ]
     },
     "GET /api/Label/ndc/search": {
@@ -2974,7 +2974,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Product Identifiers"
       ]
     },
     "GET /api/Label/original/{documentGuid}/{minify}": {
@@ -3176,7 +3176,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Classification"
       ]
     },
     "GET /api/Label/pharmacologic-class/search": {
@@ -3300,7 +3300,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Classification"
       ]
     },
     "GET /api/Label/pharmacologic-class/summaries": {
@@ -3407,7 +3407,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Classification"
       ]
     },
     "GET /api/Label/product/indications": {
@@ -3537,7 +3537,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Products"
       ]
     },
     "GET /api/Label/product/latest": {
@@ -3659,7 +3659,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Products"
       ]
     },
     "GET /api/Label/product/latest/details": {
@@ -3789,7 +3789,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Products"
       ]
     },
     "GET /api/Label/product/related": {
@@ -3913,7 +3913,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Products"
       ]
     },
     "GET /api/Label/product/search": {
@@ -4019,7 +4019,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Products"
       ]
     },
     "GET /api/Label/section/content/{documentGuid}": {
@@ -4144,7 +4144,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Section Navigation"
       ]
     },
     "GET /api/Label/section/search": {
@@ -4250,7 +4250,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Section Navigation"
       ]
     },
     "GET /api/Label/section/summaries": {
@@ -4348,7 +4348,7 @@
         }
       },
       "tags": [
-        "Label Search"
+        "Label Section Navigation"
       ]
     },
     "GET /api/Label/section/{menuSelection}": {

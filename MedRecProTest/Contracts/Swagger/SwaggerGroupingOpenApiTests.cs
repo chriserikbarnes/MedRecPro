@@ -16,8 +16,8 @@ namespace MedRecProTest.Contracts.Swagger;
 /// Verifies the production Swagger pipeline preserves the exact reviewed grouping map for all guarded operations.
 /// </summary>
 /// <remarks>
-/// Phase 1 intentionally keeps all current tag values. The configuration-specific reviewed snapshots provide the exact
-/// 80-operation expectation while a separate registration assertion proves both generic filters are installed.
+/// Configuration-specific reviewed snapshots provide the exact 80-operation expectation while hosted document-tag
+/// assertions prove the generic grouping filters publish the reviewed descriptions.
 /// </remarks>
 /// <seealso cref="SwaggerGroupOperationFilter"/>
 /// <seealso cref="SwaggerGroupDocumentFilter"/>
@@ -47,9 +47,21 @@ public class SwaggerGroupingOpenApiTests
         "get", "post", "put", "delete", "patch", "head", "options"
     };
 
+    private static readonly IReadOnlyDictionary<string, string> expectedGroupDescriptions =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Label Application Numbers"] = "FDA application-number discovery and marketing-category summaries.",
+            ["Label Classification"] = "Pharmacologic class, indication, and DEA-schedule discovery.",
+            ["Label Ingredients"] = "Active/inactive ingredient search, summaries, and relationships.",
+            ["Label Metadata"] = "API endpoint guide and dataset inventory summaries.",
+            ["Label Product Identifiers"] = "NDC product/package code and labeler discovery.",
+            ["Label Products"] = "Product-name search, latest labels, related products, and indications.",
+            ["Label Section Navigation"] = "Section-code search, summaries, and section content retrieval."
+        };
+
     /**************************************************************/
     /// <summary>
-    /// Verifies every hosted Label, Settings, and Users operation retains its reviewed Phase 0 tag.
+    /// Verifies every hosted Label, Settings, and Users operation retains its reviewed tag and group description.
     /// </summary>
     /// <returns>A task representing the hosted Swagger and exact-map assertion.</returns>
     /// <seealso cref="SwaggerGroupOperationFilter"/>
@@ -85,14 +97,34 @@ public class SwaggerGroupingOpenApiTests
             .GroupBy(tag => tag, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
 
-        Assert.AreEqual(29, tagCounts["Label Search"]);
+        Assert.AreEqual(2, tagCounts["Label Application Numbers"]);
+        Assert.AreEqual(6, tagCounts["Label Classification"]);
         Assert.AreEqual(3, tagCounts["Label Comparison"]);
         Assert.AreEqual(6, tagCounts["Label Documents"]);
         Assert.AreEqual(2, tagCounts["Label Import"]);
+        Assert.AreEqual(7, tagCounts["Label Ingredients"]);
         Assert.AreEqual(4, tagCounts["Label Markdown"]);
+        Assert.AreEqual(2, tagCounts["Label Metadata"]);
+        Assert.AreEqual(4, tagCounts["Label Product Identifiers"]);
+        Assert.AreEqual(5, tagCounts["Label Products"]);
+        Assert.AreEqual(3, tagCounts["Label Section Navigation"]);
         Assert.AreEqual(7, tagCounts["Label Sections"]);
         Assert.AreEqual(15, tagCounts["Settings"]);
         Assert.AreEqual(14, tagCounts["Users"]);
+        Assert.IsFalse(tagCounts.ContainsKey("Label Search"),
+            "The actionless compatibility shell must not contribute a rendered Label Search operation.");
+
+        var actualDescriptions = projectHostedGroupDescriptions(swaggerJson);
+        foreach (var expectedDescription in expectedGroupDescriptions)
+        {
+            Assert.IsTrue(actualDescriptions.TryGetValue(expectedDescription.Key, out var actualDescription),
+                $"Hosted Swagger is missing the described {expectedDescription.Key} document tag.");
+            Assert.AreEqual(expectedDescription.Value, actualDescription,
+                $"Swagger description changed for {expectedDescription.Key}.");
+        }
+
+        Assert.IsFalse(actualDescriptions.ContainsKey("Label Search"),
+            "The actionless compatibility shell must not contribute a described Label Search document tag.");
 
         #endregion
     }
@@ -181,6 +213,40 @@ public class SwaggerGroupingOpenApiTests
         }
 
         return actual;
+
+        #endregion
+    }
+
+    /**************************************************************/
+    /// <summary>
+    /// Projects nonblank document-level Swagger tag descriptions by group name.
+    /// </summary>
+    /// <param name="swaggerJson">Swagger JSON returned by the real test host.</param>
+    /// <returns>A map of described document tags keyed by exact group name.</returns>
+    /// <seealso cref="SwaggerGroupDocumentFilter"/>
+    private static Dictionary<string, string> projectHostedGroupDescriptions(string swaggerJson)
+    {
+        #region implementation
+
+        using var document = JsonDocument.Parse(swaggerJson);
+        var descriptions = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        if (!document.RootElement.TryGetProperty("tags", out var tags))
+        {
+            return descriptions;
+        }
+
+        foreach (var tag in tags.EnumerateArray())
+        {
+            if (tag.TryGetProperty("name", out var name) &&
+                tag.TryGetProperty("description", out var description) &&
+                !string.IsNullOrWhiteSpace(description.GetString()))
+            {
+                descriptions[name.GetString()!] = description.GetString()!;
+            }
+        }
+
+        return descriptions;
 
         #endregion
     }

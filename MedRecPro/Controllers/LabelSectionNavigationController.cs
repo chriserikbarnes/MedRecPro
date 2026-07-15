@@ -23,7 +23,9 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="FeatureControllerNameAttribute"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Search")]
+    [SwaggerGroup(
+        "Label Section Navigation",
+        "Section-code search, summaries, and section content retrieval.")]
     public sealed class LabelSectionNavigationController : ApiControllerBase
     {
         #region implementation

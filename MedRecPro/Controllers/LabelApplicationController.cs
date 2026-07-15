@@ -27,7 +27,9 @@ namespace MedRecPro.Api.Controllers
     /// <seealso cref="FeatureControllerNameAttribute"/>
     [ApiController]
     [FeatureControllerName("Label")]
-    [SwaggerGroup("Label Search")]
+    [SwaggerGroup(
+        "Label Application Numbers",
+        "FDA application-number discovery and marketing-category summaries.")]
     public sealed class LabelApplicationController : ApiControllerBase
     {
         #region implementation
