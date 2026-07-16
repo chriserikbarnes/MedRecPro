@@ -6204,3 +6204,15 @@ Updated the AE dashboard favorites client so optional favorite read and mutation
 **Verification.** `npm.cmd run lint` passed. `npm.cmd run test` passed 11 test files and 64 tests. `npm.cmd run build` completed successfully and refreshed the hosted [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js) bundle (367.40 kB) and [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css) bundle (51.36 kB). `git diff --check` passed.
 
 ---
+
+### 2026-07-16 3:52 PM EST - Guard and cover duplicate AE favorite summaries
+
+Added a defensive AE dashboard favorites lookup and its regression coverage for duplicate product-summary rows sharing one `DocumentGUID`.
+
+**Implementation.** [AeDashboardFavoriteAccess.cs](MedRecPro/DataAccess/AeDashboardFavoriteAccess.cs) now groups loaded summaries by `DocumentGUID`, preserves one mapped summary per favorite, and emits aggregate warning telemetry instead of letting `ToDictionary` throw.
+
+**Regression coverage.** [AeDashboardFavoriteAccessTests.cs](MedRecProTest/Integration/Persistence/AeDashboardFavoriteAccessTests.cs) seeds two `tmp_AeDashboardProductCatalog` rows for one document and verifies the public favorites read returns exactly one favorited summary.
+
+**Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~GetAeFavoriteDrugSummariesAsync_DuplicateCatalogDocumentGuid_ReturnsSingleFavorite" --logger "console;verbosity=minimal"` passed: 1 passed, 0 failed, 0 skipped. The complete `AeDashboardFavoriteAccessTests` class passed: 6 passed, 0 failed, 0 skipped.
+
+---

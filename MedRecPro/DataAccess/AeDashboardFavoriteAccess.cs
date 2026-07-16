@@ -88,11 +88,27 @@ namespace MedRecPro.DataAccess
             // Load encrypted, derived product summaries for the favorited documents.
             var summaries = await getProductSummariesByDocumentGuidsAsync(db, favoriteDocumentGuids, pkSecret, logger);
 
+            // Summaries should contain one row per document, but a duplicate source
+            // row must not make a user's favorites unreadable. Preserve the first
+            // mapped summary for each document and surface the source-shape issue.
+            var summaryGroups = summaries
+                .Where(summary => summary.DocumentGUID.HasValue)
+                .GroupBy(summary => summary.DocumentGUID!.Value)
+                .ToList();
+
+            var duplicateSummaryCount = summaryGroups.Sum(group => group.Count() - 1);
+            if (duplicateSummaryCount > 0)
+            {
+                logger.LogWarning(
+                    "AE dashboard favorite load received {DuplicateSummaryCount} duplicate product-summary rows across {DuplicateDocumentCount} DocumentGUID values. The first summary for each document will be used.",
+                    duplicateSummaryCount,
+                    summaryGroups.Count(group => group.Count() > 1));
+            }
+
             // Build a lookup so favorites can be mapped back into the original
             // favorite ordering after product summaries are loaded.
-            var summaryByDocument = summaries
-                .Where(summary => summary.DocumentGUID.HasValue)
-                .ToDictionary(summary => summary.DocumentGUID!.Value);
+            var summaryByDocument = summaryGroups
+                .ToDictionary(group => group.Key, group => group.First());
 
             // Preserve favorite row order and silently skip orphaned favorites whose
             // product summary is no longer present in vw_AeDrugSummary.

@@ -244,6 +244,59 @@ namespace MedRecProTest.Integration.Persistence
 
         /**************************************************************/
         /// <summary>
+        /// Verifies GetAeFavoriteDrugSummariesAsync tolerates duplicate materialized
+        /// catalog rows for one favorited document.
+        /// </summary>
+        /// <remarks>
+        /// The production catalog enforces a unique DocumentGUID index, but this test
+        /// deliberately seeds duplicate fixture rows to ensure a malformed catalog
+        /// response does not make the user's favorites unreadable.
+        /// </remarks>
+        /// <seealso cref="DtoLabelAccess.GetAeFavoriteDrugSummariesAsync(ApplicationDbContext, long, string, ILogger, int?, int?)"/>
+        [TestMethod]
+        public async Task GetAeFavoriteDrugSummariesAsync_DuplicateCatalogDocumentGuid_ReturnsSingleFavorite()
+        {
+            #region implementation
+
+            var (sentinel, connection) = DtoLabelAccessTestHelper.CreateSharedMemoryDb();
+            using var _sentinel = sentinel;
+            using var _connection = connection;
+            using var context = DtoLabelAccessTestHelper.CreateTestContext(connection);
+            var logger = DtoLabelAccessTestHelper.CreateTestLogger();
+            await seedUserAsync(context, 8251);
+
+            // Deliberately bypass the production catalog's unique index to reproduce
+            // a malformed materialized response returned by the summary loader.
+            DtoLabelAccessTestHelper.SeedAeDashboardProductCatalogTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                productName: "DUPLICATE CATALOG PRODUCT");
+            DtoLabelAccessTestHelper.SeedAeDashboardProductCatalogTable(
+                connection,
+                DtoLabelAccessTestHelper.TestDocumentGuid,
+                productName: "DUPLICATE CATALOG PRODUCT");
+            context.AspNetUserFavorites.Add(new AspNetUserFavorite
+            {
+                UserId = 8251,
+                DocumentGUID = DtoLabelAccessTestHelper.TestDocumentGuid,
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+
+            var catalogRowCount = await context.Set<LabelView.AeDashboardProductCatalog>()
+                .CountAsync(row => row.DocumentGUID == DtoLabelAccessTestHelper.TestDocumentGuid);
+            var favorites = await DtoLabelAccess.GetAeFavoriteDrugSummariesAsync(context, 8251, PkSecret, logger);
+
+            Assert.AreEqual(2, catalogRowCount);
+            Assert.AreEqual(1, favorites.Count);
+            Assert.AreEqual(DtoLabelAccessTestHelper.TestDocumentGuid, favorites.Single().DocumentGUID);
+            Assert.IsTrue(favorites.Single().IsFavorite);
+
+            #endregion
+        }
+
+        /**************************************************************/
+        /// <summary>
         /// Verifies SetAeProductFavoriteAsync accepts a null-class product that exists
         /// only in the risk-table fallback, and that the favorite round-trips back
         /// through GetAeFavoriteDrugSummariesAsync.
