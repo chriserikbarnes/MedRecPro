@@ -69,11 +69,14 @@ export async function readErrorPayload(response) {
   let message = `Request failed with status ${response.status}.`;
 
   try {
-    // The content type decides whether we should parse JSON or plain text.
-    const contentType = response.headers.get('content-type') ?? '';
+    // The media type decides whether we should parse JSON or plain text.
+    const mediaType = (response.headers.get('content-type') ?? '')
+      .split(';', 1)[0]
+      .trim()
+      .toLowerCase();
 
-    // JSON API errors can carry strings, ProblemDetails objects, or arrays.
-    if (contentType.includes('application/json')) {
+    // JSON API errors, including RFC 7807 application/problem+json responses, can carry strings, ProblemDetails objects, or arrays.
+    if (mediaType === 'application/json' || mediaType.endsWith('+json')) {
       details = await response.json();
 
       // ProblemDetails uses title/detail; string bodies are already readable.

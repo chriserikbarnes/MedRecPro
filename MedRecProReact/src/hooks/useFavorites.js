@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ApiError } from '../api/apiError';
 import { AdverseEventClient } from '../api/adverseEventClient';
 import { normalizeProducts } from '../lib/normalizers';
 
@@ -16,7 +15,7 @@ export function useFavorites() {
   // Favorite product summaries returned by the authenticated-only endpoint.
   const [favoriteProducts, setFavoriteProducts] = useState([]);
 
-  // Notice is used for auth and permission prompts.
+  // Notice remains empty so picker footers retain their shortcut UI after favorite failures.
   const [favoriteNotice, setFavoriteNotice] = useState('');
 
   // Busy GUIDs keep individual favorite buttons stable during mutations.
@@ -72,13 +71,9 @@ export function useFavorites() {
           return;
         }
 
-        // 401/403 means favorites are unavailable for this caller.
-        if (requestError instanceof ApiError && requestError.isAuthenticationOrPermissionFailure) {
-          setFavoriteProducts([]);
-          return;
-        }
-
-        setFavoriteNotice(requestError.message ?? 'Favorites are temporarily unavailable.');
+        // Favorites are optional; unavailable reads leave the shared picker footers unchanged.
+        setFavoriteProducts([]);
+        setFavoriteNotice('');
       }
     }
 
@@ -141,14 +136,9 @@ export function useFavorites() {
 
       setFavoriteNotice('');
       return updatedProduct;
-    } catch (requestError) {
-      // Auth and policy failures get a specific, non-retry prompt.
-      if (requestError instanceof ApiError && requestError.isAuthenticationOrPermissionFailure) {
-        setFavoriteNotice('Sign in with API access to save dashboard favorites.');
-        return null;
-      }
-
-      setFavoriteNotice(requestError.message ?? 'Favorite update failed.');
+    } catch {
+      // Favorite actions are optional; preserve the picker shortcut UI when a mutation fails.
+      setFavoriteNotice('');
       return null;
     } finally {
       // The busy set is copied again so React sees a new state reference.

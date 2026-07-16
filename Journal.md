@@ -6193,3 +6193,14 @@ Corrected the Swagger UI follow-up where `Label`, `Settings`, and `Users` render
 **Verification.** The focused Swagger/route/OpenAPI gate passed 28/28 in isolated Debug and 28/28 in isolated Release. `ReflectionUsageArchitectureTests` and `MedRecProPublicSurfaceInventoryTests` passed 2/2. `dotnet build .\MedRecPro.sln -c Debug --no-restore -p:UseAppHost=false -p:UseSharedCompilation=false` completed with 0 warnings and 0 errors; `node --check` and `git diff --check` passed. Visual Studio and the running MedRecPro process held the normal Debug output, and the sandbox denied the first `C:\tmp` output path, so verification used `.codex-build\swagger-family-gates` without stopping the user's process.
 
 ---
+
+### 2026-07-16 2:52 PM EST — Kept AE Dashboard Picker Footers Quiet
+Updated the AE dashboard favorites client so optional favorite read and mutation failures never replace either shared product picker footer with an error message.
+
+**Footer behavior.** [useFavorites.js](MedRecProReact/src/hooks/useFavorites.js) now clears `favoriteNotice` on every non-aborted favorite-load failure and on failed favorite mutations. Both picker instances therefore retain their normal shortcut-help footer when the user is unsigned in, has no accessible favorites, or a favorite request fails.
+
+**Response parsing.** [apiError.js](MedRecProReact/src/api/apiError.js) now recognizes structured `+json` response types, including `application/problem+json`, so RFC 7807 responses are parsed as problem details instead of being promoted as raw JSON text. Added [apiError.test.js](MedRecProReact/src/api/apiError.test.js) to lock that behavior.
+
+**Verification.** `npm.cmd run lint` passed. `npm.cmd run test` passed 11 test files and 64 tests. `npm.cmd run build` completed successfully and refreshed the hosted [ae-dashboard.js](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.js) bundle (367.40 kB) and [ae-dashboard.css](MedRecProStatic/wwwroot/ae-dashboard/ae-dashboard.css) bundle (51.36 kB). `git diff --check` passed.
+
+---
