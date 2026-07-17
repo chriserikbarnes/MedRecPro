@@ -209,8 +209,10 @@ public class SwaggerGroupingOpenApiTests
         var script = await client.GetStringAsync("/stylesheets/swagger-tag-families.js");
 
         StringAssert.Contains(stylesheet, ".medrecpro-swagger-family-child[hidden]");
+        StringAssert.Contains(stylesheet, ".medrecpro-doc-section-body[hidden]");
         StringAssert.Contains(script, "x-medrecpro-child-tag-prefix");
         StringAssert.Contains(script, "medrecpro-swagger-family-child");
+        StringAssert.Contains(script, "medrecpro-doc-section");
 
         #endregion
     }

@@ -1,11 +1,14 @@
 /**
- * Turns document-level Swagger family tags into controls for their prefixed child tags.
+ * Turns document-level Swagger family tags into controls for their prefixed child tags and
+ * makes the information-description sections collapsible.
  */
 (function configureSwaggerTagFamilies() {
     "use strict";
 
     const childTagPrefixExtension = "x-medrecpro-child-tag-prefix";
     const familyStates = new Map();
+    const documentSectionStates = new Map();
+    let documentSectionId = 0;
     let refreshScheduled = false;
 
     /**
@@ -58,8 +61,6 @@
      * @returns {void}
      */
     function refreshFamilies() {
-        refreshScheduled = false;
-
         const families = getFamilies();
         if (families.length === 0) {
             return;
@@ -130,6 +131,138 @@
     }
 
     /**
+     * Finds the direct Markdown root used for the Swagger information description.
+     * @returns {Element|null} The supported Markdown root, or null when Swagger UI has changed shape.
+     */
+    function getDescriptionMarkdownRoot() {
+        const descriptions = document.querySelectorAll(".swagger-ui .information-container .info .description");
+
+        for (const description of descriptions) {
+            const markdownRoot = Array.from(description.children).find(child =>
+                child.classList.contains("renderedMarkdown") || child.classList.contains("markdown"));
+            if (markdownRoot) {
+                return markdownRoot;
+            }
+
+            if (Array.from(description.children).some(child => child.tagName === "H2")) {
+                return description;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets nonblank heading text without depending on the heading's original markup.
+     * @param {Element} heading Description section heading.
+     * @returns {string|null} Trimmed heading text, or null for an unusable heading.
+     */
+    function getDescriptionHeadingText(heading) {
+        const value = heading.textContent?.trim();
+        return value || null;
+    }
+
+    /**
+     * Determines whether a heading belongs to the always-visible demo warning banner.
+     * @param {Element} heading Candidate Markdown heading.
+     * @returns {boolean} True when the heading must not be collapsed.
+     */
+    function isDemoHeading(heading) {
+        const headingText = getDescriptionHeadingText(heading);
+        return headingText?.toUpperCase().includes("DEMO MODE") === true;
+    }
+
+    /**
+     * Applies the persisted visibility and accessibility state to one transformed description section.
+     * @param {Element} section Transformed description section wrapper.
+     * @returns {void}
+     */
+    function refreshDescriptionSection(section) {
+        const sectionName = section.dataset.medrecproDocSection;
+        const heading = section.querySelector(":scope > .medrecpro-doc-section-toggle");
+        const body = section.querySelector(":scope > .medrecpro-doc-section-body");
+        if (!sectionName || !heading || !body) {
+            return;
+        }
+
+        const expanded = documentSectionStates.get(sectionName) === true;
+        heading.setAttribute("aria-expanded", expanded ? "true" : "false");
+        body.hidden = !expanded;
+    }
+
+    /**
+     * Transforms eligible top-level Markdown sections into collapsed, keyboard-accessible regions.
+     * @returns {void}
+     */
+    function refreshDescriptionSections() {
+        const markdownRoot = getDescriptionMarkdownRoot();
+        if (!markdownRoot) {
+            return;
+        }
+
+        const existingSections = Array.from(markdownRoot.children)
+            .filter(child => child.classList.contains("medrecpro-doc-section"));
+        if (markdownRoot.dataset.medrecproDocSectionsInitialized === "true" && existingSections.length > 0) {
+            existingSections.forEach(refreshDescriptionSection);
+            return;
+        }
+
+        const children = Array.from(markdownRoot.children);
+        const headings = children.filter(child => child.tagName === "H2" &&
+            !isDemoHeading(child) && getDescriptionHeadingText(child) !== null);
+        if (headings.length === 0) {
+            return;
+        }
+
+        for (const heading of headings) {
+            const sectionName = getDescriptionHeadingText(heading);
+            if (!sectionName) {
+                continue;
+            }
+
+            if (!documentSectionStates.has(sectionName)) {
+                documentSectionStates.set(sectionName, false);
+            }
+
+            const headingIndex = children.indexOf(heading);
+            const bodyChildren = [];
+            for (let index = headingIndex + 1; index < children.length && children[index].tagName !== "H2"; index += 1) {
+                bodyChildren.push(children[index]);
+            }
+
+            const section = document.createElement("section");
+            const body = document.createElement("div");
+            documentSectionId += 1;
+            body.id = `medrecpro-doc-section-${documentSectionId}`;
+            section.className = "medrecpro-doc-section";
+            section.dataset.medrecproDocSection = sectionName;
+            body.className = "medrecpro-doc-section-body";
+            heading.classList.add("medrecpro-doc-section-toggle");
+            heading.setAttribute("role", "button");
+            heading.setAttribute("tabindex", "0");
+            heading.setAttribute("aria-controls", body.id);
+
+            markdownRoot.insertBefore(section, heading);
+            section.appendChild(heading);
+            section.appendChild(body);
+            bodyChildren.forEach(child => body.appendChild(child));
+            refreshDescriptionSection(section);
+        }
+
+        markdownRoot.dataset.medrecproDocSectionsInitialized = "true";
+    }
+
+    /**
+     * Refreshes every MedRecPro Swagger enhancement from the shared render scheduler.
+     * @returns {void}
+     */
+    function refreshSwaggerUi() {
+        refreshScheduled = false;
+        refreshFamilies();
+        refreshDescriptionSections();
+    }
+
+    /**
      * Coalesces DOM and specification changes into one animation-frame refresh.
      * @returns {void}
      */
@@ -139,23 +272,31 @@
         }
 
         refreshScheduled = true;
-        window.requestAnimationFrame(refreshFamilies);
+        window.requestAnimationFrame(refreshSwaggerUi);
     }
 
     /**
-     * Toggles a family when its parent row is clicked while leaving child controls unchanged.
+     * Toggles a family or information-description section from a captured click.
      * @param {MouseEvent} event Captured document click.
      * @returns {void}
      */
-    function handleFamilyClick(event) {
+    function handleClick(event) {
         if (!(event.target instanceof Element)) {
+            return;
+        }
+
+        const documentHeading = event.target.closest(".medrecpro-doc-section-toggle");
+        const documentSection = documentHeading?.closest(".medrecpro-doc-section");
+        const sectionName = documentSection?.dataset.medrecproDocSection;
+        if (documentHeading && sectionName) {
+            documentSectionStates.set(sectionName, documentSectionStates.get(sectionName) !== true);
+            scheduleRefresh();
             return;
         }
 
         const parentHeader = event.target.closest(".medrecpro-swagger-family > .opblock-tag");
         const parentSection = parentHeader?.parentElement;
         const familyName = parentSection?.dataset.medrecproSwaggerFamily;
-
         if (!parentHeader || !familyName) {
             return;
         }
@@ -170,11 +311,34 @@
     }
 
     /**
+     * Toggles a description section from its keyboard button behavior.
+     * @param {KeyboardEvent} event Captured document keydown.
+     * @returns {void}
+     */
+    function handleDescriptionSectionKeydown(event) {
+        if ((event.key !== "Enter" && event.key !== " ") || !(event.target instanceof Element)) {
+            return;
+        }
+
+        const heading = event.target.closest(".medrecpro-doc-section-toggle");
+        const section = heading?.closest(".medrecpro-doc-section");
+        const sectionName = section?.dataset.medrecproDocSection;
+        if (!heading || !sectionName) {
+            return;
+        }
+
+        event.preventDefault();
+        documentSectionStates.set(sectionName, documentSectionStates.get(sectionName) !== true);
+        scheduleRefresh();
+    }
+
+    /**
      * Begins observing Swagger UI's asynchronous render cycle.
      * @returns {void}
      */
     function start() {
-        document.addEventListener("click", handleFamilyClick, true);
+        document.addEventListener("click", handleClick, true);
+        document.addEventListener("keydown", handleDescriptionSectionKeydown);
         new MutationObserver(scheduleRefresh).observe(document.documentElement, {
             childList: true,
             subtree: true

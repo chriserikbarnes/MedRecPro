@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
 		<Nullable>enable</Nullable>
@@ -65,6 +65,8 @@
 
 		<!-- Always include as embedded resources for RazorLight -->
 		<EmbeddedResource Include="Views\SplTemplates\**\*.cshtml" />
+		<None Remove="SwaggerDocs.txt" />
+		<EmbeddedResource Include="SwaggerDocs.txt" />
 
 		<None Include="Views\SplTemplates\**\*.cshtml">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

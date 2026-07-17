@@ -40,6 +40,7 @@ public sealed class MedRecProWebApplicationFactory : WebApplicationFactory<Progr
     private readonly Dictionary<string, string?> originalEnvironmentValues = new(StringComparer.Ordinal);
     private readonly string hostEnvironment;
     private readonly bool throwOnTestRequest;
+    private readonly IReadOnlyDictionary<string, string?> configurationOverrides;
     private bool startupEnvironmentRestored;
 
     /**************************************************************/
@@ -52,11 +53,13 @@ public sealed class MedRecProWebApplicationFactory : WebApplicationFactory<Progr
     /// </remarks>
     /// <param name="environmentName">Host environment used for production-middleware contract coverage.</param>
     /// <param name="throwOnTestRequest">Whether to register the explicit test-only exception-pipeline probe.</param>
+    /// <param name="configurationOverrides">Optional values that override the deterministic test configuration for this host only.</param>
     /// <seealso cref="applyStartupEnvironment"/>
     /// <seealso cref="TestExceptionThrowingStartupFilter"/>
     public MedRecProWebApplicationFactory(
         string environmentName = "Development",
-        bool throwOnTestRequest = false)
+        bool throwOnTestRequest = false,
+        IReadOnlyDictionary<string, string?>? configurationOverrides = null)
     {
         #region implementation
 
@@ -64,6 +67,9 @@ public sealed class MedRecProWebApplicationFactory : WebApplicationFactory<Progr
 
         hostEnvironment = environmentName;
         this.throwOnTestRequest = throwOnTestRequest;
+        this.configurationOverrides = configurationOverrides == null
+            ? new Dictionary<string, string?>(StringComparer.Ordinal)
+            : new Dictionary<string, string?>(configurationOverrides, StringComparer.Ordinal);
         applyStartupEnvironment();
 
         #endregion
@@ -114,7 +120,10 @@ public sealed class MedRecProWebApplicationFactory : WebApplicationFactory<Progr
             options.ValidateOnBuild = true;
         });
         builder.ConfigureAppConfiguration((_, configuration) =>
-            configuration.AddInMemoryCollection(MedRecProTestConfiguration.Values));
+        {
+            configuration.AddInMemoryCollection(MedRecProTestConfiguration.Values);
+            configuration.AddInMemoryCollection(configurationOverrides);
+        });
         builder.ConfigureTestServices(services =>
         {
             removeHostedService<ZipImportWorkerService>(services);
@@ -272,6 +281,11 @@ public sealed class MedRecProWebApplicationFactory : WebApplicationFactory<Progr
         setStartupEnvironmentValue("DOTNET_ENVIRONMENT", hostEnvironment);
 
         foreach (var pair in MedRecProTestConfiguration.Values)
+        {
+            setStartupEnvironmentValue(pair.Key.Replace(":", "__", StringComparison.Ordinal), pair.Value);
+        }
+
+        foreach (var pair in configurationOverrides)
         {
             setStartupEnvironmentValue(pair.Key.Replace(":", "__", StringComparison.Ordinal), pair.Value);
         }

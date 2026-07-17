@@ -1,5 +1,6 @@
 /**
- * Makes OpenAPI parent tags visually distinct and indents their child tag sections.
+ * Makes OpenAPI parent tags visually distinct, indents their child tag sections, and presents
+ * Swagger information-description sections as accessible disclosure controls.
  */
 .swagger-ui .medrecpro-swagger-family > .opblock-tag {
     border-left: 4px solid #49cc90;
@@ -11,6 +12,49 @@
 }
 
 .swagger-ui .medrecpro-swagger-family-child[hidden] {
+    display: none !important;
+}
+
+.swagger-ui .medrecpro-doc-section {
+    margin: 0 0 4px;
+}
+
+.swagger-ui .medrecpro-doc-section-toggle {
+    align-items: center;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: large;
+    gap: 8px;
+    line-height: 1.25;
+    margin: 0;
+}
+
+.swagger-ui .medrecpro-doc-section-toggle::after {
+    color: #49cc90;
+    content: "▸";
+    font-size: 0.8em;
+    transition: transform 120ms ease-in-out;
+}
+
+.swagger-ui .medrecpro-doc-section-toggle[aria-expanded="true"]::after {
+    transform: rotate(90deg);
+}
+
+.swagger-ui .medrecpro-doc-section-toggle:hover {
+    color: #49cc90;
+}
+
+.swagger-ui .medrecpro-doc-section-toggle:focus-visible {
+    border-radius: 2px;
+    outline: 3px solid #49cc90;
+    outline-offset: 3px;
+}
+
+.swagger-ui .medrecpro-doc-section-body {
+    margin: 0 0 16px;
+}
+
+.swagger-ui .medrecpro-doc-section-body[hidden] {
     display: none !important;
 }
 
