@@ -6226,3 +6226,10 @@ Planning-only session; no repository code changed. Authored `(pending) MedRecPro
 **Plan shape.** Phase 0 captures a baseline; Phase 1 makes `SwaggerDocs.txt` the runtime source (embedded resource + three-token substitution) with byte-identical hosted output; Phase 2 rewrites the content concise and accurate (~300 -> <=90 source lines, all seven API surfaces in a map, no per-endpoint duplication); Phase 3 extends `swagger-tag-families.js`/`.css` so each description `##` section collapses (collapsed by default, demo banner excluded, tag-family behavior and its test-pinned literals preserved); Phase 4 adds hosted description contract tests, asset-marker assertions, and Release-configuration verification.
 
 ---
+
+### 2026-07-17 2:28 PM EST - Static Endpoint Integration Test Runner Phases 2-3
+Implemented Phases 2 and 3 of the saved static-site endpoint integration test plan. Added public read coverage across AE, Orange Book, Label, Settings, and AI lifecycle contracts; validation, route-constraint, capped 404, anonymous auth-gate, OAuth redirect, and safety-exclusion coverage; same-origin observability assertions; and a preflight check that all 120 audited operations map to registered definitions.
+
+**Verification.** All endpoint scripts passed `node --check`; a no-network classic-script simulation confirmed 120 audited and 120 mapped operations; static manifest comparison found no missing or stale definitions; and `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\static-phase23\` succeeded with 0 warnings and 0 errors. The live host-side Swagger verifier was attempted but `localhost:5093` was not running.
+
+---

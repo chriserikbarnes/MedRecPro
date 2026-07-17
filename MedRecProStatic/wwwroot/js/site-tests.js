@@ -1,13 +1,37 @@
-/* ============================================================
-   MedRecPro Site Tests
-   DOM-based tests for navigation, MCP pages, and interactions.
-   Run via browser console: MedRecProTests.runAll()
-   ============================================================ */
+/**************************************************************/
+/**
+ * MedRecPro Legacy Site Test Entry Point
+ *
+ * @fileoverview Provides browser-console DOM smoke checks for navigation, MCP, chat, animation, and layout elements.
+ *
+ * @description Keeps the established `MedRecProTests.runAll()` API independent from the endpoint diagnostic modules loaded later in the page.
+ *
+ * @example
+ * MedRecProTests.runAll();
+ *
+ * @module site-tests
+ * @see MedRecProApiTestRuntime
+ */
+/**************************************************************/
 
 var MedRecProTests = (function () {
     'use strict';
 
     var results = { passed: 0, failed: 0, tests: [] };
+
+    /**************************************************************/
+
+    /**
+
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+
+     *
+
+     * @private
+
+     */
+
+    /**************************************************************/
 
     function assert(name, condition, message) {
         results.tests.push({
@@ -24,6 +48,13 @@ var MedRecProTests = (function () {
 
     /**************************************************************/
     /* Navigation Tests */
+    /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @private
+     */
     /**************************************************************/
     function testNavigation() {
         var navbar = document.querySelector('.navbar');
@@ -42,6 +73,13 @@ var MedRecProTests = (function () {
     /**************************************************************/
     /* Footer Tests */
     /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @private
+     */
+    /**************************************************************/
     function testFooter() {
         var footer = document.querySelector('footer');
         assert('Footer exists', !!footer, 'Expected footer element');
@@ -59,10 +97,17 @@ var MedRecProTests = (function () {
     /**************************************************************/
     /* MCP Docs Page Tests */
     /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @private
+     */
+    /**************************************************************/
     function testMcpDocsPage() {
         var mcpPage = document.querySelector('.mcp-page');
         if (!mcpPage) {
-            assert('MCP page detected', false, 'Not on an MCP page — skipping MCP-specific tests');
+            assert('MCP page detected', false, 'Not on an MCP page â€” skipping MCP-specific tests');
             return;
         }
 
@@ -84,6 +129,13 @@ var MedRecProTests = (function () {
     /**************************************************************/
     /* MCP Setup Page Tests */
     /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @private
+     */
+    /**************************************************************/
     function testMcpSetupPage() {
         var featureGrid = document.querySelector('.feature-grid-mcp');
         if (!featureGrid) return; // Not on setup page
@@ -103,6 +155,13 @@ var MedRecProTests = (function () {
 
     /**************************************************************/
     /* Chat Page Tests */
+    /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @private
+     */
     /**************************************************************/
     function testChatPage() {
         var chatPage = document.querySelector('.chat-page');
@@ -128,6 +187,13 @@ var MedRecProTests = (function () {
     /**************************************************************/
     /* Scroll Animation Tests */
     /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @private
+     */
+    /**************************************************************/
     function testScrollAnimations() {
         var animElements = document.querySelectorAll('.animate-on-scroll');
         if (animElements.length === 0) return; // No animations on this page
@@ -137,6 +203,13 @@ var MedRecProTests = (function () {
 
     /**************************************************************/
     /* Navbar Scroll Behavior Tests */
+    /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @private
+     */
     /**************************************************************/
     function testNavbarScrollBehavior() {
         var navbar = document.querySelector('.navbar');
@@ -149,6 +222,13 @@ var MedRecProTests = (function () {
 
     /**************************************************************/
     /* Test Runner */
+    /**************************************************************/
+    /**************************************************************/
+    /**
+     * Runs a scoped legacy DOM assertion for the static-site smoke suite.
+     *
+     * @public
+     */
     /**************************************************************/
     function runAll() {
         results = { passed: 0, failed: 0, tests: [] };

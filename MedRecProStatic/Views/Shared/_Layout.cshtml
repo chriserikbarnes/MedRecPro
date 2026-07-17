@@ -1,4 +1,4 @@
-﻿@using MedRecPro.Static.Models
+@using MedRecPro.Static.Models
 @{
     var config = ViewBag.Config as SiteConfig ?? new SiteConfig { SiteName = "MedRecPro" };
 }
@@ -114,6 +114,11 @@
 
     <script src="~/js/site.js" asp-append-version="true"></script>
     <script src="~/js/site-tests.js" asp-append-version="true"></script>
+    <script src="~/js/site-tests/api-manifest.js" asp-append-version="true"></script>
+    <script src="~/js/site-tests/api-panel.js" asp-append-version="true"></script>
+    <script src="~/js/site-tests/api-runner.js" asp-append-version="true"></script>
+    <script src="~/js/site-tests/api-phases.js" asp-append-version="true"></script>
+    <script src="~/js/site-tests/api-bootstrap.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
