@@ -176,6 +176,49 @@ const MedRecProChat = (function () {
         FileHandler.setupDragAndDrop();
     }
 
+    const TEST_COMMANDS = Object.freeze([
+        { tokens: [], kind: 'chat', category: 'all', description: 'Run all legacy chat JavaScript unit tests.' },
+        { tokens: ['chat'], kind: 'chat', category: 'all', description: 'Run all chat JavaScript unit tests.' },
+        { tokens: ['chat', 'all'], kind: 'chat', category: 'all', description: 'Run all chat JavaScript unit tests.' },
+        { tokens: ['chat', 'utils'], kind: 'chat', category: 'utils', description: 'Run ChatUtils tests.' },
+        { tokens: ['chat', 'markdown'], kind: 'chat', category: 'markdown', description: 'Run MarkdownRenderer tests.' },
+        { tokens: ['chat', 'state'], kind: 'chat', category: 'state', description: 'Run ChatState tests.' },
+        { tokens: ['chat', 'grouper'], kind: 'chat', category: 'grouper', description: 'Run ResultGrouper tests.' },
+        { tokens: ['chat', 'config'], kind: 'chat', category: 'config', description: 'Run ChatConfig tests.' },
+        { tokens: ['ui'], kind: 'ui', category: 'all', description: 'Run applicable UI smoke-test categories.' },
+        { tokens: ['ui', 'all'], kind: 'ui', category: 'all', description: 'Run applicable UI smoke-test categories.' },
+        { tokens: ['ui', 'navigation'], kind: 'ui', category: 'navigation', description: 'Run navigation DOM checks.' },
+        { tokens: ['ui', 'footer'], kind: 'ui', category: 'footer', description: 'Run footer DOM checks.' },
+        { tokens: ['ui', 'behavior'], kind: 'ui', category: 'behavior', description: 'Run scroll and navbar behavior checks.' },
+        { tokens: ['ui', 'chat'], kind: 'ui', category: 'chat', description: 'Run Chat-page DOM checks.' },
+        { tokens: ['ui', 'mcp-docs'], kind: 'ui', category: 'mcp-docs', description: 'Run MCP Docs DOM checks.' },
+        { tokens: ['ui', 'mcp-setup'], kind: 'ui', category: 'mcp-setup', description: 'Run MCP Setup DOM checks.' },
+        { tokens: ['client'], kind: 'client', category: 'all', description: 'Run chat unit tests and applicable UI checks.' },
+        { tokens: ['help'], kind: 'help', description: 'Show this safe test-command catalog.' },
+        { tokens: ['api'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
+        { tokens: ['api', 'help'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
+        { tokens: ['api', 'smoke'], kind: 'api', category: 'smoke', profile: 'anonymous', testIds: ['read.ae.products', 'read.orangeBook.expiring', 'read.label.productSearch', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], description: 'Run a loopback-only bounded public API smoke.' },
+        { tokens: ['api', 'read'], kind: 'api', category: 'read', profile: 'anonymous', categories: ['read'], description: 'Run safe anonymous read coverage.' },
+        { tokens: ['api', 'contract'], kind: 'api', category: 'contract', profile: 'anonymous', categories: ['contract'], description: 'Run safe validation, media, and route-contract coverage.' },
+        { tokens: ['api', 'safe'], kind: 'api', category: 'safe', profile: 'anonymous', categories: ['read', 'contract', 'authGate', 'safeWrite'], description: 'Run the complete safe anonymous Profile A diagnostic.' },
+        { tokens: ['api', 'ae'], kind: 'api', category: 'ae', profile: 'anonymous', families: ['ae'], description: 'Run the Adverse Event API family.' },
+        { tokens: ['api', 'orangebook'], kind: 'api', category: 'orangebook', profile: 'anonymous', families: ['orangebook'], description: 'Run the Orange Book API family.' },
+        { tokens: ['api', 'label'], kind: 'api', category: 'label', profile: 'anonymous', families: ['label'], description: 'Run the Label API family.' },
+        { tokens: ['api', 'settings'], kind: 'api', category: 'settings', profile: 'anonymous', families: ['settings'], description: 'Run the Settings API family.' },
+        { tokens: ['api', 'ai'], kind: 'api', category: 'ai', profile: 'anonymous', families: ['ai'], description: 'Run free AI contract variants only.' },
+        { tokens: ['api', 'users'], kind: 'api', category: 'users', profile: 'anonymous', families: ['users'], description: 'Run the Users API family.' },
+        { tokens: ['api', 'auth'], kind: 'api', category: 'auth', profile: 'anonymous', families: ['auth'], description: 'Run the Auth API family.' },
+        { tokens: ['api', 'conversations'], kind: 'api', category: 'conversations', profile: 'anonymous', families: ['conversations'], description: 'Run safe in-memory conversation coverage.' },
+        { tokens: ['api', 'read-auth'], kind: 'api', category: 'read-auth', profile: 'authenticated', categories: ['read', 'authenticatedRead'], description: 'Run authenticated read coverage without writes.' },
+        { tokens: ['api', 'report'], kind: 'api-report', description: 'Show the last redacted API report summary.' },
+        { tokens: ['api', 'ai', 'paid'], kind: 'api-blocked', category: 'ai', profile: 'paid-ai', categories: ['ai'], includeAi: true, description: 'Open the paid-AI profile; confirmation is required before requests.' },
+        { tokens: ['api', 'mutate'], kind: 'api-blocked', category: 'mutating', profile: 'mutating', categories: ['mutating'], includeMutating: true, description: 'Open reversible mutation controls; confirmation is required.' },
+        { tokens: ['api', 'admin'], kind: 'api-blocked', category: 'adminWrite', profile: 'disposable-admin', categories: ['adminWrite'], includeAdminWrites: true, description: 'Open disposable-admin controls; both confirmations are required.' },
+        { tokens: ['api', 'import'], kind: 'api-blocked', category: 'upload', profile: 'disposable-import', categories: ['upload'], includeImport: true, description: 'Open durable import controls; a ZIP fixture and both confirmations are required.' },
+        { tokens: ['api', 'slow'], kind: 'api-blocked', category: 'slow', profile: 'slow', categories: ['slow'], includeAi: true, includeSlow: true, description: 'Open slow comparison controls; cost confirmation is required.' },
+        { tokens: ['api', 'logout'], kind: 'api-blocked', category: 'logout', profile: 'logout', categories: ['logout'], includeLogout: true, description: 'Open logout controls; confirmation is required and logout runs after cleanup.' }
+    ]);
+
     /**************************************************************/
     /**
      * Handles slash commands entered in the chat input.
@@ -199,15 +242,13 @@ const MedRecProChat = (function () {
      */
     /**************************************************************/
     async function handleSlashCommand(input) {
-        const command = input.toLowerCase().trim();
-
-        // /test - Run JavaScript unit tests
-        if (command === '/test' || command.startsWith('/test ')) {
-            await executeTestCommand();
+        const testCommand = parseTestCommand(input);
+        if (testCommand) {
+            await executeTestCommand(input, testCommand);
             return { handled: true };
         }
 
-        // /help - Show available commands
+        const command = input.toLowerCase().trim();
         if (command === '/help' || command === '/?') {
             await executeHelpCommand();
             return { handled: true };
@@ -215,6 +256,27 @@ const MedRecProChat = (function () {
 
         // Unknown command - let it pass through as regular message
         return { handled: false };
+    }
+
+    /**************************************************************/
+    /**
+     * Parses only an exact first-token /test command and resolves it through the catalog.
+     *
+     * @param {string} input Raw chat input.
+     * @returns {Object|null} Parsed command with a catalog specification, or null for non-test input.
+     */
+    /**************************************************************/
+    function parseTestCommand(input) {
+        const raw = String(input || '').trim();
+        const tokens = raw.split(/\s+/);
+        if (tokens[0].toLowerCase() !== '/test') return null;
+
+        const commandTokens = tokens.slice(1).map(token => token.toLowerCase());
+        const specification = TEST_COMMANDS.find(candidate =>
+            candidate.tokens.length === commandTokens.length &&
+            candidate.tokens.every((token, index) => token === commandTokens[index])
+        );
+        return { raw: raw, tokens: commandTokens, specification: specification || null };
     }
 
     /**************************************************************/
@@ -229,14 +291,14 @@ const MedRecProChat = (function () {
      * @see TestRunner.runAllTests - The test execution engine
      */
     /**************************************************************/
-    async function executeTestCommand() {
+    async function executeTestCommand(rawInput, parsed) {
         console.log('[executeTestCommand] Starting test command execution');
 
         // Create user message showing the command
         const userMessage = {
             id: ChatUtils.generateUUID(),
             role: 'user',
-            content: '/test',
+            content: rawInput || '/test',
             timestamp: new Date()
         };
 
@@ -262,6 +324,63 @@ const MedRecProChat = (function () {
         console.log('[executeTestCommand] Initial render complete');
 
         try {
+            const specification = parsed && parsed.specification;
+            if (!specification) {
+                completeTestMessage(assistantMessage.id, `**Unknown test command.**\n\n${formatTestHelp()}`);
+                return;
+            }
+            if (specification.kind === 'help') {
+                completeTestMessage(assistantMessage.id, formatTestHelp());
+                return;
+            }
+            if (specification.kind === 'api-help') {
+                completeTestMessage(assistantMessage.id, formatApiHelp());
+                return;
+            }
+
+            const siteTests = window.MedRecProTests;
+            if (specification.kind === 'api-report') {
+                const report = siteTests && typeof siteTests.getLastApiReport === 'function' ? siteTests.getLastApiReport() : null;
+                completeTestMessage(assistantMessage.id, report ? formatApiReportSummary(report) : '**API report not available.** Run an API category first.');
+                return;
+            }
+            if (specification.kind === 'chat' && specification.category !== 'all') {
+                ChatState.updateMessage(assistantMessage.id, { progressStatus: 'Running JavaScript unit test category...' });
+                MessageRenderer.updateMessage(assistantMessage.id);
+                completeTestMessage(assistantMessage.id, formatClientResult('Chat ' + specification.category, await TestRunner.runCategoryTests(specification.category)));
+                return;
+            }
+            if (specification.kind === 'ui') {
+                if (!siteTests || typeof siteTests.runUiTests !== 'function') throw new Error('UI test facade is unavailable.');
+                completeTestMessage(assistantMessage.id, formatClientResult('UI ' + specification.category, siteTests.runUiTests(specification.category)));
+                return;
+            }
+            if (specification.kind === 'client') {
+                if (!siteTests || typeof siteTests.runUiTests !== 'function') throw new Error('UI test facade is unavailable.');
+                const chatResult = await TestRunner.runAllTests();
+                const uiResult = siteTests.runUiTests('all');
+                const failed = chatResult.failed + uiResult.failed;
+                completeTestMessage(assistantMessage.id, `**Client test run complete:** ${failed === 0 ? 'PASS' : 'FAIL'}\n\n${formatClientResult('Chat', chatResult)}\n\n${formatClientResult('UI', uiResult)}`);
+                return;
+            }
+            if (specification.kind === 'api' || specification.kind === 'api-blocked') {
+                if (!isLoopbackTestHost()) {
+                    completeTestMessage(assistantMessage.id, '**API diagnostic blocked.** API test commands run only on localhost, 127.0.0.1, or ::1.');
+                    return;
+                }
+                if (!siteTests || typeof siteTests.runApiTests !== 'function') throw new Error('API test facade is unavailable.');
+                const options = createApiCommandOptions(rawInput, specification);
+                if (specification.kind === 'api-blocked') {
+                    if (typeof siteTests.openApiPanel === 'function') siteTests.openApiPanel(options);
+                    completeTestMessage(assistantMessage.id, '**Opt-in API profile selected but blocked.** The endpoint panel is open; supply the required confirmation(s), disposable-data attestation where applicable, and an import ZIP before starting any requests.');
+                    return;
+                }
+                ChatState.updateMessage(assistantMessage.id, { progressStatus: 'Starting endpoint diagnostic; details stream in the endpoint panel...' });
+                MessageRenderer.updateMessage(assistantMessage.id);
+                completeTestMessage(assistantMessage.id, formatApiReportSummary(await siteTests.runApiTests(options)));
+                return;
+            }
+
             // Show progress
             ChatState.updateMessage(assistantMessage.id, {
                 progressStatus: 'Running JavaScript unit tests...'
@@ -314,6 +433,49 @@ const MedRecProChat = (function () {
             UIHelpers.updateUI();
             console.log('[executeTestCommand] Complete');
         }
+    }
+
+    function completeTestMessage(messageId, content) {
+        ChatState.updateMessage(messageId, { content: content, isStreaming: false, progressStatus: undefined });
+        MessageRenderer.updateMessage(messageId);
+    }
+
+    function createApiCommandOptions(command, specification) {
+        return {
+            profile: specification.profile || 'anonymous', categories: specification.categories || null,
+            families: specification.families || null, testIds: specification.testIds || null,
+            includeAi: !!specification.includeAi, includeMutating: !!specification.includeMutating,
+            includeAdminWrites: !!specification.includeAdminWrites, includeImport: !!specification.includeImport,
+            includeLogout: !!specification.includeLogout, includeSlow: !!specification.includeSlow,
+            selection: { source: 'chatSlash', command: command, category: specification.category || null, profile: specification.profile || 'anonymous' }
+        };
+    }
+
+    function isLoopbackTestHost() {
+        return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+    }
+
+    function formatClientResult(label, result) {
+        const outcome = result.failed === 0 ? 'PASS' : 'FAIL';
+        const skipped = result.skipped ? `, ${result.skipped} skipped` : '';
+        return `**${label}: ${outcome}** ${result.passed}/${result.total} passed${skipped}.\n\n${result.summary || ''}`;
+    }
+
+    function formatApiReportSummary(report) {
+        const summary = report.summary || {};
+        const coverage = report.endpointCoverage || {};
+        return `**API diagnostic complete:** ${summary.failed === 0 ? 'PASS' : 'FAIL'}\n\n- Passed: ${summary.passed || 0}\n- Failed: ${summary.failed || 0}\n- Skipped: ${summary.skipped || 0}\n- Accounted: ${coverage.accounted || 0}\n- Invoked: ${coverage.invoked || 0}\n- Positive contracts: ${coverage.positive || 0}\n- Safety exclusions: ${coverage.safetyExcluded || 0}\n- Cleanup failures: ${(report.cleanup || {}).failed || 0}`;
+    }
+
+    function formatTestHelp() {
+        const lines = TEST_COMMANDS.filter(command => command.tokens.length < 3 || command.tokens[0] !== 'api').map(command => `- \`/test${command.tokens.length ? ' ' + command.tokens.join(' ') : ''}\`: ${command.description}`);
+        lines.push('- `/test api help`: API profiles, prerequisites, and confirmation rules.');
+        return `**Test commands**\n\n${lines.join('\n')}`;
+    }
+
+    function formatApiHelp() {
+        const lines = TEST_COMMANDS.filter(command => command.tokens[0] === 'api').map(command => `- \`/test ${command.tokens.join(' ')}\`: ${command.description}`);
+        return `**API test commands**\n\n${lines.join('\n')}\n\nSafe API commands require loopback. Profile A also requires an anonymous preflight. Opt-in profiles never start from chat alone; the panel requires \`RUN CONFIRMED COST OR MUTATION\`, and admin/import also require \`DISPOSABLE LOCAL DATABASE CONFIRMED\`.`;
     }
 
     /**************************************************************/

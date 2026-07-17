@@ -1,4 +1,4 @@
-﻿# Journal
+# Journal
 ### 2026-02-24 12:25 PM EST — Orange Book Patent Import Service
 Created `OrangeBookPatentParsingService.cs` for importing FDA Orange Book patent.txt data. The service follows the same patterns as `OrangeBookProductParsingService`: tilde-delimited file parsing, batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based natural key lookup, and progress reporting via callbacks.
 
@@ -6227,9 +6227,100 @@ Planning-only session; no repository code changed. Authored `(pending) MedRecPro
 
 ---
 
+### 2026-07-17 10:58 AM EST — Static Site Full Endpoint Integration Test Plan
+
+Planning session, no repo code changed. Inventoried all 21 MedRecPro API controllers (~14,800 lines) with five parallel exploration agents and produced a complete catalog of the 120 HTTP endpoints (routes, params, return DTOs, status codes, auth gates, side effects, example values, data-dependency chains). Authored `(pending) MedRecPro Static Site Full Endpoint Integration Test Plan.md` in the Plans folder: expands `MedRecProStatic/wwwroot/js/site-tests.js` into a browser-run integration suite that calls every endpoint with a streaming on-screen results panel. Key design decisions: default run is anonymous/zero-cost/zero-write (protected and Claude-billed endpoints proven via 401/403/400/302 contract assertions), opt-in flags upgrade to AI positives and self-reverting write chains, seed-discovery phase chains real GUIDs/codes between endpoints, and a Development-only tarpit override neutralizes the `/api/` 10-requests-per-300s endpoint monitoring that would otherwise add ~40 minutes of delay to a full run. Findings surfaced during inventory: `DeleteUser` 403 fall-through security bug (fix task raised separately), unauthenticated `clearmanagedcache` mutation, anonymous Claude-billed AI endpoints, and six doc-vs-code discrepancies the tests will encode as actual behavior.
+
+---
+
+### 2026-07-17 10:59 AM EST — DeleteUser 403 Authorization Fall-Through Fix
+
+Fixed the authorization bug in `MedRecPro/Controllers/UsersController.cs` `DeleteUser` (DELETE api/Users/{encryptedUserId}) flagged in the endpoint inventory: the non-admin, non-self branch computed `StatusCode(403)` but never returned it, so execution fell through to the soft-delete. In practice `UserDataAccess.DeleteAsync` has a defense-in-depth admin-or-self check that blocked the actual delete, but unauthorized callers received a misleading 400 instead of 403 and the controller-level gate was broken. Fix: `return` the 403 result and log a warning, matching the sibling activity endpoints' style. Audited every other admin-or-self check in the controller (hasUserAdminStatus, GetUserActivity, GetUserActivityByDateRange, endpoint statistics, GetAllUsers, RotatePassword) — all correctly return or gate; DeleteUser was the only fall-through. Added `MedRecProTest/Unit/Security/DeleteUserAuthorizationTests.cs` (4 MSTest tests, in-memory EF + real UserDataAccess + claims-backed controller context): forbidden caller gets 403 and target is NOT soft-deleted; Admin, User Admin, and self callers still delete successfully (204 + DeletedAt set). Verified the regression test fails (400 ≠ 403) against the unfixed code, then re-applied the fix. Full run green: 2,352 unit tests passed (1 pre-existing skip) plus 137 architecture/contract tests.
+
+---
+
+### 2026-07-17 11:40 AM EST — Swagger Description Plan Fitness Review
+
+Reviewed and revised `(pending) MedRecPro Swagger Description Single-Source Conciseness and Collapsible Sections Plan.md` against the live `C:\Source\MedRecProSuite` checkout on branch `controller-organization-dto-refactor`.
+
+**Evaluation.** Confirmed the core single-source embedded-markdown design and fail-open collapsible-section approach are fit for purpose for the repository's .NET 8 / Swashbuckle.AspNetCore 6.6.2 stack.
+
+**Clarifications.** Replaced unsupported documentation absolutes with consumer-facing qualified wording, removed literal route walkthroughs that conflict with Debug/Release server-prefix composition, pinned sectionization to the inner `.description > .renderedMarkdown` root, defined shared refresh scheduling and unique ARIA targets, added automated demo-mode/heading/line-budget coverage, adopted the canonical verification script, strengthened full hosted-document invariants, and corrected the completion journal target to the parent of the resolved Git root.
+
+**Verification.** Published source and target SHA-256 hashes matched at `47940DF0EE191E6F8495BA04145E7A0952AF14E585072D53187DB441B584348E`. Direct key-section and contradiction scans passed. This was a planning-only session; no application code changed and no build or test suite was run.
+
+---
+
+### 2026-07-17 12:36 PM EST — Swagger Description Single-Source and Collapsible Sections
+Implemented the saved Swagger description plan in `C:\Source\MedRecProSuite`, then refined its collapsed section headers from the live Swagger UI feedback.
+
+**Implementation.** Made [SwaggerDocs.txt](MedRecProSuite/MedRecPro/SwaggerDocs.txt) the embedded runtime source with targeted demo/environment/server substitutions and a safe fallback, then reduced the overview to 34 consumer-facing lines without stale route walkthroughs. Extended [swagger-tag-families.js](MedRecProSuite/MedRecPro/Views/Stylesheets/swagger-tag-families.js) with keyboard-accessible, ARIA-linked, collapsed-by-default description sections and added hosted description contracts.
+
+**Style refinement.** Updated [swagger-tag-families.css](MedRecProSuite/MedRecPro/Views/Stylesheets/swagger-tag-families.css) so section headings explicitly use `font-size: large`, reset their default margins, use a 1.25 line height, and leave only a 4px gap between collapsed headers. Expanded-body spacing remains unchanged.
+
+**Verification.** Targeted Swagger description tests passed 3/3; DebugContract and ReleaseContract passed 49/49 each; Full passed 2,730 tests with 1 existing skip and a 0-warning/0-error build. The final focused command, `dotnet test .\MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~SwaggerUi_HostedPage_LoadsTagFamilyHierarchyAssets"`, passed 1/1. OpenAPI snapshots remain unchanged and `git diff --check` is clean. The in-app browser kernel remains unavailable because of sandbox setup failure, so the manual screenshot/DOM smoke checklist is environment-limited.
+
+---
+
+### 2026-07-17 1:18 PM EST — Static Endpoint Integration Test Runner Phases 0–1
+Implemented runner Phases 0 and 1 from the saved static-site full endpoint integration test plan in `C:\Source\MedRecProSuite`.
+
+**Phase 0.** Extended [site-tests.js](MedRecProSuite/MedRecProStatic/wwwroot/js/site-tests.js) with an audited 120-operation manifest at source revision `32eb21213d026d6de67d3dba8b3c3aec8a6a1642`, reachability/feature/auth/AI-context preflight, same-origin Swagger drift comparison, cross-origin `notObservable` handling, explicit operator-attested tarpit mode, run cancellation, and an evidence/report ledger.
+
+**Phase 1.** Added scored seed discovery for Label documents, AE products/classes/systems, Label section/application/labeler/ingredient data, bounded NDC probes, and the loopback-only in-memory AI conversation. Conversation cleanup is registered immediately and executes LIFO in `finally`; empty data and disabled features are explicit SKIPs.
+
+**Safety and presentation.** Added an on-demand streaming diagnostics panel with redacted response excerpts/report export and conservative active/unknown tarpit pacing. Exposed `MedRecProTests.runApiTests(...)` and `runEverything(...)` without changing the legacy `runAll()` implementation. Deferred Phase 1a chat routing and all Phase 2+ endpoint coverage.
+
+**Verification.** `node --check MedRecProStatic/wwwroot/js/site-tests.js`, a direct manifest count (120), and `git diff --check` passed. `dotnet build MedRecProStatic/MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\static-phase01\` succeeded with 0 errors and one pre-existing nullable warning at `Views/Home/Index.cshtml:245`; the temporary output was removed. Live browser/API execution was not available in this session.
+
+---
+
+### 2026-07-17 1:51 PM EST - Modularize Static Endpoint Test Runner
+Refactored the completed Phase 0-1 browser endpoint diagnostic in `C:\Source\MedRecProSuite` into focused, documented classic scripts.
+
+**Module boundaries.** Kept the legacy DOM harness in [site-tests.js](MedRecProSuite/MedRecProStatic/wwwroot/js/site-tests.js), and moved audited inventory, panel rendering, runtime/transport/reporting, Phase 0-1 definitions, and facade wiring into [wwwroot/js/site-tests](MedRecProSuite/MedRecProStatic/wwwroot/js/site-tests). Updated [_Layout.cshtml](MedRecProSuite/MedRecProStatic/Views/Shared/_Layout.cshtml) to load those modules in manifest-to-bootstrap dependency order.
+
+**Compatibility.** Preserved `MedRecProTests.runAll()`, `runApiTests(...)`, and `runEverything(...)`; the runtime now exposes the narrow registration contract required by the extracted Phase definitions. Added the repository's JSDoc/file-header convention to the split browser scripts.
+
+**Verification.** `node --check` passed for every script; a no-network classic-script load simulation confirmed the ordered modules expose the legacy facade, runtime, Phase registration, and 120-operation manifest. `git diff --check` passed. `dotnet build MedRecProStatic/MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\static-phase01-split\` passed with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`; temporary build output was removed. The live browser/API run remains environment-dependent and was not claimed.
+
+---
+
+### 2026-07-17 2:20 PM EST — Static Endpoint Integration Test Runner Phases 2–3
+Implemented Phases 2 and 3 from the saved static-site endpoint integration plan in `C:\Source\MedRecProSuite`.
+
+**Phase 2.** Extended `api-phases.js` with safe public-read contracts across AE, Orange Book, Label, Settings, and AI conversation lifecycle endpoints. The runner now records pagination/chart headers as same-origin-only evidence, validates XML/markdown contracts, preserves AE feature-disabled `503` behavior, derives correlation-cell inputs from map/heatmap responses, and fails acceptance on unexpected skipped seed evidence.
+
+**Phase 3.** Added validation, route-constraint, capped deliberate-404, anonymous authorization-gate, OAuth manual-redirect, and safety-exclusion coverage. Protected writes are suppressed for authenticated profiles, and `clearmanagedcache` is explicitly recorded as the sole non-invoked shared-state safety exclusion. The preflight now proves all 120 audited operations have a registered definition.
+
+**Inventory and verification.** Stamped the manifest with source revision `32eb21213d026d6de67d3dba8b3c3aec8a6a1642` and a `2026-07-17T14:16:36-04:00` audit time, with the host-side Swagger-verifier command documented beside the manifest. `node --check` passed for manifest, runner, and phase modules; a no-network classic-script load simulation confirmed 120 audited and 120 mapped operations; direct regex inventory comparison found 0 missing and 0 stale definitions; `git diff --check` passed; and `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\static-phase23\` completed with 0 warnings and 0 errors. The host-side Swagger verifier was attempted but the local API at `localhost:5093` was not running, so no live browser/API result was claimed.
+
+---
+
 ### 2026-07-17 2:28 PM EST - Static Endpoint Integration Test Runner Phases 2-3
 Implemented Phases 2 and 3 of the saved static-site endpoint integration test plan. Added public read coverage across AE, Orange Book, Label, Settings, and AI lifecycle contracts; validation, route-constraint, capped 404, anonymous auth-gate, OAuth redirect, and safety-exclusion coverage; same-origin observability assertions; and a preflight check that all 120 audited operations map to registered definitions.
 
 **Verification.** All endpoint scripts passed `node --check`; a no-network classic-script simulation confirmed 120 audited and 120 mapped operations; static manifest comparison found no missing or stale definitions; and `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\static-phase23\` succeeded with 0 warnings and 0 errors. The live host-side Swagger verifier was attempted but `localhost:5093` was not running.
+
+---
+
+
+### 2026-07-17 3:26 PM EST - Complete static-site endpoint integration diagnostic
+Completed the remaining static-site endpoint integration plan in `C:\Source\MedRecProSuite`.
+
+**Implementation.** Added exact categorized `/test` routing in [chat/index.js](MedRecProSuite/MedRecProStatic/wwwroot/js/chat/index.js), fresh client and page-aware UI test categories, fixed API command profiles, and the Phase 4 opt-in controls. The endpoint runner now keeps paid, mutation, admin, import, slow, and logout paths blocked until their explicit prerequisites are supplied; it restores favorite state in cleanup, records durable/non-reverting effects, hashes a selected import ZIP, validates the returned import progress URL, and polls to a terminal state. Development configuration disables endpoint monitoring only in the Development environment.
+
+**Verification.** `node --check` passed for the legacy suite, all five endpoint modules, `chat/util-test.js`, and `chat/index.js`; the Development JSON parsed; `git diff --check` passed; an ordered no-network classic-script simulation preserved the facade and found 162 variants over 120 unique audited operations; and `dotnet build MedRecProStatic/MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\static-full-endpoint-tests` succeeded with 0 warnings and 0 errors. The temporary build output was removed. Live Profile A-D execution remains unclaimed because the local API/static-site pair, test login, and disposable import data were not started for this session.
+
+---
+
+### 2026-07-17 3:39 PM EST - Restore chat endpoint-test facade
+Restored the chat page's endpoint-test command surface and simplified the displayed command help.
+
+**Root cause.** [Chat.cshtml](MedRecProStatic/Views/Home/Chat.cshtml) intentionally uses `Layout = null`, so it bypassed the shared layout's ordered `site-tests` scripts. The chat module therefore had no `MedRecProTests.runApiTests` facade when `/test api safe` or `/test api smoke` ran. Added the legacy harness, manifest, panel, runner, phases, and bootstrap scripts directly before the chat ES module.
+
+**Help output.** [index.js](MedRecProStatic/wwwroot/js/chat/index.js) now separates commands from their descriptions with `:` rather than `?` in both general and API help output.
+
+**Verification.** `node --check MedRecProStatic/wwwroot/js/chat/index.js` passed; static source validation confirmed all seven chat-page dependencies exist in order and no question-mark help delimiter remains; a no-network classic-script simulation exposed `runAll`, `runUiTests`, `runApiTests`, and `openApiPanel`; `git diff --check` passed; and `dotnet build MedRecProStatic/MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\chat-test-facade` succeeded with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`. The temporary output was removed. A direct local probe of `http://localhost:5001/chat` returned 404, so a running-host verification was not claimed.
 
 ---

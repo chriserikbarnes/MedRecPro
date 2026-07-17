@@ -2,7 +2,7 @@
 /**
  * MedRecPro API Test Runtime Module
  *
- * @fileoverview Owns safe browser-origin transport, run state, reporting, cleanup, and Phase 0–1 orchestration for the endpoint diagnostic.
+ * @fileoverview Owns safe browser-origin transport, run state, reporting, cleanup, profile filtering, and Phase 0–4 orchestration for the endpoint diagnostic.
  *
  * @description Consumes the audited manifest and panel factory, while allowing phase scripts to register definitions through a narrow runtime surface.
  *
@@ -37,6 +37,8 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     var TEST_REGISTRY = [];
     var activeRun = null;
     var lastReport = null;
+    var COST_OR_MUTATION_CONFIRMATION = 'RUN CONFIRMED COST OR MUTATION';
+    var DISPOSABLE_DATA_CONFIRMATION = 'DISPOSABLE LOCAL DATABASE CONFIRMED';
 
     /**************************************************************/
 
@@ -115,16 +117,22 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             tarpitMode: 'unknown',
             includeAi: false,
             includeMutating: false,
+            includeCacheClear: false,
             includeAdminWrites: false,
             includeImport: false,
             includeLogout: false,
             includeSlow: false,
             conversationLifecycle: isLoopbackHost(),
             confirmations: { costOrMutation: null, disposableData: null },
+            importFile: null,
+            sectionFixture: null,
             interRequestDelayMs: 100,
             requestTimeoutMs: 30000,
             stopOnFirstFail: false,
             groups: null,
+            categories: null,
+            families: null,
+            testIds: null,
             profile: 'anonymous',
             selection: { source: 'console' }
         };
@@ -135,6 +143,46 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             : 'unknown';
         merged.apiBase = getApiBase(merged.apiBase);
         return merged;
+    }
+
+    /**************************************************************/
+    /**
+     * Checks the exact operator confirmation phrases required before paid or durable probes run.
+     *
+     * @param {Object} run Active diagnostic state.
+     * @param {boolean} requiresDisposableData Whether the durable-data attestation is additionally required.
+     * @returns {boolean} True only when the relevant operator confirmations are exact.
+     */
+    /**************************************************************/
+    function hasRequiredConfirmation(run, requiresDisposableData) {
+        var confirmations = run.options.confirmations || {};
+        var costOrMutation = String(confirmations.costOrMutation || '').trim() === COST_OR_MUTATION_CONFIRMATION;
+        var disposable = String(confirmations.disposableData || '').trim() === DISPOSABLE_DATA_CONFIRMATION;
+        return costOrMutation && (!requiresDisposableData || disposable);
+    }
+    /**************************************************************/
+    /**
+     * Computes the SHA-256 identity of an operator-selected import fixture without uploading it.
+     *
+     * @param {File} importFile Selected disposable SPL ZIP fixture.
+     * @returns {Promise<string|null>} Lowercase SHA-256 hex digest, or null when Web Crypto is unavailable.
+     */
+    /**************************************************************/
+    async function getImportFixtureSha256(importFile) {
+        if (!importFile || !window.crypto || !window.crypto.subtle || typeof importFile.arrayBuffer !== 'function') return null;
+        var digest = await window.crypto.subtle.digest('SHA-256', await importFile.arrayBuffer());
+        return Array.prototype.map.call(new Uint8Array(digest), function (value) { return value.toString(16).padStart(2, '0'); }).join('');
+    }
+
+    function isPhaseFourCategorySelected(run, definition) {
+        var category = definition.category || '';
+        if (Array.isArray(run.options.categories) && run.options.categories.length) return run.options.categories.indexOf(category) >= 0;
+        return (category === 'ai' && run.options.includeAi) ||
+            (category === 'mutating' && run.options.includeMutating) ||
+            (category === 'adminWrite' && run.options.includeAdminWrites) ||
+            (category === 'upload' && run.options.includeImport) ||
+            (category === 'slow' && run.options.includeSlow) ||
+            (category === 'logout' && run.options.includeLogout);
     }
 
     /**************************************************************/
@@ -615,7 +663,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
                 startedAt: new Date().toISOString(),
                 durationMs: 0,
                 cancelled: false,
-                options: Object.assign({}, options, { confirmations: undefined }),
+                options: Object.assign({}, options, {
+                    confirmations: undefined,
+                    importFile: options.importFile ? { name: options.importFile.name, size: options.importFile.size, type: options.importFile.type } : null
+                }),
                 environment: {
                     pageOrigin: window.location.origin,
                     apiBase: options.apiBase || '(same-origin)',
@@ -651,6 +702,9 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
                     safetyExcluded: 0
                 },
                 cleanup: { attempted: 0, succeeded: 0, failed: 0, details: [] },
+                cost: { declaredMaximumAiCalls: 4, positiveAiCalls: 0, warning: 'Paid AI calls remain disabled until the exact confirmation phrase is supplied.' },
+                fixtures: { import: options.importFile ? { name: options.importFile.name, size: options.importFile.size, type: options.importFile.type, sha256: null } : null, section: options.sectionFixture || null },
+                findings: [],
                 summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
                 groups: [],
                 tests: [],
@@ -675,7 +729,8 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
 
     function apiFetch(run, spec) {
         var requestController = new AbortController();
-        var timeoutId = window.setTimeout(function () { requestController.abort('timeout'); }, run.options.requestTimeoutMs);
+        var requestTimeoutMs = spec.requestTimeoutMs || run.options.requestTimeoutMs;
+        var timeoutId = window.setTimeout(function () { requestController.abort('timeout'); }, requestTimeoutMs);
         var abortFromRun = function () { requestController.abort('aborted'); };
         run.controller.signal.addEventListener('abort', abortFromRun, { once: true });
         var url = toUrl(spec.path, run.options.apiBase, spec.query);
@@ -687,7 +742,9 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             signal: requestController.signal,
             headers: Object.assign({ Accept: 'application/json' }, spec.headers || {})
         };
-        if (spec.body !== null && typeof spec.body !== 'undefined') {
+        if (spec.formData) {
+            requestOptions.body = spec.formData;
+        } else if (spec.body !== null && typeof spec.body !== 'undefined') {
             requestOptions.body = typeof spec.body === 'string' ? spec.body : JSON.stringify(spec.body);
             if (!requestOptions.headers['Content-Type']) requestOptions.headers['Content-Type'] = 'application/json';
         }
@@ -886,7 +943,37 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
 
     /**************************************************************/
 
+    function getDefinitionCategory(definition) {
+        if (definition.category) return definition.category;
+        if (definition.phase === 2) return 'read';
+        if (definition.phase === 3) return definition.evidenceKind === 'authGate' ? 'authGate' : 'contract';
+        if (definition.id && definition.id.indexOf('seed.ai.conversation') === 0) return 'safeWrite';
+        return definition.phase === 0 ? 'preflight' : 'seed';
+    }
+
+    function getDefinitionFamilies(definition) {
+        var value = String(definition.operationKey || definition.path || definition.id || '').toLowerCase();
+        if (value.indexOf('/adverseevent') >= 0 || value.indexOf('.ae.') >= 0) return ['ae'];
+        if (value.indexOf('/orangebook') >= 0 || value.indexOf('.orangebook.') >= 0) return ['orangebook'];
+        if (value.indexOf('/label') >= 0 || value.indexOf('.label.') >= 0) return ['label'];
+        if (value.indexOf('/settings') >= 0 || value.indexOf('.settings.') >= 0) return ['settings'];
+        if (value.indexOf('/ai/conversations') >= 0 || value.indexOf('.ai.conversation') >= 0) return ['ai', 'conversations'];
+        if (value.indexOf('/ai') >= 0 || value.indexOf('.ai.') >= 0) return ['ai'];
+        if (value.indexOf('/users') >= 0 || value.indexOf('.users.') >= 0) return ['users'];
+        if (value.indexOf('/auth') >= 0 || value.indexOf('.auth.') >= 0) return ['auth'];
+        return ['preflight'];
+    }
+
+    function intersects(left, right) {
+        return left.some(function (value) { return right.indexOf(value) >= 0; });
+    }
+
     function shouldRunTest(run, definition) {
+        if (definition.phase === 4) return isPhaseFourCategorySelected(run, definition);
+        if (definition.phase === 0 || definition.phase === 1) return true;
+        if (Array.isArray(run.options.testIds) && run.options.testIds.length) return run.options.testIds.indexOf(definition.id) >= 0;
+        if (Array.isArray(run.options.families) && run.options.families.length && !intersects(getDefinitionFamilies(definition), run.options.families)) return false;
+        if (Array.isArray(run.options.categories) && run.options.categories.length && run.options.categories.indexOf(getDefinitionCategory(definition)) < 0) return false;
         if (!run.options.groups) return true;
         var selected = Array.isArray(run.options.groups) ? run.options.groups : [run.options.groups];
         return selected.indexOf(definition.group) >= 0;
@@ -938,6 +1025,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             settleRecord(run, record, 'skip', { skipReason: 'Run cancelled before request.', assertions: [createAssertion('Cancellation', 'skip', 'No request issued.')] });
             return record;
         }
+
         if (definition.when && !definition.when(run)) {
             settleRecord(run, record, 'skip', { skipReason: definition.skipReason || 'Not applicable to this profile.', assertions: [createAssertion('Profile applicability', 'skip', definition.skipReason || 'Not applicable.')] });
             return record;
@@ -951,6 +1039,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
 
         if (definition.run) {
             var customResult = await definition.run(run, definition, record);
+            if (customResult.provides) Object.assign(run.context, customResult.provides);
             settleRecord(run, record, customResult.outcome, customResult);
             return record;
         }
@@ -1109,11 +1198,15 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             getPanel().renderRun(run, 'Profile A paused: an authenticated session was detected. Use a private window or explicitly select Profile B in a future phase.');
             return false;
         }
+        if (run.options.profile === 'authenticated' && !run.context.authenticated) {
+            getPanel().renderRun(run, 'Profile B paused: no authenticated session was detected. Sign in on localhost and rerun this read-only profile.');
+            return false;
+        }
         return true;
     }
 
-    async function runRegisteredPhase(run, phase) {
-        var definitions = TEST_REGISTRY.filter(function (test) { return test.phase === phase && shouldRunTest(run, test); });
+    async function runRegisteredPhase(run, phase, afterCleanup) {
+        var definitions = TEST_REGISTRY.filter(function (test) { return test.phase === phase && !!test.afterCleanup === !!afterCleanup && shouldRunTest(run, test); });
         for (var index = 0; index < definitions.length; index++) {
             if (run.controller.signal.aborted) break;
             var record = await executeTest(run, definitions[index]);
@@ -1146,6 +1239,21 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         getPanel().renderRun(activeRun, 'Cancellation requested; cleanup will still run.');
     }
 
+    /**************************************************************/
+    /**
+     * Opens the diagnostic panel with a fixed chat-selected profile, without issuing requests.
+     *
+     * @param {Object} options Non-sensitive profile selection.
+     * @returns {Object} Active on-demand panel.
+     */
+    /**************************************************************/
+    function openApiPanel(options) {
+        var normalized = getDefaultOptions(options);
+        getPanel().configureFromCommand(normalized);
+        getPanel().setSummary('Profile selected but blocked until the required confirmation(s) and fixture controls are supplied.');
+        return getPanel().ensurePanel();
+    }
+
     async function runApiTests(options) {
         if (activeRun && !activeRun.controller.signal.aborted) cancelActiveRun();
         var run = createRun(getDefaultOptions(options));
@@ -1155,6 +1263,15 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         currentPanel.groups = {};
         currentPanel.tarpit.value = run.options.tarpitMode;
         currentPanel.conversation.checked = run.options.conversationLifecycle;
+        if (run.options.includeImport && run.options.importFile) {
+            getPanel().renderRun(run, 'Computing the selected durable import fixture SHA-256 before any request is issued.');
+            try {
+                run.report.fixtures.import.sha256 = await getImportFixtureSha256(run.options.importFile);
+                if (!run.report.fixtures.import.sha256) run.report.findings.push('Import was not started because Web Crypto could not record the fixture SHA-256.');
+            } catch (error) {
+                run.report.findings.push('Import was not started because fixture SHA-256 computation failed: ' + String(error));
+            }
+        }
         getPanel().renderRun(run, 'Starting Phase 0 preflight and inventory evidence.');
         console.group('MedRecPro API Integration Tests');
 
@@ -1171,11 +1288,18 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
                     getPanel().renderRun(run, 'Starting Phase 3 contract, negative, and auth-gate coverage.');
                     await runRegisteredPhase(run, 3);
                 }
+                if (!run.controller.signal.aborted) {
+                    getPanel().renderRun(run, 'Starting selected Phase 4 opt-in coverage.');
+                    await runRegisteredPhase(run, 4, false);
+                }
             }
         } finally {
             await runCleanup(run);
+            if (canSeed && !run.controller.signal.aborted) {
+                await runRegisteredPhase(run, 4, true);
+            }
             refreshReport(run);
-            getPanel().renderRun(run, run.report.cancelled ? 'Run cancelled; cleanup completed.' : 'Phases 0-3 completed.');
+            getPanel().renderRun(run, run.report.cancelled ? 'Run cancelled; cleanup completed.' : 'Phases 0-4 completed.');
             lastReport = run.report;
             if (activeRun === run) activeRun = null;
             console.groupEnd();
@@ -1222,5 +1346,5 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     } else {
         initializeQueryTrigger();
     }
-    return Object.freeze({runApiTests:runApiTests,cancelActiveRun:cancelActiveRun,getLastReport:function(){return lastReport;},isLocalDevelopment:isLocalDevelopment,initializeQueryTrigger:initializeQueryTrigger,auditedOperations:AUDITED_OPERATION_MANIFEST,defineTest:defineTest,createAssertion:createAssertion,normalizeOperationKey:normalizeOperationKey,apiFetch:apiFetch,responseResult:responseResult,isLoopbackHost:isLoopbackHost,arraySeed:arraySeed,findValue:findValue,firstItem:firstItem,hasValue:hasValue,expectStatus:expectStatus,expectJsonNumber:expectJsonNumber,expectFields:expectFields,expectObservableHeader:expectObservableHeader,expectPagedHeaders:expectPagedHeaders,expectContentType:expectContentType,expectXmlDocument:expectXmlDocument,expectAttachment:expectAttachment,expectRedirectProbe:expectRedirectProbe,extractEncryptedId:extractEncryptedId,isFeatureDisabled:isFeatureDisabled,registerCleanup:registerCleanup,waitForPacing:waitForPacing,getRegisteredOperationKeys:getRegisteredOperationKeys});
+    return Object.freeze({runApiTests:runApiTests,openApiPanel:openApiPanel,cancelActiveRun:cancelActiveRun,getLastReport:function(){return lastReport;},isLocalDevelopment:isLocalDevelopment,initializeQueryTrigger:initializeQueryTrigger,auditedOperations:AUDITED_OPERATION_MANIFEST,defineTest:defineTest,createAssertion:createAssertion,normalizeOperationKey:normalizeOperationKey,apiFetch:apiFetch,responseResult:responseResult,isLoopbackHost:isLoopbackHost,arraySeed:arraySeed,findValue:findValue,firstItem:firstItem,hasValue:hasValue,expectStatus:expectStatus,expectJsonNumber:expectJsonNumber,expectFields:expectFields,expectObservableHeader:expectObservableHeader,expectPagedHeaders:expectPagedHeaders,expectContentType:expectContentType,expectXmlDocument:expectXmlDocument,expectAttachment:expectAttachment,expectRedirectProbe:expectRedirectProbe,extractEncryptedId:extractEncryptedId,isFeatureDisabled:isFeatureDisabled,registerCleanup:registerCleanup,waitForPacing:waitForPacing,hasRequiredConfirmation:hasRequiredConfirmation,getRegisteredOperationKeys:getRegisteredOperationKeys});
 })(window.MedRecProApiTestManifest,window.MedRecProApiTestPanel);

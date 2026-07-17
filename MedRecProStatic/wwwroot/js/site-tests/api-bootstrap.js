@@ -30,6 +30,8 @@
     }
 
     siteTests.runApiTests = runtime.runApiTests;
+    siteTests.openApiPanel = runtime.openApiPanel;
+    siteTests.getLastApiReport = runtime.getLastReport;
     siteTests.runEverything = runEverything;
     runtime.initializeQueryTrigger();
 })(window.MedRecProTests, window.MedRecProApiTestRuntime);

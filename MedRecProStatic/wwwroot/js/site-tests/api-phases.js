@@ -1,8 +1,8 @@
 /**************************************************************/
 /**
- * MedRecPro API Test Phase 0–1 Definitions
+ * MedRecPro API Test Phase Registry
  *
- * @fileoverview Registers browser-origin preflight and seed-discovery definitions with the shared API test runtime.
+ * @fileoverview Registers browser-origin Phase 0–4 definitions, including confirmation-gated paid and mutating probes.
  *
  * @description Keeps phase-specific endpoint expectations separate from manifest, UI, and execution mechanics.
  *
@@ -27,6 +27,7 @@
     var expectStatus=runtime.expectStatus;
     var registerCleanup=runtime.registerCleanup;
     var waitForPacing=runtime.waitForPacing;
+    var hasRequiredConfirmation=runtime.hasRequiredConfirmation;
 
     /**************************************************************/
     /**
@@ -131,7 +132,7 @@
             var serialized = authenticated ? JSON.stringify(response.body || {}) : '';
             var isAdmin = authenticated && /\badmin\b/i.test(serialized);
             return {
-                outcome: 'pass', response: response, provides: { authenticated: authenticated, isAdmin: isAdmin },
+                outcome: 'pass', response: response, provides: { authenticated: authenticated, isAdmin: isAdmin, currentEncryptedUserId: authenticated ? findValue(response.body, ['EncryptedUserId'], 2) : null },
                 assertions: [status, createAssertion('Authentication state', 'pass', authenticated ? 'Authenticated session detected.' : 'Verified anonymous (401).')]
             };
         }
@@ -508,6 +509,8 @@
     registerArrayRead({id:'read.ai.conversationHistory',operationKey:'GET /api/Ai/conversations/{conversationId}/history',name:'Read loopback test conversation history',path:'/api/ai/conversations/{conversationId}/history',requires:['conversationId'],request:function(context){return {method:'GET',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)+'/history'};}});
     registerObjectRead({id:'read.ai.conversationStats',operationKey:'GET /api/Ai/conversations/stats',name:'Read conversation statistics literal route',path:'/api/ai/conversations/stats'});
     defineTest({id:'read.ai.deleteConversation',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',operationKey:'DELETE /api/Ai/conversations/{conversationId}',name:'Delete loopback test conversation',method:'DELETE',path:'/api/ai/conversations/{conversationId}',expectedStatus:[200],requires:['conversationId'],request:function(context){return {method:'DELETE',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)};},evaluate:function(response){return responseResult(response,{status:[200]});}});
+    defineTest({id:'read.authenticated.aeFavorites',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/AdverseEvent/products/favorites',name:'Read authenticated AE favorites',method:'GET',path:'/api/adverseevent/products/favorites',expectedStatus:[200],when:function(run){return run.options.profile==='authenticated' && !!run.context.authenticated;},skipReason:'Runs only for the authenticated read profile.',request:{method:'GET',path:'/api/adverseevent/products/favorites',query:{pageNumber:1,pageSize:25}},evaluate:function(response){if(response.status===503){return {outcome:'pass',response:response,positiveContractVerified:false,assertions:[expectStatus(response,[503]),createAssertion('AE feature gate','pass','Favorites are unavailable while the AE dashboard feature is disabled.')]};}return responseResult(response,{status:[200],jsonArray:true});}});
+    defineTest({id:'read.authenticated.currentUser',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/Users/me',name:'Read authenticated current user',method:'GET',path:'/api/users/me',expectedStatus:[200],when:function(run){return run.options.profile==='authenticated' && !!run.context.authenticated;},skipReason:'Runs only for the authenticated read profile.',request:{method:'GET',path:'/api/users/me'},evaluate:function(response){return responseResult(response,{status:[200],jsonObject:true});}});
     defineTest({id:'phase2.seedCompleteness',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',name:'Require complete seeded data evidence before accepting read coverage',internal:function(run){var incomplete=run.report.tests.filter(function(test){return test.id.indexOf('seed.')===0 && test.outcome==='skip' && !(test.id.indexOf('seed.ae.')===0 && /Feature is disabled/.test(test.skipReason || ''));}); var passed=!incomplete.length; return {outcome:passed?'pass':'fail',positiveContractVerified:passed,assertions:[createAssertion('Seed completeness',passed?'pass':'fail',passed?'All required seed evidence is available.':'Unexpected skipped seed definitions: '+incomplete.map(function(test){return test.id;}).join(', ')+'.')]};}});
     defineTest({id:'read.auth.externalLogin',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',operationKey:'GET /api/Auth/external-login',name:'Read external-login information',method:'GET',path:'/api/auth/external-login',expectedStatus:[200],request:{method:'GET',path:'/api/auth/external-login',headers:{Accept:'text/plain'}},evaluate:function(response){return responseResult(response,{status:[200]});}});
     /**************************************************************/
@@ -600,4 +603,141 @@
     registerAnonymousGate({id:'gate.auth.logout',operationKey:'POST /api/Auth/logout',name:'Gate anonymous logout',method:'POST',path:'/api/auth/logout'});
     registerAnonymousGate({id:'gate.auth.login',operationKey:'GET /api/Auth/login',name:'Return login-required instruction',path:'/api/auth/login'});
     registerAnonymousGate({id:'gate.auth.accessDenied',operationKey:'GET /api/Auth/accessdenied',name:'Return access-denied gate',path:'/api/auth/accessdenied'});
+
+    /**************************************************************/
+    /**
+     * Phase 4 opt-in definitions. Every paid, mutating, or durable request is loopback-only,
+     * requires an exact operator confirmation, and is absent from the safe default profile.
+     */
+    /**************************************************************/
+    function canRunCostOrMutation(run) {
+        return isLoopbackHost() && hasRequiredConfirmation(run, false);
+    }
+    /**************************************************************/
+    /**
+     * Validates an accepted import response before issuing any progress request.
+     *
+     * @param {Object} run Active diagnostic run.
+     * @param {Object} response Accepted import response.
+     * @returns {{operationId: string, progressPath: string}|null} Safe progress address, or null when malformed.
+     */
+    /**************************************************************/
+    function getImportProgressTarget(run, response) {
+        var operationId = findValue(response.body, ['OperationId'], 3);
+        var progressUrl = findValue(response.body, ['ProgressUrl'], 3);
+        if (!hasValue(operationId) || !hasValue(progressUrl)) return null;
+        try {
+            var apiOrigin = new URL(run.options.apiBase || window.location.origin).origin;
+            var resolved = new URL(String(progressUrl), apiOrigin);
+            if (resolved.origin !== apiOrigin || !/^\/api\/label\/import\/progress\//i.test(resolved.pathname)) return null;
+            return { operationId: String(operationId), progressPath: resolved.pathname + resolved.search };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**************************************************************/
+    /**
+     * Waits between import-progress requests while allowing the diagnostic to be cancelled.
+     *
+     * @param {Object} run Active diagnostic run.
+     * @param {number} delayMs Delay before the next poll.
+     * @returns {Promise<void>} Resolves when the delay or cancellation completes.
+     */
+    /**************************************************************/
+    function waitForImportPoll(run, delayMs) {
+        return new Promise(function (resolve) {
+            if (!delayMs || run.controller.signal.aborted) { resolve(); return; }
+            var timeoutId = window.setTimeout(complete, delayMs);
+            function complete() {
+                window.clearTimeout(timeoutId);
+                run.controller.signal.removeEventListener('abort', complete);
+                resolve();
+            }
+            run.controller.signal.addEventListener('abort', complete, { once: true });
+        });
+    }
+
+    /**************************************************************/
+    /**
+     * Polls a queued import to a terminal status within a bounded wall-clock budget.
+     *
+     * @param {Object} run Active diagnostic run.
+     * @returns {Promise<Object>} Endpoint-test result for the terminal import state.
+     */
+    /**************************************************************/
+    async function pollImportToTerminal(run) {
+        var deadline = Date.now() + 120000;
+        var delayMs = run.options.tarpitMode === 'disabled' ? 1000 : 15000;
+        var attempt = 0;
+        var lastResponse = null;
+        while (Date.now() < deadline && !run.controller.signal.aborted) {
+            await waitForImportPoll(run, attempt ? delayMs : 0);
+            if (run.controller.signal.aborted) break;
+            attempt++;
+            lastResponse = await apiFetch(run, { method: 'GET', path: run.context.importProgressPath, requestTimeoutMs: 30000 });
+            if (lastResponse.status === 404 && !lastResponse.transportError) continue;
+            var result = responseResult(lastResponse, { status: [200], jsonObject: true, fields: ['Status', 'OperationId'] });
+            if (result.outcome !== 'pass') return result;
+            var status = String(findValue(lastResponse.body, ['Status'], 3) || '').toLowerCase();
+            if (status === 'completed') {
+                result.assertions.push(createAssertion('Terminal import status', 'pass', 'Import completed after ' + attempt + ' poll(s).'));
+                result.positiveContractVerified = true;
+                return result;
+            }
+            if (status === 'failed' || status === 'canceled') {
+                result.assertions.push(createAssertion('Terminal import status', 'fail', 'Import ended with status ' + status + '.'));
+                result.outcome = 'fail';
+                result.positiveContractVerified = false;
+                return result;
+            }
+        }
+        if (run.controller.signal.aborted) {
+            return { outcome: 'skip', response: lastResponse, skipReason: 'Run cancelled while polling import progress.', assertions: [createAssertion('Import polling', 'skip', 'No further poll was issued after cancellation.')] };
+        }
+        return { outcome: 'fail', response: lastResponse, assertions: [createAssertion('Terminal import status', 'fail', 'Import did not reach Completed within the 120-second polling budget.')] };
+    }
+
+    function registerPaidAi(config) {
+        defineTest({
+            id: config.id, phase: 4, category: 'ai', group: 'Phase 4 paid AI', evidenceKind: 'positive',
+            operationKey: config.operationKey, name: config.name, method: config.method, path: config.path, expectedStatus: [200],
+            when: function (run) { return run.options.includeAi && canRunCostOrMutation(run); },
+            skipReason: 'Paid AI is loopback-only and requires the exact cost-or-mutation confirmation.',
+            request: config.request,
+            evaluate: function (response, context, run) {
+                run.report.cost.positiveAiCalls++;
+                run.report.cost.warning = 'Bounded paid-AI profile: at most four positive AI calls are declared for this run.';
+                return responseResult(response, { status: [200], jsonObject: true });
+            }
+        });
+    }
+
+    registerPaidAi({id:'paid.ai.interpret',operationKey:'POST /api/Ai/interpret',name:'Interpret a bounded paid AI prompt',method:'POST',path:'/api/ai/interpret',request:{method:'POST',path:'/api/ai/interpret',body:{userMessage:'What can you do?'}}});
+    registerPaidAi({id:'paid.ai.synthesize',operationKey:'POST /api/Ai/synthesize',name:'Synthesize one bounded endpoint result',method:'POST',path:'/api/ai/synthesize',request:{method:'POST',path:'/api/ai/synthesize',body:{originalQuery:'Summarize the system information.',executedEndpoints:[{specification:{method:'GET',path:'/api/settings/info'},statusCode:200,result:{available:true}}]}}});
+    registerPaidAi({id:'paid.ai.chat',operationKey:'GET /api/Ai/chat',name:'Run the bounded AI chat wrapper',method:'GET',path:'/api/ai/chat',request:{method:'GET',path:'/api/ai/chat',query:{message:'What can you do?'}}});
+    registerPaidAi({id:'paid.ai.retry',operationKey:'POST /api/Ai/retry',name:'Retry one bounded failed interpretation',method:'POST',path:'/api/ai/retry',request:{method:'POST',path:'/api/ai/retry',body:{originalRequest:{userMessage:'Find aspirin labels.'},failedResults:[{specification:{method:'GET',path:'/api/Label/product/search'},statusCode:400,error:'Synthetic bounded retry input.'}],attemptNumber:1}}});
+
+    defineTest({
+        id:'mutate.ae.favorite',phase:4,category:'mutating',group:'Phase 4 reversible mutation',evidenceKind:'positive',operationKey:'PUT /api/AdverseEvent/products/{documentGuid}/favorite',name:'Set and register restoration for an AE favorite',method:'PUT',path:'/api/adverseevent/products/{documentGuid}/favorite',expectedStatus:[204],requires:['aeDocumentGuidA'],
+        when:function(run){return run.options.includeMutating && !!run.context.authenticated && canRunCostOrMutation(run);},skipReason:'Favorite mutation requires a loopback authenticated profile and exact confirmation.',
+        run:async function(run){
+            var documentGuid=run.context.aeDocumentGuidA;
+            var existing=await apiFetch(run,{method:'GET',path:'/api/adverseevent/products/favorites',query:{pageNumber:1,pageSize:100}});
+            var existingResult=responseResult(existing,{status:[200],jsonArray:true});
+            if(existingResult.outcome!=='pass') return existingResult;
+            var originallyFavorite=(existing.body || []).some(function(item){return String(findValue(item,['DocumentGUID','DocumentGuid'],2) || '').toLowerCase()===String(documentGuid).toLowerCase();});
+            run.context.favoriteMutationDocumentGuid=documentGuid;
+            registerCleanup(run,'Restore AE favorite state',function(){return apiFetch(run,{method:originallyFavorite?'PUT':'DELETE',path:'/api/adverseevent/products/'+encodeURIComponent(documentGuid)+'/favorite'});});
+            return responseResult(await apiFetch(run,{method:'PUT',path:'/api/adverseevent/products/'+encodeURIComponent(documentGuid)+'/favorite'}),{status:[204]});
+        }
+    });
+    defineTest({id:'mutate.ae.unfavorite',phase:4,category:'mutating',group:'Phase 4 reversible mutation',evidenceKind:'positive',operationKey:'DELETE /api/AdverseEvent/products/{documentGuid}/favorite',name:'Clear the tested AE favorite before cleanup restoration',method:'DELETE',path:'/api/adverseevent/products/{documentGuid}/favorite',expectedStatus:[204],requires:['favoriteMutationDocumentGuid'],when:function(run){return run.options.includeMutating && !!run.context.authenticated && canRunCostOrMutation(run);},skipReason:'Favorite mutation requires a loopback authenticated profile and exact confirmation.',request:function(context){return {method:'DELETE',path:'/api/adverseevent/products/'+encodeURIComponent(context.favoriteMutationDocumentGuid)+'/favorite'};},evaluate:function(response){return responseResult(response,{status:[204]});}});
+    defineTest({id:'mutate.settings.clearManagedCache',phase:4,category:'mutating',group:'Phase 4 non-reverting mutation',evidenceKind:'positive',operationKey:'POST /api/Settings/clearmanagedcache',name:'Clear managed cache only after a separate local opt-in',method:'POST',path:'/api/settings/clearmanagedcache',expectedStatus:[200],when:function(run){return run.options.includeMutating && run.options.includeCacheClear && canRunCostOrMutation(run);},skipReason:'Managed-cache clearing requires the mutation profile, the separate cache-clear control, and exact confirmation.',run:async function(run){run.report.findings.push('Managed cache was explicitly cleared; this effect is non-reverting.');return responseResult(await apiFetch(run,{method:'POST',path:'/api/settings/clearmanagedcache'}),{status:[200],jsonObject:true});}});
+
+    defineTest({id:'optin.admin.fixtureUnavailable',phase:4,category:'adminWrite',group:'Phase 4 disposable admin',evidenceKind:'safetyExcluded',name:'Keep admin Section CRUD gate-only until a deterministic fixture is configured',internal:function(){return {outcome:'skip',skipReason:'No deterministic disposable Section CRUD fixture is configured; admin writes remain gate-only.',assertions:[createAssertion('Disposable Section fixture','skip','No synthetic Section payload is assumed safe.')]};}});
+    defineTest({id:'optin.import.fixture',phase:4,category:'upload',group:'Phase 4 durable import',evidenceKind:'positive',operationKey:'POST /api/Label/import',name:'Queue a selected disposable SPL ZIP import',method:'POST',path:'/api/label/import',expectedStatus:[202],when:function(run){return run.options.includeImport && !!run.context.authenticated && !!run.options.importFile && !!(run.report.fixtures.import && run.report.fixtures.import.sha256) && hasRequiredConfirmation(run,true) && isLoopbackHost();},skipReason:'Import requires loopback authentication, both confirmations, a selected ZIP fixture, and a recorded SHA-256.',run:async function(run){var form=new FormData();form.append('files',run.options.importFile,run.options.importFile.name);run.report.findings.push('Import is durable and is not claimed to be self-reverting.');var response=await apiFetch(run,{method:'POST',path:'/api/label/import',formData:form,requestTimeoutMs:120000});var result=responseResult(response,{status:[202],jsonObject:true,fields:['OperationId','ProgressUrl']});var target=getImportProgressTarget(run,response);if(!target){result.outcome='fail';result.positiveContractVerified=false;result.assertions.push(createAssertion('Import progress target','fail','Accepted import response did not provide a safe same-origin Label import progress URL.'));return result;}result.assertions.push(createAssertion('Import progress target','pass','Validated the returned Label import progress URL.'));result.provides={importOperationId:target.operationId,importProgressPath:target.progressPath};return result;}});
+    defineTest({id:'optin.import.progress',phase:4,category:'upload',group:'Phase 4 durable import',evidenceKind:'positive',operationKey:'GET /api/Label/import/progress/{operationId}',name:'Poll the durable SPL ZIP import to a terminal state',method:'GET',path:'/api/label/import/progress/{operationId}',expectedStatus:[200],requires:['importOperationId','importProgressPath'],when:function(run){return run.options.includeImport && !!run.context.authenticated && hasRequiredConfirmation(run,true) && isLoopbackHost();},skipReason:'Import progress requires the accepted disposable import operation.',run:pollImportToTerminal});
+    defineTest({id:'optin.slow.comparison',phase:4,category:'slow',group:'Phase 4 slow comparison',evidenceKind:'positive',operationKey:'GET /api/Label/comparison/analysis/{documentGuid}',name:'Run the bounded slow comparison positive',method:'GET',path:'/api/label/comparison/analysis/{documentGuid}',expectedStatus:[200],requires:['labelDocumentGuid'],when:function(run){return run.options.includeSlow && run.options.includeAi && canRunCostOrMutation(run);},skipReason:'Slow comparison requires the paid-AI profile and exact confirmation.',request:function(context){return {method:'GET',path:'/api/label/comparison/analysis/'+encodeURIComponent(context.labelDocumentGuid),requestTimeoutMs:120000};},evaluate:function(response){return responseResult(response,{status:[200],jsonObject:true});}});
+    defineTest({id:'optin.auth.logout',phase:4,afterCleanup:true,category:'logout',group:'Phase 4 logout',evidenceKind:'positive',operationKey:'POST /api/Auth/logout',name:'Log out only after all cleanup is complete',method:'POST',path:'/api/auth/logout',expectedStatus:[200,204],when:function(run){return run.options.includeLogout && !!run.context.authenticated && canRunCostOrMutation(run);},skipReason:'Logout requires an authenticated loopback profile and exact confirmation.',request:{method:'POST',path:'/api/auth/logout'},evaluate:function(response){return responseResult(response,{status:[200,204]});}});
 })(window.MedRecProApiTestRuntime);

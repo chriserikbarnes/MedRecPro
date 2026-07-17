@@ -42,8 +42,9 @@ window.MedRecProApiTestPanel=(function(){
         var root = document.createElement('aside');
         root.id = 'mrp-test-panel';
         root.className = 'mrp-test-panel';
-        root.innerHTML = '<header><h2>MedRecPro endpoint diagnostic</h2><div class="mrp-test-actions"><button type="button" data-mrp-action="run">Run phases 0?1</button><button type="button" data-mrp-action="abort">Abort</button><button type="button" data-mrp-action="close">Close</button></div></header><div class="mrp-test-meta"><div data-mrp="environment"></div><div class="mrp-test-progress"><span data-mrp="progress"></span></div><div class="mrp-test-counters" data-mrp="counters">PASS 0 ? FAIL 0 ? SKIP 0</div></div><div class="mrp-test-options"><label>Tarpit <select data-mrp="tarpit"><option value="unknown">unknown / conservative</option><option value="active">active / conservative</option><option value="disabled">disabled (operator attested)</option></select></label><label><input type="checkbox" data-mrp="conversation" checked> conversation lifecycle</label><label><input type="checkbox" data-mrp="ai"> paid AI (Phase 4)</label><label><input type="checkbox" data-mrp="mutating"> mutation (Phase 4)</label><input data-mrp="confirmation" placeholder="confirmation required in Phase 4"></div><div class="mrp-test-list" data-mrp="list"></div><footer><span data-mrp="summary">Panel opened; no requests issued.</span><div class="mrp-test-actions"><button type="button" data-mrp-filter="all">All</button><button type="button" data-mrp-filter="fail">Failed</button><button type="button" data-mrp-filter="skip">Skipped</button><button type="button" data-mrp-action="copy">Copy JSON report</button></div></footer>';
+        root.innerHTML = '<header><h2>MedRecPro endpoint diagnostic</h2><div class="mrp-test-actions"><button type="button" data-mrp-action="run">Run selected profile</button><button type="button" data-mrp-action="abort">Abort</button><button type="button" data-mrp-action="close">Close</button></div></header><div class="mrp-test-meta"><div data-mrp="environment"></div><div class="mrp-test-progress"><span data-mrp="progress"></span></div><div class="mrp-test-counters" data-mrp="counters">PASS 0 ? FAIL 0 ? SKIP 0</div></div><div class="mrp-test-options"><label>Tarpit <select data-mrp="tarpit"><option value="unknown">unknown / conservative</option><option value="active">active / conservative</option><option value="disabled">disabled (operator attested)</option></select></label><label><input type="checkbox" data-mrp="conversation" checked> conversation lifecycle</label><label><input type="checkbox" data-mrp="ai"> paid AI (Phase 4)</label><label><input type="checkbox" data-mrp="mutating"> mutation (Phase 4)</label><input data-mrp="confirmation" placeholder="confirmation required in Phase 4"></div><div class="mrp-test-list" data-mrp="list"></div><footer><span data-mrp="summary">Panel opened; no requests issued.</span><div class="mrp-test-actions"><button type="button" data-mrp-filter="all">All</button><button type="button" data-mrp-filter="fail">Failed</button><button type="button" data-mrp-filter="skip">Skipped</button><button type="button" data-mrp-action="copy">Copy JSON report</button></div></footer>';
         document.body.appendChild(root);
+        root.querySelector('.mrp-test-options').insertAdjacentHTML('beforeend', '<label><input type="checkbox" data-mrp="cache-clear"> clear managed cache (non-reverting)</label><label><input type="checkbox" data-mrp="admin"> disposable admin</label><label><input type="checkbox" data-mrp="import"> durable import</label><label><input type="checkbox" data-mrp="slow"> slow comparison</label><label><input type="checkbox" data-mrp="logout"> logout after cleanup</label><input data-mrp="disposable-confirmation" placeholder="DISPOSABLE LOCAL DATABASE CONFIRMED"><input type="file" data-mrp="import-file" accept=".zip,application/zip">');
 
         panel = {
             root: root,
@@ -56,6 +57,14 @@ window.MedRecProApiTestPanel=(function(){
             conversation: root.querySelector('[data-mrp="conversation"]'),
             ai: root.querySelector('[data-mrp="ai"]'),
             mutating: root.querySelector('[data-mrp="mutating"]'),
+            cacheClear: root.querySelector('[data-mrp="cache-clear"]'),
+            admin: root.querySelector('[data-mrp="admin"]'),
+            import: root.querySelector('[data-mrp="import"]'),
+            slow: root.querySelector('[data-mrp="slow"]'),
+            logout: root.querySelector('[data-mrp="logout"]'),
+            importFile: root.querySelector('[data-mrp="import-file"]'),
+            disposableConfirmation: root.querySelector('[data-mrp="disposable-confirmation"]'),
+            commandOptions: {},
             filter: 'all',
             groups: {},
             queued: [],
@@ -74,11 +83,22 @@ window.MedRecProApiTestPanel=(function(){
             if (action === 'abort') callbacks.cancel();
             if (action === 'copy') copyLastReport();
             if (action === 'run') {
-                callbacks.run({
+                callbacks.run(Object.assign({}, panel.commandOptions, {
                     tarpitMode: panel.tarpit.value,
                     conversationLifecycle: panel.conversation.checked,
-                    confirmations: { costOrMutation: root.querySelector('[data-mrp="confirmation"]').value || null }
-                });
+                    includeAi: panel.ai.checked,
+                    includeMutating: panel.mutating.checked,
+                    includeCacheClear: panel.cacheClear.checked,
+                    includeAdminWrites: panel.admin.checked,
+                    includeImport: panel.import.checked,
+                    includeSlow: panel.slow.checked,
+                    includeLogout: panel.logout.checked,
+                    importFile: panel.importFile.files && panel.importFile.files[0] ? panel.importFile.files[0] : null,
+                    confirmations: {
+                        costOrMutation: root.querySelector('[data-mrp="confirmation"]').value || null,
+                        disposableData: panel.disposableConfirmation.value || null
+                    }
+                }));
             }
         });
 
@@ -293,13 +313,20 @@ window.MedRecProApiTestPanel=(function(){
     function configureFromQuery(options){var currentPanel=ensurePanel();currentPanel.tarpit.value=options.tarpitMode;currentPanel.ai.checked=!!options.includeAi;currentPanel.mutating.checked=!!options.includeMutating;}
     /**************************************************************/
     /**
+     * Preselects a chat-command profile without issuing a request or retaining confirmation text.
+     *
+     * @param {Object} options Fixed command options selected by the chat router.
+     */
+    /**************************************************************/
+    function configureFromCommand(options){var currentPanel=ensurePanel();currentPanel.commandOptions=Object.assign({},options || {});currentPanel.tarpit.value=options.tarpitMode || currentPanel.tarpit.value;currentPanel.ai.checked=!!options.includeAi;currentPanel.mutating.checked=!!options.includeMutating;currentPanel.cacheClear.checked=!!options.includeCacheClear;currentPanel.admin.checked=!!options.includeAdminWrites;currentPanel.import.checked=!!options.includeImport;currentPanel.slow.checked=!!options.includeSlow;currentPanel.logout.checked=!!options.includeLogout;}    /**************************************************************/
+    /**
      * Displays a non-request informational message in the panel footer.
      *
      * @param {string} message Message to display.
      */
     /**************************************************************/
     function setSummary(message){ensurePanel().summary.textContent=message;}
-    return Object.freeze({ensurePanel:ensurePanel,reset:reset,configureFromQuery:configureFromQuery,setSummary:setSummary,renderRecord:renderRecord,renderRun:renderRun});
+    return Object.freeze({ensurePanel:ensurePanel,reset:reset,configureFromQuery:configureFromQuery,configureFromCommand:configureFromCommand,setSummary:setSummary,renderRecord:renderRecord,renderRun:renderRun});
     }
     return Object.freeze({create:create});
 })();

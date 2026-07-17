@@ -897,6 +897,65 @@ export const TestRunner = (function () {
 
     /**************************************************************/
     /**
+     * Runs a single, fresh chat-unit test category.
+     *
+     * @param {string} category One of utils, markdown, state, grouper, config, or all.
+     * @returns {Promise<Object>} Fresh category result with the standard summary shape.
+     */
+    /**************************************************************/
+    async function runCategoryTests(category) {
+        const selected = String(category || '').toLowerCase();
+        const categories = {
+            utils: { name: 'ChatUtils', run: data => runUtilsTests(data) },
+            markdown: { name: 'MarkdownRenderer', run: data => runMarkdownTests(data) },
+            state: { name: 'ChatState', run: () => runStateTests() },
+            grouper: { name: 'ResultGrouper', run: data => runResultGrouperTests(data) },
+            config: { name: 'ChatConfig', run: () => runConfigTests() }
+        };
+
+        if (selected === 'all') return runAllTests();
+        if (!categories[selected]) throw new Error(`Unknown chat test category "${category}".`);
+
+        console.log(`[TestRunner] Starting ${selected} category test run...`);
+        resetResults();
+        const data = await loadTestData();
+        const definition = categories[selected];
+        try {
+            definition.run(data);
+        } catch (error) {
+            console.error(`[TestRunner] Category ${definition.name} threw an error:`, error);
+            recordResult(
+                definition.name,
+                'Category execution',
+                false,
+                `Category threw an unhandled error: ${error.message}`
+            );
+        }
+
+        return createRunResult(selected);
+    }
+
+    /**************************************************************/
+    /**
+     * Creates a result snapshot after a fresh all-module or single-category chat test run.
+     *
+     * @param {string} category Executed category label.
+     * @returns {Object} Snapshot suitable for the chat response.
+     */
+    /**************************************************************/
+    function createRunResult(category) {
+        return {
+            category: category,
+            passed: testResults.passed,
+            failed: testResults.failed,
+            total: testResults.total,
+            results: testResults.results.slice(),
+            summary: formatSummary()
+        };
+    }
+
+    /**************************************************************/
+    /**
      * Runs all tests for all modules.
      *
      * @returns {Promise<Object>} Complete test results with summary
@@ -935,13 +994,7 @@ export const TestRunner = (function () {
 
         console.log(`[TestRunner] Test run complete: ${testResults.passed}/${testResults.total} passed`);
 
-        return {
-            passed: testResults.passed,
-            failed: testResults.failed,
-            total: testResults.total,
-            results: testResults.results,
-            summary: formatSummary()
-        };
+        return createRunResult('all');
     }
 
     /**************************************************************/
@@ -1018,6 +1071,7 @@ export const TestRunner = (function () {
     return {
         // Main test runner
         runAllTests: runAllTests,
+        runCategoryTests: runCategoryTests,
 
         // Individual module test runners
         runUtilsTests: runUtilsTests,

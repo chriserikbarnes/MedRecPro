@@ -257,5 +257,79 @@ var MedRecProTests = (function () {
         return results;
     }
 
-    return { runAll: runAll };
+    /**************************************************************/
+    /**
+     * Runs one bounded UI smoke-test category without changing the legacy aggregate suite.
+     *
+     * @param {string} category Named UI category: all, navigation, footer, behavior, chat, mcp-docs, or mcp-setup.
+     * @returns {Object} Fresh category result with named not-applicable outcomes for page-specific categories.
+     *
+     * @remarks
+     * The slash-command router uses this entry point so a command never navigates the user merely to
+     * satisfy a page-specific assertion. The established runAll() behavior is intentionally preserved.
+     */
+    /**************************************************************/
+    function runUiTests(category) {
+        var selected = String(category || 'all').toLowerCase();
+        var knownCategories = ['all', 'navigation', 'footer', 'behavior', 'chat', 'mcp-docs', 'mcp-setup'];
+        if (knownCategories.indexOf(selected) < 0) {
+            return createNotApplicableResult(selected, 'one of: ' + knownCategories.slice(1).join(', ') + '.');
+        }
+
+        var requires = {
+            chat: '.chat-page',
+            'mcp-docs': '.mcp-page',
+            'mcp-setup': '.feature-grid-mcp'
+        };
+        if (requires[selected] && !document.querySelector(requires[selected])) {
+            return createNotApplicableResult(selected, 'the page containing ' + requires[selected] + '.');
+        }
+
+        results = { passed: 0, failed: 0, tests: [] };
+        if (selected === 'all' || selected === 'navigation') testNavigation();
+        if (selected === 'all' || selected === 'footer') testFooter();
+        if (selected === 'all' || selected === 'behavior') {
+            testScrollAnimations();
+            testNavbarScrollBehavior();
+        }
+        if ((selected === 'all' && document.querySelector('.chat-page')) || selected === 'chat') testChatPage();
+        if ((selected === 'all' && document.querySelector('.mcp-page')) || selected === 'mcp-docs') testMcpDocsPage();
+        if ((selected === 'all' && document.querySelector('.feature-grid-mcp')) || selected === 'mcp-setup') testMcpSetupPage();
+
+        var total = results.passed + results.failed;
+        return {
+            category: selected,
+            passed: results.passed,
+            failed: results.failed,
+            skipped: 0,
+            total: total,
+            tests: results.tests.slice(),
+            summary: 'UI ' + selected + ': ' + results.passed + '/' + total + ' passed.'
+        };
+    }
+
+    /**************************************************************/
+    /**
+     * Creates a visible, non-failing result for a UI category that requires another MVC page.
+     *
+     * @param {string} category Requested UI category.
+     * @param {string} requirement Required page selector or supported-category guidance.
+     * @returns {Object} Not-applicable category report.
+     */
+    /**************************************************************/
+    function createNotApplicableResult(category, requirement) {
+        var message = 'Not applicable on this page; requires ' + requirement;
+        return {
+            category: category,
+            passed: 0,
+            failed: 0,
+            skipped: 1,
+            total: 0,
+            notApplicable: true,
+            tests: [{ name: 'UI ' + category, passed: null, skipped: true, message: message }],
+            summary: 'UI ' + category + ': SKIP - ' + message
+        };
+    }
+
+    return { runAll: runAll, runUiTests: runUiTests };
 })();
