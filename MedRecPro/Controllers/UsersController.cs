@@ -1617,7 +1617,9 @@ namespace MedRecPro.Controllers
             if (!isAuthorized)
             {
                 // Caller cannot delete this user.
-                StatusCode(StatusCodes.Status403Forbidden, "You are not authorized.");
+                _logger.LogWarning("Non-admin user {UserId} attempted to delete user {TargetUserId}",
+                    claimsUser.Id, targetUser.Id);
+                return StatusCode(StatusCodes.Status403Forbidden, "You are not authorized.");
             }
 
             #endregion

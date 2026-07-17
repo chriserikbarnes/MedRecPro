@@ -6216,3 +6216,13 @@ Added a defensive AE dashboard favorites lookup and its regression coverage for 
 **Verification.** `dotnet test MedRecProTest\MedRecProTest.csproj --no-restore --filter "FullyQualifiedName~GetAeFavoriteDrugSummariesAsync_DuplicateCatalogDocumentGuid_ReturnsSingleFavorite" --logger "console;verbosity=minimal"` passed: 1 passed, 0 failed, 0 skipped. The complete `AeDashboardFavoriteAccessTests` class passed: 6 passed, 0 failed, 0 skipped.
 
 ---
+
+### 2026-07-17 10:54 AM EST - Authored Swagger Description Single-Source and Collapsible Sections Plan
+
+Planning-only session; no repository code changed. Authored `(pending) MedRecPro Swagger Description Single-Source Conciseness and Collapsible Sections Plan.md` in the Plans folder (`C:\Users\chris\OneDrive\Documents\Repos\Plans`).
+
+**Key findings baked into the plan.** The Swagger UI description is the inline `$@"..."` string at `MedRecProSwaggerExtensions.cs:91-387`; `MedRecPro/SwaggerDocs.txt` has zero code references and has already drifted from it (ICH7-vs-FDA wording, comparison-endpoint text). The description documents `/api/labels/...` while the contract snapshots prove current routes are `/api/Label/...`, and it omits the AdverseEvent, Ai, OrangeBook, and Settings surfaces entirely. No test captures `info.description`, so a rewrite is snapshot-safe but currently unguarded.
+
+**Plan shape.** Phase 0 captures a baseline; Phase 1 makes `SwaggerDocs.txt` the runtime source (embedded resource + three-token substitution) with byte-identical hosted output; Phase 2 rewrites the content concise and accurate (~300 -> <=90 source lines, all seven API surfaces in a map, no per-endpoint duplication); Phase 3 extends `swagger-tag-families.js`/`.css` so each description `##` section collapses (collapsed by default, demo banner excluded, tag-family behavior and its test-pinned literals preserved); Phase 4 adds hosted description contract tests, asset-marker assertions, and Release-configuration verification.
+
+---
