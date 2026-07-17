@@ -6333,3 +6333,13 @@ Refined the static chat endpoint diagnostic to keep only the pacing control visi
 **Verification.** `node --check` passed for the panel, runner, and chat modules; focused source acceptance checks confirmed no retired controls or visible question-mark status text remain and that the help typography rules are present; `git diff --check` passed; and `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\endpoint-panel-cleanup` succeeded with 0 errors and the existing nullable warning at `Views\Home\Index.cshtml:245`. The temporary build output was removed.
 
 ---
+### 2026-07-17 5:31 PM EST - Correct API diagnostic selection, safe gate, and trace containment
+Corrected the static chat API diagnostic so commands no longer execute the same generic request sequence. Family selections now run only reachability/authentication plus their own seed and coverage definitions; smoke uses its one required Label seed; and the new `/test api all` command intentionally runs the complete non-destructive baseline, including protected reads when the browser is signed in.
+
+**Safety gate.** Anonymous safe commands now stop after the authentication gate when the browser already has a signed-in session. The panel and chat response explain the block and direct the operator to a private window or `/test api all`; the prior misleading PASS completion is no longer shown for a blocked safe run.
+
+**Trace layout.** Updated [api-panel.js](MedRecProStatic/wwwroot/js/site-tests/api-panel.js) so response `pre` blocks wrap long JSON, constrain their width, and cannot force the diagnostic panel beyond its bounds.
+
+**Verification.** An isolated Node runtime harness verified Label-family filtering, the two-request authenticated safe-test gate, and full-baseline execution for the all profile. `node --check` passed for `api-panel.js`, `api-runner.js`, `api-phases.js`, and `chat/index.js`; `git diff --check` passed; and `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\api-selection-gate` succeeded with 0 errors and the existing nullable warning at `Views\Home\Index.cshtml:245`. The temporary build output was removed.
+
+---

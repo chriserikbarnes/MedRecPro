@@ -197,10 +197,11 @@ const MedRecProChat = (function () {
         { tokens: ['help'], kind: 'help', description: 'Show this safe test-command catalog.' },
         { tokens: ['api'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
         { tokens: ['api', 'help'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
-        { tokens: ['api', 'smoke'], kind: 'api', category: 'smoke', profile: 'anonymous', testIds: ['read.ae.products', 'read.orangeBook.expiring', 'read.label.productSearch', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], description: 'Run a loopback-only bounded public API smoke.' },
+        { tokens: ['api', 'smoke'], kind: 'api', category: 'smoke', profile: 'anonymous', testIds: ['read.ae.products', 'read.orangeBook.expiring', 'read.label.productSearch', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], seedTestIds: ['seed.label.productLatest'], description: 'Run a loopback-only bounded public API smoke.' },
         { tokens: ['api', 'read'], kind: 'api', category: 'read', profile: 'anonymous', categories: ['read'], description: 'Run safe anonymous read coverage.' },
         { tokens: ['api', 'contract'], kind: 'api', category: 'contract', profile: 'anonymous', categories: ['contract'], description: 'Run safe validation, media, and route-contract coverage.' },
-        { tokens: ['api', 'safe'], kind: 'api', category: 'safe', profile: 'anonymous', categories: ['read', 'contract', 'authGate', 'safeWrite'], description: 'Run the complete safe anonymous Profile A diagnostic.' },
+        { tokens: ['api', 'safe'], kind: 'api', category: 'safe', profile: 'anonymous', categories: ['read', 'contract', 'authGate', 'safeWrite'], requireAnonymous: true, runFullPreflight: true, description: 'Run the complete safe anonymous Profile A diagnostic after the anonymous-session gate passes.' },
+        { tokens: ['api', 'all'], kind: 'api', category: 'all', profile: 'all', runFullPreflight: true, description: 'Run all non-destructive baseline API coverage, including authenticated reads when signed in.' },
         { tokens: ['api', 'ae'], kind: 'api', category: 'ae', profile: 'anonymous', families: ['ae'], description: 'Run the Adverse Event API family.' },
         { tokens: ['api', 'orangebook'], kind: 'api', category: 'orangebook', profile: 'anonymous', families: ['orangebook'], description: 'Run the Orange Book API family.' },
         { tokens: ['api', 'label'], kind: 'api', category: 'label', profile: 'anonymous', families: ['label'], description: 'Run the Label API family.' },
@@ -441,13 +442,16 @@ const MedRecProChat = (function () {
     }
 
     function createApiCommandOptions(command, specification) {
+        const profile = specification.profile || 'anonymous';
         return {
-            profile: specification.profile || 'anonymous', categories: specification.categories || null,
-            families: specification.families || null, testIds: specification.testIds || null,
+            profile: profile, categories: specification.categories || null,
+            families: specification.families || null, testIds: specification.testIds || null, seedTestIds: specification.seedTestIds || null,
+            runFullPreflight: !!specification.runFullPreflight,
+            requireAnonymous: specification.requireAnonymous === true || (profile === 'anonymous' && specification.requireAnonymous !== false),
             includeAi: !!specification.includeAi, includeMutating: !!specification.includeMutating,
             includeAdminWrites: !!specification.includeAdminWrites, includeImport: !!specification.includeImport,
             includeLogout: !!specification.includeLogout, includeSlow: !!specification.includeSlow,
-            selection: { source: 'chatSlash', command: command, category: specification.category || null, profile: specification.profile || 'anonymous' }
+            selection: { source: 'chatSlash', command: command, category: specification.category || null, profile: profile }
         };
     }
 
@@ -462,6 +466,7 @@ const MedRecProChat = (function () {
     }
 
     function formatApiReportSummary(report) {
+        if (report.blocked) return `**API diagnostic blocked:** ${report.blocked.message}`;
         const summary = report.summary || {};
         const coverage = report.endpointCoverage || {};
         return `**API diagnostic complete:** ${summary.failed === 0 ? 'PASS' : 'FAIL'}\n\n- Passed: ${summary.passed || 0}\n- Failed: ${summary.failed || 0}\n- Skipped: ${summary.skipped || 0}\n- Accounted: ${coverage.accounted || 0}\n- Invoked: ${coverage.invoked || 0}\n- Positive contracts: ${coverage.positive || 0}\n- Safety exclusions: ${coverage.safetyExcluded || 0}\n- Cleanup failures: ${(report.cleanup || {}).failed || 0}`;

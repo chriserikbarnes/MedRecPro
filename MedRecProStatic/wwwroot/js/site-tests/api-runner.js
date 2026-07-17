@@ -133,6 +133,9 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             categories: null,
             families: null,
             testIds: null,
+            seedTestIds: null,
+            runFullPreflight: false,
+            requireAnonymous: false,
             profile: 'anonymous',
             selection: { source: 'console' }
         };
@@ -663,6 +666,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
                 startedAt: new Date().toISOString(),
                 durationMs: 0,
                 cancelled: false,
+                blocked: null,
                 options: Object.assign({}, options, {
                     confirmations: undefined,
                     importFile: options.importFile ? { name: options.importFile.name, size: options.importFile.size, type: options.importFile.type } : null
@@ -970,7 +974,12 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
 
     function shouldRunTest(run, definition) {
         if (definition.phase === 4) return isPhaseFourCategorySelected(run, definition);
-        if (definition.phase === 0 || definition.phase === 1) return true;
+        if (definition.phase === 0) return false;
+        if (definition.phase === 1) {
+            if (Array.isArray(run.options.seedTestIds) && run.options.seedTestIds.length) return run.options.seedTestIds.indexOf(definition.id) >= 0;
+            if (Array.isArray(run.options.families) && run.options.families.length) return intersects(getDefinitionFamilies(definition), run.options.families);
+            return !(Array.isArray(run.options.testIds) && run.options.testIds.length);
+        }
         if (Array.isArray(run.options.testIds) && run.options.testIds.length) return run.options.testIds.indexOf(definition.id) >= 0;
         if (Array.isArray(run.options.families) && run.options.families.length && !intersects(getDefinitionFamilies(definition), run.options.families)) return false;
         if (Array.isArray(run.options.categories) && run.options.categories.length && run.options.categories.indexOf(getDefinitionCategory(definition)) < 0) return false;
@@ -1184,24 +1193,28 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         var reachability = await executeTest(run, getTest('preflight.reachability'));
         if (reachability.outcome !== 'pass') return false;
 
-        await executeTest(run, getTest('preflight.manifest'));
-        await executeTest(run, getTest('preflight.openapi'));
-        var features = await executeTest(run, getTest('preflight.features'));
-        if (features.outcome === 'pass') run.report.environment.featureFlags = run.context.featureFlags;
         var auth = await executeTest(run, getTest('preflight.auth'));
         if (auth.outcome !== 'pass') return false;
         run.report.environment.authenticated = !!run.context.authenticated;
         run.report.environment.isAdmin = !!run.context.isAdmin;
-        await executeTest(run, getTest('preflight.aiContext'));
 
-        if (run.options.profile === 'anonymous' && run.context.authenticated) {
-            getPanel().renderRun(run, 'Profile A paused: an authenticated session was detected. Use a private window or explicitly select Profile B in a future phase.');
+        if (run.options.requireAnonymous && run.context.authenticated) {
+            run.report.blocked = { code: 'safe-tests-require-anonymous', message: 'Safe API tests were not started because this browser has an authenticated session. Use a private window or run `/test api all` for baseline coverage.' };
+            getPanel().renderRun(run, run.report.blocked.message);
             return false;
         }
         if (run.options.profile === 'authenticated' && !run.context.authenticated) {
-            getPanel().renderRun(run, 'Profile B paused: no authenticated session was detected. Sign in on localhost and rerun this read-only profile.');
+            run.report.blocked = { code: 'authenticated-tests-require-login', message: 'Authenticated read coverage was not started because no authenticated session was detected.' };
+            getPanel().renderRun(run, run.report.blocked.message);
             return false;
         }
+        if (!run.options.runFullPreflight) return true;
+
+        await executeTest(run, getTest('preflight.manifest'));
+        await executeTest(run, getTest('preflight.openapi'));
+        var features = await executeTest(run, getTest('preflight.features'));
+        if (features.outcome === 'pass') run.report.environment.featureFlags = run.context.featureFlags;
+        await executeTest(run, getTest('preflight.aiContext'));
         return true;
     }
 
@@ -1297,7 +1310,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
                 await runRegisteredPhase(run, 4, true);
             }
             refreshReport(run);
-            getPanel().renderRun(run, run.report.cancelled ? 'Run cancelled; cleanup completed.' : 'Phases 0-4 completed.');
+            getPanel().renderRun(run, run.report.cancelled ? 'Run cancelled; cleanup completed.' : run.report.blocked ? run.report.blocked.message : 'Phases 0-4 completed.');
             lastReport = run.report;
             if (activeRun === run) activeRun = null;
             console.groupEnd();
