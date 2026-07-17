@@ -468,14 +468,14 @@ const MedRecProChat = (function () {
     }
 
     function formatTestHelp() {
-        const lines = TEST_COMMANDS.filter(command => command.tokens.length < 3 || command.tokens[0] !== 'api').map(command => `- \`/test${command.tokens.length ? ' ' + command.tokens.join(' ') : ''}\`: ${command.description}`);
-        lines.push('- `/test api help`: API profiles, prerequisites, and confirmation rules.');
+        const lines = TEST_COMMANDS.filter(command => command.tokens.length < 3 || command.tokens[0] !== 'api').map(command => `- \`/test${command.tokens.length ? ' ' + command.tokens.join(' ') : ''}\`: *${command.description}*`);
+        lines.push('- `/test api help`: *API profiles, prerequisites, and confirmation rules.*');
         return `**Test commands**\n\n${lines.join('\n')}`;
     }
 
     function formatApiHelp() {
-        const lines = TEST_COMMANDS.filter(command => command.tokens[0] === 'api').map(command => `- \`/test ${command.tokens.join(' ')}\`: ${command.description}`);
-        return `**API test commands**\n\n${lines.join('\n')}\n\nSafe API commands require loopback. Profile A also requires an anonymous preflight. Opt-in profiles never start from chat alone; the panel requires \`RUN CONFIRMED COST OR MUTATION\`, and admin/import also require \`DISPOSABLE LOCAL DATABASE CONFIRMED\`.`;
+        const lines = TEST_COMMANDS.filter(command => command.tokens[0] === 'api').map(command => `- \`/test ${command.tokens.join(' ')}\`: *${command.description}*`);
+        return `**API test commands**\n\n${lines.join('\n')}\n\n*Safe API commands require loopback. Profile A also requires an anonymous preflight. Opt-in profiles never start from chat alone; the panel requires \`RUN CONFIRMED COST OR MUTATION\`, and admin/import also require \`DISPOSABLE LOCAL DATABASE CONFIRMED\`.*`;
     }
 
     /**************************************************************/

@@ -1258,11 +1258,9 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         if (activeRun && !activeRun.controller.signal.aborted) cancelActiveRun();
         var run = createRun(getDefaultOptions(options));
         activeRun = run;
-        var currentPanel = getPanel().ensurePanel();
+        var currentPanel = getPanel().configureFromCommand(run.options);
         currentPanel.list.textContent = '';
         currentPanel.groups = {};
-        currentPanel.tarpit.value = run.options.tarpitMode;
-        currentPanel.conversation.checked = run.options.conversationLifecycle;
         if (run.options.includeImport && run.options.importFile) {
             getPanel().renderRun(run, 'Computing the selected durable import fixture SHA-256 before any request is issued.');
             try {
@@ -1325,20 +1323,18 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     function initializeQueryTrigger() {
         var query = new URLSearchParams(window.location.search);
         if (query.get('apitest') !== '1') return;
-        var currentPanel = getPanel().ensurePanel();
         var tarpit = query.get('tarpit') === 'disabled' ? 'disabled' : 'unknown';
-        currentPanel.tarpit.value = tarpit;
-        currentPanel.root.querySelector('[data-mrp="ai"]').checked = query.get('ai') === '1';
-        currentPanel.root.querySelector('[data-mrp="mutating"]').checked = query.get('mutating') === '1';
+        var queryOptions = {
+            tarpitMode: tarpit,
+            groups: query.get('group') ? [query.get('group')] : null,
+            selection: { source: 'query', command: '?apitest=1', group: query.get('group') || null }
+        };
+        var currentPanel = getPanel().configureFromQuery(queryOptions);
         if (!isLoopbackHost()) {
             currentPanel.summary.textContent = 'Endpoint panel opened. Auto-run is blocked outside a loopback host.';
             return;
         }
-        runApiTests({
-            tarpitMode: tarpit,
-            groups: query.get('group') ? [query.get('group')] : null,
-            selection: { source: 'query', command: '?apitest=1', group: query.get('group') || null, sensitiveFlagsPreselected: ['ai', 'mutating', 'adminwrites', 'import', 'logout', 'slow'].filter(function (key) { return query.get(key) === '1'; }) }
-        });
+        runApiTests(queryOptions);
     }
 
     if (document.readyState === 'loading') {

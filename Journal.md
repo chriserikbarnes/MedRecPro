@@ -6324,3 +6324,12 @@ Restored the chat page's endpoint-test command surface and simplified the displa
 **Verification.** `node --check MedRecProStatic/wwwroot/js/chat/index.js` passed; static source validation confirmed all seven chat-page dependencies exist in order and no question-mark help delimiter remains; a no-network classic-script simulation exposed `runAll`, `runUiTests`, `runApiTests`, and `openApiPanel`; `git diff --check` passed; and `dotnet build MedRecProStatic/MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\chat-test-facade` succeeded with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`. The temporary output was removed. A direct local probe of `http://localhost:5001/chat` returned 404, so a running-host verification was not claimed.
 
 ---
+
+### 2026-07-17 4:12 PM EST - Simplify endpoint diagnostic controls and help styling
+Refined the static chat endpoint diagnostic to keep only the pacing control visible by default. The previous conversation, paid-AI, mutation, cache-clear, admin, import, slow, and logout switches were removed from the panel; advanced command profiles now reveal only the confirmation and disposable-fixture fields they actually require. This preserves the explicit command-level safety gates while removing clutter from routine safe diagnostics.
+
+**Presentation.** Replaced all visible question-mark result prefixes and separators with plain status labels and ASCII separators. Test-command descriptions now render in italic brown monospace text at the same relative size as inline code, including the API-help guidance.
+
+**Verification.** `node --check` passed for the panel, runner, and chat modules; focused source acceptance checks confirmed no retired controls or visible question-mark status text remain and that the help typography rules are present; `git diff --check` passed; and `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\Source\MedRecProSuite\.codex-build\endpoint-panel-cleanup` succeeded with 0 errors and the existing nullable warning at `Views\Home\Index.cshtml:245`. The temporary build output was removed.
+
+---

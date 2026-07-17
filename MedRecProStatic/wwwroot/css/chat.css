@@ -464,6 +464,14 @@ html, body {
         font-size: 0.875em;
     }
 
+    .message-text li > code + em,
+    .message-text > p:last-child > em {
+        color: var(--color-text-secondary);
+        font-family: var(--font-mono);
+        font-size: 0.875em;
+        font-style: italic;
+    }
+
     .message-text a {
         color: var(--color-accent);
         text-decoration: none;
