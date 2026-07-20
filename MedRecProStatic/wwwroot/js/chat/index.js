@@ -352,12 +352,18 @@ const MedRecProChat = (function () {
                 return;
             }
             if (specification.kind === 'ui') {
-                if (!siteTests || typeof siteTests.runUiTests !== 'function') throw new Error('UI test facade is unavailable.');
+                if (!siteTests || typeof siteTests.runUiTests !== 'function') {
+                    completeTestMessage(assistantMessage.id, '**UI test facade not available.** Reload this page after the static test scripts finish loading.');
+                    return;
+                }
                 completeTestMessage(assistantMessage.id, formatClientResult('UI ' + specification.category, siteTests.runUiTests(specification.category)));
                 return;
             }
             if (specification.kind === 'client') {
-                if (!siteTests || typeof siteTests.runUiTests !== 'function') throw new Error('UI test facade is unavailable.');
+                if (!siteTests || typeof siteTests.runUiTests !== 'function') {
+                    completeTestMessage(assistantMessage.id, '**Client test facade not available.** Reload this page after the static test scripts finish loading.');
+                    return;
+                }
                 const chatResult = await TestRunner.runAllTests();
                 const uiResult = siteTests.runUiTests('all');
                 const failed = chatResult.failed + uiResult.failed;
@@ -369,7 +375,10 @@ const MedRecProChat = (function () {
                     completeTestMessage(assistantMessage.id, '**API diagnostic blocked.** API test commands run only on localhost, 127.0.0.1, or ::1.');
                     return;
                 }
-                if (!siteTests || typeof siteTests.runApiTests !== 'function') throw new Error('API test facade is unavailable.');
+                if (!siteTests || typeof siteTests.runApiTests !== 'function') {
+                    completeTestMessage(assistantMessage.id, '**API test facade not available.** Reload this page after the endpoint diagnostic scripts finish loading.');
+                    return;
+                }
                 const options = createApiCommandOptions(rawInput, specification);
                 if (specification.kind === 'api-blocked') {
                     if (typeof siteTests.openApiPanel === 'function') siteTests.openApiPanel(options);
@@ -469,13 +478,14 @@ const MedRecProChat = (function () {
         if (report.blocked) return `**API diagnostic blocked:** ${report.blocked.message}`;
         const summary = report.summary || {};
         const coverage = report.endpointCoverage || {};
-        return `**API diagnostic complete:** ${summary.failed === 0 ? 'PASS' : 'FAIL'}\n\n- Passed: ${summary.passed || 0}\n- Failed: ${summary.failed || 0}\n- Skipped: ${summary.skipped || 0}\n- Accounted: ${coverage.accounted || 0}\n- Invoked: ${coverage.invoked || 0}\n- Positive contracts: ${coverage.positive || 0}\n- Safety exclusions: ${coverage.safetyExcluded || 0}\n- Cleanup failures: ${(report.cleanup || {}).failed || 0}`;
+        return `**API diagnostic complete:** ${summary.failed === 0 ? 'PASS' : 'FAIL'}\n\n- Passed: ${summary.passed || 0}\n- Failed: ${summary.failed || 0}\n- Skipped: ${summary.skipped || 0}\n- Cancelled: ${report.cancelled ? 'yes' : 'no'}\n- Accounted: ${coverage.accounted || 0}\n- Invoked: ${coverage.invoked || 0}\n- Positive contracts: ${coverage.positive || 0}\n- Safety exclusions: ${coverage.safetyExcluded || 0}\n- Cleanup failures: ${(report.cleanup || {}).failed || 0}`;
     }
 
     function formatTestHelp() {
-        const lines = TEST_COMMANDS.filter(command => command.tokens.length < 3 || command.tokens[0] !== 'api').map(command => `- \`/test${command.tokens.length ? ' ' + command.tokens.join(' ') : ''}\`: *${command.description}*`);
-        lines.push('- `/test api help`: *API profiles, prerequisites, and confirmation rules.*');
-        return `**Test commands**\n\n${lines.join('\n')}`;
+        const lines = TEST_COMMANDS.filter(command => command.tokens[0] !== 'api').map(command => `- \`/test${command.tokens.length ? ' ' + command.tokens.join(' ') : ''}\`: *${command.description}*`);
+        const apiHelp = TEST_COMMANDS.find(command => command.kind === 'api-help' && command.tokens.join(' ') === 'api help');
+        if (apiHelp) lines.push(`- \`/test ${apiHelp.tokens.join(' ')}\`: *${apiHelp.description}*`);
+        return `**Test commands**\n\n${lines.join('\n')}\n\n*Safety: API diagnostics run only on loopback. Profile A requires an anonymous preflight, and opt-in profiles require their exact confirmations in the endpoint panel.*`;
     }
 
     function formatApiHelp() {

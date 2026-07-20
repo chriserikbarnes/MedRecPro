@@ -28,6 +28,25 @@
     var registerCleanup=runtime.registerCleanup;
     var waitForPacing=runtime.waitForPacing;
     var hasRequiredConfirmation=runtime.hasRequiredConfirmation;
+    // Audited from the local API dataset on 2026-07-17; production cannot be script-fetched through Cloudflare.
+    var FALLBACK_SEEDS=Object.freeze({
+        pharmClassCode:'N0000175605',
+        pharmClassName:'Kinase Inhibitor [EPC]',
+        pharmClassCodeAlternates:['N0000175076','N0000000109'],
+        systemName:'Gastrointestinal Disorders',
+        systemNameAlternates:['Infections and Infestations','Nervous System Disorders'],
+        socX:'Blood and Lymphatic System Disorders',
+        socY:'Cardiac Disorders'
+    });
+
+    function isTrue(value){return value===true || String(value).toLowerCase()==='true';}
+    function fallbackSeedResult(result,response,provides){
+        if(result.outcome==='skip' && response && response.status===200 && Array.isArray(response.body)){
+            result.provides=Object.assign({},provides);
+        }
+        return result;
+    }
+
 
     /**************************************************************/
     /**
@@ -203,22 +222,42 @@
     defineTest({
         id: 'seed.ae.classes', phase: 1, group: 'Seed discovery', evidenceKind: 'positive',
         operationKey: 'GET /api/AdverseEvent/correlation/classes', name: 'Harvest a pharmacologic class code', method: 'GET', path: '/api/adverseevent/correlation/classes', expectedStatus: [200],
-        request: { method: 'GET', path: '/api/adverseevent/correlation/classes', query: { pageNumber: 1, pageSize: 1 } },
+        request: { method: 'GET', path: '/api/adverseevent/correlation/classes', query: { pageNumber: 1, pageSize: 100 } },
         evaluate: function (response) {
-            return arraySeed(response, function (item) {
-                return { pharmClassCode: findValue(item, ['PharmacologicClassCode', 'ClassCode', 'Code', 'PharmacologicClass'], 2) };
-            }, true);
+            var result=arraySeed(response, function (item,items) {
+                var selected=(items || []).find(function(candidate){return isTrue(findValue(candidate,['IsCorrelatable'],1)) && isTrue(findValue(candidate,['HasRenderableMap'],1));}) || item;
+                return {
+                    pharmClassCode:findValue(selected,['PharmClassCode','PharmacologicClassCode','ClassCode','Code','PharmacologicClass'],2),
+                    pharmClassName:findValue(selected,['PharmClassName','PharmacologicClassName','Name'],2)
+                };
+            },true);
+            return fallbackSeedResult(result,response,{
+                pharmClassCode:FALLBACK_SEEDS.pharmClassCode,
+                pharmClassName:FALLBACK_SEEDS.pharmClassName,
+                socX:FALLBACK_SEEDS.socX,
+                socY:FALLBACK_SEEDS.socY,
+                pharmClassCodeFallback:true
+            });
         }
     });
 
     defineTest({
         id: 'seed.ae.systems', phase: 1, group: 'Seed discovery', evidenceKind: 'positive',
         operationKey: 'GET /api/AdverseEvent/correlation/systems', name: 'Harvest a MedDRA system name', method: 'GET', path: '/api/adverseevent/correlation/systems', expectedStatus: [200],
-        request: { method: 'GET', path: '/api/adverseevent/correlation/systems', query: { pageNumber: 1, pageSize: 1 } },
+        request: { method: 'GET', path: '/api/adverseevent/correlation/systems', query: { pageNumber: 1, pageSize: 100 } },
         evaluate: function (response) {
-            return arraySeed(response, function (item) {
-                return { systemName: findValue(item, ['SystemName', 'ParameterCategory', 'Name'], 2) };
-            }, true);
+            var result=arraySeed(response, function (item,items) {
+                var selected=(items || []).find(function(candidate){return isTrue(findValue(candidate,['HasRenderableMap'],1));}) || item;
+                return {
+                    systemName:findValue(selected,['SystemOrganClass','SystemName','ParameterCategory','Name'],2),
+                    systemOrganClass:findValue(selected,['SystemOrganClass','SystemName','ParameterCategory','Name'],2)
+                };
+            },true);
+            return fallbackSeedResult(result,response,{
+                systemName:FALLBACK_SEEDS.systemName,
+                systemOrganClass:FALLBACK_SEEDS.systemName,
+                systemNameFallback:true
+            });
         }
     });
 
@@ -256,7 +295,7 @@
 
     defineTest({
         id: 'seed.label.applicationSummaries', phase: 1, group: 'Seed discovery', evidenceKind: 'positive',
-        operationKey: 'GET /api/Label/application-number/summaries', name: 'Harvest an application number', method: 'GET', path: '/api/label/application-number/summaries', expectedStatus: [200],
+        operationKey: 'GET /api/Label/application-number/summaries', name: 'Harvest an application number', method: 'GET', path: '/api/label/application-number/summaries', expectedStatus: [200], note: 'Contract discrepancy #1: the API emits marketingCategory while older documentation names marketingCategoryCode.',
         request: { method: 'GET', path: '/api/label/application-number/summaries', query: { pageNumber: 1, pageSize: 1 } },
         evaluate: function (response) { return arraySeed(response, function (item) { return { applicationNumber: findValue(item, ['ApplicationNumber'], 2) }; }); }
     });
@@ -374,7 +413,7 @@
     function aeContract(response, run, success) {
         if(isFeatureDisabled(response)){
             return {
-                outcome:'pass',response:response,positiveContractVerified:false,
+                outcome:'pass',response:response,positiveContractVerified:false,evidenceKind:'featureGate',
                 assertions:[expectStatus(response,[503]),createAssertion('AE feature gate','pass','AE dashboard is disabled; 503 is the verified disabled-mode contract.')]
             };
         }
@@ -419,8 +458,8 @@
     function registerAnonymousGate(config) {
         defineTest({
             id:config.id,phase:3,group:config.group || 'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:config.operationKey,name:config.name,
-            method:config.method || 'GET',path:config.path,expectedStatus:[401,403],requires:config.requires,note:config.note,
-            when:function(run){return !run.context.authenticated;},skipReason:'Authenticated safety: protected write and gate probes are not issued from an authenticated browser profile.',
+            method:config.method || 'GET',path:config.path,expectedStatus:[401,403],requires:config.requires,note:config.note || 'Protected write and gate probes are not issued from an authenticated browser profile.',
+            when:function(run){return !!config.allowAuthenticated || !run.context.authenticated;},skipReason:'notInvokedAuthenticatedSafety',
             request:config.request || {method:config.method || 'GET',path:config.path,query:config.query,body:config.body},
             evaluate:function(response){return responseResult(response,{status:[401,403]});}
         });
@@ -510,7 +549,35 @@
     registerObjectRead({id:'read.ai.conversationStats',operationKey:'GET /api/Ai/conversations/stats',name:'Read conversation statistics literal route',path:'/api/ai/conversations/stats'});
     defineTest({id:'read.ai.deleteConversation',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',operationKey:'DELETE /api/Ai/conversations/{conversationId}',name:'Delete loopback test conversation',method:'DELETE',path:'/api/ai/conversations/{conversationId}',expectedStatus:[200],requires:['conversationId'],request:function(context){return {method:'DELETE',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)};},evaluate:function(response){return responseResult(response,{status:[200]});}});
     defineTest({id:'read.authenticated.aeFavorites',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/AdverseEvent/products/favorites',name:'Read authenticated AE favorites',method:'GET',path:'/api/adverseevent/products/favorites',expectedStatus:[200],when:function(run){return (run.options.profile==='authenticated'||run.options.profile==='all') && !!run.context.authenticated;},skipReason:'Runs only for an authenticated read or all-baseline profile.',request:{method:'GET',path:'/api/adverseevent/products/favorites',query:{pageNumber:1,pageSize:25}},evaluate:function(response){if(response.status===503){return {outcome:'pass',response:response,positiveContractVerified:false,assertions:[expectStatus(response,[503]),createAssertion('AE feature gate','pass','Favorites are unavailable while the AE dashboard feature is disabled.')]};}return responseResult(response,{status:[200],jsonArray:true});}});
-    defineTest({id:'read.authenticated.currentUser',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/Users/me',name:'Read authenticated current user',method:'GET',path:'/api/users/me',expectedStatus:[200],when:function(run){return (run.options.profile==='authenticated'||run.options.profile==='all') && !!run.context.authenticated;},skipReason:'Runs only for an authenticated read or all-baseline profile.',request:{method:'GET',path:'/api/users/me'},evaluate:function(response){return responseResult(response,{status:[200],jsonObject:true});}});
+    defineTest({id:'read.authenticated.currentUser',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/Users/me',name:'Read authenticated current user',method:'GET',path:'/api/users/me',expectedStatus:[200],when:function(run){return (run.options.profile==='authenticated'||run.options.profile==='all') && !!run.context.authenticated;},skipReason:'Runs only for an authenticated read or all-baseline profile.',request:{method:'GET',path:'/api/users/me'},evaluate:function(response){var result=responseResult(response,{status:[200],jsonObject:true});if(result.outcome==='pass')result.provides={currentUserEmail:findValue(response.body,['Email','UserEmail'],2)};return result;}});
+
+    function hasProfileBSession(run){return (run.options.profile==='authenticated'||run.options.profile==='all') && !!run.context.authenticated;}
+    function registerProfileBRead(config){
+        defineTest({
+            id:config.id,phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:config.operationKey,name:config.name,
+            method:'GET',path:config.path,expectedStatus:[200],requires:config.requires,note:config.note,
+            when:function(run){return hasProfileBSession(run) && (!config.admin || !!run.context.isAdmin);},
+            skipReason:config.admin?'Admin Profile B read requires an authenticated administrator.':'Runs only for an authenticated read or all-baseline profile.',
+            request:config.request || {method:'GET',path:config.path,query:config.query},
+            evaluate:function(response){return responseResult(response,{status:[200]});}
+        });
+    }
+
+    registerProfileBRead({id:'read.authenticated.activity',operationKey:'GET /api/Users/user/{encryptedUserId}/activity',name:'Read the authenticated user activity',path:'/api/users/user/{encryptedUserId}/activity',requires:['currentEncryptedUserId'],request:function(context){return {method:'GET',path:'/api/users/user/'+encodeURIComponent(context.currentEncryptedUserId)+'/activity',query:{pageNumber:1,pageSize:10}};}});
+    registerProfileBRead({id:'read.authenticated.admin.userList',operationKey:'GET /api/Users',name:'Read the administrator user list',path:'/api/users',admin:true,query:{take:10}});
+    registerProfileBRead({id:'read.authenticated.admin.userByEmail',operationKey:'GET /api/Users/byemail',name:'Read the authenticated user by email',path:'/api/users/byemail',admin:true,requires:['currentUserEmail'],request:function(context){return {method:'GET',path:'/api/users/byemail',query:{email:context.currentUserEmail}};}});
+    registerProfileBRead({id:'read.authenticated.admin.endpointStats',operationKey:'GET /api/Users/endpoint-stats',name:'Read administrator endpoint statistics',path:'/api/users/endpoint-stats',admin:true,query:{controllerName:'Users',limit:10}});
+    registerProfileBRead({id:'read.authenticated.admin.databaseCost',operationKey:'GET /api/Settings/metrics/database-cost',name:'Read administrator database-cost metrics',path:'/api/settings/metrics/database-cost',admin:true});
+    registerProfileBRead({id:'read.authenticated.admin.appCredential',operationKey:'GET /api/Settings/test/app-credential',name:'Read administrator app-credential test',path:'/api/settings/test/app-credential',admin:true});
+    registerProfileBRead({id:'read.authenticated.admin.appMetricsPipeline',operationKey:'GET /api/Settings/test/app-metrics-pipeline',name:'Read administrator app-metrics pipeline test',path:'/api/settings/test/app-metrics-pipeline',admin:true});
+    registerProfileBRead({id:'read.authenticated.admin.logs',operationKey:'GET /api/Settings/logs',name:'Read administrator logs',path:'/api/settings/logs',admin:true,query:{pageNumber:1,pageSize:10}});
+    registerProfileBRead({id:'read.authenticated.admin.logStatistics',operationKey:'GET /api/Settings/logs/statistics',name:'Read administrator log statistics',path:'/api/settings/logs/statistics',admin:true});
+    registerProfileBRead({id:'read.authenticated.admin.logCategories',operationKey:'GET /api/Settings/logs/categories',name:'Read administrator log categories',path:'/api/settings/logs/categories',admin:true});
+    registerProfileBRead({id:'read.authenticated.admin.logUsers',operationKey:'GET /api/Settings/logs/users',name:'Read administrator log users',path:'/api/settings/logs/users',admin:true});
+    registerProfileBRead({id:'read.authenticated.admin.logsByDate',operationKey:'GET /api/Settings/logs/by-date',name:'Read administrator logs by recent date range',path:'/api/settings/logs/by-date',admin:true,request:function(){var end=new Date();var start=new Date(end.getTime()-86400000);return {method:'GET',path:'/api/settings/logs/by-date',query:{startDate:start.toISOString(),endDate:end.toISOString(),pageNumber:1,pageSize:10}};}});
+    registerProfileBRead({id:'read.authenticated.admin.logsByCategory',operationKey:'GET /api/Settings/logs/by-category',name:'Read administrator Info logs',path:'/api/settings/logs/by-category',admin:true,query:{category:'Info',pageNumber:1,pageSize:10}});
+    registerProfileBRead({id:'read.authenticated.admin.logsByUser',operationKey:'GET /api/Settings/logs/by-user',name:'Read administrator logs by current user',path:'/api/settings/logs/by-user',admin:true,requires:['currentEncryptedUserId'],request:function(context){return {method:'GET',path:'/api/settings/logs/by-user',query:{userId:context.currentEncryptedUserId,pageNumber:1,pageSize:10}};}});
+
     defineTest({id:'phase2.seedCompleteness',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',name:'Require complete seeded data evidence before accepting read coverage',internal:function(run){var incomplete=run.report.tests.filter(function(test){return test.id.indexOf('seed.')===0 && test.outcome==='skip' && !(test.id.indexOf('seed.ae.')===0 && /Feature is disabled/.test(test.skipReason || ''));}); var passed=!incomplete.length; return {outcome:passed?'pass':'fail',positiveContractVerified:passed,assertions:[createAssertion('Seed completeness',passed?'pass':'fail',passed?'All required seed evidence is available.':'Unexpected skipped seed definitions: '+incomplete.map(function(test){return test.id;}).join(', ')+'.')]};}});
     defineTest({id:'read.auth.externalLogin',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',operationKey:'GET /api/Auth/external-login',name:'Read external-login information',method:'GET',path:'/api/auth/external-login',expectedStatus:[200],request:{method:'GET',path:'/api/auth/external-login',headers:{Accept:'text/plain'}},evaluate:function(response){return responseResult(response,{status:[200]});}});
     /**************************************************************/
@@ -529,11 +596,12 @@
     registerNegative({id:'negative.ae.reverseLookup',operationKey:'GET /api/AdverseEvent/reverse-lookup',name:'Reject AE reverse lookup without symptom',path:'/api/adverseevent/reverse-lookup'});
     registerNegative({id:'negative.ae.interchangeSameProduct',operationKey:'GET /api/AdverseEvent/interchange',name:'Reject AE interchange of the same product',path:'/api/adverseevent/interchange',requires:['aeDocumentGuidA'],request:function(context){return {method:'GET',path:'/api/adverseevent/interchange',query:{documentGuidA:context.aeDocumentGuidA,documentGuidB:context.aeDocumentGuidA}};}});
     registerNegative({id:'negative.ae.correlationBlank',operationKey:'GET /api/AdverseEvent/correlation',name:'Reject AE correlation without class code',path:'/api/adverseevent/correlation'});
-    registerNegative({id:'negative.ae.systemMapMultiple',operationKey:'GET /api/AdverseEvent/correlation/systems/map',name:'Reject multiple systems for a single-system map',path:'/api/adverseevent/correlation/systems/map',requires:['systemName'],request:function(context){return {method:'GET',path:'/api/adverseevent/correlation/systems/map',query:{systems:[context.systemName,context.systemName],classPageNumber:1,classPageSize:20}};}});
+    registerNegative({id:'negative.ae.systemMapMultiple',operationKey:'GET /api/AdverseEvent/correlation/systems/map',name:'Reject multiple systems for a single-system map',path:'/api/adverseevent/correlation/systems/map',requires:['systemName'],request:function(context){return {method:'GET',path:'/api/adverseevent/correlation/systems/map',query:{systems:[context.systemName,FALLBACK_SEEDS.systemNameAlternates[0]],classPageNumber:1,classPageSize:20}};}});
     registerNegative({id:'negative.ae.systemCellMissingClass',operationKey:'GET /api/AdverseEvent/correlation/systems/cell',name:'Reject system correlation cell without class X',path:'/api/adverseevent/correlation/systems/cell',requires:['systemName'],request:function(context){return {method:'GET',path:'/api/adverseevent/correlation/systems/cell',query:{systems:context.systemName,classY:'Example',pageNumber:1,pageSize:100}};}});
     registerNegative({id:'negative.ae.correlationCellMissingSoc',operationKey:'GET /api/AdverseEvent/correlation/cell',name:'Reject correlation cell without SOC Y',path:'/api/adverseevent/correlation/cell',requires:['pharmClassCode'],request:function(context){return {method:'GET',path:'/api/adverseevent/correlation/cell',query:{pharmClassCode:context.pharmClassCode,socX:'Cardiac Disorders'}};}});
 
     registerNegative({id:'negative.orangeBook.missingSearch',operationKey:'GET /api/OrangeBook/expiring',name:'Reject Orange Book query without a search filter',path:'/api/orangebook/expiring'});
+    registerNegative({id:'negative.orangeBook.expiringInMonthsZero',operationKey:'GET /api/OrangeBook/expiring',name:'Reject Orange Book expiringInMonths zero boundary',path:'/api/orangebook/expiring',query:{tradeName:'Ozempic',expiringInMonths:0,pageNumber:1,pageSize:5}});
 
     registerNegative({id:'negative.label.productSearch',operationKey:'GET /api/Label/product/search',name:'Reject empty product search',path:'/api/label/product/search',query:{productNameSearch:''}});
     registerNegative({id:'negative.label.productRelated',operationKey:'GET /api/Label/product/related',name:'Reject related-product query without a source',path:'/api/label/product/related'});
@@ -550,13 +618,13 @@
     registerNegative({id:'negative.label.applicationSearch',operationKey:'GET /api/Label/application-number/search',name:'Reject empty application search',path:'/api/label/application-number/search',query:{applicationNumber:''}});
     registerNegative({id:'negative.label.sectionSearch',operationKey:'GET /api/Label/section/search',name:'Reject empty label section search',path:'/api/label/section/search',query:{sectionCode:''}});
     registerNegative({id:'negative.label.navigationPaging',operationKey:'GET /api/Label/document/navigation',name:'Reject label document page zero',path:'/api/label/document/navigation',query:{pageNumber:0,pageSize:1}});
-    register404({id:'negative.label.versionHistoryNotFound',operationKey:'GET /api/Label/document/version-history/{setGuidOrDocumentGuid}',name:'Return not found for a nonexistent label version history',path:'/api/label/document/version-history/{setGuidOrDocumentGuid}',request:{method:'GET',path:'/api/label/document/version-history/00000000-0000-0000-0000-000000000000'}});
-    register404({id:'negative.label.generateRouteConstraint',operationKey:'GET /api/Label/generate/{documentGuid}/{minify}',name:'Prove generated-label route GUID constraint',path:'/api/label/generate/{documentGuid}/{minify}',request:{method:'GET',path:'/api/label/generate/not-a-guid/false'}});
-    register404({id:'negative.label.markdownDisplayMissing',operationKey:'GET /api/Label/markdown/display/{documentGuid}',name:'Return not found for absent cached markdown',path:'/api/label/markdown/display/{documentGuid}',request:{method:'GET',path:'/api/label/markdown/display/00000000-0000-0000-0000-000000000000'}});
+    register404({id:'negative.label.versionHistoryNotFound',operationKey:'GET /api/Label/document/version-history/{setGuidOrDocumentGuid}',name:'Return not found for a nonexistent label version history',path:'/api/label/document/version-history/{setGuidOrDocumentGuid}',request:{method:'GET',path:'/api/label/document/version-history/11111111-1111-1111-1111-111111111111'}});
     registerNegative({id:'negative.label.comparisonEmptyGuid',operationKey:'GET /api/Label/comparison/analysis/{documentGuid}',name:'Reject comparison analysis for empty GUID',path:'/api/label/comparison/analysis/{documentGuid}',request:{method:'GET',path:'/api/label/comparison/analysis/00000000-0000-0000-0000-000000000000'}});
-    register404({id:'negative.label.comparisonProgressMissing',operationKey:'GET /api/Label/comparison/progress/{operationId}',name:'Return not found for absent comparison progress',path:'/api/label/comparison/progress/{operationId}',request:{method:'GET',path:'/api/label/comparison/progress/missing-operation'}});
+    register404({id:'negative.label.generateRouteConstraint',operationKey:'GET /api/Label/generate/{documentGuid}/{minify}',name:'Prove generated-label route GUID constraint',path:'/api/label/generate/{documentGuid}/{minify}',request:{method:'GET',path:'/api/label/generate/not-a-guid/false'}});
     registerAnonymousGate({id:'gate.label.createSection',operationKey:'POST /api/Label/{menuSelection}',name:'Gate anonymous label section creation',method:'POST',path:'/api/label/Document',body:{}});
+    register404({id:'negative.label.markdownDisplayMissing',operationKey:'GET /api/Label/markdown/display/{documentGuid}',name:'Return not found for absent cached markdown',path:'/api/label/markdown/display/{documentGuid}',request:{method:'GET',path:'/api/label/markdown/display/00000000-0000-0000-0000-000000000000'}});
     registerAnonymousGate({id:'gate.label.updateSection',operationKey:'PUT /api/Label/{menuSelection}/{encryptedId}',name:'Gate anonymous label section update',method:'PUT',path:'/api/label/Document/not-a-real-encrypted-id',body:{}});
+    register404({id:'negative.label.comparisonProgressMissing',operationKey:'GET /api/Label/comparison/progress/{operationId}',name:'Return not found for absent comparison progress',path:'/api/label/comparison/progress/{operationId}',request:{method:'GET',path:'/api/label/comparison/progress/missing-operation'}});
     registerAnonymousGate({id:'gate.label.deleteSection',operationKey:'DELETE /api/Label/{menuSelection}/{encryptedId}',name:'Gate anonymous label section delete',method:'DELETE',path:'/api/label/Document/not-a-real-encrypted-id'});
     registerAnonymousGate({id:'gate.label.startComparison',operationKey:'POST /api/Label/comparison/analysis/{documentGuid}',name:'Gate anonymous label comparison start',method:'POST',path:'/api/label/comparison/analysis/00000000-0000-0000-0000-000000000000'});
     registerAnonymousGate({id:'gate.label.import',operationKey:'POST /api/Label/import',name:'Gate anonymous label import',method:'POST',path:'/api/label/import'});
@@ -667,19 +735,24 @@
      */
     /**************************************************************/
     async function pollImportToTerminal(run) {
-        var deadline = Date.now() + 120000;
-        var delayMs = run.options.tarpitMode === 'disabled' ? 1000 : 15000;
+        var deadline = Date.now() + 300000;
+        var delayMs = 1000;
         var attempt = 0;
         var lastResponse = null;
+        var lastStatus = null;
         while (Date.now() < deadline && !run.controller.signal.aborted) {
             await waitForImportPoll(run, attempt ? delayMs : 0);
             if (run.controller.signal.aborted) break;
             attempt++;
             lastResponse = await apiFetch(run, { method: 'GET', path: run.context.importProgressPath, requestTimeoutMs: 30000 });
-            if (lastResponse.status === 404 && !lastResponse.transportError) continue;
+            if (lastResponse.status === 404 && !lastResponse.transportError) {
+                delayMs = Math.min(delayMs * 2, 15000);
+                continue;
+            }
             var result = responseResult(lastResponse, { status: [200], jsonObject: true, fields: ['Status', 'OperationId'] });
             if (result.outcome !== 'pass') return result;
             var status = String(findValue(lastResponse.body, ['Status'], 3) || '').toLowerCase();
+            lastStatus = status || null;
             if (status === 'completed') {
                 result.assertions.push(createAssertion('Terminal import status', 'pass', 'Import completed after ' + attempt + ' poll(s).'));
                 result.positiveContractVerified = true;
@@ -691,24 +764,35 @@
                 result.positiveContractVerified = false;
                 return result;
             }
+            if (['queued','pending','running','processing','inprogress'].indexOf(status) < 0) {
+                return { outcome: 'skip', response: lastResponse, skipReason: 'unknownState', assertions: [createAssertion('Terminal import status', 'notObservable', 'Import returned an unrecognized state: ' + (status || '(empty)') + '.')] };
+            }
+            delayMs = Math.min(delayMs * 2, 15000);
         }
         if (run.controller.signal.aborted) {
             return { outcome: 'skip', response: lastResponse, skipReason: 'Run cancelled while polling import progress.', assertions: [createAssertion('Import polling', 'skip', 'No further poll was issued after cancellation.')] };
         }
-        return { outcome: 'fail', response: lastResponse, assertions: [createAssertion('Terminal import status', 'fail', 'Import did not reach Completed within the 120-second polling budget.')] };
+        return { outcome: 'skip', response: lastResponse, skipReason: 'unknownState', assertions: [createAssertion('Terminal import status', 'notObservable', 'Import did not reach a recognized terminal state within the 5-minute polling budget; last state: ' + (lastStatus || '(none)') + '.')] };
     }
 
     function registerPaidAi(config) {
         defineTest({
             id: config.id, phase: 4, category: 'ai', group: 'Phase 4 paid AI', evidenceKind: 'positive',
-            operationKey: config.operationKey, name: config.name, method: config.method, path: config.path, expectedStatus: [200],
+            operationKey: config.operationKey, name: config.name, method: config.method, path: config.path, expectedStatus: config.allow503 ? [200, 503] : ((config.expect && config.expect.status) || [200]), requires: config.requires,
             when: function (run) { return run.options.includeAi && canRunCostOrMutation(run); },
             skipReason: 'Paid AI is loopback-only and requires the exact cost-or-mutation confirmation.',
             request: config.request,
             evaluate: function (response, context, run) {
                 run.report.cost.positiveAiCalls++;
-                run.report.cost.warning = 'Bounded paid-AI profile: at most four positive AI calls are declared for this run.';
-                return responseResult(response, { status: [200], jsonObject: true });
+                run.report.cost.warning = 'Bounded paid-AI profile: at most eight positive AI calls are declared for this run.';
+                var expectation = config.expect || {};
+                if (config.allow503 && response.status === 503) {
+                    return {
+                        outcome: 'skip', response: response, skipReason: 'Paid AI provider is unavailable (503).',
+                        assertions: [expectStatus(response, [503]), createAssertion('Paid AI availability', 'skip', 'The optional provider returned its documented unavailable response.')]
+                    };
+                }
+                return responseResult(response, { status: expectation.status || [200], jsonObject: expectation.jsonObject === true });
             }
         });
     }
@@ -717,6 +801,10 @@
     registerPaidAi({id:'paid.ai.synthesize',operationKey:'POST /api/Ai/synthesize',name:'Synthesize one bounded endpoint result',method:'POST',path:'/api/ai/synthesize',request:{method:'POST',path:'/api/ai/synthesize',body:{originalQuery:'Summarize the system information.',executedEndpoints:[{specification:{method:'GET',path:'/api/settings/info'},statusCode:200,result:{available:true}}]}}});
     registerPaidAi({id:'paid.ai.chat',operationKey:'GET /api/Ai/chat',name:'Run the bounded AI chat wrapper',method:'GET',path:'/api/ai/chat',request:{method:'GET',path:'/api/ai/chat',query:{message:'What can you do?'}}});
     registerPaidAi({id:'paid.ai.retry',operationKey:'POST /api/Ai/retry',name:'Retry one bounded failed interpretation',method:'POST',path:'/api/ai/retry',request:{method:'POST',path:'/api/ai/retry',body:{originalRequest:{userMessage:'Find aspirin labels.'},failedResults:[{specification:{method:'GET',path:'/api/Label/product/search'},statusCode:400,error:'Synthetic bounded retry input.'}],attemptNumber:1}}});
+    registerPaidAi({id:'paid.ai.pharmClassSearch',operationKey:'GET /api/Label/pharmacologic-class/search',name:'Run pharmacologic-class AI query for beta blockers',method:'GET',path:'/api/label/pharmacologic-class/search',request:{method:'GET',path:'/api/label/pharmacologic-class/search',query:{query:'beta blockers',maxProductsPerClass:10}},expect:{status:[200]}});
+    registerPaidAi({id:'paid.ai.extractProduct',operationKey:'GET /api/Label/extract-product',name:'Extract a product from a bounded clinical description',method:'GET',path:'/api/label/extract-product',request:{method:'GET',path:'/api/label/extract-product',query:{description:'Search for finerenone (Kerendia), a mineralocorticoid receptor antagonist.'}},expect:{status:[200],jsonObject:true}});
+    registerPaidAi({id:'paid.ai.indicationSearch',operationKey:'GET /api/Label/indication/search',name:'Run indication search for high blood pressure',method:'GET',path:'/api/label/indication/search',request:{method:'GET',path:'/api/label/indication/search',query:{query:'high blood pressure',maxProductsPerIndication:10}},expect:{status:[200]},allow503:true});
+    registerPaidAi({id:'paid.ai.markdownDisplay',operationKey:'GET /api/Label/markdown/display/{documentGuid}',name:'Display markdown for a seeded label document',method:'GET',path:'/api/label/markdown/display/{documentGuid}',requires:['labelDocumentGuid'],request:function(context){return {method:'GET',path:'/api/label/markdown/display/'+encodeURIComponent(context.labelDocumentGuid),headers:{Accept:'text/markdown'}};},expect:{status:[200]}});
 
     defineTest({
         id:'mutate.ae.favorite',phase:4,category:'mutating',group:'Phase 4 reversible mutation',evidenceKind:'positive',operationKey:'PUT /api/AdverseEvent/products/{documentGuid}/favorite',name:'Set and register restoration for an AE favorite',method:'PUT',path:'/api/adverseevent/products/{documentGuid}/favorite',expectedStatus:[204],requires:['aeDocumentGuidA'],

@@ -11,12 +11,12 @@
  * @see MedRecProApiTestPanel
  */
 /**************************************************************/
-window.MedRecProApiTestRuntime=(function(manifest,panelModule){
+window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
     'use strict';
-    if(!manifest||!panelModule){throw new Error('MedRecPro API test manifest and panel modules must load before the runtime.');}
-    var AUDIT_METADATA=manifest.auditMetadata;
-    var AUDITED_OPERATION_MANIFEST=manifest.operations;
-    var panel=null;
+    if (!manifest || !panelModule) { throw new Error('MedRecPro API test manifest and panel modules must load before the runtime.'); }
+    var AUDIT_METADATA = manifest.auditMetadata;
+    var AUDITED_OPERATION_MANIFEST = manifest.operations;
+    var panel = null;
     /**************************************************************/
     /**
      * Lazily connects the presentation module to runtime callbacks.
@@ -24,7 +24,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
      * @returns {Object} API diagnostic panel controller.
      */
     /**************************************************************/
-    function getPanel(){if(!panel){panel=panelModule.create({run:runApiTests,cancel:cancelActiveRun,getLastReport:function(){return lastReport;},getRedactedReport:function(){return lastReport?redactReport(lastReport):null;}});}return panel;}
+    function getPanel() { if (!panel) { panel = panelModule.create({ run: runApiTests, cancel: cancelActiveRun, getLastReport: function () { return lastReport; }, getRedactedReport: function () { return lastReport ? redactReport(lastReport) : null; } }); } return panel; }
     /**************************************************************/
     /**
      * Removes response bodies and identity-like values before a report is copied from the panel.
@@ -33,23 +33,24 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
      * @returns {Object} Safe-to-copy report clone.
      */
     /**************************************************************/
-    function redactReport(report){var copy=JSON.parse(JSON.stringify(report));copy.tests.forEach(function(test){delete test.bodyExcerpt;if(test.url)test.url=test.path||'[redacted-url]';});return copy;}
+    function redactReport(report) { var copy = JSON.parse(JSON.stringify(report)); copy.tests.forEach(function (test) { delete test.bodyExcerpt; if (test.url) test.url = test.path || '[redacted-url]'; }); return copy; }
     var TEST_REGISTRY = [];
     var activeRun = null;
     var lastReport = null;
+    var queryTriggerInitialized = false;
     var COST_OR_MUTATION_CONFIRMATION = 'RUN CONFIRMED COST OR MUTATION';
     var DISPOSABLE_DATA_CONFIRMATION = 'DISPOSABLE LOCAL DATABASE CONFIRMED';
+    var LOCALLY_EXPOSED_RESPONSE_HEADERS = ['x-page-number', 'x-page-size', 'x-total-count', 'x-chartable-count'];
+    var LOCAL_DEBUG_INTER_REQUEST_DELAY_MS = 0;
+    var ONLINE_INTER_REQUEST_DELAY_MS = 5000;
 
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -62,13 +63,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -79,15 +77,29 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     }
 
     /**************************************************************/
+    /**
+     * Determines whether the page and selected API target represent a local Debug run.
+     * @param {string} apiBase API base URL selected for the diagnostic.
+     * @returns {boolean} True when no online pacing should be added.
+     */
+    /**************************************************************/
+    function isLocalDebugTarget(apiBase) {
+        if (!isLocalDevelopment()) return false;
+        try {
+            var targetHostname = new URL(apiBase || window.location.origin).hostname;
+            return targetHostname === window.location.hostname || targetHostname === 'localhost' || targetHostname === '127.0.0.1' || targetHostname === '::1';
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -100,13 +112,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
-     * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
+     * 
+     * Supports safe browser-origin API diagnostic configuration, normalization, and transport. 
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -126,7 +135,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             confirmations: { costOrMutation: null, disposableData: null },
             importFile: null,
             sectionFixture: null,
-            interRequestDelayMs: 100,
+            interRequestDelayMs: null,
             requestTimeoutMs: 30000,
             stopOnFirstFail: false,
             groups: null,
@@ -134,7 +143,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             families: null,
             testIds: null,
             seedTestIds: null,
-            runFullPreflight: false,
+            runFullPreflight: null,
             requireAnonymous: false,
             profile: 'anonymous',
             selection: { source: 'console' }
@@ -145,6 +154,15 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             ? merged.tarpitMode
             : 'unknown';
         merged.apiBase = getApiBase(merged.apiBase);
+        merged.localDebug = isLocalDebugTarget(merged.apiBase);
+        merged.interRequestDelayMs = merged.localDebug ? LOCAL_DEBUG_INTER_REQUEST_DELAY_MS : ONLINE_INTER_REQUEST_DELAY_MS;
+        merged.pacingLabel = merged.localDebug
+            ? 'Local Debug: no artificial delay between calls.'
+            : 'Online: 5 seconds between calls.';
+        if (typeof (options || {}).runFullPreflight !== 'boolean') {
+            var selectionSource = (merged.selection && merged.selection.source) || defaults.selection.source;
+            merged.runFullPreflight = selectionSource === 'console' || selectionSource === 'query';
+        }
         return merged;
     }
 
@@ -191,13 +209,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -221,13 +236,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -243,13 +255,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -261,13 +270,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
-     * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
+     * 
+     * Supports safe browser-origin API diagnostic configuration, normalization, and transport. 
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -279,13 +285,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -302,13 +305,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -336,13 +336,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
-     * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
+     * 
+     * Supports safe browser-origin API diagnostic configuration, normalization, and transport
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -355,13 +352,9 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
-     * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
+     * Supports safe browser-origin API diagnostic configuration, normalization, and transport
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -376,13 +369,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -394,13 +384,9 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
      */
 
     /**************************************************************/
@@ -413,13 +399,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -431,13 +414,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -451,13 +431,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -474,13 +451,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -496,13 +470,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -527,13 +498,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -548,16 +516,43 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     }
     /**************************************************************/
     /**
+     * Determines whether the selected API base is a loopback host.
+     * @param {string} apiBase API base URL to inspect.
+     * @returns {boolean} True for localhost loopback targets.
+     */
+    /**************************************************************/
+    function isLoopbackApiTarget(apiBase) {
+        try {
+            var hostname = new URL(apiBase || window.location.origin).hostname;
+            return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Determines whether a custom response header is observable in the current browser context.
+     * @param {Object} run Active test run.
+     * @param {string} name Header name.
+     * @returns {boolean} True when same-origin or a documented local CORS header is exposed.
+     */
+    function canObserveResponseHeader(run, name) {
+        return run.report.environment.sameOrigin || (
+            isLocalDevelopment() &&
+            isLoopbackApiTarget(run.options.apiBase) &&
+            LOCALLY_EXPOSED_RESPONSE_HEADERS.indexOf(String(name).toLowerCase()) >= 0
+        );
+    }
+
+    /**
      * Verifies a custom response header only when the browser can observe it.
-     *
      * @param {Object} run Active test run.
      * @param {Object} response Browser transport result.
      * @param {string} name Header name.
      * @returns {Object} Named assertion result.
      */
-    /**************************************************************/
     function expectObservableHeader(run, response, name) {
-        if (!run.report.environment.sameOrigin) {
+        if (!canObserveResponseHeader(run, name)) {
             return createAssertion(name + ' header', 'notObservable', 'Custom response headers are not asserted across origins.');
         }
         var value = response.headers && response.headers[String(name).toLowerCase()];
@@ -644,13 +639,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -664,6 +656,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             cleanupStack: [],
             report: {
                 startedAt: new Date().toISOString(),
+                completedAt: null,
                 durationMs: 0,
                 cancelled: false,
                 blocked: null,
@@ -706,7 +699,7 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
                     safetyExcluded: 0
                 },
                 cleanup: { attempted: 0, succeeded: 0, failed: 0, details: [] },
-                cost: { declaredMaximumAiCalls: 4, positiveAiCalls: 0, warning: 'Paid AI calls remain disabled until the exact confirmation phrase is supplied.' },
+                cost: { declaredMaximumAiCalls: 8, positiveAiCalls: 0, warning: 'Paid AI calls remain disabled until the exact confirmation phrase is supplied.' },
                 fixtures: { import: options.importFile ? { name: options.importFile.name, size: options.importFile.size, type: options.importFile.type, sha256: null } : null, section: options.sectionFixture || null },
                 findings: [],
                 summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
@@ -720,25 +713,30 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Supports safe browser-origin API diagnostic configuration, normalization, and transport.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
 
-    function apiFetch(run, spec) {
+    async function apiFetch(run, spec) {
+        var url = toUrl(spec.path, run.options.apiBase, spec.query);
+        var started = performance.now();
+        await waitForInterRequestDelay(run);
+        if (run.controller.signal.aborted) {
+            return {
+                url: url.toString(), status: 0, ok: false, headers: null, contentType: '', body: null, bodyText: '',
+                redirected: false, type: null, durationMs: Math.round(performance.now() - started), transportError: 'aborted',
+                error: 'Run cancelled before request pacing completed.'
+            };
+        }
         var requestController = new AbortController();
         var requestTimeoutMs = spec.requestTimeoutMs || run.options.requestTimeoutMs;
         var timeoutId = window.setTimeout(function () { requestController.abort('timeout'); }, requestTimeoutMs);
         var abortFromRun = function () { requestController.abort('aborted'); };
         run.controller.signal.addEventListener('abort', abortFromRun, { once: true });
-        var url = toUrl(spec.path, run.options.apiBase, spec.query);
-        var started = performance.now();
         var requestOptions = {
             method: spec.method || 'GET',
             credentials: spec.credentials || 'include',
@@ -833,13 +831,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -871,13 +866,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -887,6 +879,8 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         record.assertions = (result && result.assertions) || record.assertions;
         record.skipReason = (result && result.skipReason) || null;
         record.positiveContractVerified = !!(result && result.positiveContractVerified);
+        if (result && result.evidenceKind) record.evidenceKind = result.evidenceKind;
+        if (result && result.note) record.note = record.note ? record.note + ' ' + result.note : result.note;
         if (result && result.response) {
             record.invoked = true;
             record.url = result.response.url;
@@ -904,13 +898,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -936,13 +927,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -991,31 +979,37 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
 
-    function waitForPacing(run, definition) {
-        if (run.options.tarpitMode === 'disabled' || /^\/api\/adverseevent\//i.test(String(definition.path || ''))) return Promise.resolve();
-        var now = Date.now();
-        if (!run.tarpitWindowStartedAt || now - run.tarpitWindowStartedAt >= 300000) {
-            run.tarpitWindowStartedAt = now;
-            run.tarpitHits = 0;
-        }
-        if (run.tarpitHits < 9) {
-            run.tarpitHits++;
-            return Promise.resolve();
-        }
-        var waitMs = Math.max(0, 300000 - (now - run.tarpitWindowStartedAt));
-        getPanel().renderRun(run, 'Conservative tarpit pacing: waiting ' + Math.ceil(waitMs / 1000) + ' seconds.');
-        return new Promise(function (resolve) { window.setTimeout(function () { run.tarpitWindowStartedAt = Date.now(); run.tarpitHits = 1; resolve(); }, waitMs); });
+    function waitForInterRequestDelay(run) {
+        var delayMs = Math.max(0, Number(run.options.interRequestDelayMs) || 0);
+        var elapsed = run.lastRequestStartedAt ? Date.now() - run.lastRequestStartedAt : delayMs;
+        var remaining = Math.max(0, delayMs - elapsed);
+        return new Promise(function (resolve) {
+            if (!remaining || run.controller.signal.aborted) {
+                if (!run.controller.signal.aborted) run.lastRequestStartedAt = Date.now();
+                resolve();
+                return;
+            }
+            var timeoutId = window.setTimeout(complete, remaining);
+            function complete() {
+                window.clearTimeout(timeoutId);
+                run.controller.signal.removeEventListener('abort', complete);
+                if (!run.controller.signal.aborted) run.lastRequestStartedAt = Date.now();
+                resolve();
+            }
+            run.controller.signal.addEventListener('abort', complete, { once: true });
+        });
+    }
+
+    function waitForPacing() {
+        return Promise.resolve();
     }
 
     async function executeTest(run, definition) {
@@ -1025,6 +1019,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         refreshReport(run);
         getPanel().renderRun(run);
 
+        var fallbackRequirements = (definition.requires || []).filter(function (key) { return !!run.context[key + 'Fallback']; });
+        if (fallbackRequirements.length && definition.id.indexOf('seed.') !== 0) {
+            record.note = record.note ? record.note + ' fallback seed (harvest failed)' : 'fallback seed (harvest failed)';
+        }
         var missing = (definition.requires || []).filter(function (key) { return !hasValue(run.context[key]); });
         if (missing.length) {
             settleRecord(run, record, 'skip', { skipReason: 'Missing seed: ' + missing.join(', ') + '.', assertions: [createAssertion('Prerequisites', 'skip', missing.join(', '))] });
@@ -1065,13 +1063,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -1109,13 +1104,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -1131,13 +1123,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates endpoint-test execution, evidence recording, and cleanup.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -1227,6 +1216,34 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         }
     }
 
+    function isPlannedForRun(run, definition) {
+        if (definition.phase === 0) {
+            return definition.id === 'preflight.reachability' || definition.id === 'preflight.auth' || !!run.options.runFullPreflight;
+        }
+        return shouldRunTest(run, definition);
+    }
+
+    function appendCancelledDefinitions(run) {
+        var recordedIds = run.report.tests.reduce(function (ids, test) { ids[test.id] = true; return ids; }, {});
+        TEST_REGISTRY.filter(function (definition) {
+            return isPlannedForRun(run, definition) && !recordedIds[definition.id];
+        }).forEach(function (definition) {
+            var record = createRecord(definition);
+            run.report.tests.push(record);
+            settleRecord(run, record, 'skip', {
+                skipReason: 'cancelled',
+                assertions: [createAssertion('Cancellation', 'skip', 'No request was issued because the run was cancelled.')]
+            });
+        });
+    }
+
+    function finalizeOpenApiOutcome(run) {
+        if (run.report.openApi.outcome !== 'pending') return;
+        run.report.openApi.outcome = run.options.runFullPreflight && !run.report.environment.sameOrigin
+            ? 'notObservable'
+            : 'skipped';
+    }
+
     async function runSeedDiscovery(run) {
         await runRegisteredPhase(run, 1);
     }
@@ -1234,13 +1251,10 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates Phase 0 and Phase 1 execution through registered test definitions.
-
-     *
-
      * @public
-
+     * 
      */
 
     /**************************************************************/
@@ -1309,6 +1323,9 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
             if (canSeed && !run.controller.signal.aborted) {
                 await runRegisteredPhase(run, 4, true);
             }
+            if (run.report.cancelled) appendCancelledDefinitions(run);
+            finalizeOpenApiOutcome(run);
+            run.report.completedAt = new Date().toISOString();
             refreshReport(run);
             getPanel().renderRun(run, run.report.cancelled ? 'Run cancelled; cleanup completed.' : run.report.blocked ? run.report.blocked.message : 'Phases 0-4 completed.');
             lastReport = run.report;
@@ -1322,25 +1339,26 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
     /**************************************************************/
 
     /**
-
+     * 
      * Coordinates Phase 0 and Phase 1 execution through registered test definitions.
-
-     *
-
      * @public
-
+     * 
      */
 
     /**************************************************************/
 
     function initializeQueryTrigger() {
+        if (queryTriggerInitialized) return;
+        queryTriggerInitialized = true;
         var query = new URLSearchParams(window.location.search);
         if (query.get('apitest') !== '1') return;
         var tarpit = query.get('tarpit') === 'disabled' ? 'disabled' : 'unknown';
         var queryOptions = {
             tarpitMode: tarpit,
             groups: query.get('group') ? [query.get('group')] : null,
-            selection: { source: 'query', command: '?apitest=1', group: query.get('group') || null }
+            selection: { source: 'query', command: '?apitest=1', group: query.get('group') || null },
+            requireAnonymous: true,
+            runFullPreflight: true,
         };
         var currentPanel = getPanel().configureFromQuery(queryOptions);
         if (!isLoopbackHost()) {
@@ -1350,10 +1368,5 @@ window.MedRecProApiTestRuntime=(function(manifest,panelModule){
         runApiTests(queryOptions);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeQueryTrigger, { once: true });
-    } else {
-        initializeQueryTrigger();
-    }
-    return Object.freeze({runApiTests:runApiTests,openApiPanel:openApiPanel,cancelActiveRun:cancelActiveRun,getLastReport:function(){return lastReport;},isLocalDevelopment:isLocalDevelopment,initializeQueryTrigger:initializeQueryTrigger,auditedOperations:AUDITED_OPERATION_MANIFEST,defineTest:defineTest,createAssertion:createAssertion,normalizeOperationKey:normalizeOperationKey,apiFetch:apiFetch,responseResult:responseResult,isLoopbackHost:isLoopbackHost,arraySeed:arraySeed,findValue:findValue,firstItem:firstItem,hasValue:hasValue,expectStatus:expectStatus,expectJsonNumber:expectJsonNumber,expectFields:expectFields,expectObservableHeader:expectObservableHeader,expectPagedHeaders:expectPagedHeaders,expectContentType:expectContentType,expectXmlDocument:expectXmlDocument,expectAttachment:expectAttachment,expectRedirectProbe:expectRedirectProbe,extractEncryptedId:extractEncryptedId,isFeatureDisabled:isFeatureDisabled,registerCleanup:registerCleanup,waitForPacing:waitForPacing,hasRequiredConfirmation:hasRequiredConfirmation,getRegisteredOperationKeys:getRegisteredOperationKeys});
-})(window.MedRecProApiTestManifest,window.MedRecProApiTestPanel);
+    return Object.freeze({ runApiTests: runApiTests, openApiPanel: openApiPanel, cancelActiveRun: cancelActiveRun, getLastReport: function () { return lastReport; }, isLocalDevelopment: isLocalDevelopment, initializeQueryTrigger: initializeQueryTrigger, auditedOperations: AUDITED_OPERATION_MANIFEST, defineTest: defineTest, createAssertion: createAssertion, normalizeOperationKey: normalizeOperationKey, apiFetch: apiFetch, responseResult: responseResult, isLoopbackHost: isLoopbackHost, arraySeed: arraySeed, findValue: findValue, firstItem: firstItem, hasValue: hasValue, expectStatus: expectStatus, expectJsonNumber: expectJsonNumber, expectFields: expectFields, expectObservableHeader: expectObservableHeader, expectPagedHeaders: expectPagedHeaders, expectContentType: expectContentType, expectXmlDocument: expectXmlDocument, expectAttachment: expectAttachment, expectRedirectProbe: expectRedirectProbe, extractEncryptedId: extractEncryptedId, isFeatureDisabled: isFeatureDisabled, registerCleanup: registerCleanup, waitForPacing: waitForPacing, hasRequiredConfirmation: hasRequiredConfirmation, getRegisteredOperationKeys: getRegisteredOperationKeys });
+})(window.MedRecProApiTestManifest, window.MedRecProApiTestPanel);

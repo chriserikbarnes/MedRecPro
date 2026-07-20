@@ -22,13 +22,10 @@ var MedRecProTests = (function () {
     /**************************************************************/
 
     /**
-
+     * 
      * Runs a scoped legacy DOM assertion for the static-site smoke suite.
-
-     *
-
      * @private
-
+     * 
      */
 
     /**************************************************************/
@@ -107,7 +104,7 @@ var MedRecProTests = (function () {
     function testMcpDocsPage() {
         var mcpPage = document.querySelector('.mcp-page');
         if (!mcpPage) {
-            assert('MCP page detected', false, 'Not on an MCP page â€” skipping MCP-specific tests');
+            assert('MCP page detected', false, 'Not on an MCP page \u2014 skipping MCP-specific tests');
             return;
         }
 
