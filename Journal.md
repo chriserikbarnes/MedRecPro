@@ -6380,3 +6380,63 @@ Updated [api-runner.js](MedRecProSuite/MedRecProStatic/wwwroot/js/site-tests/api
 **Panel.** Updated [api-panel.js](MedRecProSuite/MedRecProStatic/wwwroot/js/site-tests/api-panel.js) to display the enforced Local Debug or Online pacing policy instead of exposing a manual tarpit selector that could disagree with the active run.
 
 **Verification.** `node --check` passed for both touched modules. A no-network runtime harness confirmed `localhost` resolves to `localDebug: true` with `delayMs: 0`, while an online target resolves to `localDebug: false` with `delayMs: 5000`. `dotnet build MedRecProStatic/MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-pacing-build\` completed with 0 errors and the pre-existing nullable warning at `Views/Home/Index.cshtml:245`.
+
+---
+
+### 2026-07-20 3:58 PM EST - Complete remaining static endpoint-test diagnostics
+Completed the remaining JavaScript-only remediation-plan adjustments in [api-runner.js](MedRecProStatic/wwwroot/js/site-tests/api-runner.js) and [api-phases.js](MedRecProStatic/wwwroot/js/site-tests/api-phases.js). The remediation plan now marks those three static items complete and remains pending solely for browser-backed acceptance and the unrelated API findings.
+
+**Administrator detection.** Replaced the serialized-response keyword heuristic with a case-insensitive evaluator that inspects only structured `Claims` entries. It accepts the application role claim type only when its value is `Admin` or `User Admin`, preserves encrypted-user-ID extraction, and reports only the non-sensitive detector outcome.
+
+**Local negative coverage.** Loopback page plus loopback API targets now create a dedicated local-Debug deliberate-404 attestation. All other targets still require the existing explicit disabled-tarpit attestation. The lockout, login, and access-denied read gates are now eligible for authenticated diagnostics; logout and every write/state-changing gate retain authenticated-session suppression.
+
+**Verification.** `node --check` and `git diff --check` passed. A no-network classic-script simulation verified elevated/non-elevated structured claims without exposing the claim value in its assertion, all six deliberate-404 gates with and without attestation, the three authenticated auth reads, and continued logout suppression. `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-plan-remediation-final\` succeeded with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`; the isolated temporary output was removed. The browser connector could not initialize because its local sandbox service failed, so the authenticated Profile B and live local-Debug reruns were not claimed.
+
+---
+
+### 2026-07-20 5:30 PM EST - Record Profile B permission outcomes as authorization evidence
+Updated [api-phases.js](MedRecProStatic/wwwroot/js/site-tests/api-phases.js) so protected Profile B reads no longer use the client-side administrator detector to decide whether a request is sent. The remediation plan now defines the live rerun in terms of endpoint authorization evidence rather than UI-side role detection.
+
+**Authorization evidence.** All 13 administrator-protected read definitions now run for any authenticated Profile B or all-baseline session. A `200` remains positive read evidence. A real `403` is recorded as a passing `authGate` result, with an explicit `Permission denied (403)` note and assertion confirming the endpoint enforced its administrator requirement. `401`, `5xx`, and every other unexpected status remain failures; the non-administrator activity read still requires `200`.
+
+**Verification.** `node --check MedRecProStatic\wwwroot\js\site-tests\api-phases.js` and `git diff --check` passed. A no-network classic-script simulation verified all 13 protected reads invoke for an authenticated non-admin profile, each treats `403` as authorization evidence and `200` as positive data evidence, and the non-administrator activity read still fails on `403`. `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-admin-evidence-build\` completed with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`; the isolated temporary output was removed. Live browser/API acceptance remains unclaimed.
+
+---
+
+### 2026-07-20 6:07 PM EST - Extract endpoint diagnostic panel styling
+Moved the endpoint diagnostic panel’s generated CSS from [api-panel.js](MedRecProStatic/wwwroot/js/site-tests/api-panel.js) to the new editable [api-panel.css](MedRecProStatic/wwwroot/css/api-panel.css). The screenshot-requested spacing now lives in the stylesheet: the environment line has 5px bottom padding and the counters have 5px top padding.
+
+**Asset loading.** Added the panel stylesheet to the shared [_Layout.cshtml](MedRecProStatic/Views/Shared/_Layout.cshtml) and standalone [Chat.cshtml](MedRecProStatic/Views/Home/Chat.cshtml) heads, preserving panel styling for both the main site and the layout-free chat route.
+
+**Verification.** `node --check MedRecProStatic\wwwroot\js\site-tests\api-panel.js` and `git diff --check` passed. Static checks confirmed no endpoint-panel CSS injection remains in JavaScript, both supported views reference `api-panel.css`, and the two requested 5px rules are present. `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-panel-css-build\` completed with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`; the isolated temporary output was removed.
+
+---
+
+### 2026-07-20 6:14 PM EST - Execute protected read gates as API authorization evidence
+Updated `MedRecProStatic/wwwroot/js/site-tests/api-phases.js` so every Phase 3 `registerAnonymousGate` `GET` executes in both anonymous and authenticated browser sessions. The panel no longer decides whether an authenticated user is allowed to perform a read; the API response supplies the evidence.
+
+**Authorization semantics.** For authenticated reads, `200` is recorded as positive authorized-read evidence, while `401` or `403` is recorded as a passing authorization-gate finding. Anonymous reads still require `401` or `403`; an anonymous `200` remains a failure. All state-changing `POST`, `PUT`, and `DELETE` gates retain `notInvokedAuthenticatedSafety` while signed in.
+
+**Verification.** `node --check` and `git diff --check` passed. A no-network classic-script simulation verified all 21 generated read gates run in either session state, correctly classify authenticated `200`, authenticated `403`, and anonymous `401`, reject anonymous `200`, and preserve authenticated suppression for all 13 state-changing gates. `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-read-gate-evidence-build\` completed with 0 warnings and 0 errors; the verified temporary output was removed. The pending remediation plan was updated; live browser/API acceptance remains unclaimed.
+
+---
+
+### 2026-07-20 6:36 PM EST - Feed authenticated current-user values into safe diagnostic reads
+Updated [api-phases.js](MedRecProStatic/wwwroot/js/site-tests/api-phases.js) and [api-runner.js](MedRecProStatic/wwwroot/js/site-tests/api-runner.js) so an authenticated diagnostic captures the real encrypted user ID and email from `GET /api/users/me` before the Phase 3 safe-read checks run. The values exist only in the in-memory run context; presentation and copied-report redaction remain unchanged.
+
+**Dependent reads.** The Settings logs-by-user probe now supplies the real `userId`; Users by-email, by-ID, activity, and activity-date-range use the authenticated user's valid email/identifier; and endpoint statistics now supplies its required `controllerName=Users` and bounded `limit=10`. Anonymous diagnostics retain harmless placeholders, preserving their authorization-gate behavior.
+
+**Verification.** `node --check MedRecProStatic\wwwroot\js\site-tests\api-phases.js`, `node --check MedRecProStatic\wwwroot\js\site-tests\api-runner.js`, and `git diff --check` passed. A no-network classic-script simulation verified current-user context capture, rejection of incomplete context, and all six corrected dependent request shapes without exposing live values. `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-current-user-context-build\` completed with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`; the verified temporary output was removed. A live `/test api all` rerun remains required to record the corrected endpoint outcomes.
+
+---
+
+### 2026-07-20 6:54 PM EST - Stabilize API-all progress and markdown 404 evidence
+Updated [api-runner.js](MedRecProStatic/wwwroot/js/site-tests/api-runner.js), [api-panel.js](MedRecProStatic/wwwroot/js/site-tests/api-panel.js), and [api-phases.js](MedRecProStatic/wwwroot/js/site-tests/api-phases.js) after reviewing the latest authenticated local-Debug `/test api all` report: 170 rows, 152 PASS, 3 FAIL, and 15 intentional SKIP.
+
+**Progress accounting.** The runner now calculates the full selected definition count before execution and rechecks it once authentication is known. The panel reports `completed / scheduled` beside PASS/FAIL/SKIP, sizes the bar against that stable total, and supplies accessible progress-bar values. The latest report's selection resolves to exactly 170 scheduled records, preventing the prior early 80-percent visual jump.
+
+**Markdown contract.** The missing markdown display negative probe now requests `Accept: text/markdown`, matching the endpoint's declared response representation. Its prior 406 was a static diagnostic request-header mismatch; the live rerun should now observe and evaluate the intended absent-document 404.
+
+**Remaining API findings.** `GET /api/Auth/login/google` still returns 500 when the external provider is unavailable or unconfigured and needs a 503-compatible server/configuration remedy. `GET /api/Auth/accessdenied` returns 500 because `Forbid("Access Denied.")` interprets the string as an authentication scheme; the API should return a real 403 (or use parameterless `Forbid()`). Neither backend finding was normalized by the browser diagnostic.
+
+**Verification.** `node --check` passed for all three changed modules. A no-network classic-script simulation loaded the latest report and verified that the selected definition count is exactly 170, progress settles at 170/170, and the markdown missing-document request declares `Accept: text/markdown`; `git diff --check` passed. `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-progress-remediation-build\` completed with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`; the verified temporary output was removed. A browser rerun remains needed to record the corrected 404 and progress behavior.

@@ -1,0 +1,181 @@
+/* ============================================================
+   MedRecPro Endpoint Diagnostic Panel
+   ============================================================ */
+
+.mrp-test-panel {
+    position: fixed;
+    z-index: 2147483647;
+    top: 1rem;
+    right: 1rem;
+    width: min(31rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+    background: #18231f;
+    color: #f5f1e7;
+    border: 1px solid #758a7b;
+    border-radius: 10px;
+    box-shadow: 0 18px 54px #0008;
+    font: 13px/1.4 system-ui, sans-serif;
+}
+
+.mrp-test-panel header,
+.mrp-test-panel footer {
+    padding: 0.75rem;
+    border-bottom: 1px solid #405448;
+}
+
+.mrp-test-panel footer {
+    border-top: 1px solid #405448;
+    border-bottom: 0;
+}
+
+.mrp-test-panel h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.mrp-test-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-top: 0.55rem;
+}
+
+.mrp-test-panel button,
+.mrp-test-panel select,
+.mrp-test-panel input {
+    font: inherit;
+}
+
+.mrp-test-panel button {
+    padding: 0.3rem 0.5rem;
+    color: inherit;
+    background: #2d4237;
+    border: 1px solid #758a7b;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.mrp-test-panel button:hover {
+    background: #3c5648;
+}
+
+.mrp-test-meta,
+.mrp-test-options {
+    padding: 0.55rem 0.75rem;
+    color: #cbd8cb;
+    background: #101813;
+}
+
+.mrp-test-meta [data-mrp="environment"] {
+    padding-bottom: 5px;
+}
+
+.mrp-test-options {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.mrp-test-options label {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: center;
+}
+
+.mrp-test-profile {
+    color: #cbd8cb;
+}
+
+.mrp-test-confirmation,
+.mrp-test-disposable {
+    display: flex;
+    gap: 0.4rem;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+}
+
+.mrp-test-confirmation input,
+.mrp-test-disposable input:not([type="file"]) {
+    min-width: 15rem;
+    flex: 1;
+}
+
+.mrp-test-list {
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    overflow: auto;
+    overflow-x: hidden;
+}
+
+.mrp-test-group {
+    min-width: 0;
+    margin: 0.35rem 0;
+    border: 1px solid #405448;
+    border-radius: 5px;
+}
+
+.mrp-test-group summary {
+    padding: 0.35rem 0.5rem;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.mrp-test-row {
+    min-width: 0;
+    padding: 0.35rem 0.5rem;
+    white-space: normal;
+    border-top: 1px solid #2c3b31;
+}
+
+.mrp-test-row[data-outcome="fail"] {
+    background: #572a2a;
+}
+
+.mrp-test-row[data-outcome="skip"] {
+    background: #4b4530;
+}
+
+.mrp-test-row details {
+    min-width: 0;
+    margin-top: 0.2rem;
+    color: #d7e2d5;
+}
+
+.mrp-test-row pre {
+    box-sizing: border-box;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    overflow-x: auto;
+}
+
+.mrp-test-status {
+    display: inline-block;
+    min-width: 3.4rem;
+    font-weight: 700;
+}
+
+.mrp-test-progress {
+    height: 4px;
+    background: #405448;
+}
+
+.mrp-test-progress span {
+    display: block;
+    width: 0;
+    height: 100%;
+    background: #e5a34a;
+}
+
+.mrp-test-counters {
+    padding-top: 5px;
+    font-weight: 700;
+}
+
+.mrp-test-hidden {
+    display: none !important;
+}

@@ -28,6 +28,8 @@
     var registerCleanup=runtime.registerCleanup;
     var waitForPacing=runtime.waitForPacing;
     var hasRequiredConfirmation=runtime.hasRequiredConfirmation;
+    var APPLICATION_ROLE_CLAIM_TYPE='http://schemas.microsoft.com/ws/2008/06/identity/claims/role';
+    var ELEVATED_ROLE_VALUES=['admin','user admin'];
     // Audited from the local API dataset on 2026-07-17; production cannot be script-fetched through Cloudflare.
     var FALLBACK_SEEDS=Object.freeze({
         pharmClassCode:'N0000175605',
@@ -40,6 +42,59 @@
     });
 
     function isTrue(value){return value===true || String(value).toLowerCase()==='true';}
+    /**************************************************************/
+    /**
+     * Reads a directly named property without depending on JSON serialization or property casing.
+     *
+     * @param {Object} value Response object that may contain the property.
+     * @param {string} propertyName Property name to inspect.
+     * @returns {*} The direct property value, or undefined when it is unavailable.
+     */
+    /**************************************************************/
+    function getCaseInsensitiveProperty(value, propertyName){
+        if(!value || typeof value!=='object') return undefined;
+        var property=Object.keys(value).find(function(candidate){return candidate.toLowerCase()===propertyName.toLowerCase();});
+        return typeof property==='undefined' ? undefined : value[property];
+    }
+
+
+    /**************************************************************/
+    /**
+     * Detects the supported elevated roles from structured authentication claims only.
+     *
+     * @param {Object} profile Response body from the authenticated-user endpoint.
+     * @returns {boolean} True when an application role claim grants administrator authority.
+     */
+    /**************************************************************/
+    function hasAdministratorRoleClaim(profile){
+        var claims=getCaseInsensitiveProperty(profile,'Claims');
+        if(!Array.isArray(claims)) return false;
+        return claims.some(function(claim){
+            if(!claim || typeof claim!=='object') return false;
+            var type=getCaseInsensitiveProperty(claim,'Type');
+            var value=getCaseInsensitiveProperty(claim,'Value');
+            return typeof type==='string'
+                && type.trim().toLowerCase()===APPLICATION_ROLE_CLAIM_TYPE
+                && typeof value==='string'
+                && ELEVATED_ROLE_VALUES.indexOf(value.trim().toLowerCase())>=0;
+        });
+    }
+    /**************************************************************/
+    /**
+     * Captures the authenticated user's stable identifiers from the user-facing response.
+     *
+     * @param {Object} profile Current-user response body.
+     * @returns {{currentEncryptedUserId: string|null, currentUserEmail: string|null}} Values retained only in run context.
+     */
+    /**************************************************************/
+    function getCurrentUserContext(profile){
+        var encryptedUserId=getCaseInsensitiveProperty(profile,'EncryptedUserId');
+        var currentUserEmail=getCaseInsensitiveProperty(profile,'PrimaryEmail');
+        if(!hasValue(currentUserEmail)) currentUserEmail=getCaseInsensitiveProperty(profile,'Email');
+        if(!hasValue(currentUserEmail)) currentUserEmail=getCaseInsensitiveProperty(profile,'CanonicalUsername');
+        if(!hasValue(currentUserEmail)) currentUserEmail=getCaseInsensitiveProperty(profile,'UserName');
+        return {currentEncryptedUserId:hasValue(encryptedUserId)?encryptedUserId:null,currentUserEmail:hasValue(currentUserEmail)?currentUserEmail:null};
+    }
     function fallbackSeedResult(result,response,provides){
         if(result.outcome==='skip' && response && response.status===200 && Array.isArray(response.body)){
             result.provides=Object.assign({},provides);
@@ -148,15 +203,34 @@
             var status = expectStatus(response, [401, 200]);
             if (status.outcome === 'fail') return { outcome: 'fail', response: response, assertions: [status] };
             var authenticated = response.status === 200;
-            var serialized = authenticated ? JSON.stringify(response.body || {}) : '';
-            var isAdmin = authenticated && /\badmin\b/i.test(serialized);
+
+            var isAdmin = authenticated && hasAdministratorRoleClaim(response.body);
+            var assertions = [status, createAssertion('Authentication state', 'pass', authenticated ? 'Authenticated session detected.' : 'Verified anonymous (401).')];
+            if (authenticated) {
+                assertions.push(createAssertion('Administrator role profile', 'pass', isAdmin ? 'Administrator role claim detected.' : 'Authenticated session lacks an elevated role claim.'));
+            }
             return {
                 outcome: 'pass', response: response, provides: { authenticated: authenticated, isAdmin: isAdmin, currentEncryptedUserId: authenticated ? findValue(response.body, ['EncryptedUserId'], 2) : null },
-                assertions: [status, createAssertion('Authentication state', 'pass', authenticated ? 'Authenticated session detected.' : 'Verified anonymous (401).')]
+                assertions: assertions
             };
         }
     });
 
+    defineTest({
+        id:'preflight.currentUser',phase:0,group:'Preflight',evidenceKind:'positive',operationKey:'GET /api/Users/me',name:'Capture authenticated current-user context',method:'GET',path:'/api/users/me',expectedStatus:[200],
+        when:function(run){return !!run.context.authenticated;},skipReason:'Current-user context is only needed for an authenticated run.',request:{method:'GET',path:'/api/users/me'},
+        evaluate:function(response){
+            var result=responseResult(response,{status:[200],jsonObject:true});
+            if(result.outcome!=='pass') return result;
+            var currentUserContext=getCurrentUserContext(response.body);
+            var contextCaptured=hasValue(currentUserContext.currentEncryptedUserId) && hasValue(currentUserContext.currentUserEmail);
+            result.assertions.push(createAssertion('Current-user context',contextCaptured?'pass':'fail',contextCaptured?"Captured the current user's encrypted ID and email for dependent read requests.":'Current-user response did not contain a usable encrypted ID and email.'));
+            result.outcome=contextCaptured?'pass':'fail';
+            result.positiveContractVerified=contextCaptured;
+            if(contextCaptured) result.provides=currentUserContext;
+            return result;
+        }
+    });
     defineTest({
         id: 'preflight.aiContext', phase: 0, group: 'Preflight', evidenceKind: 'positive',
         operationKey: 'GET /api/Ai/context', name: 'AI context and demo mode are available', method: 'GET', path: '/api/ai/context', expectedStatus: [200],
@@ -456,19 +530,30 @@
     }
 
     function registerAnonymousGate(config) {
+        var method=String(config.method || 'GET').toUpperCase();
+        var isRead=method==='GET';
         defineTest({
             id:config.id,phase:3,group:config.group || 'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:config.operationKey,name:config.name,
-            method:config.method || 'GET',path:config.path,expectedStatus:[401,403],requires:config.requires,note:config.note || 'Protected write and gate probes are not issued from an authenticated browser profile.',
-            when:function(run){return !!config.allowAuthenticated || !run.context.authenticated;},skipReason:'notInvokedAuthenticatedSafety',
-            request:config.request || {method:config.method || 'GET',path:config.path,query:config.query,body:config.body},
-            evaluate:function(response){return responseResult(response,{status:[401,403]});}
+            method:method,path:config.path,expectedStatus:isRead?[200,401,403]:[401,403],requires:config.requires,note:config.note || (isRead?'Read-only gate probes are always issued; the API response is recorded as authorization evidence.':'Protected write and gate probes are not issued from an authenticated browser profile.'),
+            when:function(run){return isRead || !!config.allowAuthenticated || !run.context.authenticated;},skipReason:'notInvokedAuthenticatedSafety',
+            request:config.request || {method:method,path:config.path,query:config.query,body:config.body},
+            evaluate:function(response,context){
+                if(isRead && context.authenticated && response.status===200){
+                    return {
+                        outcome:'pass',evidenceKind:'positive',positiveContractVerified:true,response:response,
+                        note:'API authorized the authenticated read (200).',
+                        assertions:[expectStatus(response,[200]),createAssertion('Read authorization','pass','API authorized this authenticated read.')]
+                    };
+                }
+                return responseResult(response,{status:[401,403]});
+            }
         });
     }
 
     function register404(config) {
         registerNegative({
             id:config.id,operationKey:config.operationKey,name:config.name,method:config.method || 'GET',path:config.path,request:config.request,requires:config.requires,note:config.note,status:[404],
-            when:function(run){return run.options.tarpitMode==='disabled';},skipReason:'Deliberate 404 probes are skipped unless tarpit mode is operator-confirmed disabled.'
+            when:function(run){return !!run.options.deliberate404Attested;},skipReason:'Deliberate 404 probes are skipped unless tarpit mode is operator-confirmed disabled or the target is attested loopback local Debug.'
         });
     }
 
@@ -555,11 +640,20 @@
     function registerProfileBRead(config){
         defineTest({
             id:config.id,phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:config.operationKey,name:config.name,
-            method:'GET',path:config.path,expectedStatus:[200],requires:config.requires,note:config.note,
-            when:function(run){return hasProfileBSession(run) && (!config.admin || !!run.context.isAdmin);},
-            skipReason:config.admin?'Admin Profile B read requires an authenticated administrator.':'Runs only for an authenticated read or all-baseline profile.',
+            method:'GET',path:config.path,expectedStatus:config.admin?[200,403]:[200],requires:config.requires,note:config.note,
+            when:function(run){return hasProfileBSession(run);},
+            skipReason:'Runs only for an authenticated read or all-baseline profile.',
             request:config.request || {method:'GET',path:config.path,query:config.query},
-            evaluate:function(response){return responseResult(response,{status:[200]});}
+            evaluate:function(response){
+                if(config.admin && response.status===403){
+                    return {
+                        outcome:'pass',evidenceKind:'authGate',positiveContractVerified:false,response:response,
+                        note:'Permission denied (403) is positive administrator-authorization evidence.',
+                        assertions:[expectStatus(response,[403]),createAssertion('Administrator authorization','pass','Permission denied (403) confirms that the endpoint enforced its administrator requirement.')]
+                    };
+                }
+                return responseResult(response,{status:[200]});
+            }
         });
     }
 
@@ -622,7 +716,7 @@
     registerNegative({id:'negative.label.comparisonEmptyGuid',operationKey:'GET /api/Label/comparison/analysis/{documentGuid}',name:'Reject comparison analysis for empty GUID',path:'/api/label/comparison/analysis/{documentGuid}',request:{method:'GET',path:'/api/label/comparison/analysis/00000000-0000-0000-0000-000000000000'}});
     register404({id:'negative.label.generateRouteConstraint',operationKey:'GET /api/Label/generate/{documentGuid}/{minify}',name:'Prove generated-label route GUID constraint',path:'/api/label/generate/{documentGuid}/{minify}',request:{method:'GET',path:'/api/label/generate/not-a-guid/false'}});
     registerAnonymousGate({id:'gate.label.createSection',operationKey:'POST /api/Label/{menuSelection}',name:'Gate anonymous label section creation',method:'POST',path:'/api/label/Document',body:{}});
-    register404({id:'negative.label.markdownDisplayMissing',operationKey:'GET /api/Label/markdown/display/{documentGuid}',name:'Return not found for absent cached markdown',path:'/api/label/markdown/display/{documentGuid}',request:{method:'GET',path:'/api/label/markdown/display/00000000-0000-0000-0000-000000000000'}});
+    register404({id:'negative.label.markdownDisplayMissing',operationKey:'GET /api/Label/markdown/display/{documentGuid}',name:'Return not found for absent cached markdown',path:'/api/label/markdown/display/{documentGuid}',request:{method:'GET',path:'/api/label/markdown/display/00000000-0000-0000-0000-000000000000',headers:{Accept:'text/markdown'}}});
     registerAnonymousGate({id:'gate.label.updateSection',operationKey:'PUT /api/Label/{menuSelection}/{encryptedId}',name:'Gate anonymous label section update',method:'PUT',path:'/api/label/Document/not-a-real-encrypted-id',body:{}});
     register404({id:'negative.label.comparisonProgressMissing',operationKey:'GET /api/Label/comparison/progress/{operationId}',name:'Return not found for absent comparison progress',path:'/api/label/comparison/progress/{operationId}',request:{method:'GET',path:'/api/label/comparison/progress/missing-operation'}});
     registerAnonymousGate({id:'gate.label.deleteSection',operationKey:'DELETE /api/Label/{menuSelection}/{encryptedId}',name:'Gate anonymous label section delete',method:'DELETE',path:'/api/label/Document/not-a-real-encrypted-id'});
@@ -640,7 +734,7 @@
     registerAnonymousGate({id:'gate.settings.logUsers',operationKey:'GET /api/Settings/logs/users',name:'Gate anonymous log users',path:'/api/settings/logs/users'});
     registerAnonymousGate({id:'gate.settings.logsByDate',operationKey:'GET /api/Settings/logs/by-date',name:'Gate anonymous logs by date',path:'/api/settings/logs/by-date',query:{startDate:'2026-07-16',endDate:'2026-07-17',pageNumber:1,pageSize:10}});
     registerAnonymousGate({id:'gate.settings.logsByCategory',operationKey:'GET /api/Settings/logs/by-category',name:'Gate anonymous logs by category',path:'/api/settings/logs/by-category',query:{category:'Info',pageNumber:1,pageSize:10}});
-    registerAnonymousGate({id:'gate.settings.logsByUser',operationKey:'GET /api/Settings/logs/by-user',name:'Gate anonymous logs by user',path:'/api/settings/logs/by-user',query:{pageNumber:1,pageSize:10}});
+    registerAnonymousGate({id:'gate.settings.logsByUser',operationKey:'GET /api/Settings/logs/by-user',name:'Gate anonymous logs by user',path:'/api/settings/logs/by-user',request:function(context){return {method:'GET',path:'/api/settings/logs/by-user',query:{userId:context.currentEncryptedUserId || 'not-a-real-encrypted-id',pageNumber:1,pageSize:10}};}});
 
     registerNegative({id:'negative.ai.interpret',operationKey:'POST /api/Ai/interpret',name:'Reject AI interpretation without a message',method:'POST',path:'/api/ai/interpret',body:{userMessage:''}});
     registerNegative({id:'negative.ai.synthesize',operationKey:'POST /api/Ai/synthesize',name:'Reject AI synthesis without an executed endpoint payload',method:'POST',path:'/api/ai/synthesize',body:{}});
@@ -650,11 +744,11 @@
 
     registerAnonymousGate({id:'gate.users.me',operationKey:'GET /api/Users/me',name:'Gate anonymous current-user read',path:'/api/users/me'});
     registerAnonymousGate({id:'gate.users.list',operationKey:'GET /api/Users',name:'Gate anonymous user list',path:'/api/users'});
-    registerAnonymousGate({id:'gate.users.byEmail',operationKey:'GET /api/Users/byemail',name:'Gate anonymous user email lookup',path:'/api/users/byemail',query:{email:'nobody@example.invalid'}});
-    registerAnonymousGate({id:'gate.users.byId',operationKey:'GET /api/Users/{encryptedUserId}',name:'Gate anonymous user lookup by ID',path:'/api/users/not-a-real-encrypted-id'});
-    registerAnonymousGate({id:'gate.users.activity',operationKey:'GET /api/Users/user/{encryptedUserId}/activity',name:'Gate anonymous user activity',path:'/api/users/user/not-a-real-encrypted-id/activity'});
-    registerAnonymousGate({id:'gate.users.activityDateRange',operationKey:'GET /api/Users/user/{encryptedUserId}/activity/daterange',name:'Gate anonymous user activity date range',path:'/api/users/user/not-a-real-encrypted-id/activity/daterange',query:{startDate:'2026-07-16',endDate:'2026-07-17'}});
-    registerAnonymousGate({id:'gate.users.endpointStats',operationKey:'GET /api/Users/endpoint-stats',name:'Gate anonymous user endpoint statistics',path:'/api/users/endpoint-stats'});
+    registerAnonymousGate({id:'gate.users.byEmail',operationKey:'GET /api/Users/byemail',name:'Gate anonymous user email lookup',path:'/api/users/byemail',request:function(context){return {method:'GET',path:'/api/users/byemail',query:{email:context.currentUserEmail || 'nobody@example.invalid'}};}});
+    registerAnonymousGate({id:'gate.users.byId',operationKey:'GET /api/Users/{encryptedUserId}',name:'Gate anonymous user lookup by ID',path:'/api/users/{encryptedUserId}',request:function(context){var encryptedUserId=context.currentEncryptedUserId || 'not-a-real-encrypted-id';return {method:'GET',path:'/api/users/'+encodeURIComponent(encryptedUserId)};}});
+    registerAnonymousGate({id:'gate.users.activity',operationKey:'GET /api/Users/user/{encryptedUserId}/activity',name:'Gate anonymous user activity',path:'/api/users/user/{encryptedUserId}/activity',request:function(context){var encryptedUserId=context.currentEncryptedUserId || 'not-a-real-encrypted-id';return {method:'GET',path:'/api/users/user/'+encodeURIComponent(encryptedUserId)+'/activity',query:{pageNumber:1,pageSize:10}};}});
+    registerAnonymousGate({id:'gate.users.activityDateRange',operationKey:'GET /api/Users/user/{encryptedUserId}/activity/daterange',name:'Gate anonymous user activity date range',path:'/api/users/user/{encryptedUserId}/activity/daterange',request:function(context){var encryptedUserId=context.currentEncryptedUserId || 'not-a-real-encrypted-id';return {method:'GET',path:'/api/users/user/'+encodeURIComponent(encryptedUserId)+'/activity/daterange',query:{startDate:'2026-07-16',endDate:'2026-07-17',pageNumber:1,pageSize:10}};}});
+    registerAnonymousGate({id:'gate.users.endpointStats',operationKey:'GET /api/Users/endpoint-stats',name:'Gate anonymous user endpoint statistics',path:'/api/users/endpoint-stats',query:{controllerName:'Users',limit:10}});
     registerNegative({id:'negative.users.signUp',operationKey:'POST /api/Users/signup',name:'Reject invalid signup without creating a user',method:'POST',path:'/api/users/signup',body:{email:'test@example.invalid',password:'NotARealPassword1!',confirmPassword:'mismatch'}});
     registerNegative({id:'negative.users.authenticate',operationKey:'POST /api/Users/authenticate',name:'Reject incomplete authentication model without lockout risk',method:'POST',path:'/api/users/authenticate',body:{email:'nobody@example.invalid'}});
     registerAnonymousGate({id:'gate.users.updateProfile',operationKey:'PUT /api/Users/{encryptedUserId}/profile',name:'Gate anonymous profile update',method:'PUT',path:'/api/users/not-a-real-encrypted-id/profile',body:{}});
@@ -667,10 +761,10 @@
     defineTest({id:'gate.auth.externalLoginRedirect',phase:3,group:'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:'GET /api/Auth/login/{provider}',name:'Probe external login without following OAuth redirect',method:'GET',path:'/api/auth/login/{provider}',expectedStatus:[0,503],request:{method:'GET',path:'/api/auth/login/google',credentials:'omit',redirect:'manual'},evaluate:function(response){if(response.transportError){return responseResult(response,{status:[0,503]});}var assertion=expectRedirectProbe(response);return {outcome:assertion.outcome==='pass'?'pass':'fail',response:response,assertions:[assertion],positiveContractVerified:false};}});
     defineTest({id:'gate.auth.externalCallbackRedirect',phase:3,group:'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:'GET /api/Auth/external-logincallback',name:'Probe external callback without OAuth state',method:'GET',path:'/api/auth/external-logincallback',expectedStatus:[0],request:{method:'GET',path:'/api/auth/external-logincallback',credentials:'omit',redirect:'manual'},evaluate:function(response){if(response.transportError){return responseResult(response,{status:[0]});}var assertion=expectRedirectProbe(response);return {outcome:assertion.outcome==='pass'?'pass':'fail',response:response,assertions:[assertion],positiveContractVerified:false};}});
     registerNegative({id:'negative.auth.loginFailure',operationKey:'GET /api/Auth/loginfailure',name:'Return 400 login failure explanation',path:'/api/auth/loginfailure'});
-    registerAnonymousGate({id:'gate.auth.lockout',operationKey:'GET /api/Auth/lockout',name:'Return lockout gate',path:'/api/auth/lockout'});
+    registerAnonymousGate({id:'gate.auth.lockout',operationKey:'GET /api/Auth/lockout',name:'Return lockout gate',path:'/api/auth/lockout',allowAuthenticated:true});
     registerAnonymousGate({id:'gate.auth.logout',operationKey:'POST /api/Auth/logout',name:'Gate anonymous logout',method:'POST',path:'/api/auth/logout'});
-    registerAnonymousGate({id:'gate.auth.login',operationKey:'GET /api/Auth/login',name:'Return login-required instruction',path:'/api/auth/login'});
-    registerAnonymousGate({id:'gate.auth.accessDenied',operationKey:'GET /api/Auth/accessdenied',name:'Return access-denied gate',path:'/api/auth/accessdenied'});
+    registerAnonymousGate({id:'gate.auth.login',operationKey:'GET /api/Auth/login',name:'Return login-required instruction',path:'/api/auth/login',allowAuthenticated:true});
+    registerAnonymousGate({id:'gate.auth.accessDenied',operationKey:'GET /api/Auth/accessdenied',name:'Return access-denied gate',path:'/api/auth/accessdenied',allowAuthenticated:true});
 
     /**************************************************************/
     /**

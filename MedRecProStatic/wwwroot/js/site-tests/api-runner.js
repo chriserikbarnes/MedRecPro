@@ -104,6 +104,24 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
 
     /**************************************************************/
 
+    /**
+     * Determines whether both the page and API target are loopback-only Debug endpoints.
+     *
+     * @param {string} apiBase API base URL selected for the diagnostic.
+     * @returns {boolean} True when local Debug is a sufficient deliberate-404 attestation.
+     */
+    /**************************************************************/
+    function isLoopbackDebugTarget(apiBase) {
+        if (!isLoopbackHost()) return false;
+        try {
+            var targetHostname = new URL(apiBase || window.location.origin).hostname;
+            return targetHostname === 'localhost' || targetHostname === '127.0.0.1' || targetHostname === '::1';
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**************************************************************/
     function getApiBase(option) {
         if (typeof option === 'string' && option.trim()) return option.trim().replace(/\/$/, '');
         return isLoopbackHost() ? 'http://localhost:5093' : '';
@@ -155,6 +173,8 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
             : 'unknown';
         merged.apiBase = getApiBase(merged.apiBase);
         merged.localDebug = isLocalDebugTarget(merged.apiBase);
+        merged.loopbackDebug = isLoopbackDebugTarget(merged.apiBase);
+        merged.deliberate404Attested = merged.tarpitMode === 'disabled' || merged.loopbackDebug;
         merged.interRequestDelayMs = merged.localDebug ? LOCAL_DEBUG_INTER_REQUEST_DELAY_MS : ONLINE_INTER_REQUEST_DELAY_MS;
         merged.pacingLabel = merged.localDebug
             ? 'Local Debug: no artificial delay between calls.'
@@ -649,7 +669,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
 
     function createRun(options) {
         var apiOrigin = new URL(options.apiBase || window.location.origin).origin;
-        return {
+        var run = {
             options: options,
             controller: new AbortController(),
             context: {},
@@ -672,7 +692,11 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
                     isAdmin: false,
                     featureFlags: null,
                     tarpitMode: options.tarpitMode,
-                    tarpitModeAttestation: options.tarpitMode === 'disabled' ? 'operator-confirmed' : 'not-attested'
+                    tarpitModeAttestation: options.tarpitMode === 'disabled'
+                        ? 'operator-confirmed'
+                        : options.loopbackDebug
+                            ? 'loopback-local-debug'
+                            : 'not-attested'
                 },
                 manifest: {
                     auditedAt: AUDIT_METADATA.auditedAt,
@@ -702,12 +726,15 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
                 cost: { declaredMaximumAiCalls: 8, positiveAiCalls: 0, warning: 'Paid AI calls remain disabled until the exact confirmation phrase is supplied.' },
                 fixtures: { import: options.importFile ? { name: options.importFile.name, size: options.importFile.size, type: options.importFile.type, sha256: null } : null, section: options.sectionFixture || null },
                 findings: [],
+                progress: { planned: 0, completed: 0 },
                 summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
                 groups: [],
                 tests: [],
                 selection: options.selection
             }
         };
+        run.report.progress.planned = getScheduledTestCount(run, options.profile === 'all' || options.profile === 'authenticated');
+        return run;
     }
 
     /**************************************************************/
@@ -823,6 +850,10 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
             if (test.outcome === 'skip') groups[test.group].skipped++;
         });
         run.report.summary = summary;
+        var completed = summary.passed + summary.failed + summary.skipped;
+        if (!run.report.progress) run.report.progress = { planned: 0, completed: 0 };
+        run.report.progress.planned = Math.max(run.report.progress.planned || 0, summary.total);
+        run.report.progress.completed = completed;
         run.report.endpointCoverage = coverage;
         run.report.groups = Object.keys(groups).map(function (key) { return groups[key]; });
         run.report.durationMs = Math.round(Date.now() - new Date(run.report.startedAt).getTime());
@@ -975,7 +1006,23 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
         var selected = Array.isArray(run.options.groups) ? run.options.groups : [run.options.groups];
         return selected.indexOf(definition.group) >= 0;
     }
-
+    /**************************************************************/
+    /**
+     * Counts the selected definitions expected to emit a report record for the active run.
+     *
+     * @param {Object} run Active diagnostic state.
+     * @param {boolean} assumeAuthenticated Whether to reserve the current-user preflight before authentication is known.
+     * @returns {number} Number of scheduled report records.
+     */
+    /**************************************************************/
+    function getScheduledTestCount(run, assumeAuthenticated) {
+        return TEST_REGISTRY.filter(function (definition) {
+            if (definition.phase !== 0) return shouldRunTest(run, definition);
+            if (definition.id === 'preflight.reachability' || definition.id === 'preflight.auth') return true;
+            if (definition.id === 'preflight.currentUser') return !!assumeAuthenticated || !!run.context.authenticated;
+            return !!run.options.runFullPreflight;
+        }).length;
+    }
     /**************************************************************/
 
     /**
@@ -1186,6 +1233,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
         if (auth.outcome !== 'pass') return false;
         run.report.environment.authenticated = !!run.context.authenticated;
         run.report.environment.isAdmin = !!run.context.isAdmin;
+        run.report.progress.planned = getScheduledTestCount(run, !!run.context.authenticated);
 
         if (run.options.requireAnonymous && run.context.authenticated) {
             run.report.blocked = { code: 'safe-tests-require-anonymous', message: 'Safe API tests were not started because this browser has an authenticated session. Use a private window or run `/test api all` for baseline coverage.' };
@@ -1196,6 +1244,10 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
             run.report.blocked = { code: 'authenticated-tests-require-login', message: 'Authenticated read coverage was not started because no authenticated session was detected.' };
             getPanel().renderRun(run, run.report.blocked.message);
             return false;
+        }
+        if (run.context.authenticated) {
+            var currentUser = await executeTest(run, getTest('preflight.currentUser'));
+            if (currentUser.outcome !== 'pass') return false;
         }
         if (!run.options.runFullPreflight) return true;
 
@@ -1218,7 +1270,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
 
     function isPlannedForRun(run, definition) {
         if (definition.phase === 0) {
-            return definition.id === 'preflight.reachability' || definition.id === 'preflight.auth' || !!run.options.runFullPreflight;
+            return definition.id === 'preflight.reachability' || definition.id === 'preflight.auth' || (definition.id === 'preflight.currentUser' && !!run.context.authenticated) || !!run.options.runFullPreflight;
         }
         return shouldRunTest(run, definition);
     }
