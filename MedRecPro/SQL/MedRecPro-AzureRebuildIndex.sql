@@ -73,6 +73,7 @@ DECLARE @TotalIndexes INT = 0;
 DECLARE @RebuiltCount INT = 0;
 DECLARE @SkippedCount INT = 0;
 DECLARE @ErrorCount INT = 0;
+DECLARE @StatisticsErrorCount INT = 0;
 DECLARE @OnlineOption NVARCHAR(50);
 
 -- Determine online option string
@@ -263,6 +264,7 @@ BEGIN
         END TRY
         BEGIN CATCH
             PRINT '[E] ' + @TableName + ' - Stats Error: ' + ERROR_MESSAGE();
+            SET @StatisticsErrorCount = @StatisticsErrorCount + 1;
         END CATCH
     END
     ELSE
@@ -287,7 +289,8 @@ PRINT '=========================================================================
 PRINT '  Total indexes processed:   ' + CAST(@TotalIndexes AS VARCHAR(10));
 PRINT '  Indexes rebuilt:           ' + CAST(@RebuiltCount AS VARCHAR(10));
 PRINT '  Indexes skipped:           ' + CAST(@SkippedCount AS VARCHAR(10));
-PRINT '  Errors encountered:        ' + CAST(@ErrorCount AS VARCHAR(10));
+PRINT '  Index rebuild errors:      ' + CAST(@ErrorCount AS VARCHAR(10));
+PRINT '  Statistics errors:         ' + CAST(@StatisticsErrorCount AS VARCHAR(10));
 PRINT '';
 PRINT '  Completed: ' + CONVERT(VARCHAR(30), GETDATE(), 120);
 PRINT '================================================================================';
@@ -339,4 +342,8 @@ BEGIN
     PRINT '';
     PRINT '✓ All indexes are now enabled and rebuilt.';
     PRINT '';
+END
+IF @ExecuteCommands = 1 AND (@ErrorCount > 0 OR @StatisticsErrorCount > 0)
+BEGIN
+    RAISERROR('Index rebuild or statistics update reported one or more errors. Review the preceding [E] entries.', 16, 1);
 END

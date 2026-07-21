@@ -1,4 +1,4 @@
-# MedRecPro
+﻿# MedRecPro
 
 MedRecPro is a pharmaceutical structured product label (SPL) management platform built with ASP.NET Core. It provides secure access to FDA drug label data through a RESTful API, an AI-powered chat interface, a Model Context Protocol (MCP) server for integration with AI assistants like Claude, and an interactive **adverse-event risk dashboard** built on a multi-stage table-standardization and risk-statistics pipeline.
 
@@ -556,7 +556,8 @@ Database schema definitions and maintenance scripts are maintained in `MedRecPro
 | `MedRecPro_Indexes.sql` | Index definitions for query performance |
 | `MedRecPro-Deployment.sql` | Deployment-time schema updates |
 | `DbTriggerSetup.sql` | Database trigger configuration |
-| `MedRecPro-Export-Import.ps1` | PowerShell script for database export/import |
+| `MedRecPro-Azure-Data-Refresh.ps1` | **Normal single entry point** for a manifest-bound local-to-Azure refresh |
+| `MedRecPro-Export-Import.ps1` | Supported lower-level primary-domain BCP export/import tool |
 | `MedRecPro-AzureStatus.sql` | Azure SQL status and diagnostics queries |
 | `MedRecPro-AzureRebuildIndex.sql` | Index rebuild for Azure SQL |
 | `MedRecPro-AzureDisableIndex.sql` | Disable indexes during bulk operations |
@@ -573,6 +574,18 @@ Database schema definitions and maintenance scripts are maintained in `MedRecPro
 | `MedRecPro-Table-tmp_AeDashboardProductCatalog.sql` | Materialization of `dbo.vw_AeDashboardProductCatalog` (picker) |
 | `MedRecPro-AdverseEvent-Export-Import.ps1` | BCP full-refresh of the AE tables (local SQL Server → Azure SQL, truncate-then-import) |
 
+### Azure data refresh
+
+For a normal complete local-to-Azure data refresh, start only the unified entry point. It exports and validates the Core, Orange Book, materialized temp, and adverse-event domains before Azure mutation; shows the resolved source/target and inventory; then requires the exact `REFRESH server.database.windows.net/MedRecPro` confirmation token. It records only non-secret run state under `C:\MedRecPro-Migration\Refreshes` and attempts index recovery before an incomplete run exits.
+
+```powershell
+.\MedRecPro\SQL\MedRecPro-Azure-Data-Refresh.ps1 `
+  -AzureServer "server.database.windows.net" `
+  -AzureDatabase "MedRecPro" `
+  -AzureUser "migration-user"
+```
+
+Use `-ExportOnly` to create a validated local snapshot without Azure mutation, `-ValidateOnly` for source/target preflight, `-RefreshExclusionRules` only when the normally preserved `PharmClassDosageFormExclusion` table must be refreshed, and `-ResumeRun <run-directory>` only for that run's unchanged manifest and data files. `-WhatIf` previews the stage graph and never acts as destructive authorization. The individual domain workers and nuke/index SQL files remain supported manual/recovery tools; do not combine them with a unified run.
 When updating database schemas or views, modify the scripts in `MedRecPro/SQL/` and run them against the target database. The `MedRecPro_Views.sql` file is particularly important as the navigation view queries (ingredient search, labeler search, pharmacologic class hierarchy, etc.) are defined there and power many of the API search endpoints. The adverse-event dashboard is backed by the `dbo.vw_AeRisk`, `dbo.vw_AeDrugSummary`, and `dbo.vw_AeDashboardProductCatalog` views (also in `MedRecPro_Views.sql`), the last two materialized into `tmp_` tables by the Stage 5 pipeline so the dashboard reads without runtime statistics.
 
 ## AI Skills System

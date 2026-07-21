@@ -1,4 +1,4 @@
-# Journal
+﻿# Journal
 ### 2026-02-24 12:25 PM EST — Orange Book Patent Import Service
 Created `OrangeBookPatentParsingService.cs` for importing FDA Orange Book patent.txt data. The service follows the same patterns as `OrangeBookProductParsingService`: tilde-delimited file parsing, batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based natural key lookup, and progress reporting via callbacks.
 
@@ -6486,3 +6486,27 @@ Closed the completed OneDrive remediation plan as `(done) MedRecPro Static Site 
 **README.** The new API diagnostic section documents `/test api all`, `/test api safe`, `/test api read-auth`, and `/test api report`. It distinguishes the 120-operation inventory from the broader diagnostic-record and invocation counts, and confirms that paid AI, mutations, imports, and logout remain opt-in controls.
 
 **Verification.** Verified the renamed plan's completed status and close-out content, the README section, and `git diff --check`. No additional code changed in this documentation close-out.
+
+---
+
+### 2026-07-21 4:46 PM EST - Implement unified Azure data refresh script
+Implemented the approved unified Azure data refresh plan. [MedRecPro-Azure-Data-Refresh.ps1](MedRecPro/SQL/MedRecPro-Azure-Data-Refresh.ps1) is now the normal single entry point for a manifest-bound refresh, while the existing individual migration scripts remain supported lower-level/manual tools.
+
+**Orchestration and safety.** The runner exports and hashes all Core, Orange Book, materialized-temp, and adverse-event files before Azure mutation; verifies local/Azure identities, tables, BCP-relevant schemas, permissions, and nuke coverage; requires one exact REFRESH server/database confirmation; writes atomic non-secret manifests; and verifies target row counts, preserved exclusion rules, and disabled-index state. Resume accepts only the same manifest-bound source, target, assets, options, and unchanged data files. Failed runs attempt index recovery and point to the existing Azure Query Editor fallback when recovery remains incomplete.
+
+**Worker compatibility.** Added [MedRecPro-DataRefreshWorker.psm1](MedRecPro/SQL/MedRecPro-DataRefreshWorker.psm1) and optional automation-only contracts to the four existing BCP workers. The legacy direct commands and their existing PowerShell 5.1/7 paths remain intact; the unified route preserves each domain's native BCP flags, suppresses redundant worker truncation, returns structured domain results, and fails closed on file, BCP, hash, or row-count errors. Corrected the primary worker's stale example file name.
+
+**SQL, tests, and documentation.** [MedRecPro-AzureRebuildIndex.sql](MedRecPro/SQL/MedRecPro-AzureRebuildIndex.sql) now counts caught FULLSCAN statistics errors and raises a terminal SQL error when either rebuild or statistics work fails. Added 12 focused mocked/offline Pester checks in [MedRecPro-Azure-Data-Refresh.Tests.ps1](MedRecPro/SQL/tests/MedRecPro-Azure-Data-Refresh.Tests.ps1), updated [README.md](README.md), and closed the OneDrive plan as (done) MedRecPro Unified Azure Data Refresh Script Plan.md.
+
+**Verification.** Invoke-Pester MedRecPro\\SQL\\tests\\MedRecPro-Azure-Data-Refresh.Tests.ps1 passed 12/12. PowerShell parser checks passed for the runner, worker module, four legacy workers, and test file; -WhatIf rendered the full 16-stage graph without credential prompting or mutation; pure-function smoke checks verified cleanup detail and ordered-manifest hashing; and git diff --check passed. PSScriptAnalyzer is not installed. No live Azure connection, credential validation, schema preflight, refresh, or index rebuild was run, so disposable/test-target acceptance remains outstanding.
+
+---
+
+### 2026-07-21 5:06 PM EST - Evaluate and remediate unified Azure refresh scripts
+Evaluated the implemented unified Azure data refresh against the (done) plan and corrected the defects that static parsing and the mocked suite could not see. The stage graph, manifest/hash design, worker facades, table lists and order (97/8/3/5 verified against the legacy workers), per-domain BCP flags, README guidance, generated nuke copies, and rebuild-error escalation all conform to the plan; the real failures were concentrated in the never-executed native-tool layer.
+
+**Defects found and fixed.** [MedRecPro-DataRefreshWorker.psm1](MedRecPro/SQL/MedRecPro-DataRefreshWorker.psm1) built the bcp direction with an if statement inside plain parentheses, which parses but fails at runtime with CommandNotFoundException, so every unified export and import would have failed on first use; the direction is now resolved into a variable first. In [MedRecPro-Azure-Data-Refresh.ps1](MedRecPro/SQL/MedRecPro-Azure-Data-Refresh.ps1), Write-Error under the script's Stop preference threw before the final exit statement, collapsing the documented exit codes 2-7 to a generic 1 (probe-confirmed); the three terminal Write-Error calls now use -ErrorAction Continue. With -RefreshExclusionRules, the ClearPrimary emptiness postcondition ran before the scoped PharmClassDosageFormExclusion clear even though the generated nuke always preserves that table, so the opt-in path always failed; the scoped clear now precedes the postcondition. -RetryServerless retried any SQL failure up to four times; retry is now gated on transient serverless/network patterns (40613, 40197, 40501, 10928/10929, login/connection timeouts) with a testable RetryDelaysSeconds seam. Also fixed the confirmation summary printing the entire table array instead of its count, and preflight now records the Azure service objective in the manifest (plan Phase 2.8, informational only).
+
+**Tests.** Grew the offline Pester suite from 12 to 19: bcp export and import argument contracts (either would have caught the direction defect), transient-versus-non-transient serverless retry, asset-hash resume rejection, missing-asset preflight failure, and a guard that every terminal Write-Error stays non-fatal. The retry tests live in a second Describe block because Pester 3 mocks persist for the whole Describe that created them and the orchestration block mocks Invoke-MedRecProSqlCmd.
+
+**Verification.** Parser checks passed for the runner, module, and test file; Invoke-Pester passed 19/19 offline using global bcp/sqlcmd function stubs with no database connections; the exit-code probe now returns the deterministic code (was 1); -WhatIf still renders the full 16-stage graph without prompting; git diff --check passed. The plan's live disposable-target acceptance remains an explicit operator follow-up.

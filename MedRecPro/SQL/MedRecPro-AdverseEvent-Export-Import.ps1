@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     MedRecPro Adverse Event Migration Script using BCP (Bulk Copy Program)
 
@@ -116,8 +116,35 @@ param(
     [int]$BatchSize = 50000,
 
     [Parameter(Mandatory = $false)]
-    [int]$ParallelThrottle = 3
+    [int]$ParallelThrottle = 3,
+
+    # Optional automation-safe contract used only by MedRecPro-Azure-Data-Refresh.ps1.
+    [Security.SecureString]$AzureSecurePassword,
+    [switch]$AutomationMode,
+    [switch]$Strict,
+    [switch]$NonInteractive,
+    [switch]$OverwriteData,
+    [switch]$SkipTargetTruncate,
+    [string[]]$ExcludeTable,
+    [object[]]$ExpectedInventory,
+    [switch]$StructuredResult,
+    [switch]$SuppressStrictThrow
 )
+
+if ($AutomationMode) {
+    Import-Module (Join-Path $PSScriptRoot 'MedRecPro-DataRefreshWorker.psm1') -Force -ErrorAction Stop
+    $automationPassword = $AzureSecurePassword
+    if (-not $automationPassword -and $AzurePassword) {
+        $automationPassword = ConvertTo-SecureString -String $AzurePassword -AsPlainText -Force
+    }
+
+    $automationResult = Invoke-MedRecProDomainWorker -Domain AdverseEvents -Operation $Operation -LocalServer $LocalServer -LocalDatabase $LocalDatabase -AzureServer $AzureServer -AzureDatabase $AzureDatabase -AzureUser $AzureUser -AzurePassword $automationPassword -DataPath $DataPath -BatchSize $BatchSize -ParallelThrottle $ParallelThrottle -ExcludeTable $ExcludeTable -ExpectedInventory $ExpectedInventory -Strict:$Strict -NonInteractive:$NonInteractive -OverwriteData:$OverwriteData -SkipTargetTruncate:$SkipTargetTruncate
+    if ($StructuredResult) { Write-Output $automationResult }
+    if ($Strict -and -not $automationResult.Success -and -not $SuppressStrictThrow) {
+        throw "Strict Adverse Events worker failed: $($automationResult.FailedTables -join ', ')."
+    }
+    return
+}
 
 #region ==================== CONFIGURATION ====================
 

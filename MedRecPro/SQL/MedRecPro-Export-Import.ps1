@@ -51,15 +51,15 @@
     
 .EXAMPLE
     # Export only
-    .\MedRecPro-BCP-Migration.ps1 -Operation Export
+    .\MedRecPro-Export-Import.ps1 -Operation Export
     
 .EXAMPLE
     # Import only (after export completed on another machine)
-    .\MedRecPro-BCP-Migration.ps1 -Operation Import -AzureServer "myserver.database.windows.net" -AzureDatabase "MedRecPro" -AzureUser "admin"
+    .\MedRecPro-Export-Import.ps1 -Operation Import -AzureServer "myserver.database.windows.net" -AzureDatabase "MedRecPro" -AzureUser "admin"
     
 .EXAMPLE
     # Full migration
-    .\MedRecPro-BCP-Migration.ps1 -Operation Both -AzureServer "myserver.database.windows.net" -AzureDatabase "MedRecPro" -AzureUser "admin"
+    .\MedRecPro-Export-Import.ps1 -Operation Both -AzureServer "myserver.database.windows.net" -AzureDatabase "MedRecPro" -AzureUser "admin"
     
 .NOTES
     Author: MedRecPro Development Team
@@ -111,8 +111,35 @@ param(
     [int]$BatchSize = 50000,
     
     [Parameter(Mandatory = $false)]
-    [int]$ParallelThrottle = 4
+    [int]$ParallelThrottle = 4,
+
+    # Optional automation-safe contract used only by MedRecPro-Azure-Data-Refresh.ps1.
+    [Security.SecureString]$AzureSecurePassword,
+    [switch]$AutomationMode,
+    [switch]$Strict,
+    [switch]$NonInteractive,
+    [switch]$OverwriteData,
+    [switch]$SkipTargetTruncate,
+    [string[]]$ExcludeTable,
+    [object[]]$ExpectedInventory,
+    [switch]$StructuredResult,
+    [switch]$SuppressStrictThrow
 )
+
+if ($AutomationMode) {
+    Import-Module (Join-Path $PSScriptRoot 'MedRecPro-DataRefreshWorker.psm1') -Force -ErrorAction Stop
+    $automationPassword = $AzureSecurePassword
+    if (-not $automationPassword -and $AzurePassword) {
+        $automationPassword = ConvertTo-SecureString -String $AzurePassword -AsPlainText -Force
+    }
+
+    $automationResult = Invoke-MedRecProDomainWorker -Domain Core -Operation $Operation -LocalServer $LocalServer -LocalDatabase $LocalDatabase -AzureServer $AzureServer -AzureDatabase $AzureDatabase -AzureUser $AzureUser -AzurePassword $automationPassword -DataPath $DataPath -BatchSize $BatchSize -ParallelThrottle $ParallelThrottle -ExcludeTable $ExcludeTable -ExpectedInventory $ExpectedInventory -Strict:$Strict -NonInteractive:$NonInteractive -OverwriteData:$OverwriteData -SkipTargetTruncate:$SkipTargetTruncate
+    if ($StructuredResult) { Write-Output $automationResult }
+    if ($Strict -and -not $automationResult.Success -and -not $SuppressStrictThrow) {
+        throw "Strict Core worker failed: $($automationResult.FailedTables -join ', ')."
+    }
+    return
+}
 
 #region ==================== CONFIGURATION ====================
 
