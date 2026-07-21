@@ -6464,3 +6464,25 @@ Updated [api-phases.js](MedRecProStatic/wwwroot/js/site-tests/api-phases.js) so 
 **Markdown analysis.** The markdown-display failure is not caused by a missing browser `Accept` override or a stale served asset: the current served diagnostic declares `Accept: text/markdown`, and the runner forwards request headers. Read-only local API checks against the deliberate absent GUID returned `406 Not Acceptable` for `application/json`, `text/markdown`, combined problem-details/markdown media types, and `*/*`. Swagger's positive `200` result exercises an existing-document branch; it does not prove the documented missing-document `404` response. The diagnostic therefore continues to report this API contract mismatch rather than normalizing it as a pass.
 
 **Verification.** `node --check MedRecProStatic\wwwroot\js\site-tests\api-phases.js` passed. A no-network registry harness reported `185 definitions`, preserved the markdown `Accept: text/markdown` request shape, confirmed the OAuth login probe is absent, and passed the 120-operation manifest preflight. `git diff --check` passed. `dotnet build MedRecProStatic\MedRecProStatic.csproj -p:UseAppHost=false -p:OutDir=C:\tmp\medrec-static-oauth-exclusion-build\` completed with 0 errors and the existing nullable warning at `Views/Home/Index.cshtml:245`; the temporary output was removed.
+
+---
+
+### 2026-07-21 8:17 AM EST - Restore markdown-display 404 contract
+Updated [LabelMarkdownController.cs](MedRecPro/Controllers/LabelMarkdownController.cs) and [LabelHttpContractTests.cs](MedRecProTest/Contracts/Label/LabelHttpContractTests.cs) to restore the documented missing-document outcome for `GET /api/Label/markdown/display/{documentGuid}`.
+
+**Root cause and correction.** The action declared `text/markdown` for its successful representation but returned `NotFound(string)` when no document sections existed. MVC attempted to format that string under the markdown-only action contract and converted the intended 404 into 406. The missing-content branch now returns a contentless `NotFound()`, preserving 404 without compromising the successful markdown response.
+
+**Regression coverage.** Added a hosted HTTP contract test that requests the unknown GUID with `Accept: text/markdown` and asserts 404 through the real MVC pipeline. This reproduces the browser diagnostic condition without invoking Claude or mutating data.
+
+**Verification.** `dotnet test MedRecProTest/MedRecProTest.csproj --filter FullyQualifiedName~LabelHttpContractTests.MarkdownDisplay_UnknownGuid_WithMarkdownAccept_ReturnsNotFound --no-restore --nologo` passed 1/1. `git diff --check` passed. `dotnet build MedRecPro/MedRecPro.csproj --no-restore --nologo` completed with 0 warnings and 0 errors. The running local API must be restarted before `/test api all` can record the corrected 404.
+
+---
+
+### 2026-07-21 8:44 AM EST - Close static endpoint remediation plan and document the API baseline
+Closed the completed OneDrive remediation plan as `(done) MedRecPro Static Site Endpoint Test Remediation Plan.md` and updated [README.md](README.md) with the local browser API diagnostic commands, safety boundary, and inventory-count explanation.
+
+**Acceptance record.** The plan now records the final local-Debug `/test api all` result: 169 diagnostic records, 154 PASS, 0 FAIL, 15 intentional SKIP, 120 accounted HTTP-method-and-route operations, 152 invoked records, 108 positive contracts, one safety exclusion, and zero cleanup failures. It also records the manual-only OAuth provider-initiation verification and the controller-backed markdown 404 correction.
+
+**README.** The new API diagnostic section documents `/test api all`, `/test api safe`, `/test api read-auth`, and `/test api report`. It distinguishes the 120-operation inventory from the broader diagnostic-record and invocation counts, and confirms that paid AI, mutations, imports, and logout remain opt-in controls.
+
+**Verification.** Verified the renamed plan's completed status and close-out content, the README section, and `git diff --check`. No additional code changed in this documentation close-out.

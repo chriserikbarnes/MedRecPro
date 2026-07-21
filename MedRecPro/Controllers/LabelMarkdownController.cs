@@ -435,7 +435,8 @@ namespace MedRecPro.Api.Controllers
             // Return 404 if no content generated (empty document).
             if (string.IsNullOrWhiteSpace(cleanMarkdown))
             {
-                return NotFound($"No sections found for DocumentGUID {documentGuid}.");
+                // Return no representation so the text/markdown success contract cannot negotiate this 404 into a 406.
+                return NotFound();
             }
 
             // Return as text/markdown content.

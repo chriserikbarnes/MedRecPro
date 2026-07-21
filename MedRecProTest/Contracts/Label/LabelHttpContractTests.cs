@@ -488,6 +488,29 @@ public class LabelHttpContractTests
 
     /**************************************************************/
     /// <summary>
+    /// Verifies an absent display-markdown document returns the documented not-found status.
+    /// </summary>
+    /// <returns>A task representing the asynchronous missing-document assertion.</returns>
+    /// <remarks>
+    /// The request advertises the endpoint's successful <c>text/markdown</c> representation. A contentless 404 must
+    /// remain observable instead of being converted to 406 by response content negotiation.
+    /// </remarks>
+    /// <seealso cref="MedRecPro.Controllers.LabelMarkdownController.GetCleanLabelMarkdown"/>
+    [TestMethod]
+    public async Task MarkdownDisplay_UnknownGuid_WithMarkdownAccept_ReturnsNotFound()
+    {
+        #region implementation
+
+        using var client = createClient();
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/markdown");
+        using var response = await client.GetAsync($"{LabelRoutePrefix}/markdown/display/{Guid.Empty:D}");
+
+        Assert.AreEqual(System.Net.HttpStatusCode.NotFound, response.StatusCode);
+
+        #endregion
+    }
+    /**************************************************************/
+    /// <summary>
     /// Verifies an unhandled request exception reaches the non-development exception middleware as sanitized ProblemDetails.
     /// </summary>
     /// <returns>A task representing the asynchronous production-middleware assertion.</returns>

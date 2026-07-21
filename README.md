@@ -740,6 +740,21 @@ npm run dev
 
 The MVC-hosted dashboard at `http://localhost:5001/adverse-events` is served from the committed Vite bundle; the Vite dev server above is only for iterating on the React source. After changing React source, run `npm run build` and commit the regenerated `MedRecProStatic/wwwroot/ae-dashboard` assets (the .NET build does not run Vite).
 
+### API diagnostic baseline
+
+With the API running at `http://localhost:5093` and the static site at `http://localhost:5001`, use the Chat page test commands to exercise the browser-facing endpoint diagnostic:
+
+| Command | Purpose |
+|---|---|
+| `/test api all` | Run the non-destructive baseline, including authenticated reads when signed in. |
+| `/test api safe` | Run the complete safe anonymous profile; use a private window when the current browser is signed in. |
+| `/test api read-auth` | Run authenticated read coverage without writes. |
+| `/test api report` | Show the redacted summary for the latest API diagnostic. |
+
+The baseline never starts paid-AI, import, logout, or mutation profiles; those profiles remain blocked until their exact local confirmations are entered in the endpoint panel. OAuth provider initiation is verified manually through the normal login flow or Swagger rather than through the browser baseline.
+
+The panel's `complete` count is the number of scheduled diagnostic records, not the number of API routes. `Accounted: 120` is the audited inventory of unique HTTP-method-and-route operations. One operation can have several records, for example a successful read, an invalid-input contract check, and an authorization check; a few records are internal manifest or seed checks. `Invoked` counts records that issued a request, while `Positive contracts` counts records that verified an expected successful contract. The current Debug acceptance baseline completed with 154 PASS, 0 FAIL, and 15 intentional SKIP across 169 diagnostic records; it retained all 120 operations in the inventory.
+
 ### 5. Import data
 
 Upload SPL ZIP files through the API import endpoint or use the console importer:
