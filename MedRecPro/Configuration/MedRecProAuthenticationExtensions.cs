@@ -145,10 +145,17 @@ namespace MedRecPro.Configuration
         /// Configures the application cookie behavior used by the Identity application scheme.
         /// </summary>
         /// <remarks>
-        /// The event handlers intentionally preserve the existing host-based cookie-domain selection and logging behavior.
+        /// The configured paths provide named fallback destinations for the Identity application
+        /// cookie. The redirect event handlers intentionally return bare 401 and 403 responses
+        /// for API consumers instead of navigating to those paths. The direct
+        /// <see cref="MedRecPro.Controllers.AuthController.HandleLoginRedirect"/> and
+        /// <see cref="MedRecPro.Controllers.AuthController.HandleAccessDenied"/> actions remain
+        /// independently callable ProblemDetails contract endpoints; they are not external-provider
+        /// or MCP callbacks.
         /// </remarks>
         /// <param name="services">The service collection to configure.</param>
         /// <seealso cref="CookieAuthenticationEvents"/>
+        /// <seealso cref="MedRecPro.Controllers.AuthController"/>
         private static void configureMedRecProApplicationCookie(IServiceCollection services)
         {
             #region implementation
@@ -157,7 +164,9 @@ namespace MedRecPro.Configuration
             // AddIdentity has already called AddAuthentication() and added cookie schemes.
             services.ConfigureApplicationCookie(options =>
             {
-                // These settings configure the IdentityConstants.ApplicationScheme cookie
+                // These named fallback paths remain configured for the Identity application cookie.
+                // The redirect events below intentionally return bare API status codes instead of
+                // navigating here; direct requests receive the AuthController ProblemDetails contracts.
                 options.LoginPath = "/api/auth/login";
                 options.AccessDeniedPath = "/api/auth/accessdenied";
                 options.ExpireTimeSpan = TimeSpan.FromMinutes(60);
@@ -171,11 +180,13 @@ namespace MedRecPro.Configuration
                 {
                     OnRedirectToLogin = ctx =>
                     {
+                        // Protected API requests receive a bare 401 instead of a cookie redirect.
                         ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         return Task.CompletedTask;
                     },
                     OnRedirectToAccessDenied = ctx =>
                     {
+                        // Protected API requests receive a bare 403 instead of a cookie redirect.
                         ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
                         return Task.CompletedTask;
                     },

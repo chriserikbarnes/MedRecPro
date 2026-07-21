@@ -30,6 +30,8 @@
     var hasRequiredConfirmation=runtime.hasRequiredConfirmation;
     var APPLICATION_ROLE_CLAIM_TYPE='http://schemas.microsoft.com/ws/2008/06/identity/claims/role';
     var ELEVATED_ROLE_VALUES=['admin','user admin'];
+    // OAuth initiation depends on an interactive provider redirect and is manually verified in Swagger/browser login.
+    var MANUAL_ONLY_OPERATION_KEYS=Object.freeze(['GET /api/Auth/login/{provider}']);
     // Audited from the local API dataset on 2026-07-17; production cannot be script-fetched through Cloudflare.
     var FALLBACK_SEEDS=Object.freeze({
         pharmClassCode:'N0000175605',
@@ -119,21 +121,27 @@
 
     defineTest({
         id: 'preflight.manifest', phase: 0, group: 'Preflight', evidenceKind: 'positive',
-        name: 'Audited 120-operation manifest is fully mapped by definitions', internal: function () {
+        name: 'Audited 120-operation manifest is fully accounted for', internal: function () {
             var keys = auditedOperations.map(function (entry) {
                 var split = entry.indexOf(' ');
                 return normalizeOperationKey(entry.slice(0, split), entry.slice(split + 1));
             });
             var unique = new Set(keys);
             var registered = runtime.getRegisteredOperationKeys();
-            var missing = keys.filter(function (key) { return registered.indexOf(key) < 0; });
+            var manualOnly = MANUAL_ONLY_OPERATION_KEYS.map(function (entry) {
+                var split = entry.indexOf(' ');
+                return normalizeOperationKey(entry.slice(0, split), entry.slice(split + 1));
+            });
+            var missing = keys.filter(function (key) { return registered.indexOf(key) < 0 && manualOnly.indexOf(key) < 0; });
             var stale = registered.filter(function (key) { return keys.indexOf(key) < 0; });
-            var passed = auditedOperations.length === 120 && unique.size === 120 && !missing.length && !stale.length;
+            var invalidManualOnly = manualOnly.filter(function (key) { return keys.indexOf(key) < 0 || registered.indexOf(key) >= 0; });
+            var passed = auditedOperations.length === 120 && unique.size === 120 && !missing.length && !stale.length && !invalidManualOnly.length;
             return {
                 outcome: passed ? 'pass' : 'fail', positiveContractVerified: passed,
                 assertions: [
                     createAssertion('Audited operation inventory', auditedOperations.length === 120 && unique.size === 120 ? 'pass' : 'fail', 'Found ' + auditedOperations.length + ' entries and ' + unique.size + ' unique normalized keys.'),
-                    createAssertion('Definition-to-manifest coverage', !missing.length && !stale.length ? 'pass' : 'fail', 'Missing definitions: ' + missing.length + '; stale definitions: ' + stale.length + '.')
+                    createAssertion('Automated definition coverage', !missing.length && !stale.length ? 'pass' : 'fail', 'Missing definitions: ' + missing.length + '; stale definitions: ' + stale.length + '.'),
+                    createAssertion('Manual-only OAuth coverage', !invalidManualOnly.length ? 'pass' : 'fail', invalidManualOnly.length ? 'Invalid manual-only entries: ' + invalidManualOnly.length + '.' : 'One interactive OAuth initiation route is tracked for manual verification and excluded from browser automation.')
                 ]
             };
         }
@@ -550,8 +558,27 @@
         });
     }
 
-    function register404(config) {
-        registerNegative({
+    /**************************************************************/
+    /**
+     * Verifies an exact ProblemDetails response for a direct API outcome route.
+     *
+     * @param {Object} response Browser transport result.
+     * @param {number} status Expected HTTP and JSON ProblemDetails status.
+     * @returns {Object} Contract result with structured response assertions.
+     */
+    /**************************************************************/
+    function problemDetailsContract(response,status) {
+        var base=responseResult(response,{status:[status],jsonObject:true,fields:['status','title','detail']});
+        var jsonStatus=getCaseInsensitiveProperty(response.body,'status');
+        var statusMatches=typeof jsonStatus==='number' && jsonStatus===status;
+        var assertions=[
+            expectContentType(response,'application/problem+json'),
+            createAssertion('ProblemDetails status',statusMatches?'pass':'fail',statusMatches?'JSON status matches HTTP '+status+'.':'Expected JSON status '+status+'; received '+(typeof jsonStatus==='undefined'?'(missing)':String(jsonStatus))+'.')
+        ];
+        return withAssertions(response,base,assertions);
+    }
+
+    function register404(config) {        registerNegative({
             id:config.id,operationKey:config.operationKey,name:config.name,method:config.method || 'GET',path:config.path,request:config.request,requires:config.requires,note:config.note,status:[404],
             when:function(run){return !!run.options.deliberate404Attested;},skipReason:'Deliberate 404 probes are skipped unless tarpit mode is operator-confirmed disabled or the target is attested loopback local Debug.'
         });
@@ -758,13 +785,12 @@
     registerAnonymousGate({id:'gate.users.resolveMcp',operationKey:'POST /api/Users/resolve-mcp',name:'Gate browser cookie from MCP bearer resolution',method:'POST',path:'/api/users/resolve-mcp',body:{}});
 
     registerNegative({id:'negative.auth.tokenPlaceholder',operationKey:'POST /api/Auth/token-placeholder',name:'Reject token placeholder request',method:'POST',path:'/api/auth/token-placeholder',body:{}});
-    defineTest({id:'gate.auth.externalLoginRedirect',phase:3,group:'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:'GET /api/Auth/login/{provider}',name:'Probe external login without following OAuth redirect',method:'GET',path:'/api/auth/login/{provider}',expectedStatus:[0,503],request:{method:'GET',path:'/api/auth/login/google',credentials:'omit',redirect:'manual'},evaluate:function(response){if(response.transportError){return responseResult(response,{status:[0,503]});}var assertion=expectRedirectProbe(response);return {outcome:assertion.outcome==='pass'?'pass':'fail',response:response,assertions:[assertion],positiveContractVerified:false};}});
     defineTest({id:'gate.auth.externalCallbackRedirect',phase:3,group:'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:'GET /api/Auth/external-logincallback',name:'Probe external callback without OAuth state',method:'GET',path:'/api/auth/external-logincallback',expectedStatus:[0],request:{method:'GET',path:'/api/auth/external-logincallback',credentials:'omit',redirect:'manual'},evaluate:function(response){if(response.transportError){return responseResult(response,{status:[0]});}var assertion=expectRedirectProbe(response);return {outcome:assertion.outcome==='pass'?'pass':'fail',response:response,assertions:[assertion],positiveContractVerified:false};}});
     registerNegative({id:'negative.auth.loginFailure',operationKey:'GET /api/Auth/loginfailure',name:'Return 400 login failure explanation',path:'/api/auth/loginfailure'});
     registerAnonymousGate({id:'gate.auth.lockout',operationKey:'GET /api/Auth/lockout',name:'Return lockout gate',path:'/api/auth/lockout',allowAuthenticated:true});
     registerAnonymousGate({id:'gate.auth.logout',operationKey:'POST /api/Auth/logout',name:'Gate anonymous logout',method:'POST',path:'/api/auth/logout'});
-    registerAnonymousGate({id:'gate.auth.login',operationKey:'GET /api/Auth/login',name:'Return login-required instruction',path:'/api/auth/login',allowAuthenticated:true});
-    registerAnonymousGate({id:'gate.auth.accessDenied',operationKey:'GET /api/Auth/accessdenied',name:'Return access-denied gate',path:'/api/auth/accessdenied',allowAuthenticated:true});
+    defineTest({id:'gate.auth.login',phase:3,group:'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:'GET /api/Auth/login',name:'Return login-required ProblemDetails',method:'GET',path:'/api/auth/login',expectedStatus:[401],note:'Direct API outcome endpoint; no cookie or OAuth redirect is requested.',request:{method:'GET',path:'/api/auth/login',credentials:'omit'},evaluate:function(response){return problemDetailsContract(response,401);}});
+    defineTest({id:'gate.auth.accessDenied',phase:3,group:'Phase 3 contract and gate coverage',evidenceKind:'authGate',operationKey:'GET /api/Auth/accessdenied',name:'Return access-denied ProblemDetails',method:'GET',path:'/api/auth/accessdenied',expectedStatus:[403],note:'Direct API outcome endpoint; no cookie or OAuth redirect is requested.',request:{method:'GET',path:'/api/auth/accessdenied',credentials:'omit'},evaluate:function(response){return problemDetailsContract(response,403);}});
 
     /**************************************************************/
     /**

@@ -867,35 +867,59 @@ namespace MedRecPro.Controllers
         #region Authentication Redirects
         /**************************************************************/
         /// <summary>
-        /// Handles redirect requests for login operations.
+        /// Returns the direct API outcome for callers that must authenticate.
         /// </summary>
-        /// <returns>An Unauthorized result with instructions for initiating login.</returns>
+        /// <returns>A 401 ProblemDetails response that identifies the provider-qualified login route.</returns>
         /// <remarks>
-        /// This endpoint is a fallback for handling redirect operations during the
-        /// cookie authentication flow. It's usually not called directly by clients.
+        /// This parameterless route is a directly callable API contract endpoint. It does not
+        /// start OAuth, redirect the caller, or authenticate an MCP request. External sign-in
+        /// starts only through <c>GET /api/Auth/login/{provider}</c>. Cookie authentication
+        /// redirect events intentionally return bare 401 responses for protected API failures,
+        /// so they do not automatically navigate to this action.
         /// </remarks>
+        /// <seealso cref="LoginExternalProvider"/>
+        /// <seealso cref="MedRecPro.Configuration.MedRecProAuthenticationExtensions"/>
         [HttpGet("login")]
+        [Produces("application/problem+json")]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
         public IActionResult HandleLoginRedirect()
         {
             #region implementation
-            return Unauthorized("Authentication required. Please initiate login via /api/auth/login/{provider}.");
+
+            return Problem(
+                detail: "Authentication is required. Initiate external sign-in through GET /api/Auth/login/{provider}.",
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication required.");
+
             #endregion
         }
 
         /**************************************************************/
         /// <summary>
-        /// Handles requests redirected due to insufficient permissions.
+        /// Returns the direct API outcome for callers that lack authorization.
         /// </summary>
-        /// <returns>A Forbid result with an access denied message.</returns>
+        /// <returns>A 403 ProblemDetails response describing the authorization failure.</returns>
         /// <remarks>
-        /// This endpoint is called when a user is authenticated but lacks the
-        /// necessary authorization to access a protected resource.
+        /// This parameterless route is a directly callable API contract endpoint. It does not
+        /// perform a cookie challenge, redirect the caller, invoke an external provider, or
+        /// authenticate an MCP request. Cookie authentication redirect events intentionally
+        /// return bare 403 responses for protected API failures, so they do not automatically
+        /// navigate to this action.
         /// </remarks>
+        /// <seealso cref="HandleLoginRedirect"/>
+        /// <seealso cref="MedRecPro.Configuration.MedRecProAuthenticationExtensions"/>
         [HttpGet("accessdenied")]
+        [Produces("application/problem+json")]
+        [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
         public IActionResult HandleAccessDenied()
         {
             #region implementation
-            return Forbid("Access Denied.");
+
+            return Problem(
+                detail: "The current caller is not authorized to access the requested resource.",
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "Access denied.");
+
             #endregion
         }
         #endregion
