@@ -46,7 +46,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
     // browser diagnostic below that boundary rather than treating its 30-second delay as success.
     var ONLINE_INTER_REQUEST_DELAY_MS = 34000;
     var ONLINE_REQUEST_TIMEOUT_MS = 60000;
-    var ONLINE_SMOKE_MAX_MONITORED_REQUESTS = 9;
+    var ONLINE_BROWSER_SAFE_MAX_MONITORED_REQUESTS = 9;
     var ONLINE_FULL_BASELINE_REQUEST_ESTIMATE = 137;
 
     /**************************************************************/
@@ -185,8 +185,8 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
         merged.deliberate404Attested = merged.tarpitMode === 'disabled' || merged.loopbackDebug;
         merged.onlineFullDiagnostic = !merged.localDebug && merged.profile === 'all' && merged.selection && merged.selection.category === 'all';
         merged.onlineFullConfirmed = !merged.onlineFullDiagnostic || (options || {}).onlineFullConfirmed === true;
-        merged.onlineRequestBudget = !merged.localDebug && merged.selection && merged.selection.category === 'smoke'
-            ? ONLINE_SMOKE_MAX_MONITORED_REQUESTS
+        merged.onlineRequestBudget = !merged.localDebug && merged.selection && ['smoke', 'all-fast'].indexOf(merged.selection.category) >= 0
+            ? ONLINE_BROWSER_SAFE_MAX_MONITORED_REQUESTS
             : null;
         merged.estimatedMonitoredRequests = merged.onlineFullDiagnostic
             ? ONLINE_FULL_BASELINE_REQUEST_ESTIMATE
@@ -199,7 +199,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
             ? 'Local Debug: no artificial delay between calls.'
             : 'Online: 34 seconds between monitored requests; 60-second request timeout safeguard.';
         if (merged.onlineRequestBudget) {
-            merged.pacingLabel += ' Smoke is capped at nine monitored /api requests per run.';
+            merged.pacingLabel += ' This browser-safe profile is capped at nine monitored /api requests per run.';
         }
         if (merged.onlineFullDiagnostic) {
             merged.pacingLabel += ' Online full baseline estimate: about 1 hour 18 minutes for up to ' + merged.estimatedMonitoredRequests + ' monitored requests.';
@@ -788,7 +788,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
             return {
                 url: url.toString(), status: 0, ok: false, headers: null, contentType: '', body: null, bodyText: '',
                 redirected: false, type: null, durationMs: Math.round(performance.now() - started), transportError: 'online-request-budget',
-                requestSuppressed: true, error: 'Online smoke request budget reached; no request was issued.'
+                requestSuppressed: true, error: 'Online browser-safe request budget reached; no request was issued.'
             };
         }
         var requestController = new AbortController();
@@ -1093,7 +1093,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
 
     /**************************************************************/
     /**
-     * Reserves one request from the deployed smoke budget only for routes monitored by the API tarpit.
+     * Reserves one request from the deployed browser-safe budget only for routes monitored by the API tarpit.
      *
      * @param {Object} run Active diagnostic state.
      * @param {URL} url Fully resolved request target.

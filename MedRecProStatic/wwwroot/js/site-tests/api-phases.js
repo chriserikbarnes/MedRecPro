@@ -658,6 +658,7 @@
 
     registerObjectRead({id:'read.settings.demoMode',operationKey:'GET /api/Settings/demomode',name:'Read demo mode settings',path:'/api/settings/demomode'});
     registerObjectRead({id:'read.settings.databaseLimits',operationKey:'GET /api/Settings/database-limits',name:'Read database limits settings',path:'/api/settings/database-limits'});
+    registerObjectRead({id:'read.ai.context',operationKey:'GET /api/Ai/context',name:'Read AI system context',path:'/api/ai/context'});
     registerObjectRead({id:'read.ai.conversation',operationKey:'GET /api/Ai/conversations/{conversationId}',name:'Read loopback test conversation',path:'/api/ai/conversations/{conversationId}',requires:['conversationId'],request:function(context){return {method:'GET',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)};}});
     registerArrayRead({id:'read.ai.conversationHistory',operationKey:'GET /api/Ai/conversations/{conversationId}/history',name:'Read loopback test conversation history',path:'/api/ai/conversations/{conversationId}/history',requires:['conversationId'],request:function(context){return {method:'GET',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)+'/history'};}});
     registerObjectRead({id:'read.ai.conversationStats',operationKey:'GET /api/Ai/conversations/stats',name:'Read conversation statistics literal route',path:'/api/ai/conversations/stats'});
