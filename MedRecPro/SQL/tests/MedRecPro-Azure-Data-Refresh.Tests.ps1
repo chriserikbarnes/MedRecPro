@@ -221,6 +221,8 @@ Describe 'MedRecPro worker module sqlcmd behavior' {
             $passwordIndex = [Array]::IndexOf($global:MedRecProSqlcmdArgs, '-P')
             ($passwordIndex -ge 0) | Should Be $true
             $global:MedRecProSqlcmdArgs[$passwordIndex + 1] | Should Be 'legacy-pattern'
+            # -I keeps QUOTED_IDENTIFIER ON so index maintenance works on computed-column tables.
+            ($global:MedRecProSqlcmdArgs -contains '-I') | Should Be $true
         }
         finally {
             Remove-Item function:\sqlcmd -ErrorAction SilentlyContinue

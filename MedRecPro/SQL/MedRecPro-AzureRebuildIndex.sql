@@ -345,5 +345,7 @@ BEGIN
 END
 IF @ExecuteCommands = 1 AND (@ErrorCount > 0 OR @StatisticsErrorCount > 0)
 BEGIN
-    RAISERROR('Index rebuild or statistics update reported one or more errors. Review the preceding [E] entries.', 16, 1);
+    -- sqlcmd strips a leading bracket token from printed messages, so the [E] marker is
+    -- only visible in SSMS/Query Editor; the searchable text under sqlcmd is '- Error:'.
+    RAISERROR('Index rebuild or statistics update reported one or more errors. Review the preceding [E] / ''- Error:'' entries.', 16, 1);
 END

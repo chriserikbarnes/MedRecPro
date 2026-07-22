@@ -171,6 +171,10 @@ function Invoke-MedRecProSqlCmd {
         [void]$arguments.Add('-h')
         [void]$arguments.Add('-1')
         [void]$arguments.Add('-W')
+        # -I sets QUOTED_IDENTIFIER ON like SSMS and Azure Query Editor. sqlcmd defaults it
+        # OFF, which fails ALTER/CREATE INDEX on the AE tmp_ tables' persisted computed
+        # columns - the reason index rebuilds historically required the Azure portal.
+        [void]$arguments.Add('-I')
 
         if ($InputFile) {
             [void]$arguments.Add('-i')
