@@ -1,4 +1,4 @@
-﻿# MedRecPro
+# MedRecPro
 
 MedRecPro is a pharmaceutical structured product label (SPL) management platform built with ASP.NET Core. It provides secure access to FDA drug label data through a RESTful API, an AI-powered chat interface, a Model Context Protocol (MCP) server for integration with AI assistants like Claude, and an interactive **adverse-event risk dashboard** built on a multi-stage table-standardization and risk-statistics pipeline.
 
@@ -755,7 +755,7 @@ The MVC-hosted dashboard at `http://localhost:5001/adverse-events` is served fro
 
 ### API diagnostic baseline
 
-With the API running at `http://localhost:5093` and the static site at `http://localhost:5001`, use the Chat page test commands to exercise the browser-facing endpoint diagnostic:
+Use the Chat page test commands to exercise the browser-facing endpoint diagnostic. In local Debug, run the API at `http://localhost:5093` and the static site at `http://localhost:5001`; when deployed, the diagnostic uses the same-origin `/api` path.
 
 | Command | Purpose |
 |---|---|
@@ -764,7 +764,7 @@ With the API running at `http://localhost:5093` and the static site at `http://l
 | `/test api read-auth` | Run authenticated read coverage without writes. |
 | `/test api report` | Show the redacted summary for the latest API diagnostic. |
 
-The baseline never starts paid-AI, import, logout, or mutation profiles; those profiles remain blocked until their exact local confirmations are entered in the endpoint panel. OAuth provider initiation is verified manually through the normal login flow or Swagger rather than through the browser baseline.
+On a deployed site, safe commands use five-second inter-request pacing, suppress in-memory conversation lifecycle requests, and skip deliberate 404 probes unless an operator attests that tarpit mode is disabled. The baseline never starts paid-AI, import, logout, or mutation profiles; those profiles remain local-only and blocked until their exact confirmations are entered in the endpoint panel. OAuth provider initiation is verified manually through the normal login flow or Swagger rather than through the browser baseline.
 
 The panel's `complete` count is the number of scheduled diagnostic records, not the number of API routes. `Accounted: 120` is the audited inventory of unique HTTP-method-and-route operations. One operation can have several records, for example a successful read, an invalid-input contract check, and an authorization check; a few records are internal manifest or seed checks. `Invoked` counts records that issued a request, while `Positive contracts` counts records that verified an expected successful contract. The current Debug acceptance baseline completed with 154 PASS, 0 FAIL, and 15 intentional SKIP across 169 diagnostic records; it retained all 120 operations in the inventory.
 

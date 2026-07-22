@@ -197,7 +197,7 @@ const MedRecProChat = (function () {
         { tokens: ['help'], kind: 'help', description: 'Show this safe test-command catalog.' },
         { tokens: ['api'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
         { tokens: ['api', 'help'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
-        { tokens: ['api', 'smoke'], kind: 'api', category: 'smoke', profile: 'anonymous', testIds: ['read.ae.products', 'read.orangeBook.expiring', 'read.label.productSearch', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], seedTestIds: ['seed.label.productLatest'], description: 'Run a loopback-only bounded public API smoke.' },
+        { tokens: ['api', 'smoke'], kind: 'api', category: 'smoke', profile: 'anonymous', testIds: ['read.ae.products', 'read.orangeBook.expiring', 'read.label.productSearch', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], seedTestIds: ['seed.label.productLatest'], description: 'Run a bounded public API smoke.' },
         { tokens: ['api', 'read'], kind: 'api', category: 'read', profile: 'anonymous', categories: ['read'], description: 'Run safe anonymous read coverage.' },
         { tokens: ['api', 'contract'], kind: 'api', category: 'contract', profile: 'anonymous', categories: ['contract'], description: 'Run safe validation, media, and route-contract coverage.' },
         { tokens: ['api', 'safe'], kind: 'api', category: 'safe', profile: 'anonymous', categories: ['read', 'contract', 'authGate', 'safeWrite'], requireAnonymous: true, runFullPreflight: true, description: 'Run the complete safe anonymous Profile A diagnostic after the anonymous-session gate passes.' },
@@ -371,10 +371,7 @@ const MedRecProChat = (function () {
                 return;
             }
             if (specification.kind === 'api' || specification.kind === 'api-blocked') {
-                if (!isLoopbackTestHost()) {
-                    completeTestMessage(assistantMessage.id, '**API diagnostic blocked.** API test commands run only on localhost, 127.0.0.1, or ::1.');
-                    return;
-                }
+
                 if (!siteTests || typeof siteTests.runApiTests !== 'function') {
                     completeTestMessage(assistantMessage.id, '**API test facade not available.** Reload this page after the endpoint diagnostic scripts finish loading.');
                     return;
@@ -464,10 +461,6 @@ const MedRecProChat = (function () {
         };
     }
 
-    function isLoopbackTestHost() {
-        return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-    }
-
     function formatClientResult(label, result) {
         const outcome = result.failed === 0 ? 'PASS' : 'FAIL';
         const skipped = result.skipped ? `, ${result.skipped} skipped` : '';
@@ -485,12 +478,12 @@ const MedRecProChat = (function () {
         const lines = TEST_COMMANDS.filter(command => command.tokens[0] !== 'api').map(command => `- \`/test${command.tokens.length ? ' ' + command.tokens.join(' ') : ''}\`: *${command.description}*`);
         const apiHelp = TEST_COMMANDS.find(command => command.kind === 'api-help' && command.tokens.join(' ') === 'api help');
         if (apiHelp) lines.push(`- \`/test ${apiHelp.tokens.join(' ')}\`: *${apiHelp.description}*`);
-        return `**Test commands**\n\n${lines.join('\n')}\n\n*Safety: API diagnostics run only on loopback. Profile A requires an anonymous preflight, and opt-in profiles require their exact confirmations in the endpoint panel.*`;
+        return `**Test commands**\n\n${lines.join('\n')}\n\n*Safety: safe API diagnostics can run from the current site. Online runs are paced, deliberate 404 probes require a tarpit-disabled attestation, and Profile A requires an anonymous preflight. Opt-in profiles remain local-only and require their exact confirmations in the endpoint panel.*`;
     }
 
     function formatApiHelp() {
         const lines = TEST_COMMANDS.filter(command => command.tokens[0] === 'api').map(command => `- \`/test ${command.tokens.join(' ')}\`: *${command.description}*`);
-        return `**API test commands**\n\n${lines.join('\n')}\n\n*Safe API commands require loopback. Profile A also requires an anonymous preflight. Opt-in profiles never start from chat alone; the panel requires \`RUN CONFIRMED COST OR MUTATION\`, and admin/import also require \`DISPOSABLE LOCAL DATABASE CONFIRMED\`.*`;
+        return `**API test commands**\n\n${lines.join('\n')}\n\n*Safe API commands can run from the current site. Online runs use conservative pacing; deliberate 404 probes stay skipped unless tarpit mode is explicitly attested disabled. Profile A also requires an anonymous preflight. Opt-in profiles remain local-only and never start from chat alone; the panel requires \`RUN CONFIRMED COST OR MUTATION\`, and admin/import also require \`DISPOSABLE LOCAL DATABASE CONFIRMED\`.*`;
     }
 
     /**************************************************************/

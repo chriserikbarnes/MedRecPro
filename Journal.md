@@ -1,4 +1,4 @@
-﻿# Journal
+# Journal
 ### 2026-02-24 12:25 PM EST — Orange Book Patent Import Service
 Created `OrangeBookPatentParsingService.cs` for importing FDA Orange Book patent.txt data. The service follows the same patterns as `OrangeBookProductParsingService`: tilde-delimited file parsing, batch upsert (5,000 rows) with ChangeTracker.Clear(), dictionary-based natural key lookup, and progress reporting via callbacks.
 
@@ -6510,3 +6510,18 @@ Evaluated the implemented unified Azure data refresh against the (done) plan and
 **Tests.** Grew the offline Pester suite from 12 to 19: bcp export and import argument contracts (either would have caught the direction defect), transient-versus-non-transient serverless retry, asset-hash resume rejection, missing-asset preflight failure, and a guard that every terminal Write-Error stays non-fatal. The retry tests live in a second Describe block because Pester 3 mocks persist for the whole Describe that created them and the orchestration block mocks Invoke-MedRecProSqlCmd.
 
 **Verification.** Parser checks passed for the runner, module, and test file; Invoke-Pester passed 19/19 offline using global bcp/sqlcmd function stubs with no database connections; the exit-code probe now returns the deterministic code (was 1); -WhatIf still renders the full 16-stage graph without prompting; git diff --check passed. The plan's live disposable-target acceptance remains an explicit operator follow-up.
+
+---
+
+### 2026-07-22 10:37 AM EST - Enable deployed safe API diagnostics
+Removed the stale chat-only loopback-host rejection that prevented the existing browser API diagnostic from starting after deployment. Safe `/test api` commands now reach the runner from the deployed same-origin static site, where the runner already resolves `/api` correctly.
+
+**Deployment safety.** The change does not broaden execution scope: online runs retain the five-second inter-request pace, do not start the loopback-only in-memory conversation lifecycle, and skip deliberate 404 probes until tarpit mode is explicitly attested disabled. Paid AI, mutations, imports, logout, and other opt-in profiles remain local-only and still require their existing exact panel confirmations.
+
+**Documentation.** Updated [index.js](MedRecProStatic/wwwroot/js/chat/index.js) command help and [README.md](README.md) so both distinguish the deployed safe baseline from local-only opt-in profiles and explain the online tarpit safeguards.
+
+**Verification.** `node --check MedRecProStatic\\wwwroot\\js\\chat\\index.js` and `git diff --check` passed. A no-network regression check confirmed the chat loopback block is absent while online pacing, local-only conversation behavior, deliberate-404 attestation, and local-only opt-in gates remain present. `dotnet build MedRecProStatic\\MedRecProStatic.csproj --no-restore --nologo -p:UseAppHost=false -p:OutDir=C:\\tmp\\MedRecProStatic-hosted-api-check\\` completed with 0 errors and the pre-existing nullable warning at `MedRecProStatic/Views/Home/Index.cshtml:245`.
+
+**Live acceptance.** No deployed or local browser diagnostic was run in this session, so this records static/build evidence only; deployed endpoint results remain to be observed after publishing the static-site update.
+
+---
