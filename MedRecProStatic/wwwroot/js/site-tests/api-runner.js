@@ -42,7 +42,12 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
     var DISPOSABLE_DATA_CONFIRMATION = 'DISPOSABLE LOCAL DATABASE CONFIRMED';
     var LOCALLY_EXPOSED_RESPONSE_HEADERS = ['x-page-number', 'x-page-size', 'x-total-count', 'x-chartable-count'];
     var LOCAL_DEBUG_INTER_REQUEST_DELAY_MS = 0;
-    var ONLINE_INTER_REQUEST_DELAY_MS = 5000;
+    // The deployed tarpit policy permits ten monitored /api requests per five minutes. Keep the
+    // browser diagnostic below that boundary rather than treating its 30-second delay as success.
+    var ONLINE_INTER_REQUEST_DELAY_MS = 34000;
+    var ONLINE_REQUEST_TIMEOUT_MS = 60000;
+    var ONLINE_SMOKE_MAX_MONITORED_REQUESTS = 9;
+    var ONLINE_FULL_BASELINE_REQUEST_ESTIMATE = 137;
 
     /**************************************************************/
 
@@ -155,6 +160,9 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
             sectionFixture: null,
             interRequestDelayMs: null,
             requestTimeoutMs: 30000,
+            onlineFullConfirmed: false,
+            onlineRequestBudget: null,
+            estimatedMonitoredRequests: null,
             stopOnFirstFail: false,
             groups: null,
             categories: null,
@@ -175,10 +183,27 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
         merged.localDebug = isLocalDebugTarget(merged.apiBase);
         merged.loopbackDebug = isLoopbackDebugTarget(merged.apiBase);
         merged.deliberate404Attested = merged.tarpitMode === 'disabled' || merged.loopbackDebug;
+        merged.onlineFullDiagnostic = !merged.localDebug && merged.profile === 'all' && merged.selection && merged.selection.category === 'all';
+        merged.onlineFullConfirmed = !merged.onlineFullDiagnostic || (options || {}).onlineFullConfirmed === true;
+        merged.onlineRequestBudget = !merged.localDebug && merged.selection && merged.selection.category === 'smoke'
+            ? ONLINE_SMOKE_MAX_MONITORED_REQUESTS
+            : null;
+        merged.estimatedMonitoredRequests = merged.onlineFullDiagnostic
+            ? ONLINE_FULL_BASELINE_REQUEST_ESTIMATE
+            : null;
         merged.interRequestDelayMs = merged.localDebug ? LOCAL_DEBUG_INTER_REQUEST_DELAY_MS : ONLINE_INTER_REQUEST_DELAY_MS;
+        merged.requestTimeoutMs = merged.localDebug
+            ? (Number((options || {}).requestTimeoutMs) || defaults.requestTimeoutMs)
+            : ONLINE_REQUEST_TIMEOUT_MS;
         merged.pacingLabel = merged.localDebug
             ? 'Local Debug: no artificial delay between calls.'
-            : 'Online: 5 seconds between calls.';
+            : 'Online: 34 seconds between monitored requests; 60-second request timeout safeguard.';
+        if (merged.onlineRequestBudget) {
+            merged.pacingLabel += ' Smoke is capped at nine monitored /api requests per run.';
+        }
+        if (merged.onlineFullDiagnostic) {
+            merged.pacingLabel += ' Online full baseline estimate: about 1 hour 18 minutes for up to ' + merged.estimatedMonitoredRequests + ' monitored requests.';
+        }
         if (typeof (options || {}).runFullPreflight !== 'boolean') {
             var selectionSource = (merged.selection && merged.selection.source) || defaults.selection.source;
             merged.runFullPreflight = selectionSource === 'console' || selectionSource === 'query';
@@ -733,7 +758,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
                 selection: options.selection
             }
         };
-        run.report.progress.planned = getScheduledTestCount(run, options.profile === 'all' || options.profile === 'authenticated');
+        run.report.progress.planned = getScheduledTestCount(run, options.profile === 'all' || options.profile === 'all-fast' || options.profile === 'authenticated');
         return run;
     }
 
@@ -757,6 +782,13 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
                 url: url.toString(), status: 0, ok: false, headers: null, contentType: '', body: null, bodyText: '',
                 redirected: false, type: null, durationMs: Math.round(performance.now() - started), transportError: 'aborted',
                 error: 'Run cancelled before request pacing completed.'
+            };
+        }
+        if (!reserveOnlineRequestBudget(run, url)) {
+            return {
+                url: url.toString(), status: 0, ok: false, headers: null, contentType: '', body: null, bodyText: '',
+                redirected: false, type: null, durationMs: Math.round(performance.now() - started), transportError: 'online-request-budget',
+                requestSuppressed: true, error: 'Online smoke request budget reached; no request was issued.'
             };
         }
         var requestController = new AbortController();
@@ -913,7 +945,7 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
         if (result && result.evidenceKind) record.evidenceKind = result.evidenceKind;
         if (result && result.note) record.note = record.note ? record.note + ' ' + result.note : result.note;
         if (result && result.response) {
-            record.invoked = true;
+            record.invoked = !result.response.requestSuppressed;
             record.url = result.response.url;
             record.httpStatus = result.response.status || null;
             record.durationMs = result.response.durationMs;
@@ -940,6 +972,10 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
     function responseResult(response, options) {
         var assertions = [];
         if (response.transportError) {
+            if (response.transportError === 'online-request-budget') {
+                assertions.push(createAssertion('Online smoke request budget', 'skip', 'No request was issued after the nine-request deployed smoke budget was reached.'));
+                return { outcome: 'skip', assertions: assertions, skipReason: 'Online smoke request budget reached; no request was issued.', response: response };
+            }
             assertions.push(createAssertion('Transport', 'fail', response.transportError));
             return { outcome: response.transportError === 'aborted' ? 'skip' : 'fail', assertions: assertions, skipReason: response.transportError === 'aborted' ? 'Run cancelled.' : null, response: response };
         }
@@ -1053,6 +1089,25 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
             }
             run.controller.signal.addEventListener('abort', complete, { once: true });
         });
+    }
+
+    /**************************************************************/
+    /**
+     * Reserves one request from the deployed smoke budget only for routes monitored by the API tarpit.
+     *
+     * @param {Object} run Active diagnostic state.
+     * @param {URL} url Fully resolved request target.
+     * @returns {boolean} True when the request may be issued.
+     */
+    /**************************************************************/
+    function reserveOnlineRequestBudget(run, url) {
+        var path = String(url && url.pathname || '').toLowerCase();
+        var monitored = path === '/api' || path.indexOf('/api/') === 0;
+        if (!monitored || !run.options.onlineRequestBudget) return true;
+        run.monitoredRequestCount = run.monitoredRequestCount || 0;
+        if (run.monitoredRequestCount >= run.options.onlineRequestBudget) return false;
+        run.monitoredRequestCount++;
+        return true;
     }
 
     function waitForPacing() {
@@ -1329,7 +1384,9 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
     function openApiPanel(options) {
         var normalized = getDefaultOptions(options);
         getPanel().configureFromCommand(normalized);
-        getPanel().setSummary('Profile selected but blocked until the required confirmation(s) and fixture controls are supplied.');
+        getPanel().setSummary(normalized.onlineFullDiagnostic
+            ? 'Online full diagnostic selected. No requests have been issued; review the expected duration and explicitly start it from this panel.'
+            : 'Profile selected but blocked until the required confirmation(s) and fixture controls are supplied.');
         return getPanel().ensurePanel();
     }
 
@@ -1340,6 +1397,18 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
         var currentPanel = getPanel().configureFromCommand(run.options);
         currentPanel.list.textContent = '';
         currentPanel.groups = {};
+        if (run.options.onlineFullDiagnostic && !run.options.onlineFullConfirmed) {
+            run.report.blocked = {
+                code: 'online-full-confirmation-required',
+                message: 'Online full diagnostic was not started. Open the panel, review the rate-aware estimate, and explicitly select Start online full diagnostic.'
+            };
+            run.report.completedAt = new Date().toISOString();
+            refreshReport(run);
+            getPanel().renderRun(run, run.report.blocked.message);
+            lastReport = run.report;
+            activeRun = null;
+            return run.report;
+        }
         if (run.options.includeImport && run.options.importFile) {
             getPanel().renderRun(run, 'Computing the selected durable import fixture SHA-256 before any request is issued.');
             try {
@@ -1404,9 +1473,8 @@ window.MedRecProApiTestRuntime = (function (manifest, panelModule) {
         queryTriggerInitialized = true;
         var query = new URLSearchParams(window.location.search);
         if (query.get('apitest') !== '1') return;
-        var tarpit = query.get('tarpit') === 'disabled' ? 'disabled' : 'unknown';
         var queryOptions = {
-            tarpitMode: tarpit,
+            tarpitMode: 'unknown',
             groups: query.get('group') ? [query.get('group')] : null,
             selection: { source: 'query', command: '?apitest=1', group: query.get('group') || null },
             requireAnonymous: true,

@@ -6525,3 +6525,69 @@ Removed the stale chat-only loopback-host rejection that prevented the existing 
 **Live acceptance.** No deployed or local browser diagnostic was run in this session, so this records static/build evidence only; deployed endpoint results remain to be observed after publishing the static-site update.
 
 ---
+
+---
+
+### 2026-07-22 11:16 AM EST - Prompt interactively for missing Azure refresh connection values
+Changed [MedRecPro-Azure-Data-Refresh.ps1](MedRecPro/SQL/MedRecPro-Azure-Data-Refresh.ps1) so a run started without -AzureServer, -AzureDatabase, or -AzureUser requests each missing value once interactively instead of throwing, matching how the password was already collected. The acquisition happens before any run directory or manifest is created, so a blank response (or a non-interactive host) still fails closed with the preflight exit code and no longer leaves an orphaned failed run directory the way the previous hard throw did. Resume requests only the user, because the manifest supplies the verified server and database; -ExportOnly and -WhatIf still never prompt for Azure values. Comment-based help gained the interactive example and parameter/NOTES wording.
+
+**Tests and verification.** Added a Read-MedRecProRefreshRequiredValue helper plus two Pester checks (trimmed single prompt; empty response returned for fail-closed handling) in their own Describe so the Read-Host mock cannot leak; the suite now passes 21/21 offline. Parser checks passed. Redirected-stdin smokes confirmed both behaviors: blank input exits 1 with no run directory created, and three piped values are consumed in prompt order and proceed to the console-only secure password prompt. The stray failed run directory created by the pre-fix no-argument attempt (C:\MedRecPro-Migration\Refreshes\20260722-7cee8fd7) contains only a Failed manifest and log and is safe to delete.
+
+
+---
+
+### 2026-07-22 11:30 AM EST - Adopt the legacy worker connection pattern in the unified refresh
+A live attempt from the unified entry point failed with "Login failed for user" while the individual workers connect successfully, so the unified path now follows the proven legacy setup-and-connection pattern at the operator's direction. Invoke-MedRecProSqlCmd in [MedRecPro-DataRefreshWorker.psm1](MedRecPro/SQL/MedRecPro-DataRefreshWorker.psm1) authenticates with -U/-P arguments exactly like the legacy workers and bcp, replacing the SQLCMDPASSWORD environment-variable approach from plan Phase 4.3 (a deliberate deviation; arguments are still never logged, so the password stays out of logs, manifests, and run state).
+
+**Setup order.** [MedRecPro-Azure-Data-Refresh.ps1](MedRecPro/SQL/MedRecPro-Azure-Data-Refresh.ps1) now mirrors the legacy workers' sequence: collect the missing connection values and the secure password, then immediately prove the connection with a SELECT 1 test (Test-MedRecProRefreshAzureConnection, with the legacy scripts' friendly diagnostics for authentication, unreachable-server, and cannot-open-database failures, plus serverless warm-up retry) before any run directory or manifest is created. A wrong password therefore fails fast with a clear message and leaves no orphaned run state. Resume runs the same test right after adopting the manifest-bound target.
+
+**Verification.** Parser checks passed for the runner, module, and tests; no SQLCMDPASSWORD references remain; a real local trusted sqlcmd call through the helper returned success; Invoke-Pester passed 22/22 offline including a new check that credentials reach sqlcmd as -U/-P arguments like the legacy workers. Live Azure credential acceptance still requires the operator's next real attempt.
+
+
+---
+
+### 2026-07-22 11:51 AM EST - Rate-limit deployed API diagnostics and add all-fast read profile
+Updated the browser endpoint diagnostic to align deployed execution with the active `/api` endpoint-rate monitor. [api-runner.js](MedRecProStatic/wwwroot/js/site-tests/api-runner.js) now uses 34-second online request spacing and a 60-second timeout safeguard; `/test api smoke` is hard-capped at nine monitored requests. The full `/test api all` baseline opens an explicit online panel before any request is sent and shows the current 137-request estimate of about 1 hour 18 minutes. Local Debug retains immediate full-baseline behavior.
+
+**Route and tarpit safety.** [api-phases.js](MedRecProStatic/wwwroot/js/site-tests/api-phases.js) now reads same-origin production OpenAPI from `/api/swagger/v1/swagger.json`, while local Debug keeps `/swagger/v1/swagger.json`. Query-string tarpit-mode override was removed, so a URL cannot enable deliberate 404 probes; production continues to skip them unless an independent disabled-mode attestation is supplied. No tarpit middleware, `/api` monitoring rule, client header, or URL parameter was added to weaken protection.
+
+**Read-focused command.** Added `/test api all fast` in [index.js](MedRecProStatic/wwwroot/js/chat/index.js). It is a safe read-only subset of the full baseline: seed discovery plus Settings, Label, Adverse Event, Orange Book, AI, Auth, and—when signed in—protected user-feature reads. The loopback in-memory conversation POST/DELETE lifecycle is explicitly excluded. The profile also excludes contracts, negative/gate probes, paid AI, mutations, imports, logout, and other opt-ins, but retains deployed pacing. [api-panel.js](MedRecProStatic/wwwroot/js/site-tests/api-panel.js) now labels and explicitly starts online full diagnostics; [README.md](README.md) documents both profiles.
+
+**Verification.** `node --check` passed for all four changed JavaScript files; `git diff --check` passed. No-network Node runtime harnesses passed the online confirmation gate, 34-second/60-second defaults, nine-request cap, production and local Swagger routes, the all-fast profile, and exclusion of its conversation POST/DELETE lifecycle. `dotnet build MedRecProStatic\\MedRecProStatic.csproj --no-restore --nologo -p:UseAppHost=false -p:OutDir=C:\\tmp\\MedRecProStatic-online-diagnostic-check\\` completed with 0 errors (the first compilation reported the existing nullable warning at `MedRecProStatic/Views/Home/Index.cshtml:245`; the final incremental recheck was clean). No deployed browser/API diagnostic was run in this session.
+
+---
+
+### 2026-07-22 12:00 PM EST - Fix worker result crashes and add the run-mode prompt
+A second live attempt authenticated successfully (proving yesterday's -U/-P change) but crashed at the end of the Core export with "The property 'Sum' cannot be found on this object." Probing on this machine isolated two Windows PowerShell 5.1 strict-mode defects in [MedRecPro-DataRefreshWorker.psm1](MedRecPro/SQL/MedRecPro-DataRefreshWorker.psm1)'s result assembly, both in code no offline test had ever executed: an empty pipeline into Measure-Object -Property -Sum emits nothing, so reading .Sum off the wrapped empty array throws under strict mode (TargetRows is always null during export); and the @(...) subexpression over a List[object] holding PSCustomObjects throws ArgumentException "Argument types do not match" (a List[string] is unaffected, which is why only TableResults failed). Totals are now accumulated with a plain loop, the result object is built with explicit ordered assignments, and the two object lists convert through List.ToArray. Also hardened the orchestrator's table-name enumeration (Select-Object -ExpandProperty) so an empty facts list cannot throw, and added per-table [n/count] progress lines so exports and imports are no longer silent for minutes.
+
+**Run-mode prompt.** At the operator's direction, [MedRecPro-Azure-Data-Refresh.ps1](MedRecPro/SQL/MedRecPro-Azure-Data-Refresh.ps1) now asks for the run mode whenever none of -ExportOnly, -ValidateOnly, or -ResumeRun is supplied: V (validate only, the Enter default), E (export only), or R (full refresh). The full destructive pipeline therefore requires an explicit R plus the existing exact REFRESH confirmation token, so an interactive start can no longer drift into a migration by default. Help and the README section were updated to match.
+
+**Verification.** The exact failing scenario now passes live: a real read-only TempTables export from MedRecLocal through Invoke-MedRecProDomainWorker completed 3/3 tables with 1,568,651 source rows and a zero target total. Parser checks passed; Invoke-Pester passed 26/26 offline including new regressions for the export-totals crash and the three run-mode answers; a bare-start smoke showed the mode menu, defaulted to validate-only, failed closed on blank input with exit 1, and created no run directory. Live end-to-end Azure acceptance remains the operator's next run.
+
+
+---
+
+### 2026-07-22 12:14 PM EST - Refine all-fast seed completeness
+Reviewed the local `/test api all fast` report (58 PASS, 1 FAIL, 10 SKIP) and corrected its only failure without introducing seed data or restoring the excluded conversation lifecycle. The report's `phase2.seedCompleteness` internal check treated `seed.ai.conversation` as an unexpected missing dependency even though the read-only all-fast profile intentionally suppresses its loopback POST/DELETE lifecycle.
+
+**Implementation.** [api-phases.js](MedRecProStatic/wwwroot/js/site-tests/api-phases.js) now marks `seed.ai.conversation` as intentionally excluded only when `profile === 'all-fast'`. Every other skipped seed, including this seed in the normal full profile, still fails the completeness gate. The all-fast profile therefore retains its user-feature reads and read-only guarantee.
+
+**Verification.** `node --check MedRecProStatic\\wwwroot\\js\\site-tests\\api-phases.js` and `git diff --check` passed. A no-network Node harness proved the all-fast exclusion passes completeness while the normal all baseline fails for the same missing seed. `dotnet build MedRecProStatic\\MedRecProStatic.csproj --no-restore --nologo -p:UseAppHost=false -p:OutDir=C:\\tmp\\MedRecProStatic-seed-refinement-check\\` completed with 0 errors and the existing nullable warning at `MedRecProStatic/Views/Home/Index.cshtml:245`. No additional local or deployed API traffic was issued.
+
+---
+
+### 2026-07-22 12:25 PM EST - Focus all-fast on browser health
+Trimmed `/test api all fast` from the broad read and authenticated-read selection to a representative browser-health suite. [index.js](MedRecProStatic/wwwroot/js/chat/index.js) now runs the reachability/auth preflights, three minimum discovery calls, and selected Label search/document, Adverse Event browse/count/correlation, Orange Book, Settings, AI status, and sign-in endpoints. It no longer runs the administrative/status route set, protected-read sweep, or the ten-call NDC discovery loop.
+
+**Pacing decision.** The deployed suite performs 14 HTTP requests for an anonymous browser, or 15 for a signed-in browser because of its current-user preflight. At the existing 34-second safe rate this is about eight minutes. Burst groups were intentionally not added: the tarpit limit is a rolling five-minute window, so a brief pause does not release earlier requests and offers no material end-to-end improvement over steady pacing.
+
+**Verification.** `node --check MedRecProStatic\wwwroot\js\chat\index.js`, a no-network selection check for all ten route/internal records and three seeds, `git diff --check`, and `dotnet build MedRecProStatic\MedRecProStatic.csproj --no-restore --nologo -p:UseAppHost=false -p:OutDir=C:\tmp\MedRecProStatic-browser-health-check\` all passed with 0 warnings and 0 errors. No local or deployed API traffic was issued by this verification.
+
+---
+
+### 2026-07-22 12:30 PM EST - Continuous progress messaging for the unified refresh
+Before the operator's first full migration, audited the refresh pipeline for silent stretches and made progress visible end to end. Previously only the worker export/import loops printed per-table lines; the destructive SQL stages (disable, nuke, rebuild, reconciliation), preflight schema comparison, manifest hash verification, and the final per-table count verification all ran silently until completion.
+
+**Changes.** [MedRecPro-Azure-Data-Refresh.ps1](MedRecPro/SQL/MedRecPro-Azure-Data-Refresh.ps1) now echoes every stage transition as a timestamped, color-coded banner (Running/Succeeded/Failed/RecoveryRequired) using the stage catalog display names; announces the schema-signature comparison and export-hash verification; prints per-domain summaries after each export and import (tables, rows, size, duration); and shows [n/count] lines during final row-count verification. [MedRecPro-DataRefreshWorker.psm1](MedRecPro/SQL/MedRecPro-DataRefreshWorker.psm1) gained a -StreamOutput switch on Invoke-MedRecProSqlCmd that relays each sqlcmd line to the console as it arrives while still capturing complete output for the run log and postconditions; the orchestrator streams all four SQL file stages, whose scripts already print per-index/per-table [D]/[R]/[OK] progress. Worker tables now print an OK confirmation with row count and megabytes (export) or verified target rows (import). bcp output remains captured rather than streamed because bcp emits a line per 1,000 rows, which would flood the console at this data volume.
+
+**Verification.** Parser checks passed; Invoke-Pester passed 28/28 offline including new checks that streaming preserves captured output and that stage transitions echo as banners; a live local sqlcmd streaming demo relayed RAISERROR WITH NOWAIT progress lines in real time; and a real local TempTables export displayed the new per-table beats (tmp_SectionContent: 726,562 rows, 2,848.6 MB). The operator's validate-only and export-only runs earlier today confirmed the prompt flow and export cadence against real data.

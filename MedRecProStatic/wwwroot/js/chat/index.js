@@ -197,11 +197,12 @@ const MedRecProChat = (function () {
         { tokens: ['help'], kind: 'help', description: 'Show this safe test-command catalog.' },
         { tokens: ['api'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
         { tokens: ['api', 'help'], kind: 'api-help', description: 'Show API diagnostic profiles and prerequisites.' },
-        { tokens: ['api', 'smoke'], kind: 'api', category: 'smoke', profile: 'anonymous', testIds: ['read.ae.products', 'read.orangeBook.expiring', 'read.label.productSearch', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], seedTestIds: ['seed.label.productLatest'], description: 'Run a bounded public API smoke.' },
+        { tokens: ['api', 'smoke'], kind: 'api', category: 'smoke', profile: 'anonymous', testIds: ['read.ae.products', 'read.orangeBook.expiring', 'read.label.productSearch', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], seedTestIds: ['seed.label.productLatest'], description: 'Run a bounded public API smoke (at most nine monitored requests online).' },
         { tokens: ['api', 'read'], kind: 'api', category: 'read', profile: 'anonymous', categories: ['read'], description: 'Run safe anonymous read coverage.' },
         { tokens: ['api', 'contract'], kind: 'api', category: 'contract', profile: 'anonymous', categories: ['contract'], description: 'Run safe validation, media, and route-contract coverage.' },
         { tokens: ['api', 'safe'], kind: 'api', category: 'safe', profile: 'anonymous', categories: ['read', 'contract', 'authGate', 'safeWrite'], requireAnonymous: true, runFullPreflight: true, description: 'Run the complete safe anonymous Profile A diagnostic after the anonymous-session gate passes.' },
-        { tokens: ['api', 'all'], kind: 'api', category: 'all', profile: 'all', runFullPreflight: true, description: 'Run all non-destructive baseline API coverage, including authenticated reads when signed in.' },
+        { tokens: ['api', 'all'], kind: 'api', category: 'all', profile: 'all', runFullPreflight: true, description: 'Run all non-destructive baseline coverage locally; deployed sites open an explicit rate-aware online full panel.' },
+        { tokens: ['api', 'all', 'fast'], kind: 'api', category: 'all-fast', profile: 'all-fast', testIds: ['phase2.seedCompleteness', 'read.label.productSearch', 'read.label.single', 'read.ae.products', 'read.ae.count', 'read.ae.correlation', 'read.orangeBook.expiring', 'read.settings.demoMode', 'read.ai.conversationStats', 'read.auth.externalLogin'], seedTestIds: ['seed.label.productLatest', 'seed.ae.catalog', 'seed.ae.classes'], description: 'Run the focused browser-health check for the public routes behind Labels, Adverse Events, Orange Book, Settings, AI, and sign-in.' },
         { tokens: ['api', 'ae'], kind: 'api', category: 'ae', profile: 'anonymous', families: ['ae'], description: 'Run the Adverse Event API family.' },
         { tokens: ['api', 'orangebook'], kind: 'api', category: 'orangebook', profile: 'anonymous', families: ['orangebook'], description: 'Run the Orange Book API family.' },
         { tokens: ['api', 'label'], kind: 'api', category: 'label', profile: 'anonymous', families: ['label'], description: 'Run the Label API family.' },
@@ -278,6 +279,18 @@ const MedRecProChat = (function () {
             candidate.tokens.every((token, index) => token === commandTokens[index])
         );
         return { raw: raw, tokens: commandTokens, specification: specification || null };
+    }
+
+    /**************************************************************/
+    /**
+     * Determines whether the current chat page is a local diagnostic host.
+     *
+     * @returns {boolean} True when a full baseline can retain its local-start behavior.
+     */
+    /**************************************************************/
+    function isLocalDiagnosticPage() {
+        const hostname = window.location.hostname;
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname.indexOf('192.168.') === 0 || hostname.indexOf('10.') === 0;
     }
 
     /**************************************************************/
@@ -377,8 +390,13 @@ const MedRecProChat = (function () {
                     return;
                 }
                 const options = createApiCommandOptions(rawInput, specification);
-                if (specification.kind === 'api-blocked') {
+                const requiresOnlineFullPanel = specification.category === 'all' && !isLocalDiagnosticPage();
+                if (specification.kind === 'api-blocked' || requiresOnlineFullPanel) {
                     if (typeof siteTests.openApiPanel === 'function') siteTests.openApiPanel(options);
+                    if (requiresOnlineFullPanel) {
+                        completeTestMessage(assistantMessage.id, '**Online full diagnostic selected but not started.** The endpoint panel shows the rate-aware pacing and expected duration (about 1 hour 18 minutes for the current 137-request baseline). Select **Start online full diagnostic** there to explicitly begin; no requests were issued by this chat command.');
+                        return;
+                    }
                     completeTestMessage(assistantMessage.id, '**Opt-in API profile selected but blocked.** The endpoint panel is open; supply the required confirmation(s), disposable-data attestation where applicable, and an import ZIP before starting any requests.');
                     return;
                 }
@@ -478,12 +496,12 @@ const MedRecProChat = (function () {
         const lines = TEST_COMMANDS.filter(command => command.tokens[0] !== 'api').map(command => `- \`/test${command.tokens.length ? ' ' + command.tokens.join(' ') : ''}\`: *${command.description}*`);
         const apiHelp = TEST_COMMANDS.find(command => command.kind === 'api-help' && command.tokens.join(' ') === 'api help');
         if (apiHelp) lines.push(`- \`/test ${apiHelp.tokens.join(' ')}\`: *${apiHelp.description}*`);
-        return `**Test commands**\n\n${lines.join('\n')}\n\n*Safety: safe API diagnostics can run from the current site. Online runs are paced, deliberate 404 probes require a tarpit-disabled attestation, and Profile A requires an anonymous preflight. Opt-in profiles remain local-only and require their exact confirmations in the endpoint panel.*`;
+        return `**Test commands**\n\n${lines.join('\n')}\n\n*Safety: deployed smoke is capped at nine monitored requests. Online full diagnostics require an explicit panel start, use 34-second pacing with a 60-second timeout safeguard, and keep deliberate 404 probes skipped unless tarpit-disabled status is independently attested. Profile A requires an anonymous preflight; opt-in profiles remain local-only and require their exact confirmations in the endpoint panel.*`;
     }
 
     function formatApiHelp() {
         const lines = TEST_COMMANDS.filter(command => command.tokens[0] === 'api').map(command => `- \`/test ${command.tokens.join(' ')}\`: *${command.description}*`);
-        return `**API test commands**\n\n${lines.join('\n')}\n\n*Safe API commands can run from the current site. Online runs use conservative pacing; deliberate 404 probes stay skipped unless tarpit mode is explicitly attested disabled. Profile A also requires an anonymous preflight. Opt-in profiles remain local-only and never start from chat alone; the panel requires \`RUN CONFIRMED COST OR MUTATION\`, and admin/import also require \`DISPOSABLE LOCAL DATABASE CONFIRMED\`.*`;
+        return `**API test commands**\n\n${lines.join('\n')}\n\n*The deployed smoke profile is capped at nine monitored requests. A deployed \`/test api all\` opens an explicit online full panel before any request starts; it uses 34-second pacing and a 60-second timeout safeguard, so the current 137-request baseline is about 1 hour 18 minutes. Deliberate 404 probes stay skipped unless tarpit-disabled status is independently attested. Profile A also requires an anonymous preflight. Opt-in profiles remain local-only and never start from chat alone; the panel requires \`RUN CONFIRMED COST OR MUTATION\`, and admin/import also require \`DISPOSABLE LOCAL DATABASE CONFIRMED\`.*`;
     }
 
     /**************************************************************/

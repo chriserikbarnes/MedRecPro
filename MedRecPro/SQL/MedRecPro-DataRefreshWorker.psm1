@@ -115,7 +115,7 @@ function Test-MedRecProTransientSqlFailure {
 function Invoke-MedRecProSqlCmd {
     <#
     .SYNOPSIS
-    Runs sqlcmd without exposing a SQL password in its command line or returned result.
+    Runs sqlcmd with the legacy workers' -U/-P authentication pattern and never logs its arguments.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -138,7 +138,9 @@ function Invoke-MedRecProSqlCmd {
 
         [switch]$RetryServerless,
 
-        [int[]]$RetryDelaysSeconds = @(0, 5, 15, 30)
+        [int[]]$RetryDelaysSeconds = @(0, 5, 15, 30),
+
+        [switch]$StreamOutput
     )
 
     if (-not (Get-Command sqlcmd -ErrorAction SilentlyContinue)) {
@@ -179,7 +181,6 @@ function Invoke-MedRecProSqlCmd {
             [void]$arguments.Add($Query)
         }
 
-        $previousPassword = $env:SQLCMDPASSWORD
         $plainText = $null
         try {
             if ($User) {
@@ -187,16 +188,34 @@ function Invoke-MedRecProSqlCmd {
                     return [PSCustomObject]@{ Success = $false; ExitCode = -1; Output = 'A secure Azure SQL password is required.' }
                 }
 
+                # The legacy workers authenticate with -U/-P arguments, matching bcp, and that
+                # is the proven connection pattern for this environment. Arguments are never
+                # logged, so the password stays out of logs, manifests, and run state.
                 $plainText = ConvertTo-MedRecProPlainText -SecureString $Password
-                $env:SQLCMDPASSWORD = $plainText
                 [void]$arguments.Add('-U')
                 [void]$arguments.Add($User)
+                [void]$arguments.Add('-P')
+                [void]$arguments.Add($plainText)
             }
             else {
                 [void]$arguments.Add('-E')
             }
 
-            $output = & sqlcmd @arguments 2>&1 | Out-String
+            if ($StreamOutput) {
+                # Relay each sqlcmd line to the console as it arrives so long-running
+                # disable/nuke/rebuild scripts show live progress, while the complete
+                # output is still captured for the run log and postcondition checks.
+                $streamBuilder = New-Object System.Text.StringBuilder
+                & sqlcmd @arguments 2>&1 | ForEach-Object {
+                    $line = $_.ToString()
+                    Write-Host "    $line"
+                    [void]$streamBuilder.AppendLine($line)
+                }
+                $output = $streamBuilder.ToString()
+            }
+            else {
+                $output = & sqlcmd @arguments 2>&1 | Out-String
+            }
             $lastResult = [PSCustomObject]@{
                 Success = ($LASTEXITCODE -eq 0)
                 ExitCode = $LASTEXITCODE
@@ -208,12 +227,6 @@ function Invoke-MedRecProSqlCmd {
         }
         finally {
             $plainText = $null
-            if ($null -eq $previousPassword) {
-                Remove-Item Env:SQLCMDPASSWORD -ErrorAction SilentlyContinue
-            }
-            else {
-                $env:SQLCMDPASSWORD = $previousPassword
-            }
         }
 
         # Retry is reserved for transient serverless resume/network conditions; a genuine
@@ -438,12 +451,16 @@ function Invoke-MedRecProDomainWorker {
             }
         }
 
+        $exportIndex = 0
         foreach ($table in $tables) {
             if ($failedTables.Count -gt 0 -and $Strict) { break }
 
+            $exportIndex++
+            Write-Host ("  [{0}/{1}] {2} export: {3}" -f $exportIndex, $tables.Count, $Domain, $table)
             $sourceCount = Get-MedRecProSqlRowCount -Server $LocalServer -Database $LocalDatabase -Table $table
             $dataFile = Join-Path $DataPath "$table.dat"
             if (-not $sourceCount.Success) {
+                Write-Host "    FAILED: $table" -ForegroundColor Red
                 $failedTables.Add($table)
                 $tableResults.Add([PSCustomObject]@{ Table = $table; Operation = 'Export'; Success = $false; SourceRows = $null; TargetRows = $null; FilePath = $dataFile; FileSize = 0; Hash = $null; Error = $sourceCount.Error })
                 continue
@@ -455,10 +472,12 @@ function Invoke-MedRecProDomainWorker {
             $success = $bcp.Success -and $fileExists
             if ($success) {
                 $hash = (Get-FileHash -LiteralPath $dataFile -Algorithm SHA256).Hash
+                Write-Host ("    OK: {0:N0} rows, {1:N1} MB" -f $sourceCount.Count, ($fileSize / 1MB))
                 $succeededTables.Add($table)
                 $tableResults.Add([PSCustomObject]@{ Table = $table; Operation = 'Export'; Success = $true; SourceRows = $sourceCount.Count; TargetRows = $null; FilePath = $dataFile; FileSize = $fileSize; Hash = $hash; Error = $null })
             }
             else {
+                Write-Host "    FAILED: $table" -ForegroundColor Red
                 $failedTables.Add($table)
                 $tableResults.Add([PSCustomObject]@{ Table = $table; Operation = 'Export'; Success = $false; SourceRows = $sourceCount.Count; TargetRows = $null; FilePath = $dataFile; FileSize = $fileSize; Hash = $null; Error = $bcp.Output })
             }
@@ -480,8 +499,11 @@ function Invoke-MedRecProDomainWorker {
             }
         }
 
+        $importIndex = 0
         foreach ($table in $tables) {
             if ($failedTables.Count -gt 0 -and $Strict) { break }
+            $importIndex++
+            Write-Host ("  [{0}/{1}] {2} import: {3}" -f $importIndex, $tables.Count, $Domain, $table)
             $dataFile = Join-Path $DataPath "$table.dat"
             $expected = @($ExpectedInventory | Where-Object { $_.Table -eq $table } | Select-Object -First 1)
             if ($expected.Count -eq 1 -and $expected[0].FilePath) { $dataFile = [string]$expected[0].FilePath }
@@ -502,29 +524,49 @@ function Invoke-MedRecProDomainWorker {
             $bcp = Invoke-MedRecProBcp -Operation Import -Server $AzureServer -Database $AzureDatabase -Table $table -DataFile $dataFile -FormatFlags $configuration.ImportFlags -BatchSize $BatchSize -User $AzureUser -Password $AzurePassword
             $targetCount = Get-MedRecProSqlRowCount -Server $AzureServer -Database $AzureDatabase -Table $table -User $AzureUser -Password $AzurePassword
             $success = $bcp.Success -and $targetCount.Success -and ($targetCount.Count -eq $sourceRows)
-            if ($success) { $succeededTables.Add($table) } else { $failedTables.Add($table) }
+            if ($success) {
+                Write-Host ("    OK: {0:N0} rows verified on target" -f $targetCount.Count)
+                $succeededTables.Add($table)
+            }
+            else {
+                Write-Host "    FAILED: $table" -ForegroundColor Red
+                $failedTables.Add($table)
+            }
             $tableResults.Add([PSCustomObject]@{ Table = $table; Operation = 'Import'; Success = $success; SourceRows = $sourceRows; TargetRows = $targetCount.Count; FilePath = $dataFile; FileSize = (Get-Item -LiteralPath $dataFile).Length; Hash = $fileHash; Error = if ($success) { $null } elseif (-not $targetCount.Success) { $targetCount.Error } elseif ($targetCount.Count -ne $sourceRows) { "Target row count $($targetCount.Count) does not match source row count $sourceRows." } else { $bcp.Output } })
         }
     }
 
     $fileInventory = @($tableResults | Where-Object { $_.Operation -eq 'Export' })
-    $sourceTotal = @($tableResults | Where-Object { $null -ne $_.SourceRows } | Measure-Object -Property SourceRows -Sum).Sum
-    $targetTotal = @($tableResults | Where-Object { $null -ne $_.TargetRows } | Measure-Object -Property TargetRows -Sum).Sum
-    if ($null -eq $sourceTotal) { $sourceTotal = 0 }
-    if ($null -eq $targetTotal) { $targetTotal = 0 }
 
-    return [PSCustomObject]@{
-        Domain = $Domain
-        Operation = $Operation
-        ExpectedTables = $tables
-        SucceededTables = @($succeededTables)
-        FailedTables = @($failedTables | Select-Object -Unique)
-        RowTotals = [PSCustomObject]@{ Source = [long]$sourceTotal; Target = [long]$targetTotal }
-        FileInventory = $fileInventory
-        Duration = (Get-Date) - $startedAt
-        Success = ($failedTables.Count -eq 0 -and @($succeededTables | Select-Object -Unique).Count -eq $tables.Count)
-        TableResults = @($tableResults)
+    # Accumulate totals with a plain loop. Under strict mode an empty Measure-Object result
+    # (for example TargetRows during an export-only pass) exposes no Sum member in
+    # Windows PowerShell 5.1, which terminates the worker.
+    $sourceTotal = [long]0
+    $targetTotal = [long]0
+    foreach ($tableResult in $tableResults) {
+        if ($null -ne $tableResult.SourceRows) { $sourceTotal += [long]$tableResult.SourceRows }
+        if ($null -ne $tableResult.TargetRows) { $targetTotal += [long]$tableResult.TargetRows }
     }
+
+    $uniqueFailedTables = @($failedTables | Sort-Object -Unique)
+    $uniqueSucceededCount = @($succeededTables | Sort-Object -Unique).Count
+    $allTablesSucceeded = ($failedTables.Count -eq 0 -and $uniqueSucceededCount -eq $tables.Count)
+    $duration = (Get-Date) - $startedAt
+
+    # List.ToArray replaces @(...) here: the @() subexpression over a List[object] that
+    # holds PSCustomObjects throws 'Argument types do not match' on Windows PowerShell 5.1.
+    $result = [ordered]@{}
+    $result['Domain'] = $Domain
+    $result['Operation'] = $Operation
+    $result['ExpectedTables'] = $tables
+    $result['SucceededTables'] = $succeededTables.ToArray()
+    $result['FailedTables'] = $uniqueFailedTables
+    $result['RowTotals'] = [PSCustomObject]@{ Source = [long]$sourceTotal; Target = [long]$targetTotal }
+    $result['FileInventory'] = $fileInventory
+    $result['Duration'] = $duration
+    $result['Success'] = $allTablesSucceeded
+    $result['TableResults'] = $tableResults.ToArray()
+    return [PSCustomObject]$result
 }
 
 Export-ModuleMember -Function Get-MedRecProDomainConfiguration, Invoke-MedRecProSqlCmd, Get-MedRecProSqlRowCount, Invoke-MedRecProBcp, Invoke-MedRecProDomainWorker

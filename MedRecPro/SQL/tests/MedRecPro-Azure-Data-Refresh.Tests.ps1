@@ -173,11 +173,61 @@ Describe 'MedRecPro unified Azure data refresh orchestration' {
             ($writeError.Value -match '-ErrorAction\s+Continue') | Should Be $true
         }
     }
+
+    It 'echoes every stage transition to the console as a timestamped banner' {
+        $manifest = [PSCustomObject]@{ Stages = [ordered]@{} }
+        $banner = Set-MedRecProRefreshStage -Manifest $manifest -StageId 'RebuildIndexes' -Status Running -Message 'Rebuilding.' 6>&1 | Out-String
+        ($banner -match 'Rebuild indexes and statistics') | Should Be $true
+        ($banner -match 'Running') | Should Be $true
+        $manifest.Stages['RebuildIndexes'].Status | Should Be 'Running'
+    }
 }
 
-# Serverless retry behavior runs in its own Describe because Pester 3 mocks live for the
-# whole Describe that created them, and the orchestration block above mocks Invoke-MedRecProSqlCmd.
-Describe 'MedRecPro worker module serverless retry' {
+# sqlcmd behavior runs in its own Describe because Pester 3 mocks live for the whole
+# Describe that created them, and the orchestration block above mocks Invoke-MedRecProSqlCmd.
+Describe 'MedRecPro worker module sqlcmd behavior' {
+    It 'computes export row totals without strict-mode Measure-Object failures' {
+        function global:bcp {
+            Set-Content -LiteralPath $args[2] -Value 'native'
+            cmd /c exit 0
+            '10 rows copied'
+        }
+        Mock Get-MedRecProSqlRowCount { [PSCustomObject]@{ Success = $true; Count = [long]10; Error = $null } } -ModuleName MedRecPro-DataRefreshWorker
+        try {
+            $result = Invoke-MedRecProDomainWorker -Domain TempTables -Operation Export -DataPath (Join-Path $TestDrive 'TempExport') -Strict -NonInteractive -OverwriteData
+            $result.Success | Should Be $true
+            $result.RowTotals.Source | Should Be 30
+            $result.RowTotals.Target | Should Be 0
+        }
+        finally {
+            Remove-Item function:\bcp -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'passes credentials to sqlcmd as -U and -P arguments like the legacy workers' {
+        $global:MedRecProSqlcmdArgs = $null
+        function global:sqlcmd {
+            $global:MedRecProSqlcmdArgs = @($args)
+            cmd /c exit 0
+            '1'
+        }
+        try {
+            $secure = ConvertTo-SecureString 'legacy-pattern' -AsPlainText -Force
+            $result = Invoke-MedRecProSqlCmd -Server 'server.database.windows.net' -Database 'MedRecPro' -User 'migration-user' -Password $secure -Query 'SELECT 1;'
+            $result.Success | Should Be $true
+            $userIndex = [Array]::IndexOf($global:MedRecProSqlcmdArgs, '-U')
+            ($userIndex -ge 0) | Should Be $true
+            $global:MedRecProSqlcmdArgs[$userIndex + 1] | Should Be 'migration-user'
+            $passwordIndex = [Array]::IndexOf($global:MedRecProSqlcmdArgs, '-P')
+            ($passwordIndex -ge 0) | Should Be $true
+            $global:MedRecProSqlcmdArgs[$passwordIndex + 1] | Should Be 'legacy-pattern'
+        }
+        finally {
+            Remove-Item function:\sqlcmd -ErrorAction SilentlyContinue
+            Remove-Variable -Name MedRecProSqlcmdArgs -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'retries a transient serverless resume failure and then succeeds' {
         $global:MedRecProSqlcmdCalls = 0
         function global:sqlcmd {
@@ -202,6 +252,23 @@ Describe 'MedRecPro worker module serverless retry' {
         }
     }
 
+    It 'still captures complete output when streaming SQL progress live' {
+        function global:sqlcmd {
+            'line one'
+            'line two'
+            cmd /c exit 0
+        }
+        try {
+            $result = Invoke-MedRecProSqlCmd -Server 'server.database.windows.net' -Database 'MedRecPro' -Query 'PRINT 1;' -StreamOutput 6>$null
+            $result.Success | Should Be $true
+            ($result.Output -match 'line one') | Should Be $true
+            ($result.Output -match 'line two') | Should Be $true
+        }
+        finally {
+            Remove-Item function:\sqlcmd -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'does not retry a non-transient SQL failure even in serverless retry mode' {
         $global:MedRecProSqlcmdCalls = 0
         function global:sqlcmd {
@@ -218,5 +285,35 @@ Describe 'MedRecPro worker module serverless retry' {
             Remove-Item function:\sqlcmd -ErrorAction SilentlyContinue
             Remove-Variable -Name MedRecProSqlcmdCalls -Scope Global -ErrorAction SilentlyContinue
         }
+    }
+}
+
+# The Read-Host mock lives in its own Describe because Pester 3 mocks persist for the whole
+# Describe that created them, and no other test should see a mocked interactive prompt.
+Describe 'MedRecPro refresh interactive prompting' {
+    It 'requests a missing connection value once and trims the response' {
+        Mock Read-Host { '  server.database.windows.net  ' }
+        Read-MedRecProRefreshRequiredValue -Prompt 'Azure SQL server' | Should Be 'server.database.windows.net'
+        Assert-MockCalled Read-Host -Times 1 -Exactly
+    }
+
+    It 'returns an empty string for a blank response so the caller can fail closed' {
+        Mock Read-Host { '   ' }
+        Read-MedRecProRefreshRequiredValue -Prompt 'Azure SQL user' | Should Be ''
+    }
+
+    It 'defaults the run-mode question to the validate-only pass' {
+        Mock Read-Host { '' }
+        Read-MedRecProRefreshRunMode | Should Be 'Validate'
+    }
+
+    It 'starts the full refresh only on an explicit choice' {
+        Mock Read-Host { 'r' }
+        Read-MedRecProRefreshRunMode | Should Be 'Refresh'
+    }
+
+    It 'rejects an unrecognized run mode instead of assuming a refresh' {
+        Mock Read-Host { 'zz' }
+        { Read-MedRecProRefreshRunMode } | Should Throw
     }
 }

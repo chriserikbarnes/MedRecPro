@@ -8,14 +8,21 @@ confirmation, imports each domain with strict row-count verification, rebuilds i
 non-secret run state that can be resumed only against the same verified source, target, scripts,
 and data files. Existing domain scripts remain supported lower-level tools.
 
+A start without -ExportOnly, -ValidateOnly, or -ResumeRun first asks which run mode to execute;
+Enter selects the validate-only pass, and the full refresh must be chosen explicitly, so an
+interactive launch never drifts into the destructive pipeline by default.
+
 .PARAMETER AzureServer
 Azure SQL logical server name. A normal refresh requires a *.database.windows.net target.
+Requested once interactively when omitted; a blank response fails preflight.
 
 .PARAMETER AzureDatabase
-Azure SQL database name that must match DB_NAME() after connection.
+Azure SQL database name that must match DB_NAME() after connection. Requested once
+interactively when omitted; a blank response fails preflight.
 
 .PARAMETER AzureUser
-Azure SQL user used for sqlcmd and BCP imports.
+Azure SQL user used for sqlcmd and BCP imports. Requested once interactively when omitted,
+including for resume; a blank response fails preflight.
 
 .PARAMETER AzurePassword
 Optional secure Azure SQL password. The script prompts once when a target operation requires it.
@@ -32,9 +39,23 @@ Existing run directory to resume after its manifest and hashes are verified.
 .NOTES
 Exit codes: 0 success; 1 preflight; 2 cancellation; 3 export; 4 SQL cleanup; 5 import;
 6 rebuild/recovery; 7 final verification; 99 unexpected failure. No generic Force switch exists.
+Missing Azure connection values are requested once interactively before any run state is
+created; blank responses fail closed so unattended callers still stop deterministically.
+Without an explicit mode switch the run-mode question defaults to validate-only on Enter,
+and only an explicit R answer starts the full refresh pipeline.
+Progress is continuous: timestamped stage banners, per-table [n/count] lines with row
+confirmations, streamed disable/nuke/rebuild SQL output, and per-domain summaries.
 
 .EXAMPLE
 .\MedRecPro-Azure-Data-Refresh.ps1 -AzureServer 'server.database.windows.net' -AzureDatabase 'MedRecPro' -AzureUser 'migration-user'
+
+Asks for the run mode (Enter = validate only; R starts the full refresh), then the password.
+
+.EXAMPLE
+.\MedRecPro-Azure-Data-Refresh.ps1
+
+Asks for the run mode, then requests the Azure server, database, user, and password
+interactively and tests the connection before any run state is created.
 
 .EXAMPLE
 .\MedRecPro-Azure-Data-Refresh.ps1 -ExportOnly -LocalServer localhost -LocalDatabase MedRecLocal
@@ -161,6 +182,20 @@ function Set-MedRecProRefreshStage {
         UpdatedAt = (Get-Date).ToUniversalTime().ToString('o')
         Message = $Message
     })
+
+    # Echo every stage transition so the operator always sees which stage is running,
+    # finished, or needs attention without waiting for the manifest or the run log.
+    $catalogEntry = @(Get-MedRecProRefreshStageCatalog | Where-Object { $_.Id -eq $StageId })
+    $displayName = if ($catalogEntry.Count -eq 1) { $catalogEntry[0].Name } else { $StageId }
+    $color = switch ($Status) {
+        'Succeeded' { 'Green' }
+        'Failed' { 'Red' }
+        'RecoveryRequired' { 'Red' }
+        'Cancelled' { 'Yellow' }
+        'Skipped' { 'Yellow' }
+        default { 'Cyan' }
+    }
+    Write-Host ('[{0}] {1}: {2}{3}' -f (Get-Date).ToString('s'), $displayName, $Status, $(if ($Message) { " - $Message" } else { '' })) -ForegroundColor $color
 }
 
 function Write-MedRecProRefreshManifest {
@@ -193,13 +228,15 @@ function Write-MedRecProRefreshLog {
         [string]$LogPath,
 
         [Parameter(Mandatory = $true)]
-        [string]$Message
+        [string]$Message,
+
+        [switch]$NoHost
     )
 
     $redacted = $Message -replace '(?i)(password|pwd)\s*=\s*[^;\s]+', '$1=***'
     $line = '[{0}] {1}' -f (Get-Date).ToString('s'), $redacted
     Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
-    Write-Host $line
+    if (-not $NoHost) { Write-Host $line }
 }
 
 function Get-MedRecProRefreshAssets {
@@ -398,6 +435,78 @@ function Test-MedRecProRefreshConfirmation {
 
     return $Confirmation -ceq ("REFRESH {0}/{1}" -f $AzureServer, $AzureDatabase)
 }
+
+function Read-MedRecProRefreshRequiredValue {
+    <#
+    .SYNOPSIS
+    Prompts once for a required connection value and returns the trimmed response.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt
+    )
+
+    $value = Read-Host $Prompt
+    if ($null -eq $value) { return '' }
+    return $value.Trim()
+}
+
+function Read-MedRecProRefreshRunMode {
+    <#
+    .SYNOPSIS
+    Asks which run mode to execute so an interactive start cannot assume a full refresh.
+    #>
+    Write-Host 'Select the run mode:'
+    Write-Host '  [V] Validate only - preflight and target checks; no export, no Azure changes (default)'
+    Write-Host '  [E] Export only   - export and validate a local snapshot; no Azure changes'
+    Write-Host '  [R] Full refresh  - export, then clear and reload Azure after the typed confirmation'
+    $choice = Read-Host 'Run mode (V/E/R, Enter = V)'
+    if ($null -eq $choice) { $choice = '' }
+
+    switch ($choice.Trim().ToUpperInvariant()) {
+        '' { return 'Validate' }
+        'V' { return 'Validate' }
+        'VALIDATE' { return 'Validate' }
+        'E' { return 'Export' }
+        'EXPORT' { return 'Export' }
+        'R' { return 'Refresh' }
+        'REFRESH' { return 'Refresh' }
+        'FULL' { return 'Refresh' }
+        default { throw "Unrecognized run mode '$choice'. Use V (validate only), E (export only), or R (full refresh)." }
+    }
+}
+
+function Test-MedRecProRefreshAzureConnection {
+    <#
+    .SYNOPSIS
+    Verifies Azure SQL connectivity using the legacy workers' connection-test pattern.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$AzureServer,
+        [Parameter(Mandatory = $true)][string]$AzureDatabase,
+        [Parameter(Mandatory = $true)][string]$AzureUser,
+        [Parameter(Mandatory = $true)][Security.SecureString]$AzurePassword
+    )
+
+    Write-Host "Testing Azure SQL connection to $AzureServer/$AzureDatabase..."
+    $result = Invoke-MedRecProSqlCmd -Server $AzureServer -Database $AzureDatabase -User $AzureUser -Password $AzurePassword -Query 'SET NOCOUNT ON; SELECT 1 AS ConnectionTest;' -RetryServerless
+    if ($result.Success -and $result.Output -match '(?m)^\s*1\s*$') {
+        Write-Host '  OK: Connection successful' -ForegroundColor Green
+        return
+    }
+
+    if ($result.Output -match 'Login failed') {
+        throw "Azure SQL authentication failed for user '$AzureUser'. Check the username and password."
+    }
+    if ($result.Output -match 'Cannot open server|server was not found|not accessible') {
+        throw "Azure SQL server '$AzureServer' is not reachable. Check the server name, firewall rules, and network connectivity."
+    }
+    if ($result.Output -match 'Cannot open database') {
+        throw "Azure SQL database '$AzureDatabase' could not be opened for user '$AzureUser'. Check the database name."
+    }
+    throw "Azure SQL connection test failed: $($result.Output)"
+}
+
 function New-MedRecProRefreshExecutableNuke {
     <#
     .SYNOPSIS
@@ -432,8 +541,10 @@ function Invoke-MedRecProRefreshSqlFile {
         [int]$QueryTimeoutSeconds = 0
     )
 
-    $result = Invoke-MedRecProSqlCmd -Server $AzureServer -Database $AzureDatabase -User $AzureUser -Password $AzurePassword -InputFile $ScriptPath -LoginTimeoutSeconds 30 -QueryTimeoutSeconds $QueryTimeoutSeconds -RetryServerless
-    if ($result.Output.Trim()) { Write-MedRecProRefreshLog -LogPath $LogPath -Message $result.Output.Trim() }
+    Write-MedRecProRefreshLog -LogPath $LogPath -Message "Executing $(Split-Path -Leaf $ScriptPath); its progress streams below as it runs."
+    $result = Invoke-MedRecProSqlCmd -Server $AzureServer -Database $AzureDatabase -User $AzureUser -Password $AzurePassword -InputFile $ScriptPath -LoginTimeoutSeconds 30 -QueryTimeoutSeconds $QueryTimeoutSeconds -RetryServerless -StreamOutput
+    # The output already streamed to the console line by line, so it is logged without re-echo.
+    if ($result.Output.Trim()) { Write-MedRecProRefreshLog -LogPath $LogPath -Message $result.Output.Trim() -NoHost }
     if (-not $result.Success) { throw "sqlcmd failed for $ScriptPath (exit $($result.ExitCode))." }
 }
 
@@ -611,6 +722,35 @@ try {
     $assets = Get-MedRecProRefreshAssets -ScriptRoot $PSScriptRoot
     Import-Module $assets.WorkerModule -Force -ErrorAction Stop
 
+    if (-not $ExportOnly -and -not $ValidateOnly -and -not $ResumeRun) {
+        # Without an explicit mode the operator chooses one first, and Enter selects the
+        # safest validation pass; the full destructive pipeline must be picked deliberately.
+        $runMode = Read-MedRecProRefreshRunMode
+        if ($runMode -eq 'Validate') { $ValidateOnly = $true }
+        elseif ($runMode -eq 'Export') { $ExportOnly = $true }
+    }
+
+    if (-not $ExportOnly) {
+        # A missing connection value is requested once interactively instead of failing
+        # immediately. This runs before any run directory or manifest exists, so a blank
+        # response aborts without leaving orphaned run state. Resume adopts the server and
+        # database from its manifest, so only the user is requested on that path.
+        if (-not $ResumeRun -and -not $AzureServer) { $AzureServer = Read-MedRecProRefreshRequiredValue -Prompt 'Azure SQL server (name.database.windows.net)' }
+        if (-not $ResumeRun -and -not $AzureDatabase) { $AzureDatabase = Read-MedRecProRefreshRequiredValue -Prompt 'Azure SQL database' }
+        if (-not $AzureUser) { $AzureUser = Read-MedRecProRefreshRequiredValue -Prompt 'Azure SQL user' }
+        if ((-not $ResumeRun -and (-not $AzureServer -or -not $AzureDatabase)) -or -not $AzureUser) {
+            throw 'AzureServer, AzureDatabase, and AzureUser are required for validation, refresh, and resume.'
+        }
+        if (-not $AzurePassword) {
+            $AzurePassword = Read-Host 'Enter Azure SQL Password' -AsSecureString
+        }
+        if (-not $ResumeRun) {
+            # Legacy setup order: prove the connection right after collecting credentials so a
+            # bad password or unreachable server fails before any run state exists.
+            Test-MedRecProRefreshAzureConnection -AzureServer $AzureServer -AzureDatabase $AzureDatabase -AzureUser $AzureUser -AzurePassword $AzurePassword
+        }
+    }
+
     if ($ResumeRun) {
         $runDirectory = (Resolve-Path -LiteralPath $ResumeRun -ErrorAction Stop).Path
         $manifestPath = Join-Path $runDirectory 'refresh-manifest.json'
@@ -630,6 +770,8 @@ try {
         $LocalDatabase = $manifest.Source.Database
         $RefreshExclusionRules = [bool]$manifest.Options.RefreshExclusionRules
         $SkipIndexReconciliation = [bool]$manifest.Options.SkipIndexReconciliation
+        Test-MedRecProRefreshAzureConnection -AzureServer $AzureServer -AzureDatabase $AzureDatabase -AzureUser $AzureUser -AzurePassword $AzurePassword
+        Write-MedRecProRefreshLog -LogPath $logPath -Message 'Verifying every export data file hash against the manifest...'
         Test-MedRecProRefreshManifestFiles -Manifest $manifest
         Write-MedRecProRefreshLog -LogPath $logPath -Message "Resuming manifest $($manifest.RunId)."
     }
@@ -660,13 +802,6 @@ try {
         Write-MedRecProRefreshLog -LogPath $logPath -Message "Created refresh run $runId."
     }
 
-    if (-not $ExportOnly -and (-not $AzureServer -or -not $AzureDatabase -or -not $AzureUser)) {
-        throw 'AzureServer, AzureDatabase, and AzureUser are required for validation, refresh, and resume.'
-    }
-    if (-not $ExportOnly -and -not $AzurePassword) {
-        $AzurePassword = Read-Host "Enter Azure SQL password for $AzureServer/$AzureDatabase" -AsSecureString
-    }
-
     $exitCode = 1
     Set-MedRecProRefreshStage -Manifest $manifest -StageId 'Preflight' -Status Running -Message 'Validating tools, identities, schemas, permissions, and nuke coverage.'
     Write-MedRecProRefreshManifest -Manifest $manifest -ManifestPath $manifestPath
@@ -679,6 +814,9 @@ try {
     $localIdentity = Get-MedRecProRefreshScalar -SqlResult (Invoke-MedRecProSqlCmd -Server $LocalServer -Database $LocalDatabase -Query 'SET NOCOUNT ON; SELECT DB_NAME();')
     if ($localIdentity -ne $LocalDatabase) { throw "Local database identity mismatch: expected $LocalDatabase, connected to $localIdentity." }
     $sourceFacts = Get-MedRecProRefreshTableFacts -Server $LocalServer -Database $LocalDatabase
+    # ExpandProperty keeps an empty facts list safe: member enumeration on an empty array
+    # has no Table property under strict mode in Windows PowerShell 5.1.
+    $sourceTableNames = @($sourceFacts | Select-Object -ExpandProperty Table)
 
     $definitions = @(
         [PSCustomObject]@{ Domain = 'Core'; Worker = $assets.CoreWorker; Directory = Join-Path $runDirectory 'Core'; Exclude = if ($RefreshExclusionRules) { @() } else { @('PharmClassDosageFormExclusion') } },
@@ -691,7 +829,7 @@ try {
         $definition | Add-Member -MemberType NoteProperty -Name Tables -Value @($configuration.Tables | Where-Object { $definition.Exclude -notcontains $_ })
     }
     $allSelectedTables = @($definitions | ForEach-Object { $_.Tables })
-    $missingSource = @($allSelectedTables | Where-Object { $_ -notin $sourceFacts.Table })
+    $missingSource = @($allSelectedTables | Where-Object { $_ -notin $sourceTableNames })
     if ($missingSource.Count -gt 0) { throw "Preflight source tables are missing: $($missingSource -join ', ')." }
 
     $targetFacts = @()
@@ -707,10 +845,12 @@ try {
         # online-first/offline-fallback behavior remains authoritative regardless of tier.
         $serviceObjective = Get-MedRecProRefreshScalar -SqlResult (Invoke-MedRecProSqlCmd -Server $AzureServer -Database $AzureDatabase -User $AzureUser -Password $AzurePassword -Query "SET NOCOUNT ON; SELECT ISNULL(CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), 'ServiceObjective')), 'Unknown');")
         $targetFacts = Get-MedRecProRefreshTableFacts -Server $AzureServer -Database $AzureDatabase -User $AzureUser -Password $AzurePassword -RetryServerless
-        $missingTarget = @($allSelectedTables | Where-Object { $_ -notin $targetFacts.Table })
+        $targetTableNames = @($targetFacts | Select-Object -ExpandProperty Table)
+        $missingTarget = @($allSelectedTables | Where-Object { $_ -notin $targetTableNames })
         if ($missingTarget.Count -gt 0) {
             throw "Preflight target tables are missing: $($missingTarget -join ', '). Use MedRecPro-TableCreate-OrangeBook.sql for Orange Book, MedRecPro-Table-tmp_*.sql for dashboard/AE tables, or usp_RefreshTempTables in MedRecPro_Batch.sql; schema creation is intentionally out of scope."
         }
+        Write-MedRecProRefreshLog -LogPath $logPath -Message "Comparing BCP-relevant schema signatures for $($allSelectedTables.Count) tables (local vs Azure)..."
         $sourceSignature = Get-MedRecProRefreshSchemaSignature -Server $LocalServer -Database $LocalDatabase -Tables $allSelectedTables
         $targetSignature = Get-MedRecProRefreshSchemaSignature -Server $AzureServer -Database $AzureDatabase -Tables $allSelectedTables -User $AzureUser -Password $AzurePassword -RetryServerless
         if (Compare-Object -ReferenceObject $sourceSignature -DifferenceObject $targetSignature) { throw 'Preflight failed: BCP-relevant source and target schema signatures differ.' }
@@ -743,9 +883,13 @@ try {
         Write-MedRecProRefreshManifest -Manifest $manifest -ManifestPath $manifestPath
         $export = Invoke-MedRecProRefreshWorker -WorkerPath $definition.Worker -Domain $definition.Domain -Operation Export -DataPath $definition.Directory -LocalServer $LocalServer -LocalDatabase $LocalDatabase -BatchSize $BatchSize -ParallelThrottle $ParallelThrottle -ExcludeTable $definition.Exclude -OverwriteData
         Set-MedRecProRefreshMember -Container $manifest.Domains -Name $definition.Domain -Value ([PSCustomObject]@{ Tables = $definition.Tables; Export = $export; Import = $null })
+        $exportBytes = [long]0
+        foreach ($file in @($export.FileInventory)) { $exportBytes += [long]$file.FileSize }
+        Write-MedRecProRefreshLog -LogPath $logPath -Message ("{0} export complete: {1} tables, {2:N0} rows, {3:N2} GB in {4}." -f $definition.Domain, @($export.SucceededTables).Count, [long]$export.RowTotals.Source, ($exportBytes / 1GB), $export.Duration.ToString('hh\:mm\:ss'))
         Set-MedRecProRefreshStage -Manifest $manifest -StageId $stageId -Status Succeeded -Message "$($definition.Domain) export inventory and hashes recorded."
         Write-MedRecProRefreshManifest -Manifest $manifest -ManifestPath $manifestPath
     }
+    Write-MedRecProRefreshLog -LogPath $logPath -Message 'Verifying every export data file hash against the manifest...'
     Test-MedRecProRefreshManifestFiles -Manifest $manifest
 
     if ($ExportOnly) {
@@ -799,6 +943,7 @@ try {
         $core = @($definitions | Where-Object { $_.Domain -eq 'Core' })[0]
         $coreImport = Invoke-MedRecProRefreshWorker -WorkerPath $core.Worker -Domain Core -Operation Import -DataPath $core.Directory -LocalServer $LocalServer -LocalDatabase $LocalDatabase -AzureServer $AzureServer -AzureDatabase $AzureDatabase -AzureUser $AzureUser -AzurePassword $AzurePassword -BatchSize $BatchSize -ParallelThrottle $ParallelThrottle -ExcludeTable $core.Exclude -ExpectedInventory $manifest.Domains.Core.Export.FileInventory -SkipTargetTruncate
         $manifest.Domains.Core.Import = $coreImport
+        Write-MedRecProRefreshLog -LogPath $logPath -Message ("Core import complete: {0} tables, {1:N0} rows in {2}." -f @($coreImport.SucceededTables).Count, [long]$coreImport.RowTotals.Target, $coreImport.Duration.ToString('hh\:mm\:ss'))
         Set-MedRecProRefreshStage -Manifest $manifest -StageId 'ImportCore' -Status Succeeded -Message 'Core target counts match the export manifest.'
         Write-MedRecProRefreshManifest -Manifest $manifest -ManifestPath $manifestPath
     }
@@ -817,6 +962,7 @@ try {
         Set-MedRecProRefreshStage -Manifest $manifest -StageId 'ImportOrangeBook' -Status Running -Message 'Importing OrangeBook from verified manifest files.'
         $orangeImport = Invoke-MedRecProRefreshWorker -WorkerPath $orange.Worker -Domain OrangeBook -Operation Import -DataPath $orange.Directory -LocalServer $LocalServer -LocalDatabase $LocalDatabase -AzureServer $AzureServer -AzureDatabase $AzureDatabase -AzureUser $AzureUser -AzurePassword $AzurePassword -BatchSize $BatchSize -ParallelThrottle $ParallelThrottle -ExpectedInventory $manifest.Domains.OrangeBook.Export.FileInventory -SkipTargetTruncate
         $manifest.Domains.OrangeBook.Import = $orangeImport
+        Write-MedRecProRefreshLog -LogPath $logPath -Message ("OrangeBook import complete: {0} tables, {1:N0} rows in {2}." -f @($orangeImport.SucceededTables).Count, [long]$orangeImport.RowTotals.Target, $orangeImport.Duration.ToString('hh\:mm\:ss'))
         Set-MedRecProRefreshStage -Manifest $manifest -StageId 'ImportOrangeBook' -Status Succeeded -Message 'Orange Book target counts match the export manifest.'
         Write-MedRecProRefreshManifest -Manifest $manifest -ManifestPath $manifestPath
     }
@@ -831,6 +977,7 @@ try {
         $exitCode = 5
         $import = Invoke-MedRecProRefreshWorker -WorkerPath $definition.Worker -Domain $domainName -Operation Import -DataPath $definition.Directory -LocalServer $LocalServer -LocalDatabase $LocalDatabase -AzureServer $AzureServer -AzureDatabase $AzureDatabase -AzureUser $AzureUser -AzurePassword $AzurePassword -BatchSize $BatchSize -ParallelThrottle $ParallelThrottle -ExpectedInventory $manifest.Domains.$domainName.Export.FileInventory -SkipTargetTruncate
         $manifest.Domains.$domainName.Import = $import
+        Write-MedRecProRefreshLog -LogPath $logPath -Message ("{0} import complete: {1} tables, {2:N0} rows in {3}." -f $domainName, @($import.SucceededTables).Count, [long]$import.RowTotals.Target, $import.Duration.ToString('hh\:mm\:ss'))
         Set-MedRecProRefreshStage -Manifest $manifest -StageId $stageId -Status Succeeded -Message "$domainName target counts match the export manifest."
         Write-MedRecProRefreshManifest -Manifest $manifest -ManifestPath $manifestPath
     }
@@ -857,7 +1004,10 @@ try {
     Set-MedRecProRefreshStage -Manifest $manifest -StageId 'FinalVerification' -Status Running -Message 'Verifying manifest row counts, index state, and preservation policy.'
     foreach ($definition in $definitions) {
         $expected = @($manifest.Domains.$($definition.Domain).Export.FileInventory)
+        $verifyIndex = 0
         foreach ($table in $expected) {
+            $verifyIndex++
+            Write-Host ("  [{0}/{1}] Verify {2}: {3}" -f $verifyIndex, $expected.Count, $definition.Domain, $table.Table)
             $targetCount = Get-MedRecProSqlRowCount -Server $AzureServer -Database $AzureDatabase -Table $table.Table -User $AzureUser -Password $AzurePassword
             if (-not $targetCount.Success -or $targetCount.Count -ne [long]$table.SourceRows) { throw "Final verification failed for $($table.Table)." }
         }

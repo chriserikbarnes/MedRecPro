@@ -85,6 +85,7 @@ window.MedRecProApiTestPanel = (function () {
                 if (action === 'copy') copyLastReport();
                 if (action === 'run') {
                     callbacks.run(Object.assign({}, panel.commandOptions, {
+                        onlineFullConfirmed: !!panel.commandOptions.onlineFullDiagnostic,
                         importFile: panel.importFile.files && panel.importFile.files[0] ? panel.importFile.files[0] : null,
                         confirmations: {
                             costOrMutation: panel.confirmation.value || null,
@@ -341,7 +342,7 @@ window.MedRecProApiTestPanel = (function () {
          * @param {Object} options Fixed command options selected by the chat router.
          */
         /**************************************************************/
-        function configureProfileControls(currentPanel, options) { var requiresConfirmation = !!(options.includeAi || options.includeMutating || options.includeCacheClear || options.includeAdminWrites || options.includeImport || options.includeSlow || options.includeLogout); var requiresDisposable = !!(options.includeAdminWrites || options.includeImport); var profile = options.profile || 'anonymous'; currentPanel.profile.textContent = requiresConfirmation ? 'Selected profile: ' + profile + '.' : profile === 'all' ? 'All baseline profile: non-destructive coverage.' : options.requireAnonymous ? 'Safe profile: anonymous session required.' : 'Safe profile: read-only and no-cost.'; currentPanel.confirmationControls.classList.toggle('mrp-test-hidden', !requiresConfirmation); currentPanel.disposableControls.classList.toggle('mrp-test-hidden', !requiresDisposable); currentPanel.importFile.classList.toggle('mrp-test-hidden', !options.includeImport); currentPanel.runButton.textContent = requiresConfirmation ? 'Run selected profile' : profile === 'all' ? 'Run all baseline' : 'Run safe diagnostic'; }
+        function configureProfileControls(currentPanel, options) { var requiresConfirmation = !!(options.includeAi || options.includeMutating || options.includeCacheClear || options.includeAdminWrites || options.includeImport || options.includeSlow || options.includeLogout); var requiresDisposable = !!(options.includeAdminWrites || options.includeImport); var profile = options.profile || 'anonymous'; currentPanel.profile.textContent = requiresConfirmation ? 'Selected profile: ' + profile + '.' : options.onlineFullDiagnostic ? 'Online full diagnostic: non-destructive baseline with an explicit start and rate-aware pacing.' : profile === 'all' ? 'All baseline profile: non-destructive coverage.' : options.requireAnonymous ? 'Safe profile: anonymous session required.' : 'Safe profile: read-only and no-cost.'; currentPanel.confirmationControls.classList.toggle('mrp-test-hidden', !requiresConfirmation); currentPanel.disposableControls.classList.toggle('mrp-test-hidden', !requiresDisposable); currentPanel.importFile.classList.toggle('mrp-test-hidden', !options.includeImport); currentPanel.runButton.textContent = requiresConfirmation ? 'Run selected profile' : options.onlineFullDiagnostic ? 'Start online full diagnostic' : profile === 'all' ? 'Run all baseline' : 'Run safe diagnostic'; }
 
         /**************************************************************/
         /**

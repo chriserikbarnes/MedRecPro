@@ -149,10 +149,12 @@
 
     defineTest({
         id: 'preflight.openapi', phase: 0, group: 'Preflight', evidenceKind: 'positive',
-        name: 'Live OpenAPI manifest comparison', method: 'GET', path: '/swagger/v1/swagger.json',
+        name: 'Live OpenAPI manifest comparison', method: 'GET', path: '/api/swagger/v1/swagger.json',
         run: async function (run) {
             var openApi = run.report.openApi;
-            openApi.url = (run.options.apiBase || window.location.origin) + '/swagger/v1/swagger.json';
+            // The hosted static application is mounted under /api, while the local Debug API remains at its root.
+            var swaggerPath = run.options.localDebug ? '/swagger/v1/swagger.json' : '/api/swagger/v1/swagger.json';
+            openApi.url = (run.options.apiBase || window.location.origin) + swaggerPath;
             if (!run.report.environment.sameOrigin) {
                 openApi.outcome = 'notObservable';
                 return {
@@ -160,7 +162,7 @@
                     assertions: [createAssertion('Live OpenAPI comparison', 'notObservable', 'Skipped doomed cross-origin Swagger fetch.')]
                 };
             }
-            var response = await apiFetch(run, { method: 'GET', path: '/swagger/v1/swagger.json', credentials: 'include' });
+            var response = await apiFetch(run, { method: 'GET', path: swaggerPath, credentials: 'include' });
             var basic = responseResult(response, { status: [200], jsonObject: true });
             if (basic.outcome !== 'pass') {
                 openApi.outcome = 'failed';
@@ -420,7 +422,7 @@
     defineTest({
         id: 'seed.ai.conversation', phase: 1, group: 'Seed discovery', evidenceKind: 'positive',
         operationKey: 'POST /api/Ai/conversations', name: 'Create and register an in-memory conversation for cleanup', method: 'POST', path: '/api/ai/conversations', expectedStatus: [200],
-        when: function (run) { return isLoopbackHost() && run.options.conversationLifecycle; }, skipReason: 'Conversation lifecycle is loopback-only and was not enabled.',
+        when: function (run) { return run.options.profile !== 'all-fast' && isLoopbackHost() && run.options.conversationLifecycle; }, skipReason: 'Conversation lifecycle is excluded from the read-only all-fast profile and remains loopback-only otherwise.',
         run: async function (run, definition) {
             await waitForPacing(run, definition);
             var response = await apiFetch(run, { method: 'POST', path: '/api/ai/conversations' });
@@ -659,11 +661,11 @@
     registerObjectRead({id:'read.ai.conversation',operationKey:'GET /api/Ai/conversations/{conversationId}',name:'Read loopback test conversation',path:'/api/ai/conversations/{conversationId}',requires:['conversationId'],request:function(context){return {method:'GET',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)};}});
     registerArrayRead({id:'read.ai.conversationHistory',operationKey:'GET /api/Ai/conversations/{conversationId}/history',name:'Read loopback test conversation history',path:'/api/ai/conversations/{conversationId}/history',requires:['conversationId'],request:function(context){return {method:'GET',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)+'/history'};}});
     registerObjectRead({id:'read.ai.conversationStats',operationKey:'GET /api/Ai/conversations/stats',name:'Read conversation statistics literal route',path:'/api/ai/conversations/stats'});
-    defineTest({id:'read.ai.deleteConversation',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',operationKey:'DELETE /api/Ai/conversations/{conversationId}',name:'Delete loopback test conversation',method:'DELETE',path:'/api/ai/conversations/{conversationId}',expectedStatus:[200],requires:['conversationId'],request:function(context){return {method:'DELETE',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)};},evaluate:function(response){return responseResult(response,{status:[200]});}});
-    defineTest({id:'read.authenticated.aeFavorites',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/AdverseEvent/products/favorites',name:'Read authenticated AE favorites',method:'GET',path:'/api/adverseevent/products/favorites',expectedStatus:[200],when:function(run){return (run.options.profile==='authenticated'||run.options.profile==='all') && !!run.context.authenticated;},skipReason:'Runs only for an authenticated read or all-baseline profile.',request:{method:'GET',path:'/api/adverseevent/products/favorites',query:{pageNumber:1,pageSize:25}},evaluate:function(response){if(response.status===503){return {outcome:'pass',response:response,positiveContractVerified:false,assertions:[expectStatus(response,[503]),createAssertion('AE feature gate','pass','Favorites are unavailable while the AE dashboard feature is disabled.')]};}return responseResult(response,{status:[200],jsonArray:true});}});
-    defineTest({id:'read.authenticated.currentUser',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/Users/me',name:'Read authenticated current user',method:'GET',path:'/api/users/me',expectedStatus:[200],when:function(run){return (run.options.profile==='authenticated'||run.options.profile==='all') && !!run.context.authenticated;},skipReason:'Runs only for an authenticated read or all-baseline profile.',request:{method:'GET',path:'/api/users/me'},evaluate:function(response){var result=responseResult(response,{status:[200],jsonObject:true});if(result.outcome==='pass')result.provides={currentUserEmail:findValue(response.body,['Email','UserEmail'],2)};return result;}});
+    defineTest({id:'read.ai.deleteConversation',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',operationKey:'DELETE /api/Ai/conversations/{conversationId}',name:'Delete loopback test conversation',method:'DELETE',path:'/api/ai/conversations/{conversationId}',expectedStatus:[200],requires:['conversationId'],when:function(run){return run.options.profile!=='all-fast';},skipReason:'Conversation lifecycle deletion is excluded from the read-only all-fast profile.',request:function(context){return {method:'DELETE',path:'/api/ai/conversations/'+encodeURIComponent(context.conversationId)};},evaluate:function(response){return responseResult(response,{status:[200]});}});
+    defineTest({id:'read.authenticated.aeFavorites',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/AdverseEvent/products/favorites',name:'Read authenticated AE favorites',method:'GET',path:'/api/adverseevent/products/favorites',expectedStatus:[200],when:function(run){return (run.options.profile==='authenticated'||run.options.profile==='all'||run.options.profile==='all-fast') && !!run.context.authenticated;},skipReason:'Runs only for an authenticated read or all-baseline profile.',request:{method:'GET',path:'/api/adverseevent/products/favorites',query:{pageNumber:1,pageSize:25}},evaluate:function(response){if(response.status===503){return {outcome:'pass',response:response,positiveContractVerified:false,assertions:[expectStatus(response,[503]),createAssertion('AE feature gate','pass','Favorites are unavailable while the AE dashboard feature is disabled.')]};}return responseResult(response,{status:[200],jsonArray:true});}});
+    defineTest({id:'read.authenticated.currentUser',phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:'GET /api/Users/me',name:'Read authenticated current user',method:'GET',path:'/api/users/me',expectedStatus:[200],when:function(run){return (run.options.profile==='authenticated'||run.options.profile==='all'||run.options.profile==='all-fast') && !!run.context.authenticated;},skipReason:'Runs only for an authenticated read or all-baseline profile.',request:{method:'GET',path:'/api/users/me'},evaluate:function(response){var result=responseResult(response,{status:[200],jsonObject:true});if(result.outcome==='pass')result.provides={currentUserEmail:findValue(response.body,['Email','UserEmail'],2)};return result;}});
 
-    function hasProfileBSession(run){return (run.options.profile==='authenticated'||run.options.profile==='all') && !!run.context.authenticated;}
+    function hasProfileBSession(run){return (run.options.profile==='authenticated'||run.options.profile==='all'||run.options.profile==='all-fast') && !!run.context.authenticated;}
     function registerProfileBRead(config){
         defineTest({
             id:config.id,phase:2,category:'authenticatedRead',group:'Profile B protected reads',evidenceKind:'positive',operationKey:config.operationKey,name:config.name,
@@ -699,7 +701,7 @@
     registerProfileBRead({id:'read.authenticated.admin.logsByCategory',operationKey:'GET /api/Settings/logs/by-category',name:'Read administrator Info logs',path:'/api/settings/logs/by-category',admin:true,query:{category:'Info',pageNumber:1,pageSize:10}});
     registerProfileBRead({id:'read.authenticated.admin.logsByUser',operationKey:'GET /api/Settings/logs/by-user',name:'Read administrator logs by current user',path:'/api/settings/logs/by-user',admin:true,requires:['currentEncryptedUserId'],request:function(context){return {method:'GET',path:'/api/settings/logs/by-user',query:{userId:context.currentEncryptedUserId,pageNumber:1,pageSize:10}};}});
 
-    defineTest({id:'phase2.seedCompleteness',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',name:'Require complete seeded data evidence before accepting read coverage',internal:function(run){var incomplete=run.report.tests.filter(function(test){return test.id.indexOf('seed.')===0 && test.outcome==='skip' && !(test.id.indexOf('seed.ae.')===0 && /Feature is disabled/.test(test.skipReason || ''));}); var passed=!incomplete.length; return {outcome:passed?'pass':'fail',positiveContractVerified:passed,assertions:[createAssertion('Seed completeness',passed?'pass':'fail',passed?'All required seed evidence is available.':'Unexpected skipped seed definitions: '+incomplete.map(function(test){return test.id;}).join(', ')+'.')]};}});
+    defineTest({id:'phase2.seedCompleteness',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',name:'Require complete seeded data evidence before accepting read coverage',internal:function(run){var incomplete=run.report.tests.filter(function(test){var intentionallyExcluded=test.id==='seed.ai.conversation' && run.options.profile==='all-fast'; return test.id.indexOf('seed.')===0 && test.outcome==='skip' && !intentionallyExcluded && !(test.id.indexOf('seed.ae.')===0 && /Feature is disabled/.test(test.skipReason || ''));}); var passed=!incomplete.length; return {outcome:passed?'pass':'fail',positiveContractVerified:passed,assertions:[createAssertion('Seed completeness',passed?'pass':'fail',passed?'All required seed evidence is available.':'Unexpected skipped seed definitions: '+incomplete.map(function(test){return test.id;}).join(', ')+'.')]};}});
     defineTest({id:'read.auth.externalLogin',phase:2,group:'Phase 2 read coverage',evidenceKind:'positive',operationKey:'GET /api/Auth/external-login',name:'Read external-login information',method:'GET',path:'/api/auth/external-login',expectedStatus:[200],request:{method:'GET',path:'/api/auth/external-login',headers:{Accept:'text/plain'}},evaluate:function(response){return responseResult(response,{status:[200]});}});
     /**************************************************************/
     /**
