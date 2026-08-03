@@ -6632,3 +6632,11 @@ Added the repository-rooted /MedRecPro/.codex-build/ rule to [.gitignore](.gitig
 **Verification.** git diff --check passed. git check-ignore -v --no-index -- 'MedRecPro/.codex-build/label-debug-candidate.json' resolved the file to the new .gitignore rule, and git ls-files -- 'MedRecPro/.codex-build/**' confirmed the currently tracked file. No build or test run was needed for this ignore-only configuration change.
 
 ---
+### 2026-08-03 4:49 PM EST - Correct root Codex build artifact ignore scope
+The GitHub screenshot showed that the remaining folder was the repository-root `.codex-build`, distinct from the previously removed `MedRecPro/.codex-build`. Added the repository-rooted `/.codex-build/` rule to [.gitignore](.gitignore) while retaining the nested MedRecPro rule.
+
+**Git state.** Confirmed 23 files remain tracked under the root `.codex-build`. A dry-run of `git rm -r --cached -- '.codex-build'` selected all 23 without changing the index or deleting local files.
+
+**Verification.** `git diff --check` passed; exactly one root ignore rule exists; `git check-ignore -v --no-index -- '.codex-build/swagger-ui-server/run-swagger-ui.cmd'` resolved to `.gitignore:2`; and the removal preview reported 23 entries. No build or test run was needed for this ignore-only correction.
+
+---

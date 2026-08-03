@@ -1,3 +1,6 @@
+# Codex local build artifacts
+/.codex-build/
+
 # Cloudflare Wrangler
 .wrangler/
 
