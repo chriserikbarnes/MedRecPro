@@ -380,6 +380,7 @@ FodyWeavers.xsd
 /MedRecPro/tmpclaude-f715-cwd
 /MedRecPro/tmpclaude-1320-cwd
 /MedRecPro/tmpclaude-6288-cwd
+/MedRecPro/.codex-build/
 /MedRecProMCP/PowerShell
 /MedRecProMCP/mcp-cache/
 /MedRecProStatic/wwwroot/google*.html

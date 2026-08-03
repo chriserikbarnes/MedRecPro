@@ -6621,3 +6621,14 @@ The operator completed run 20260722-96f32d38 by executing the targeted Query Edi
 **Resulting state.** The Azure database is fully refreshed and healthy: all 112 selected tables imported with per-table source/target count verification (13,989,548 Core, 226,789 Orange Book, 1,568,651 temp, 368,142 AE rows), no disabled indexes, statistics updated with FULLSCAN, and all 124 indexes rebuilt (120 by the run, 4 via the portal script after the sqlcmd -I fix). The run's manifest intentionally remains RecoveryRequired as the honest historical record of the rebuild-stage failure.
 
 **Remaining, non-urgent.** Canonical index reconciliation (MedRecPro_Indexes.sql) was deferred as portal-impractical and runs automatically in the next full refresh with the fixed scripts, which will also produce the first end-to-end Complete manifest. No code changed in this close-out.
+
+---
+
+### 2026-08-03 4:38 PM EST - Ignore MedRecPro Codex build artifacts
+Added the repository-rooted /MedRecPro/.codex-build/ rule to [.gitignore](.gitignore) so local Codex build artifacts under the MedRecPro project are excluded from future Git additions.
+
+**Git state.** Confirmed MedRecPro/.codex-build/label-debug-candidate.json is already tracked, so the ignore rule alone does not remove the existing GitHub content. The handoff command uses git rm -r --cached to remove the folder from the repository index while retaining the local files, followed by a commit and push.
+
+**Verification.** git diff --check passed. git check-ignore -v --no-index -- 'MedRecPro/.codex-build/label-debug-candidate.json' resolved the file to the new .gitignore rule, and git ls-files -- 'MedRecPro/.codex-build/**' confirmed the currently tracked file. No build or test run was needed for this ignore-only configuration change.
+
+---
